@@ -12,6 +12,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=int, default=1)
 parser.add_argument('--category', type=str, default=None)
+parser.add_argument('--obj_id', type=str, default=None)
 args = parser.parse_args()
 
 temperature_dict = {
@@ -54,7 +55,7 @@ if gen_func == 'manipulation':
         object_category = partnet_categories[np.random.randint(len(partnet_categories))]
     else:
         object_category = args.category
-    all_task_config_paths = generate_task_manipulation(object_category, temperature_dict=temperature_dict, model_dict=model_dict, meta_path=meta_path)
+    all_task_config_paths = generate_task_manipulation(object_category, object_path=args.obj_id, temperature_dict=temperature_dict, model_dict=model_dict, meta_path=meta_path)
     for task_config_path in all_task_config_paths:
         generate_distractor(task_config_path, temperature_dict=temperature_dict, model_dict=model_dict)
 elif gen_func == 'locomotion':

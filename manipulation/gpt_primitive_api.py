@@ -10,11 +10,14 @@ from manipulation.utils import save_env, load_env
 MOTION_PLANNING_TRY_TIMES=100
 
 def get_save_path(simulator):
+    state_save_path = os.path.join(simulator.primitive_save_path, "states")
+    if not os.path.exists(state_save_path):
+        os.makedirs(state_save_path)
     return simulator.primitive_save_path
 
 
 def release_grasp(simulator):
-    simulator.deactivate_suction()
+    # simulator.deactivate_suction()
     save_path = get_save_path(simulator)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -24,7 +27,7 @@ def release_grasp(simulator):
     for t in range(20):
         p.stepSimulation()
         rgbs.append(simulator.render()[0])
-        state_save_path = os.path.join(save_path, "state_{}.pkl".format(t))
+        state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
         save_env(simulator, state_save_path)
         states.append(state_save_path)
 
@@ -44,13 +47,13 @@ def grasp_object(simulator, object_name):
         for point in points:
             obj_id, contact_link = point[2], point[4]
             if obj_id == simulator.urdf_ids[object_name]:
-                simulator.activate_suction()
+                # simulator.activate_suction()
                 rgbs = []
                 states = []
                 for t in range(10):
                     p.stepSimulation()
                     rgbs.append(simulator.render()[0])
-                    state_save_path = os.path.join(save_path, "state_{}.pkl".format(t))
+                    state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
                     save_env(simulator, state_save_path)
                     states.append(state_save_path)
                 return rgbs, states
@@ -59,10 +62,10 @@ def grasp_object(simulator, object_name):
     base_t = len(rgbs)
     if base_t > 1:
         for t in range(10):
-            simulator.activate_suction()
+            # simulator.activate_suction()
             p.stepSimulation()
             rgbs.append(simulator.render()[0])
-            state_save_path = os.path.join(save_path, "state_{}.pkl".format(t + base_t))
+            state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
             save_env(simulator, state_save_path)
             states.append(state_save_path)
     else:
@@ -85,13 +88,13 @@ def grasp_object_link(simulator, object_name, link_name):
         for point in points:
             obj_id, contact_link = point[2], point[4]
             if obj_id == simulator.urdf_ids[object_name] and contact_link == get_link_id_from_name(simulator, object_name, link_name):
-                simulator.activate_suction()
+                # simulator.activate_suction()
                 rgbs = []
                 states = []
                 for t in range(10):
                     p.stepSimulation()
                     rgbs.append(simulator.render()[0])
-                    state_save_path = os.path.join(save_path, "state_{}.pkl".format(t))
+                    state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
                     save_env(simulator, state_save_path)
                     states.append(state_save_path)
                 return rgbs, states
@@ -100,11 +103,11 @@ def grasp_object_link(simulator, object_name, link_name):
     rgbs, states = approach_object_link(simulator, object_name, link_name)
     base_t = len(rgbs)
     if base_t > 1:
-        simulator.activate_suction()
+        # simulator.activate_suction()
         for t in range(10):
             p.stepSimulation()
             rgbs.append(simulator.render()[0])
-            state_save_path = os.path.join(save_path, "state_{}.pkl".format(t + base_t))
+            state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
             save_env(simulator, state_save_path)
             states.append(state_save_path)
     else:
@@ -116,7 +119,7 @@ def grasp_object_link(simulator, object_name, link_name):
 def approach_object(simulator, object_name, dynamics=False):
     save_path = get_save_path(simulator)
     ori_state = save_env(simulator, None)
-    simulator.deactivate_suction()
+    # simulator.deactivate_suction()
     release_rgbs = []
     release_states = []
     release_steps = 20
@@ -124,7 +127,7 @@ def approach_object(simulator, object_name, dynamics=False):
         p.stepSimulation()
         rgb, depth = simulator.render()
         release_rgbs.append(rgb)
-        state_save_path = os.path.join(save_path, "state_{}.pkl".format(t))
+        state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
         save_env(simulator, state_save_path)
         release_states.append(state_save_path)
 
@@ -165,11 +168,11 @@ def approach_object(simulator, object_name, dynamics=False):
             all_objects.remove("robot")
             obstacles = [simulator.urdf_ids[x] for x in all_objects]
             allow_collision_links = []
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
             res, path = motion_planning(simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links)
 
             if res:
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
                 rgbs = release_rgbs
                 intermediate_states = release_states
                 for idx, q in enumerate(path):
@@ -183,7 +186,7 @@ def approach_object(simulator, object_name, dynamics=False):
 
                     rgb, depth = simulator.render()
                     rgbs.append(rgb)
-                    save_state_path = os.path.join(save_path,  "state_{}.pkl".format(idx + release_steps))
+                    save_state_path = os.path.join(save_path,  "states", "state_{}.pkl".format(idx + release_steps))
                     save_env(simulator, save_state_path)
                     intermediate_states.append(save_state_path)
 
@@ -199,7 +202,7 @@ def approach_object(simulator, object_name, dynamics=False):
                     p.stepSimulation()
                     rgb, depth = simulator.render()
                     rgbs.append(rgb)
-                    save_state_path = os.path.join(save_path,  "state_{}.pkl".format(base_idx + t))
+                    save_state_path = os.path.join(save_path, "states" , "state_{}.pkl".format(base_idx + t))
                     save_env(simulator, save_state_path)
                     intermediate_states.append(save_state_path)
 
@@ -233,7 +236,7 @@ def approach_object(simulator, object_name, dynamics=False):
 def approach_object_link(simulator, object_name, link_name, dynamics=False):
     save_path = get_save_path(simulator)
     ori_state = save_env(simulator, None)
-    simulator.deactivate_suction()
+    # simulator.deactivate_suction()
     
     release_rgbs = []
     release_states = []
@@ -242,7 +245,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False):
         p.stepSimulation()
         rgb, depth = simulator.render()
         release_rgbs.append(rgb)
-        state_save_path = os.path.join(save_path, "state_{}.pkl".format(t))
+        state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
         save_env(simulator, state_save_path)
         release_states.append(state_save_path)
 
@@ -291,12 +294,16 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False):
             all_objects.remove("robot")
             obstacles = [simulator.urdf_ids[x] for x in all_objects]
             allow_collision_links = []
-            res, path = motion_planning(simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links)
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            res, path = motion_planning(simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path)
+            
             p.removeUserDebugItem(debug_id)
-
             if res:
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
+                with open(os.path.join(save_path, "motion_planning_target.pkl"), "wb") as f:
+                    import pickle
+                    pickle.dump([mp_target_pos, target_orientation], f) 
+                
                 rgbs = release_rgbs
                 intermediate_states = release_states
                 for idx, q in enumerate(path):
@@ -310,15 +317,15 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False):
                     p.stepSimulation()
                     rgb, depth = simulator.render()
                     rgbs.append(rgb)
-                    save_state_path = os.path.join(save_path,  "state_{}.pkl".format(idx + release_steps))
+                    save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(idx + release_steps))
                     save_env(simulator, save_state_path)
                     intermediate_states.append(save_state_path)
 
                 base_idx = len(intermediate_states)
                 for t in range(20):
 
-                    print("post motion planing step: ", t)
-                    print("rgb image length: ", len(rgbs))
+                    # print("post motion planing step: ", t)
+                    # print("rgb image length: ", len(rgbs))
                     ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
                     ik_joints = simulator.robot.ik(simulator.robot.right_end_effector, 
                                                     real_target_pos, target_orientation, 
@@ -329,7 +336,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False):
                     p.stepSimulation()
                     rgb, depth = simulator.render()
                     rgbs.append(rgb)
-                    save_state_path = os.path.join(save_path,  "state_{}.pkl".format(base_idx + t))
+                    save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(base_idx + t))
                     save_env(simulator, save_state_path)
                     intermediate_states.append(save_state_path)
 

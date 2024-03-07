@@ -16,7 +16,7 @@ import copy
 import numpy as np
 
 INTERPOLATE_NUM = 100
-DEFAULT_PLANNING_TIME = 8.0
+DEFAULT_PLANNING_TIME = 5
 
 class PbOMPLRobot():
     '''
@@ -26,14 +26,17 @@ class PbOMPLRobot():
     This parent class by default assumes that all joints are acutated and should be planned. If this is not your desired
     behaviour, please write your own inheritated class that overrides respective functionalities.
     '''
-    def __init__(self, id) -> None:
+    def __init__(self, id, control_joint_idx=None) -> None:
         # Public attributes
         self.id = id
 
         # prune fixed joints
         all_joint_num = p.getNumJoints(id)
         all_joint_idx = list(range(all_joint_num))
-        joint_idx = [j for j in all_joint_idx if self._is_not_fixed(j)]
+        if control_joint_idx is None:
+            joint_idx = [j for j in all_joint_idx if self._is_not_fixed(j)]
+        else:
+            joint_idx = control_joint_idx
         self.num_dim = len(joint_idx)
         self.joint_idx = joint_idx
         print("pbompl joint number: ", self.num_dim)

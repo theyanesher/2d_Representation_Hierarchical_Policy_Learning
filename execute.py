@@ -136,10 +136,11 @@ def execute(task_config_path,
     if not os.path.exists(solution_path):
         os.makedirs(solution_path, exist_ok=True)
 
-    experiment_path = os.path.join(solution_path, "experiment")
+    
+    experiment_path = os.path.join(solution_path, "experiment", time_string)
     if not os.path.exists(experiment_path):
         os.makedirs(experiment_path, exist_ok=True)
-    with open(os.path.join(experiment_path, "meta_info_{}.json".format(time_string)), 'w') as f:
+    with open(os.path.join(experiment_path, "meta_info.json"), 'w') as f:
         json.dump(meta_info, f)
 
     all_substeps = os.path.join(solution_path, "substeps.txt")
@@ -177,7 +178,7 @@ def execute(task_config_path,
 
 
         if substep_type == "primitive" and use_motion_planning:
-            save_path = os.path.join(solution_path, "primitive_states", time_string, substep.replace(" ", "_"))
+            save_path = os.path.join(experiment_path, substep.replace(" ", "_") + "_primitive")
             if not os.path.exists(save_path):
                 os.makedirs(save_path, exist_ok=True)
             all_files = os.listdir(save_path)
@@ -197,7 +198,7 @@ def execute(task_config_path,
 
         
         if substep_type == "reward":
-            save_path = os.path.join(solution_path, training_algo, time_string, substep.replace(" ", "_"))
+            save_path = os.path.join(experiment_path, substep.replace(" ", "_") + "_" + training_algo)
             if reward_learning_save_path is not None:
                 save_path = reward_learning_save_path
 
@@ -236,12 +237,13 @@ def execute(task_config_path,
                 return
 
         all_last_state_files.append(str(last_restore_state_file))
-        with open(os.path.join(experiment_path, "all_last_state_files_{}.txt".format(time_string)), 'w') as f:
-            f.write("\n".join(all_last_state_files))
+
+    with open(os.path.join(experiment_path, "all_last_state_files.txt"), 'w') as f:
+        f.write("\n".join(all_last_state_files))
 
     # save the final gif
     save_path = os.path.join(solution_path)
-    save_numpy_as_gif(np.array(all_rgbs), "{}/{}-{}.gif".format(save_path, "all", time_string))
+    save_numpy_as_gif(np.array(all_rgbs), "{}/{}.gif".format(experiment_path, "all"))
 
 
 if __name__ == "__main__":

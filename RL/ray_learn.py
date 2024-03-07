@@ -8,13 +8,8 @@ import datetime
 from ray.tune.logger import UnifiedLogger
 import time
 
-def custom_log_creator(custom_path, custom_str):
-    ts = time.time()
-    time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
-
-    logdir_prefix = "{}_{}".format(custom_str, time_string)
-    log_dir = os.path.join(custom_path, logdir_prefix)
-
+def custom_log_creator(log_dir):
+   
     def logger_creator(config):
 
         if not os.path.exists(log_dir):
@@ -23,24 +18,23 @@ def custom_log_creator(custom_path, custom_str):
 
     return logger_creator
 
-def setup_config(algo, seed=0, env_config={}, eval=False):
+def setup_config(algo, seed=0, env_config={}, eval=False, num_workers=8):
     if algo == 'ppo':
         config = ppo.DEFAULT_CONFIG.copy()
-        config['train_batch_size'] = 128 * 100
-        config['num_sgd_iter'] = 50
-        config['sgd_minibatch_size'] = 128
-        config['lambda'] = 0.95
-        config['model']['fcnet_hiddens'] = [128, 128]
+        config["rollout_fragment_length"] = 100
+        config["train_batch_size"] = 6400
     elif algo == 'sac':
         config = sac.DEFAULT_CONFIG.copy()
-        config['timesteps_per_iteration'] = 400
-        config['learning_starts'] = 1000
+        config['timesteps_per_iteration'] = 100
+        config['learning_starts'] = 2000
         config['Q_model']['fcnet_hiddens'] = [256, 256, 256]
         config['policy_model']['fcnet_hiddens'] = [256, 256, 256]
+        config['train_batch_size'] = 1024
+        config['num_gpus'] = 1
 
     config['framework'] = 'torch'
     if not eval:
-        config['num_workers'] = 8
+        config['num_workers'] = num_workers
     else:
         config['num_workers'] = 1
     config['seed'] = seed
@@ -48,15 +42,19 @@ def setup_config(algo, seed=0, env_config={}, eval=False):
     config["env_config"] = env_config
     return config
 
-def load_policy(algo, env_name, policy_path=None, seed=0, env_config={}, eval=False):
-    if algo == 'ppo':
-        agent = ppo.PPOTrainer(setup_config(algo, seed, env_config, eval=eval), env_name,
-                               logger_creator=custom_log_creator("data/local/ray_results", env_name)
-        )
-    elif algo == 'sac':
-        agent = sac.SACTrainer(setup_config(algo, seed, env_config, eval=eval), env_name, 
-                               logger_creator=custom_log_creator("data/local/ray_results", env_name)
-        )
+def load_policy(algo, env_name, policy_path=None, seed=0, env_config={}, eval=False, num_workers=8, ray_save_path=None):
+    ts = time.time()
+    time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
+    logdir_prefix = "{}_{}".format(env_name, time_string)
+    log_dir = os.path.join("data/local/ray_results", logdir_prefix)
+    if ray_save_path is not None:
+        log_dir = os.path.join(ray_save_path, "ray_logs")
+        
+    Trainer = ppo.PPOTrainer if algo == 'ppo' else sac.SACTrainer
+    agent = Trainer(setup_config(algo, seed, env_config, eval=eval, num_workers=num_workers), 
+                            env_name,
+                            logger_creator=custom_log_creator(log_dir)
+    )
     if policy_path is not None:
         if 'checkpoint' in policy_path:
             agent.restore(policy_path)
@@ -74,11 +72,12 @@ def load_policy(algo, env_name, policy_path=None, seed=0, env_config={}, eval=Fa
     return agent, None
 
 def train(env_name, algo, timesteps_total=2000000, save_dir='./trained_models/', load_policy_path='', seed=0, 
-          env_config={}, eval_interval=20000, render=False):
+          env_config={}, eval_interval=200000, render=False, num_cpus=64, save_every_eval=False):
 
     if not ray.is_initialized():
-        ray.init(num_cpus=8, ignore_reinit_error=True, log_to_driver=False)
-    agent, checkpoint_path = load_policy(algo, env_name, load_policy_path, env_config=env_config, seed=seed)
+        ray.init(num_cpus=num_cpus, ignore_reinit_error=True, log_to_driver=False)
+    agent, checkpoint_path = load_policy(algo, env_name, load_policy_path, env_config=env_config, 
+                                         seed=seed, num_workers=num_cpus, ray_save_path=save_dir)
 
     env = make_env(env_config, render=render)
 
@@ -109,28 +108,33 @@ def train(env_name, algo, timesteps_total=2000000, save_dir='./trained_models/',
             done = False
             ret = 0
             rgbs = []
-            state_files = []
             states = []
             t_idx = 0
-            state_save_path = os.path.join(save_dir, "eval_{}".format(eval_time))
-            if not os.path.exists(state_save_path):
-                os.makedirs(state_save_path)
+            
+            if save_every_eval:
+                state_save_path = os.path.join(save_dir, "eval_{}".format(eval_time))
+                if not os.path.exists(state_save_path):
+                    os.makedirs(state_save_path)
             while not done:
                 # Compute the next action using the trained policy
                 action = agent.compute_action(obs, explore=False)
                 # Step the simulation forward using the action from our trained policy
                 obs, reward, done, info = env.step(action)
                 ret += reward
-                rgb, depth = env.render()
+                rgb = env.render()
                 rgbs.append(rgb)
                 
-                state_file_path = os.path.join(state_save_path, "state_{}.pkl".format(t_idx))
-                state = save_env(env, save_path=state_file_path)
-                state_files.append(state_file_path)
+                if save_every_eval:
+                    state_file_path = os.path.join(state_save_path, "state_{}.pkl".format(t_idx))
+                    state = save_env(env, save_path=state_file_path)
+                else:
+                    state = save_env(env)
+                    
                 states.append(state)
                 t_idx += 1
                 
-            save_numpy_as_gif(np.array(rgbs), "{}/{}.gif".format(state_save_path, "execute"))
+            if save_every_eval:
+                save_numpy_as_gif(np.array(rgbs), "{}/{}.gif".format(state_save_path, "execute"))
 
             print("evaluating at {} return is {}".format(timesteps, ret))
             eval_time += 1
@@ -138,13 +142,13 @@ def train(env_name, algo, timesteps_total=2000000, save_dir='./trained_models/',
                 best_ret = ret
                 best_model_path = agent.save(best_model_save_path)
                 best_rgbs = rgbs
-                best_state_files = state_files
+                best_state_files = []
                 for idx, state in enumerate(states):
-                    with open(os.path.join(best_state_save_path, "state_{}.pkl".format(idx)), 'wb') as f:
+                    sp = os.path.join(best_state_save_path, "state_{}.pkl".format(idx))
+                    with open(sp, 'wb') as f:
                         pickle.dump(state, f, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(best_state_save_path, "return_{}.txt".format(round(ret, 3))), 'w') as f:
-                    f.write(str(ret))
-                save_numpy_as_gif(np.array(best_rgbs), "{}/{}.gif".format(best_state_save_path, "best"))
+                    best_state_files.append(sp)
+                save_numpy_as_gif(np.array(best_rgbs), "{}/{}-{}.gif".format(best_state_save_path, "best", round(best_ret, 3)))
                 
     env.disconnect()
     return best_model_path, best_rgbs, best_state_files

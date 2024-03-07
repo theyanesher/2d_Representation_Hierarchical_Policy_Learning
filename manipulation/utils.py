@@ -21,6 +21,7 @@ from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapai
 
 default_config = {
     "gui": False,
+    # "use_suction": False,
     "use_suction": True,
     "rotation_mode": 'delta-axis-angle-local',
 }

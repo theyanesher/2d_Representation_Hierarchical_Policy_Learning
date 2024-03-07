@@ -19,12 +19,19 @@ class Agent:
         if indices != -1:
             pass
         
-    def control(self, indices, target_angles, gains, forces):
-        if type(gains) in [int, float]:
-            gains = [gains]*len(indices)
-        if type(forces) in [int, float]:
-            forces = [forces]*len(indices)
-        p.setJointMotorControlArray(self.body, jointIndices=indices, controlMode=p.POSITION_CONTROL, targetPositions=target_angles, positionGains=gains, forces=forces, physicsClientId=self.id)
+    def control(self, indices, target_angles, gains=None, forces=None):
+        if gains is not None:
+            if type(gains) in [int, float]:
+                gains = [gains]*len(indices)
+            if type(forces) in [int, float]:
+                forces = [forces]*len(indices)
+        if gains is not None:
+            p.setJointMotorControlArray(self.body, jointIndices=indices, controlMode=p.POSITION_CONTROL, targetPositions=target_angles, 
+                                        positionGains=gains, forces=forces, 
+                                        physicsClientId=self.id)
+        else:
+            p.setJointMotorControlArray(self.body, jointIndices=indices, controlMode=p.POSITION_CONTROL, targetPositions=target_angles, 
+                                        physicsClientId=self.id)
 
     def get_joint_angles(self, indices=None):
         if indices is None:
@@ -122,7 +129,7 @@ class Agent:
             elif joint_angles[j] > self.upper_limits[j]:
                 p.resetJointState(self.body, jointIndex=j, targetValue=self.upper_limits[j], targetVelocity=0, physicsClientId=self.id)
 
-    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=1000, use_current_as_rest=True):
+    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=1000, use_current_as_rest=False):
         if target_orient is not None and len(target_orient) < 4:
             target_orient = self.get_quaternion(target_orient)
         if use_current_as_rest:
@@ -143,7 +150,11 @@ class Agent:
                     residualThreshold=1e-4,
                     physicsClientId=self.id))
             else:
-                ik_joint_poses = np.array(p.calculateInverseKinematics(self.body, target_joint, targetPosition=target_pos, targetOrientation=target_orient, physicsClientId=self.id))
+                ik_joint_poses = np.array(p.calculateInverseKinematics(self.body, 
+                    target_joint, targetPosition=target_pos, targetOrientation=target_orient, 
+                    maxNumIterations=max_iterations, 
+                    residualThreshold=1e-4,
+                    physicsClientId=self.id))
         else:
             if use_current_as_rest:
                 ik_joint_poses = np.array(p.calculateInverseKinematics(self.body, target_joint, targetPosition=target_pos, restPoses=ik_rest_poses, maxNumIterations=max_iterations, physicsClientId=self.id))
@@ -166,3 +177,5 @@ class Agent:
             p.resetJointState(self.body, jointIndex=j, targetValue=min(max(a, self.lower_limits[j]), self.upper_limits[j]) if use_limits else a, targetVelocity=velocities if type(velocities) in [int, float] else velocities[i], physicsClientId=self.id)
 
 
+    def set_gravity(self, ax=0.0, ay=0.0, az=-9.81):
+        p.setGravity(ax, ay, az, body=self.body, physicsClientId=self.id)

@@ -12,11 +12,11 @@ table_paths = [
 
 # this is manually tuned for now, but can be automatically determined, as like other objects. 
 table_scales = {
-    "table": 0.7,
-    "table_1d43b7612af94e1183f00e604d9edf4a": 2.5,
-    "table_9c060629c8a04b038f562977317f6cb1": 1.8,
-    "table_57013651506042f885fad59a4e0994a9": 1.9,
-    "table_fb0efe334cc046e383c0f21fc70ed82b": 0.8,
+    "table": 1.0,
+    "table_1d43b7612af94e1183f00e604d9edf4a": 4,
+    "table_9c060629c8a04b038f562977317f6cb1": 2.5,
+    "table_57013651506042f885fad59a4e0994a9": 2.5,
+    "table_fb0efe334cc046e383c0f21fc70ed82b": 1.2,
 }
 
 table_poses = {
