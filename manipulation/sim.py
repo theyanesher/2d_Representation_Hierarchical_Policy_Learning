@@ -247,9 +247,6 @@ class SimpleEnv(gym.Env):
         ### overwrite joint angles specified by GPT
         self.handle_gpt_joint_angle(articulated_init_joint_angles)
            
-        ### record initial joint angles and positions
-        self.record_initial_joint_and_pose()
-        
         ### stabilize the scene
         for _ in range(500):
             p.stepSimulation(physicsClientId=self.id)
@@ -258,6 +255,9 @@ class SimpleEnv(gym.Env):
         if self.restore_state_file is not None:
             load_env(self, self.restore_state_file)
 
+        ### record initial joint angles and positions
+        self.record_initial_joint_and_pose()
+        
         ### Enable debug rendering
         if self.gui:
             p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1, physicsClientId=self.id)
@@ -315,7 +315,7 @@ class SimpleEnv(gym.Env):
         ### parse config
         urdf_paths, urdf_sizes, urdf_positions, urdf_names, urdf_types, urdf_on_table, use_table, \
             articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables = parse_config(self.config, 
-                        use_bard=True, obj_id=self.obj_id, use_vhacd=True) # NOTE
+                        use_bard=True, obj_id=self.obj_id, use_vhacd=False) # NOTE
         if not use_table:
             urdf_on_table = [False for _ in urdf_on_table]
         urdf_names = [x.lower() for x in urdf_names]
