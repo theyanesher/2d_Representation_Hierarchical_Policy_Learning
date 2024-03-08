@@ -16,16 +16,16 @@ from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
-                    dt=0.01, 
+                    dt=1/240, 
                     config_path=None, 
                     gui=False, 
                     control_step=2, 
-                    horizon=100, 
+                    horizon=120, 
                     restore_state_file=None, 
                     rotation_mode='delta-axis-angle-local',
                     translation_mode='delta-translation', 
                     max_rotation=np.deg2rad(10), 
-                    max_translation=0.1,
+                    max_translation=0.025,
                     use_suction=True,  # whether to use a suction gripper
                     object_candidate_num=6, # how many candidate objects to sample from objaverse
                     vhacd=False, # if to perform vhacd on the object for better collision detection for pybullet
@@ -79,8 +79,7 @@ class SimpleEnv(gym.Env):
             self.id = p.connect(p.DIRECT)
                 
         self.asset_dir = osp.join(osp.dirname(osp.realpath(__file__)), "assets/")
-        hz=int(1/dt)
-        p.setTimeStep(1.0 / hz, physicsClientId=self.id)
+        p.setTimeStep(dt, physicsClientId=self.id)
 
         self.seed()
         self.set_scene()
@@ -316,7 +315,7 @@ class SimpleEnv(gym.Env):
         ### parse config
         urdf_paths, urdf_sizes, urdf_positions, urdf_names, urdf_types, urdf_on_table, use_table, \
             articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables = parse_config(self.config, 
-                        use_bard=True, obj_id=self.obj_id)
+                        use_bard=True, obj_id=self.obj_id, use_vhacd=True) # NOTE
         if not use_table:
             urdf_on_table = [False for _ in urdf_on_table]
         urdf_names = [x.lower() for x in urdf_names]
@@ -818,9 +817,9 @@ class SimpleEnv(gym.Env):
                     # else:
                     #     agent.set_gripper_open_position(agent.right_gripper_indices, [0, 0], set_instantly=True)
                     cur_joint_angle = p.getJointState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0]
-                    new_joint_angle = cur_joint_angle + suction * 0.04
+                    new_joint_angle = cur_joint_angle + suction * 0.02
                     new_joint_angle = np.clip(new_joint_angle, 0, 0.04)
-                    agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=True)
+                    agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
                 else:
                     if suction >= 0: self.activate_suction()
                     else: self.deactivate_suction()
@@ -1042,7 +1041,7 @@ if __name__ == "__main__":
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
         "open_the_microwave_door", 
-        None, 
+        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
         render=True, 
         randomize=False, 
         obj_id=0
@@ -1051,24 +1050,70 @@ if __name__ == "__main__":
     env.reset()
     
     from manipulation.gpt_reward_api import *
+    from manipulation.utils import add_sphere, save_env
     joint_limit_low, joint_limit_high = get_joint_limit(env, "Microwave", "joint_0")
-    print(joint_limit_low, joint_limit_high)
-    exit()
+    handle_pos = get_handle_pos(env, "microwave")
+    # add_sphere(handle_pos)
+    import time
     
-    env.robot.set_gravity(0, 0, 0)
-    for _ in range(100):
+    for _ in range(8):
         action = np.zeros(7)
         # action[-1] = 1
-        action[0] = 0.5
+        action[0] = -0.5
+        action[-1] = 1
         env.step(action)
-        env.render()
+        time.sleep(1)
+        # env.render()
+
+    # save_env(env, "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl")
+            
+    for _ in range(8):
+        action = np.zeros(7)
+        eef_pos = env.robot.get_pos_orient(env.robot.right_end_effector)[0]
+        dir = handle_pos - eef_pos
+        dir = dir / np.linalg.norm(dir)
+        action[:3] = dir
+        action[-1] = 1
+        env.step(action)
+        time.sleep(1)
+        # env.render()
+        
+    # for _ in range(10000):
+    #     print("step")
+    #     action = np.zeros(7)
+    #     action[6] = 1
+    #     action[-1] = 0
+    #     env.step(action)
+    #     # env.render()
+    
+    # for _ in range(100000):
+    #     env.step(np.zeros(7))
+        
+    for _ in range(20):
+        action = np.zeros(7)
+        # action[-1] = 1
+        action[-1] = -1
+        env.step(action)
+        time.sleep(1)
+        collision_data = p.getContactPoints(env.robot.body, env.urdf_ids["microwave"], physicsClientId=env.id)
+        collision_points_a = [collision_data[_][5] for _ in range(len(collision_data))]
+        if len(collision_points_a) > 0:
+            p.addUserDebugPoints(collision_points_a, [[0, 1, 0] for _ in range(len(collision_points_a))], 50, 1.1, physicsClientId=env.id)
+    # for _ in range(100000):
+    #     env.step(np.zeros(7))
+        
+    for _ in range(10):
+        action = np.zeros(7)
+        action[0] = -1
+        action[-1] = -1
+        env.step(action)
+        time.sleep(1)
+        # env.render()
 
     for _ in range(10000):
         action = np.zeros(7)
         # action[-1] = 1
-        action[5] = 1
         env.step(action)
         env.render()
 
-        
     env.close()
