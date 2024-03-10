@@ -2,7 +2,7 @@ import pybullet as p
 import numpy as np
 from manipulation.utils import get_pc
 from manipulation.grasping_utils import get_pc_and_normal
-from manipulation.utils import take_round_images
+from manipulation.utils import take_round_images, rotate_point_around_axis, find_nearest_point_on_line, load_obj
 from gpt_4.query import query
 import os
 from scipy import ndimage
@@ -315,3 +315,45 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
             break
 
     return joint_index
+
+
+
+# NOTE: hard-coded for now, should make it more general in the future
+def get_handle_pos(simulator, obj_name):
+    scaling = simulator.simulator_sizes[obj_name]
+
+    # get the parent frame of the revolute joint.
+    obj_id = simulator.urdf_ids[obj_name] 
+    link_state = p.getLinkState(obj_id, 0) # TODO: the parament link id should be dependent on the object urdf.
+    link_urdf_world_pos, link_urdf_world_orn = link_state[0], link_state[1]
+    # this is the transformation from the parent frame to the world frame. 
+    T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
+    T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
+    T_body_to_world[:3, 3] = link_urdf_world_pos
+
+    # axis in parent frame, transform everything to world frame
+    # TODO: this axis angle value should be dependent on the object urdf.
+    axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling  
+    axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
+    axis_dir_body = np.array([0, -1, 0])
+    axis_pt2_body = np.array(axis_body) + axis_dir_body
+    axis_end_world = T_body_to_world[:3, :3] @ axis_pt2_body + T_body_to_world[:3, 3]
+    axis_dir_world = axis_end_world - axis_world
+
+    # get the handle points in world frame
+    handle_obj_path = "data/dataset/7310/parts_render/handle.obj" # TODO: this path should be dependent on the object. 
+    handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
+    handle_pts = handle_pts * scaling
+    # transform this to the world frame using the object *base*'s position and orientation
+    handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
+    handle_point_median = np.median(handle_points_world, axis=1)
+
+    # find the projection of the handle point to the rotation axis, in world frame. 
+    project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
+    # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
+
+    rotation_angle = p.getJointState(obj_id, 1)[0] # TODO: this joint id should be dependent on the object urdf.
+    rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
+    rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
+    
+    return rotated_handle_pt

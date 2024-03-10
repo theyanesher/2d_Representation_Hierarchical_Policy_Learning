@@ -20,13 +20,16 @@ class SimpleEnv(gym.Env):
                     config_path=None, 
                     gui=False, 
                     control_step=2, 
-                    horizon=120, 
+                    # horizon=120,  # for tasks other than grasping the handle, 120 is enough
+                    horizon=250,  
                     restore_state_file=None, 
                     rotation_mode='delta-axis-angle-local',
                     translation_mode='delta-translation', 
-                    max_rotation=np.deg2rad(10), 
-                    max_translation=0.025,
-                    use_suction=True,  # whether to use a suction gripper
+                    # max_rotation=np.deg2rad(10), 
+                    max_rotation=np.deg2rad(5), 
+                    # max_translation=0.025, # larger values can be used in other cases 
+                    max_translation=0.0075, # really small values need to be used to prevent penetration when openning the door.
+                    use_suction=False,  # whether to use a suction gripper
                     object_candidate_num=6, # how many candidate objects to sample from objaverse
                     vhacd=False, # if to perform vhacd on the object for better collision detection for pybullet
                     randomize=0, # if to randomize the scene
@@ -349,6 +352,7 @@ class SimpleEnv(gym.Env):
             urdf_movables += distractor_movables
 
         if restore_state is not None:
+            # NOTE
             if "urdf_paths" in restore_state:
                 self.urdf_paths = restore_state['urdf_paths']
                 urdf_paths = [self.urdf_paths[name] for name in urdf_names]
@@ -751,7 +755,7 @@ class SimpleEnv(gym.Env):
         self.view_matrix = p.computeViewMatrixFromYawPitchRoll(camera_target, distance, rpy[2], rpy[1], rpy[0], 2, physicsClientId=self.id)
         self.projection_matrix = p.computeProjectionMatrixFOV(fov, camera_width / camera_height, 0.01, 100, physicsClientId=self.id)
 
-    def render(self, return_depth=False):
+    def render(self, return_depth=False, mode=None):
         assert self.view_matrix is not None, 'You must call env.setup_camera() or env.setup_camera_rpy() before getting a camera image'
         w, h, img, depth, segmask = p.getCameraImage(self.camera_width, self.camera_height, 
             self.view_matrix, self.projection_matrix, 
@@ -1041,7 +1045,8 @@ if __name__ == "__main__":
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
         "open_the_microwave_door", 
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
+        "data/tmp-grasp-door-rl-game-ppo-final.pkl",
         render=True, 
         randomize=False, 
         obj_id=0
@@ -1056,64 +1061,77 @@ if __name__ == "__main__":
     # add_sphere(handle_pos)
     import time
     
-    for _ in range(8):
-        action = np.zeros(7)
-        # action[-1] = 1
-        action[0] = -0.5
-        action[-1] = 1
-        env.step(action)
-        time.sleep(1)
-        # env.render()
-
-    # save_env(env, "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl")
-            
-    for _ in range(8):
-        action = np.zeros(7)
-        eef_pos = env.robot.get_pos_orient(env.robot.right_end_effector)[0]
-        dir = handle_pos - eef_pos
-        dir = dir / np.linalg.norm(dir)
-        action[:3] = dir
-        action[-1] = 1
-        env.step(action)
-        time.sleep(1)
-        # env.render()
-        
-    # for _ in range(10000):
-    #     print("step")
+    # p.removeBody(env.robot.body, physicsClientId=env.id)
+    # p.removeBody(env.table, physicsClientId=env.id)
+    # p.resetJointState(env.urdf_ids['microwave'], 1, joint_limit_high, physicsClientId=env.id)
+    
+    # for _ in range(8):
     #     action = np.zeros(7)
-    #     action[6] = 1
-    #     action[-1] = 0
+    #     # action[-1] = 1
+    #     action[0] = -0.5
+    #     action[-1] = 1
     #     env.step(action)
+    #     time.sleep(1)
+    #     # env.render()
+
+    # # save_env(env, "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl")
+            
+    # for _ in range(8):
+    #     action = np.zeros(7)
+    #     eef_pos = env.robot.get_pos_orient(env.robot.right_end_effector)[0]
+    #     dir = handle_pos - eef_pos
+    #     dir = dir / np.linalg.norm(dir)
+    #     action[:3] = dir
+    #     action[-1] = 1
+    #     env.step(action)
+    #     time.sleep(1)
+    #     # env.render()
+        
+    # # for _ in range(10000):
+    # #     print("step")
+    # #     action = np.zeros(7)
+    # #     action[6] = 1
+    # #     action[-1] = 0
+    # #     env.step(action)
+    # #     # env.render()
+    
+    # # for _ in range(100000):
+    # #     env.step(np.zeros(7))
+        
+    # for _ in range(20):
+    #     action = np.zeros(7)
+    #     # action[-1] = 1
+    #     action[-1] = -1
+    #     env.step(action)
+    #     time.sleep(1)
+    #     collision_data = p.getContactPoints(env.robot.body, env.urdf_ids["microwave"], physicsClientId=env.id)
+    #     collision_points_a = [collision_data[_][5] for _ in range(len(collision_data))]
+    #     if len(collision_points_a) > 0:
+    #         p.addUserDebugPoints(collision_points_a, [[0, 1, 0] for _ in range(len(collision_points_a))], 50, 1.1, physicsClientId=env.id)
+    # # for _ in range(100000):
+    # #     env.step(np.zeros(7))
+        
+    # for _ in range(10):
+    #     action = np.zeros(7)
+    #     action[0] = -1
+    #     action[-1] = -1
+    #     env.step(action)
+    #     time.sleep(1)
     #     # env.render()
     
-    # for _ in range(100000):
-    #     env.step(np.zeros(7))
-        
-    for _ in range(20):
-        action = np.zeros(7)
-        # action[-1] = 1
-        action[-1] = -1
-        env.step(action)
-        time.sleep(1)
-        collision_data = p.getContactPoints(env.robot.body, env.urdf_ids["microwave"], physicsClientId=env.id)
-        collision_points_a = [collision_data[_][5] for _ in range(len(collision_data))]
-        if len(collision_points_a) > 0:
-            p.addUserDebugPoints(collision_points_a, [[0, 1, 0] for _ in range(len(collision_points_a))], 50, 1.1, physicsClientId=env.id)
-    # for _ in range(100000):
-    #     env.step(np.zeros(7))
-        
-    for _ in range(10):
-        action = np.zeros(7)
-        action[0] = -1
-        action[-1] = -1
-        env.step(action)
-        time.sleep(1)
-        # env.render()
+    microwave_collision_shape_data = p.getCollisionShapeData(env.urdf_ids["microwave"], 1, physicsClientId=env.id)
+    for shape in microwave_collision_shape_data:
+        _, _, geo_type, dims, filename, _, _ = shape
+        print("geo_type: ", geo_type)
+        print("dims: ", dims)
+        print("filename: ", filename)
 
     for _ in range(10000):
         action = np.zeros(7)
         # action[-1] = 1
-        env.step(action)
-        env.render()
+        # env.step(action)
+        # env.render()
+        p.stepSimulation(physicsClientId=env.id)
+        time.sleep(0.1)
 
     env.close()

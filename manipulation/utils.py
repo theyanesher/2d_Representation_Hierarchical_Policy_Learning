@@ -21,8 +21,8 @@ from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapai
 
 default_config = {
     "gui": False,
-    # "use_suction": False,
-    "use_suction": True,
+    "use_suction": False,
+    # "use_suction": True,
     "rotation_mode": 'delta-axis-angle-local',
 }
 
@@ -503,6 +503,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
                     new_urdf_file_path = preprocess_urdf(urdf_file_path)
                 urdf_paths.append(new_urdf_file_path)
             else:
+                print("not using vhacd")
                 urdf_paths.append(urdf_file_path)
 
             urdf_types.append('urdf')
@@ -771,6 +772,72 @@ def load_env(env, load_path=None, state=None):
 
     return state
 
+
+### get handle utility functions
+def load_obj(fn):
+    fin = open(fn, 'r')
+    lines = [line.rstrip() for line in fin]
+    fin.close()
+
+    vertices = []; faces = [];
+    for line in lines:
+        if line.startswith('v '):
+            vertices.append(np.float32(line.split()[1:4]))
+        elif line.startswith('f '):
+            faces.append(np.int32([item.split('/')[0] for item in line.split()[1:4]]))
+
+    f = np.vstack(faces)
+    v = np.vstack(vertices)
+
+    return v, f
+
+def find_nearest_point_on_line(line_pt1, line_pt2, target_pt):
+    line_pt1 = np.array(line_pt1)
+    line_pt2 = np.array(line_pt2)
+    target_pt = np.array(target_pt)
+    
+    # Step 1: Compute the vector along the line
+    line_vec = line_pt2 - line_pt1
+    
+    # Step 2: Compute the vector from line_pt1 to target_pt
+    pt_vec = target_pt - line_pt1
+    
+    # Step 3: Project pt_vec onto line_vec to find the projection scalar
+    # dot_product(pt_vec, line_vec) / dot_product(line_vec, line_vec) gives the scalar
+    # by which to multiply line_vec to get the projection vector.
+    projection_scalar = np.dot(pt_vec, line_vec) / np.dot(line_vec, line_vec)
+    
+    # Step 4: Find the nearest point on the line by scaling line_vec and adding it to line_pt1
+    nearest_pt = line_pt1 + projection_scalar * line_vec
+    
+    return nearest_pt
+
+def rotate_point_around_axis(pt, ax, theta_rad):
+    """
+    Rotate a point around a given axis by theta radiance.
+    
+    :param pt: The point to rotate (3D coordinates).
+    :param ax: The rotation axis (3D unit vector).
+    :param theta: The rotation angle in radians.
+    :return: The rotated point's coordinates.
+    """
+    # Ensure ax is a unit vector
+    ax = ax / np.linalg.norm(ax)
+    
+    # Rodrigues' rotation formula
+    v_rot = (pt * np.cos(theta_rad) +
+             np.cross(ax, pt) * np.sin(theta_rad) +
+             ax * np.dot(ax, pt) * (1 - np.cos(theta_rad)))
+    
+    return v_rot
+
+def add_sphere(position, radius=0.05, rgba=[0, 1, 1, 1]):
+    sphere_collision = p.createCollisionShape(shapeType=p.GEOM_SPHERE, radius=radius) 
+    sphere_visual = p.createVisualShape(shapeType=p.GEOM_SPHERE, radius=radius, rgbaColor=rgba)
+    mass = 0.1
+    body = p.createMultiBody(baseMass=mass, baseCollisionShapeIndex=sphere_collision, baseVisualShapeIndex=sphere_visual, 
+                             basePosition=position)
+    return body
 
 if __name__ == '__main__':
     

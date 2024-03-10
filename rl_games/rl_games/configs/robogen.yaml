@@ -62,6 +62,8 @@ params:
 
       player:
         render: True
+        record_robogen: True
+        video_dir: ./video_rl_game
 
 hydra:
     run:

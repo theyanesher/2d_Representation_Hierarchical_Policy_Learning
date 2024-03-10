@@ -263,7 +263,7 @@ def create_robogen_env(**kwargs):
         "open_the_microwave_door", 
         # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl",
-        render=False, 
+        render=True, 
         randomize=False, 
         obj_id=0
     )

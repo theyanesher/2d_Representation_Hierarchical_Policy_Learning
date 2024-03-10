@@ -11,7 +11,7 @@ from typing import Optional
 from rl_games.common import vecenv
 from rl_games.common import env_configurations
 from rl_games.algos_torch import model_builder
-
+import imageio
 
 class BasePlayer(object):
 
@@ -62,7 +62,11 @@ class BasePlayer(object):
             'central_value_config') is not None
         self.device_name = self.config.get('device_name', 'cuda')
         self.render_env = self.player_config.get('render', False)
-        self.games_num = self.player_config.get('games_num', 2000)
+        self.record_robogen = self.player_config.get('record_robogen', False)
+        self.video_recorder = VideoRecorder(
+            self.player_config.get('video_dir', None) if self.record_robogen else None)
+        self.video_recorder.init()
+        self.games_num = self.player_config.get('games_num', 1)
 
         if 'deterministic' in self.player_config:
             self.is_deterministic = self.player_config['deterministic']
@@ -331,6 +335,10 @@ class BasePlayer(object):
                 if render:
                     self.env.render(mode='human')
                     time.sleep(self.render_sleep)
+                    
+                if self.record_robogen:
+                    frame = self.env.render()
+                    self.video_recorder.record(frame)
 
                 all_done_indices = done.nonzero(as_tuple=False)
                 done_indices = all_done_indices[::self.num_agents]
@@ -371,6 +379,11 @@ class BasePlayer(object):
                     sum_game_res += game_res
                     if batch_size//self.num_agents == 1 or games_played >= n_games:
                         break
+                    
+        self.video_recorder.save(f'{games_played}.mp4')
+        from manipulation.utils import save_env
+        save_env(self.env, f'data/tmp-grasp-door-rl-game-ppo-final.pkl')
+        print("Game played: ", games_played)
 
         print(sum_rewards)
         if print_game_res:
@@ -401,3 +414,30 @@ class BasePlayer(object):
         self.batch_size = batch_size
 
         return batch_size
+
+
+class VideoRecorder(object):
+    def __init__(self, save_dir, height=256, width=256, camera_id=0, fps=30):
+        try:
+            os.makedirs(save_dir)
+        except OSError:
+            pass
+        self.height = height
+        self.save_dir = save_dir
+        self.width = width
+        self.camera_id = camera_id
+        self.fps = fps
+        self.frames = []
+
+    def init(self, enabled=True):
+        self.frames = []
+        self.enabled = self.save_dir is not None and enabled
+
+    def record(self, frame):
+        self.frames.append(frame)
+
+    def save(self, file_name):
+        if self.enabled:
+            path = os.path.join(self.save_dir, file_name)
+            imageio.mimsave(path, self.frames, fps=self.fps)
+            self.frames = []

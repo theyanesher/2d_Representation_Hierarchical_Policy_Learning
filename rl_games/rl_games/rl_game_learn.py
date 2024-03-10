@@ -67,8 +67,13 @@ def launch_rlg_hydra(cfg: DictConfig):
     print(configurations)
     # Run either training or playing via the rl_games runner
     runner.run({
-        'train': True,
-        'play': False,
+        # 'train': True,
+        # 'play': False,
+        'train': False,
+        'play': True,
+        # "checkpoint": "runs/robogen_08-18-27-18/nn/robogen.pth"
+        # "checkpoint": "runs/robogen_08-17-50-08/nn/robogen.pth"
+        "checkpoint": "runs/robogen_09-19-23-32/nn/robogen.pth"
     })
 
 
