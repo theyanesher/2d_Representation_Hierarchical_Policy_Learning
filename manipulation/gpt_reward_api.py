@@ -6,6 +6,7 @@ from manipulation.utils import take_round_images, rotate_point_around_axis, find
 from gpt_4.query import query
 import os
 from scipy import ndimage
+import json
 
 def compute_obj_to_center_dist(simulator, obj_a, obj_b):
     obj_a_center = get_position(simulator, obj_a)
@@ -319,29 +320,44 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
 
 
 # NOTE: hard-coded for now, should make it more general in the future
-def get_handle_pos(simulator, obj_name):
+def get_handle_pos(simulator, obj_name, joint_name):
     scaling = simulator.simulator_sizes[obj_name]
 
     # get the parent frame of the revolute joint.
     obj_id = simulator.urdf_ids[obj_name] 
-    link_state = p.getLinkState(obj_id, 0) # TODO: the parament link id should be dependent on the object urdf.
+    urdf_path = simulator.urdf_paths[obj_name]
+    parent_dir = os.path.dirname(urdf_path)
+    
+    # axis in parent frame, transform everything to world frame
+    # NOTE: this axis angle value should be dependent on the object urdf.
+    # axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling  
+    # axis_dir_body = np.array([0, -1, 0])
+    mobility_info = json.load(open(f"{parent_dir}/mobility_v2.json", "r"))
+    handle_link_id = 0 # double check this
+    for joint_info in mobility_info:
+        if joint_info["id"] == handle_link_id:
+            joint_data = joint_info['jointData']
+            axis_body = np.array(joint_data["axis"]["origin"]) * scaling
+            axis_dir_body = np.array(joint_data["axis"]["direction"])
+            joint_limit = joint_data["limit"]
+            if joint_limit['a'] > joint_limit['b']:
+                axis_dir_body = -axis_dir_body
+            break
+    
+    link_state = p.getLinkState(obj_id, handle_link_id) # NOTE: the handle link id should be dependent on the object urdf.
     link_urdf_world_pos, link_urdf_world_orn = link_state[0], link_state[1]
     # this is the transformation from the parent frame to the world frame. 
     T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
     T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
     T_body_to_world[:3, 3] = link_urdf_world_pos
-
-    # axis in parent frame, transform everything to world frame
-    # TODO: this axis angle value should be dependent on the object urdf.
-    axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling  
+    
     axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
-    axis_dir_body = np.array([0, -1, 0])
     axis_pt2_body = np.array(axis_body) + axis_dir_body
     axis_end_world = T_body_to_world[:3, :3] @ axis_pt2_body + T_body_to_world[:3, 3]
     axis_dir_world = axis_end_world - axis_world
 
     # get the handle points in world frame
-    handle_obj_path = "data/dataset/7310/parts_render/handle.obj" # TODO: this path should be dependent on the object. 
+    handle_obj_path = f"{parent_dir}/parts_render/handle.obj" # NOTE: this path should be dependent on the object. 
     handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
     handle_pts = handle_pts * scaling
     # transform this to the world frame using the object *base*'s position and orientation
@@ -352,7 +368,8 @@ def get_handle_pos(simulator, obj_name):
     project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
     # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
 
-    rotation_angle = p.getJointState(obj_id, 1)[0] # TODO: this joint id should be dependent on the object urdf.
+    joint_idx = get_joint_id_from_name(simulator, obj_name, joint_name)
+    rotation_angle = p.getJointState(obj_id, joint_idx)[0] # NOTE: this joint id should be dependent on the object urdf.
     rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
     rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
     

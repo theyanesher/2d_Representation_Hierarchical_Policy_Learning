@@ -3,6 +3,7 @@ import numpy as np
 import open3d as o3d
 from cem_policy.utils import save_numpy_as_gif
 from manipulation.utils import add_sphere
+import json
 
 def load_obj(fn):
     fin = open(fn, 'r')
@@ -69,52 +70,75 @@ def setup_camera(camera_eye=[-3, 0, 1.2], camera_target=[0, 0, 0], fov=60, camer
 id = p.connect(p.GUI)
 view_matrix, projection_matrix = setup_camera()
 
-path = "data/dataset/7310/mobility.urdf"
-load_pos = [0, 0.5, 0.7]
-orientation = [0, 0, np.pi / 2, 1]
-scaling = 0.5
+# asset_id = 7263 # joint_0
+asset_id = 7310 # joint_0
+# asset_id = 7167 # joint_0
+# asset_id = 7119 # joint_0
+path = f"data/dataset/{asset_id}/mobility.urdf"
+# load_pos = [0, 0.5, 0.7]
+load_pos = [0, 0, 0]
+# orientation = [0, 0, np.pi / 2, 1]
+orientation = [0, 0, 0, 1]
+scaling = 1
 obj_id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=id, useFixedBase=True, globalScaling=scaling)
 
-# get the parent frame of the joint. 
-link_state = p.getLinkState(obj_id, 0)
+num_joints = p.getNumJoints(obj_id)
+for j_idx in range(num_joints):
+    joint_info = p.getJointInfo(obj_id, j_idx)
+    print(joint_info)
+exit()
+
+# axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling
+# axis_dir_body = np.array([0, -1, 0])
+mobility_info = json.load(open(f"data/dataset/{asset_id}/mobility_v2.json", "r"))
+handle_link_id = 0 # This will be specified by GPT
+for joint_info in mobility_info:
+    if joint_info["id"] == handle_link_id:
+        joint_data = joint_info['jointData']
+        axis_body = np.array(joint_data["axis"]["origin"]) * scaling
+        axis_dir_body = np.array(joint_data["axis"]["direction"])
+        joint_limit = joint_data["limit"]
+        if joint_limit['a'] > joint_limit['b']:
+            axis_dir_body = -axis_dir_body
+        break
+
+# get the world frame of the joint. 
+link_state = p.getLinkState(obj_id, handle_link_id) # TODO this should be dependent on the joint id
 link_urdf_world_pos, link_urdf_world_orn = link_state[0], link_state[1]
 # this is the transformation from the parent frame to the world frame. 
 T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
 T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
 T_body_to_world[:3, 3] = link_urdf_world_pos
 
-# axis in parent frame, transform everything to world frame
-axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling
+# get the handle points in world frame
+handle_obj_path = "data/dataset/{}/parts_render/handle.obj".format(asset_id)
+handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
+handle_pts = handle_pts * scaling
+# transform this to the world frame using the position and orientation of the link that the handle is on 
+handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
+handle_point_median = np.median(handle_points_world, axis=1)
+
+
 axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
-axis_dir_body = np.array([0, -1, 0])
 axis_pt2_body = np.array(axis_body) + axis_dir_body
 axis_end_world = T_body_to_world[:3, :3] @ axis_pt2_body + T_body_to_world[:3, 3]
 axis_dir_world = axis_end_world - axis_world
 
-# p.addUserDebugLine(axis_world, axis_end_world, [1, 0, 0], 25, 0)
-
-# get the handle points in world frame
-handle_obj_path = "data/dataset/7310/parts_render/handle.obj"
-handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
-handle_pts = handle_pts * scaling
-# transform this to the world frame using the object *base*'s position and orientation
-handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
-handle_point_median = np.median(handle_points_world, axis=1)
-
 # find the projection of the handle point to the rotation axis, in world frame. 
 project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
-# p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
+
+joint_limits = p.getJointInfo(obj_id, 1)[8:10]
+joint_limit_low, joint_limit_high = joint_limits
+if joint_limit_low > joint_limit_high:
+    joint_limit_low, joint_limit_high = joint_limit_high, joint_limit_low
 
 imgs = []
-for rotation_angle in np.linspace(0, np.pi / 2):
+for rotation_angle in np.linspace(joint_limit_low, joint_limit_high, 90):
     p.resetJointState(obj_id, 1, rotation_angle)
     p.stepSimulation()
     # rotate the handle, in world frame. 
     rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
     rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
-    # print("rotated handle point: ", rotated_handle_pt)
-    # p.addUserDebugLine(handle_point_median, rotated_handle_pt,  [0, 0, 1], 25, 0)
-    # p.addUserDebugPoints([rotated_handle_pt], [[0, 0, 1]], 25, 0)
     s_id = add_sphere(rotated_handle_pt)
     w, h, img, depth, segmask = p.getCameraImage(400, 400, 
         view_matrix, projection_matrix, 
@@ -123,7 +147,7 @@ for rotation_angle in np.linspace(0, np.pi / 2):
     imgs.append(img)
     p.removeBody(s_id)
     
-save_numpy_as_gif(np.array(imgs), "manipulation/scripts/get_handle.mp4")
+save_numpy_as_gif(np.array(imgs), "data/get_handle/{}.mp4".format(asset_id))
     
 # microwave_mesh_data = p.getMeshData(obj_id)
 # print(microwave_mesh_data)
