@@ -156,6 +156,14 @@ def get_link_state(simulator, object_name, custom_link_name):
     link_id = get_link_id_from_name(simulator, object_name, urdf_link_name)
     link_pos, link_orient = p.getLinkState(object_id, link_id, physicsClientId=simulator.id)[:2]
     return np.array(link_pos)
+
+def get_link_pose(simulator, object_name, custom_link_name):
+    object_name = object_name.lower()
+    object_id = simulator.urdf_ids[object_name]
+    urdf_link_name = custom_link_name
+    link_id = get_link_id_from_name(simulator, object_name, urdf_link_name)
+    link_pos, link_orient = p.getLinkState(object_id, link_id, physicsClientId=simulator.id)[:2]
+    return np.array(link_pos), np.array(link_orient)
     
 
 def get_link_pc(simulator, object_name, custom_link_name):
@@ -320,7 +328,7 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
 
 
 # NOTE: hard-coded for now, should make it more general in the future
-def get_handle_pos(simulator, obj_name, joint_name):
+def get_handle_pos(simulator, obj_name, joint_name, return_median=True):
     scaling = simulator.simulator_sizes[obj_name]
 
     # get the parent frame of the revolute joint.
@@ -362,7 +370,10 @@ def get_handle_pos(simulator, obj_name, joint_name):
     handle_pts = handle_pts * scaling
     # transform this to the world frame using the object *base*'s position and orientation
     handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
-    handle_point_median = np.median(handle_points_world, axis=1)
+    if return_median:
+        handle_point_median = np.median(handle_points_world, axis=1)
+    else:
+        handle_point_median = handle_points_world.T
 
     # find the projection of the handle point to the rotation axis, in world frame. 
     project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
@@ -373,4 +384,4 @@ def get_handle_pos(simulator, obj_name, joint_name):
     rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
     rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
     
-    return rotated_handle_pt
+    return rotated_handle_pt.flatten() if return_median else rotated_handle_pt

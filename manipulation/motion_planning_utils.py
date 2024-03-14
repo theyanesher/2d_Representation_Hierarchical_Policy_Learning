@@ -4,24 +4,21 @@ import pybullet as p
 import copy
 import os, pickle
 
-PLANNER = "BITstar" # BITstar
+PLANNER = "BITstar"
 
 def motion_planning(env, target_pos, target_orientation, planner=None, obstacles=[], allow_collision_links=[], save_path=None, target_joint_angle=None):
-    if planner is None:
-        planner = PLANNER
-    current_joint_angles = copy.deepcopy(env.robot.get_joint_angles(indices=env.robot.right_arm_joint_indices))
+    planner = PLANNER if planner is None else planner
     ompl_robot = pb_ompl.PbOMPLRobot(env.robot.body, control_joint_idx=env.robot.right_arm_joint_indices)
+    current_joint_angles = copy.deepcopy(env.robot.get_joint_angles(indices=env.robot.right_arm_joint_indices))
     ompl_robot.set_state(current_joint_angles)
 
     allow_collision_robot_link_pairs = []
-    if env.robot_name == "sawyer":
-        allow_collision_robot_link_pairs.append((5, 8))
-    if env.robot_name == 'fetch':
-        allow_collision_robot_link_pairs.append((3, 19))
+
     pb_ompl_interface = pb_ompl.PbOMPL(ompl_robot, obstacles, allow_collision_links, 
                                        allow_collision_robot_link_pairs=allow_collision_robot_link_pairs)
     pb_ompl_interface.set_planner(planner)
-
+    
+    
     # first need to compute a collision-free IK solution
     ik_lower_limits = env.robot.ik_lower_limits 
     ik_upper_limits = env.robot.ik_upper_limits 
@@ -30,11 +27,11 @@ def motion_planning(env, target_pos, target_orientation, planner=None, obstacles
     if target_joint_angle is None:
         it = 0
         while True:
-            if it % 10 == 0:
-                print("sampling target ik it: ", it)
+            # if it % 10 == 0:
+            #     print("sampling target ik it: ", it)
 
             ik_rest_poses = np.random.uniform(ik_lower_limits, ik_upper_limits)
-            p.addUserDebugPoints([target_pos], [[1, 0, 0]], 25, 0)
+            debug_id = p.addUserDebugPoints([target_pos], [[1, 0, 0]], 15, 0)
         
             ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
             ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
@@ -52,19 +49,21 @@ def motion_planning(env, target_pos, target_orientation, planner=None, obstacles
             
             eef_pos, eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
             ik_error = np.linalg.norm(eef_pos - target_pos)
-            print("within lower limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]))
-            print("within upper limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]))
-            print("is state valid: ", pb_ompl_interface.is_state_valid(target_joint_angle))
-            print("ik_error: ", ik_error)
+            # print("within lower limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]))
+            # print("within upper limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]))
+            # print("is state valid: ", pb_ompl_interface.is_state_valid(target_joint_angle))
+            # print("ik_error: ", ik_error)
             if np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]) \
                     and np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]) \
                     and pb_ompl_interface.is_state_valid(target_joint_angle) \
                     and ik_error < 0.1:
+                p.removeUserDebugItem(debug_id)
                 break
             
             it += 1
+            p.removeUserDebugItem(debug_id)
 
-            if it > 1000:
+            if it > 200:
                 ompl_robot.set_state(current_joint_angles)
                 print("failed to find a valid IK solution")
                 return False, None

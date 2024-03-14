@@ -421,7 +421,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
     distractor_config_path = None
 
     for obj in config:
-        print(obj)
+        # print(obj)
 
         if "use_table" in obj.keys():
             use_table = obj['use_table']
@@ -538,7 +538,7 @@ def take_round_images(env, center, distance, elevation=30, azimuth_interval=30, 
         env.setup_camera(camera_position, camera_target, 
                             camera_width=camera_width, camera_height=camera_height)
 
-        rgb, depth = env.render()
+        rgb, depth = env.render(return_depth=True)
         rgbs.append(rgb)
         depths.append(depth)
         view_camera_matrices.append(env.view_matrix)
@@ -792,9 +792,9 @@ def load_obj(fn):
     return v, f
 
 def find_nearest_point_on_line(line_pt1, line_pt2, target_pt):
-    line_pt1 = np.array(line_pt1)
-    line_pt2 = np.array(line_pt2)
-    target_pt = np.array(target_pt)
+    line_pt1 = np.array(line_pt1).reshape(-1, 3)
+    line_pt2 = np.array(line_pt2).reshape(-1, 3)
+    target_pt = np.array(target_pt).reshape(-1, 3)
     
     # Step 1: Compute the vector along the line
     line_vec = line_pt2 - line_pt1
@@ -805,12 +805,13 @@ def find_nearest_point_on_line(line_pt1, line_pt2, target_pt):
     # Step 3: Project pt_vec onto line_vec to find the projection scalar
     # dot_product(pt_vec, line_vec) / dot_product(line_vec, line_vec) gives the scalar
     # by which to multiply line_vec to get the projection vector.
-    projection_scalar = np.dot(pt_vec, line_vec) / np.dot(line_vec, line_vec)
+    projection_scalar = np.sum(pt_vec * line_vec, axis=1) / np.sum(line_vec * line_vec)
+    
     
     # Step 4: Find the nearest point on the line by scaling line_vec and adding it to line_pt1
-    nearest_pt = line_pt1 + projection_scalar * line_vec
+    nearest_pt = line_pt1 + projection_scalar.reshape(-1, 1) * line_vec.repeat(len(projection_scalar), axis=0)
     
-    return nearest_pt
+    return nearest_pt # (-1, 3)
 
 def rotate_point_around_axis(pt, ax, theta_rad):
     """
@@ -823,11 +824,12 @@ def rotate_point_around_axis(pt, ax, theta_rad):
     """
     # Ensure ax is a unit vector
     ax = ax / np.linalg.norm(ax)
+    ax = ax.reshape(-1, 3)
     
     # Rodrigues' rotation formula
     v_rot = (pt * np.cos(theta_rad) +
              np.cross(ax, pt) * np.sin(theta_rad) +
-             ax * np.dot(ax, pt) * (1 - np.cos(theta_rad)))
+             ax * np.sum(ax.repeat(pt.shape[0], axis=0) * pt, axis=1, keepdims=True) * (1 - np.cos(theta_rad)))
     
     return v_rot
 

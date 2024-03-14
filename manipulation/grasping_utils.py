@@ -24,7 +24,7 @@ def rotation_matrix_x(theta):
     
 def align_gripper_z_with_normal(normal):
     n_WS = normal
-    Gz = n_WS  # gripper z axis aligns with normal # TODO: check the object axis of the franka gripper
+    Gz = n_WS  # gripper z axis aligns with normal 
     # make orthonormal y axis, aligned with world down
     # y = np.array([0.0, 0.0, -1.0])
     # or, make it horizontal

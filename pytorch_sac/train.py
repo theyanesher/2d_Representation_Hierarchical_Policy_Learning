@@ -40,7 +40,14 @@ def make_env(cfg):
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
         "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
         "open_the_microwave_door", 
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl",
+        # "data/tmp-grasp-door-rl-game-ppo-final.pkl",
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-11-19-46-50/grasp_the_microwave_door_primitive/states/state_171.pkl", 
+
+        # working grasping primitive
+        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-14-02-37-04/grasp_the_microwave_door_primitive/states/state_168.pkl",
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-14-02-59-12/grasp_the_microwave_door_primitive/states/state_169.pkl",
         render=False, 
         randomize=False, 
         obj_id=0
@@ -60,7 +67,7 @@ class Workspace(object):
 
         ts = time.time()
         time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
-        log_dir = os.path.join(self.work_dir, 'pytorch_sac/exp', time_string, cfg.experiment)
+        log_dir = os.path.join(self.work_dir, 'pytorch_sac/exp', cfg.experiment, time_string)
         self.logger = Logger(log_dir,
                              save_tb=cfg.log_save_tb,
                              log_frequency=cfg.log_frequency,
@@ -70,8 +77,8 @@ class Workspace(object):
         self.device = torch.device(cfg.device)
         self.env = make_env(cfg)
 
-        cfg.agent.params.obs_dim = self.env.observation_space.shape[0]
-        cfg.agent.params.action_dim = self.env.action_space.shape[0]
+        cfg.agent.params.obs_dim = int(self.env.observation_space.shape[0])
+        cfg.agent.params.action_dim = int(self.env.action_space.shape[0])
         cfg.agent.params.action_range = [
             float(self.env.action_space.low.min()),
             float(self.env.action_space.high.max())
@@ -84,7 +91,7 @@ class Workspace(object):
                                           self.device)
 
         self.video_recorder = VideoRecorder(
-            self.work_dir if cfg.save_video else None)
+            log_dir if cfg.save_video else None)
         self.step = 0
 
     def evaluate(self):

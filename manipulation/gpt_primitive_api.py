@@ -4,8 +4,14 @@ import numpy as np
 import open3d as o3d
 from manipulation.motion_planning_utils import motion_planning
 from manipulation.grasping_utils import get_pc_and_normal, align_gripper_z_with_normal, align_gripper_x_with_normal
-from manipulation.gpt_reward_api import get_link_pc, get_bounding_box, get_link_id_from_name
+from manipulation.gpt_reward_api import (
+    get_link_pc, get_bounding_box, get_link_id_from_name, get_handle_pos, get_link_pose,
+    get_joint_id_from_name,
+)
 from manipulation.utils import save_env, load_env
+import scipy
+import time
+import copy
 
 MOTION_PLANNING_TRY_TIMES=100
 
@@ -26,7 +32,7 @@ def release_grasp(simulator):
     states = []
     for t in range(20):
         p.stepSimulation()
-        rgbs.append(simulator.render()[0])
+        rgbs.append(simulator.render())
         state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
         save_env(simulator, state_save_path)
         states.append(state_save_path)
@@ -52,7 +58,7 @@ def grasp_object(simulator, object_name):
                 states = []
                 for t in range(10):
                     p.stepSimulation()
-                    rgbs.append(simulator.render()[0])
+                    rgbs.append(simulator.render())
                     state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
                     save_env(simulator, state_save_path)
                     states.append(state_save_path)
@@ -64,7 +70,7 @@ def grasp_object(simulator, object_name):
         for t in range(10):
             # simulator.activate_suction()
             p.stepSimulation()
-            rgbs.append(simulator.render()[0])
+            rgbs.append(simulator.render())
             state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
             save_env(simulator, state_save_path)
             states.append(state_save_path)
@@ -93,7 +99,7 @@ def grasp_object_link(simulator, object_name, link_name):
                 states = []
                 for t in range(10):
                     p.stepSimulation()
-                    rgbs.append(simulator.render()[0])
+                    rgbs.append(simulator.render())
                     state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
                     save_env(simulator, state_save_path)
                     states.append(state_save_path)
@@ -106,7 +112,7 @@ def grasp_object_link(simulator, object_name, link_name):
         # simulator.activate_suction()
         for t in range(10):
             p.stepSimulation()
-            rgbs.append(simulator.render()[0])
+            rgbs.append(simulator.render())
             state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
             save_env(simulator, state_save_path)
             states.append(state_save_path)
@@ -125,7 +131,7 @@ def approach_object(simulator, object_name, dynamics=False):
     release_steps = 20
     for t in range(release_steps):
         p.stepSimulation()
-        rgb, depth = simulator.render()
+        rgb = simulator.render()
         release_rgbs.append(rgb)
         state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
         save_env(simulator, state_save_path)
@@ -168,8 +174,6 @@ def approach_object(simulator, object_name, dynamics=False):
             all_objects.remove("robot")
             obstacles = [simulator.urdf_ids[x] for x in all_objects]
             allow_collision_links = []
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
             res, path = motion_planning(simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links)
 
             if res:
@@ -184,7 +188,7 @@ def approach_object(simulator, object_name, dynamics=False):
                             simulator.robot.control(simulator.robot.right_arm_joint_indices, q, simulator.robot.motor_gains, forces=5 * 240.)
                             p.stepSimulation()
 
-                    rgb, depth = simulator.render()
+                    rgb = simulator.render()
                     rgbs.append(rgb)
                     save_state_path = os.path.join(save_path,  "states", "state_{}.pkl".format(idx + release_steps))
                     save_env(simulator, save_state_path)
@@ -200,7 +204,7 @@ def approach_object(simulator, object_name, dynamics=False):
                                                 controlMode=p.POSITION_CONTROL, targetPositions=ik_joints,
                                                 forces=[5*240] * len(simulator.robot.right_arm_joint_indices), physicsClientId=simulator.id)
                     p.stepSimulation()
-                    rgb, depth = simulator.render()
+                    rgb = simulator.render()
                     rgbs.append(rgb)
                     save_state_path = os.path.join(save_path, "states" , "state_{}.pkl".format(base_idx + t))
                     save_env(simulator, save_state_path)
@@ -229,29 +233,16 @@ def approach_object(simulator, object_name, dynamics=False):
                 print("failed to execute the primitive")
                 load_env(simulator, state=ori_state)
                 save_env(simulator, os.path.join(save_path,  "state_{}.pkl".format(0)))
-                rgbs = [simulator.render()[0]]
+                rgbs = [simulator.render()]
                 state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
                 return rgbs, state_files
 
-def approach_object_link(simulator, object_name, link_name, dynamics=False):
+def approach_object_link(simulator, object_name, link_name, dynamics=False, handle_joint_name=None, reach_till_contact=False, 
+                         execute_opening_primitive=False):
     save_path = get_save_path(simulator)
-    ori_state = save_env(simulator, None)
-    # simulator.deactivate_suction()
-    
-    release_rgbs = []
-    release_states = []
-    release_steps = 20
-    for t in range(release_steps):
-        p.stepSimulation()
-        rgb, depth = simulator.render()
-        release_rgbs.append(rgb)
-        state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
-        save_env(simulator, state_save_path)
-        release_states.append(state_save_path)
+    ori_simulator_state = save_env(simulator, None)
 
-    object_name = object_name.lower()
     it = 0
-
     object_name = object_name.lower()
     link_pc = get_link_pc(simulator, object_name, link_name) 
     object_pc = link_pc
@@ -260,14 +251,46 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False):
     pcd.estimate_normals()
     object_normal = np.asarray(pcd.normals)
 
-    current_joint_angles = simulator.robot.get_joint_angles(indices=simulator.robot.right_arm_joint_indices)
-
-    while True:
+    handle_grasp_scores = []
+    env_states = []
+    rgb_images = []
+    if handle_joint_name is not None:
+        all_handle_pos = get_handle_pos(simulator, object_name, handle_joint_name, return_median=False)
+        median_point = np.median(all_handle_pos, axis=0, keepdims=True)
+        pc_to_handle_distance = scipy.spatial.distance.cdist(object_pc, all_handle_pos).min(axis=1)
+        threshold = 0.01
+        handle_pc = object_pc[pc_to_handle_distance < threshold]
+        pc_to_median_distance = np.linalg.norm(handle_pc - median_point, axis=1)
+        sorted_idx = np.argsort(pc_to_median_distance)
+        available_pc = [1 for _ in range(len(handle_pc))]
+        
+    for it in range(MOTION_PLANNING_TRY_TIMES):
         object_name = object_name.lower()
-        target_pos = link_pc[np.random.randint(0, link_pc.shape[0])]
+        
+        num_working_configs = np.sum(np.array(handle_grasp_scores) > 0)
+        if num_working_configs > 5:
+            break
+          
+        if handle_joint_name is not None:
+            # if we have tried all the handle points to grasp, break
+            if np.sum(available_pc) == 0:
+                break
+            # if we have already tried to grasp the handle points, continue
+            if not available_pc[sorted_idx[it]]:
+                continue
+
+            target_pos = handle_pc[sorted_idx[it]]
+            
+            # we omit all other points that are very close to the current grasping points to accelerate the search
+            threshold = 0.01
+            object_pc_within_target_pos = np.linalg.norm(handle_pc - target_pos.reshape(1, 3), axis=1) < threshold
+            available_pc = np.logical_and(available_pc, ~object_pc_within_target_pos)
+            
+        else:
+            target_pos = link_pc[np.random.randint(0, link_pc.shape[0])]
         nearest_point_idx = np.argmin(np.linalg.norm(object_pc - target_pos.reshape(1, 3), axis=1))
         align_normal = object_normal[nearest_point_idx]
-
+        
         ### adjust the normal such that it points outwards the object.
         low, high = get_bounding_box(simulator, object_name)
         com = (low + high) / 2
@@ -276,93 +299,219 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False):
             align_normal = -align_normal
 
         for normal in [align_normal, -align_normal]:
-            simulator.robot.set_joint_angles(simulator.robot.right_arm_joint_indices, current_joint_angles)
+            simulator.reset(ori_simulator_state)
 
-            real_target_pos = target_pos + normal * 0
+            real_target_pos = target_pos + normal * -0.02
             debug_id = p.addUserDebugLine(target_pos, target_pos + normal, [1, 0, 0], 5)
-            if simulator.robot_name in ["panda", "sawyer"]:
-                target_orientation = align_gripper_z_with_normal(-normal).as_quat()
-                mp_target_pos = target_pos + normal * 0.03
-            elif simulator.robot_name in ['ur5', 'fetch']:
-                target_orientation = align_gripper_x_with_normal(-normal).as_quat()
-                if simulator.robot_name == 'ur5':
-                    mp_target_pos = target_pos + normal * 0.07
-                elif simulator.robot_name == 'fetch':
-                    mp_target_pos = target_pos + normal * 0.07
+            # TODO: if there is a handle, might want to align the finger direction with the handle horizontal direction
+            target_orientation = align_gripper_z_with_normal(-normal).as_quat()
+            mp_target_pos = target_pos + normal * 0.04
 
             all_objects = list(simulator.urdf_ids.keys())
             all_objects.remove("robot")
             obstacles = [simulator.urdf_ids[x] for x in all_objects]
             allow_collision_links = []
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            res, path = motion_planning(simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path)
-            
+            res, path = motion_planning(
+                simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path)
+                
             p.removeUserDebugItem(debug_id)
+
             if res:
                 with open(os.path.join(save_path, "motion_planning_target.pkl"), "wb") as f:
                     import pickle
                     pickle.dump([mp_target_pos, target_orientation], f) 
                 
-                rgbs = release_rgbs
-                intermediate_states = release_states
+                rgbs = []
+                intermediate_states = []
                 for idx, q in enumerate(path):
                     if not dynamics:
                         simulator.robot.set_joint_angles(simulator.robot.right_arm_joint_indices, q)
+
                     else:
                         for _ in range(3):
-                            simulator.robot.control(simulator.robot.right_arm_joint_indices, q, simulator.robot.motor_gains, forces=5 * 240.)
+                            simulator.robot.control(simulator.robot.right_arm_joint_indices, q)
                             p.stepSimulation()
 
-                    p.stepSimulation()
-                    rgb, depth = simulator.render()
+                    rgb = simulator.render()
                     rgbs.append(rgb)
-                    save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(idx + release_steps))
-                    save_env(simulator, save_state_path)
-                    intermediate_states.append(save_state_path)
-
+                    state = save_env(simulator)
+                    intermediate_states.append(state)
+                
                 base_idx = len(intermediate_states)
-                for t in range(20):
-
-                    # print("post motion planing step: ", t)
-                    # print("rgb image length: ", len(rgbs))
-                    ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
-                    ik_joints = simulator.robot.ik(simulator.robot.right_end_effector, 
-                                                    real_target_pos, target_orientation, 
-                                                    ik_indices=ik_indices)
-                    p.setJointMotorControlArray(simulator.robot.body, jointIndices=simulator.robot.right_arm_joint_indices, 
-                                                controlMode=p.POSITION_CONTROL, targetPositions=ik_joints,
-                                                forces=[5*240] * len(simulator.robot.right_arm_joint_indices), physicsClientId=simulator.id)
+                
+                # first just open the gripper
+                steps = 20
+                for t in range(steps):
+                    new_joint_angle = (t + 1) / steps * 0.04
+                    agent = simulator.robot
+                    agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
                     p.stepSimulation()
-                    rgb, depth = simulator.render()
+                    state = save_env(simulator)
+                    intermediate_states.append(state)
+                    rgb = simulator.render()
                     rgbs.append(rgb)
-                    save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(base_idx + t))
-                    save_env(simulator, save_state_path)
-                    intermediate_states.append(save_state_path)
-
-                    # TODO check here if there is a collision. if so, break
+                                        
+                # reach till contact is made, and get the number of handle points between the two fingers
+                base_idx = len(intermediate_states)
+                steps = 30
+                for t in range(steps):
+                    ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
+                    # decompose the translation and rotation into small delta actions
+                    cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
+                    delta_pos = real_target_pos - cur_eef_pos
+                    delta_pos = delta_pos / np.linalg.norm(delta_pos)
+                    cur_eef_orient_matrix = np.array(p.getMatrixFromQuaternion(cur_eef_orient)).reshape(3, 3)
+                    new_rotation_matrix = np.array(p.getMatrixFromQuaternion(target_orientation)).reshape(3, 3)
+                    delta_rotation_matrix = cur_eef_orient_matrix.T @ new_rotation_matrix
+                    delta_axis_angle = scipy.spatial.transform.Rotation.from_matrix(delta_rotation_matrix).as_rotvec()
+                    delta_axis_angle = delta_axis_angle / np.linalg.norm(delta_axis_angle)
+                    simulator.step(np.array([*delta_pos, *delta_axis_angle, 1]))
+                    rgb = simulator.render()
+                    rgbs.append(rgb)
+                    state = save_env(simulator)
+                    intermediate_states.append(state)
+                    
                     collision = False
-                    points = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.suction_id, physicsClientId=simulator.id)
+                    points_left_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)
+                    points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
+                    points_hand = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=8, physicsClientId=simulator.id)
+                    points = points_left_finger + points_right_finger + points_hand
+                    collision_points_a = [points[_][5] for _ in range(len(points))]
+                    if len(collision_points_a) > 0:
+                        p.addUserDebugPoints(collision_points_a, [[0, 1, 0] for _ in range(len(collision_points_a))], 12, 0.55, physicsClientId=simulator.id)
                     if points:
                         # Handle contact between suction with a rigid object.
                         for point in points:
                             obj_id, contact_link, contact_position_on_obj = point[2], point[4], point[6]
-                            
-                            if obj_id == simulator.urdf_ids['plane'] or obj_id == simulator.robot.body:
+                            if obj_id == simulator.urdf_ids['plane'] or obj_id == simulator.robot.body or obj_id == simulator.table:
                                 pass
                             else:
+                                print("collision detected")
                                 collision = True
                                 break
                     if collision:
                         break
+                
+                # get a score for this grasping pose, which is the number of handle points between the two fingers
+                cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
+                score = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_pc)
+                handle_grasp_scores.append(score)
+               
+                
+                # close gripper
+                close_steps = 20
+                for t in range(close_steps):
+                    new_joint_angle = 0.
+                    agent = simulator.robot
+                    agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
+                    p.stepSimulation()
+                    state = save_env(simulator)
+                    intermediate_states.append(state)
+                    rgb = simulator.render()
+                    rgbs.append(rgb)
+                    
+                env_states.append(intermediate_states)
+                rgb_images.append(rgbs)
+                    
+                # let's not test this for now
+                # pull out following the rotation axis
+                if execute_opening_primitive:
+                    eef_pos, eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
+                    link_pos, link_orient = get_link_pose(simulator, object_name, link_name)
+                    world_to_link = p.invertTransform(link_pos, link_orient)
+                    # EEf in link frame remains the same as the link frame rotates
+                    eef_in_link = p.multiplyTransforms(world_to_link[0], world_to_link[1], eef_pos, eef_orient) 
 
-                return rgbs, intermediate_states 
+                    joint_id = get_joint_id_from_name(simulator, object_name, handle_joint_name)
+                    joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], joint_id)[8:10]
+                    ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], joint_id)[0]
+                    eef_poses = []
+                    timesteps = 250
+                    for t in range(1, timesteps):
+                        joint_angle = joint_limit[0] + (joint_limit[1] - joint_limit[0]) * t / timesteps
+                        p.resetJointState(simulator.urdf_ids[object_name], joint_id, joint_angle)
+                        new_link_pos, new_link_orient = get_link_pose(simulator, object_name, link_name)
+                        # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
+                        new_eef_pos, new_eef_orient = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
+                        eef_poses.append([new_eef_pos, new_eef_orient])
+                    
+                    p.resetJointState(simulator.urdf_ids[object_name], joint_id, ori_joint_angle)
+                    base_idx = len(intermediate_states)
+                    for t in range(len(eef_poses)):
+                        pos, orient = eef_poses[t]
+                        ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
+                        ik_joints = simulator.robot.ik(simulator.robot.right_end_effector, 
+                                                        pos, orient, 
+                                                        ik_indices=ik_indices)
+                        agent = simulator.robot
+                        for _ in range(2):
+                            new_joint_angle = 0
+                            agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
+                            p.setJointMotorControlArray(simulator.robot.body, jointIndices=simulator.robot.right_arm_joint_indices, 
+                                                        controlMode=p.POSITION_CONTROL, targetPositions=ik_joints, physicsClientId=simulator.id)
+                            p.stepSimulation()
+                            
+                        rgb = simulator.render()
+                        rgbs.append(rgb)
+                        save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(base_idx + t))
+                        save_env(simulator, save_state_path)
+                        intermediate_states.append(save_state_path)
+                        
+                
+                    
+    if np.max(handle_grasp_scores) > 0:
+        best_idx = np.argmax(handle_grasp_scores)
+        # store the best env states
+        state_files = []
+        for t_idx, state in enumerate(env_states[best_idx]):
+            save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(t_idx))
+            state_files.append(save_state_path)
+            with open(save_state_path, 'wb') as f:
+                pickle.dump(state, f, pickle.HIGHEST_PROTOCOL)
+        return rgb_images[best_idx], state_files
             
-            it += 1
-            if it > MOTION_PLANNING_TRY_TIMES:
-                print("failed to execute the primitive")
-                load_env(simulator, state=ori_state)
-                save_env(simulator, os.path.join(save_path,  "state_{}.pkl".format(0)))
-                rgbs = [simulator.render()[0]]
-                state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
-                return rgbs, state_files
+    load_env(simulator, state=ori_simulator_state)
+    save_env(simulator, os.path.join(save_path,  "state_{}.pkl".format(0)))
+    rgbs = [simulator.render()]
+    state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
+    return rgbs, state_files
+            
+            
+def get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, pc_points):
+    cur_pos, cur_orient = cur_eef_pos, cur_eef_orient
+
+    X_GW = p.invertTransform(cur_pos, cur_orient)
+    translation = np.array(X_GW[0])
+    rotation = np.array(p.getMatrixFromQuaternion(X_GW[1])).reshape(3, 3)
+    T = np.eye(4)
+    T[:3, :3] = rotation
+    T[:3, 3] = translation ### this is the transformation from world frame to gripper frame
+
+    pc_homogeneous = np.hstack((pc_points, np.ones((pc_points.shape[0], 1))))  # Convert to homogeneous coordinates Nx4
+    pc_transformed_homogeneous = T @ pc_homogeneous.T # 4x4 @ 4xN = 4xN
+    p_GC = pc_transformed_homogeneous[:3, :] # 3xN
+
+    ### Crop to a region inside of the finger box.
+    crop_min = [-0.02, -0.06, -0.01] 
+    crop_max = [0.02, 0.06, 0.01]
+    indices = np.all(
+        (
+            crop_min[0] <= p_GC[0, :],
+            p_GC[0, :] <= crop_max[0],
+            crop_min[1] <= p_GC[1, :],
+            p_GC[1, :] <= crop_max[1],
+            crop_min[2] <= p_GC[2, :],
+            p_GC[2, :] <= crop_max[2],
+        ),
+        axis=0,
+    )
+    
+    within_bbox_handle_pc = pc_points[indices]
+    if len(within_bbox_handle_pc) == 0:
+        # print("no points are within the gripper")
+        return 0
+    debug_id = p.addUserDebugPoints(within_bbox_handle_pc, [[0, 1, 0] for _ in range(len(within_bbox_handle_pc))], 10, 0)
+    score = np.sum(indices) 
+    # print("score is: ", score)
+    p.removeUserDebugItem(debug_id)
+    return score
