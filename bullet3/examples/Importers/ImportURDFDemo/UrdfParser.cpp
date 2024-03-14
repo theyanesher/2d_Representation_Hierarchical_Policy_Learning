@@ -1050,13 +1050,13 @@ bool UrdfParser::parseLink(UrdfModel& model, UrdfLink& link, XMLElement* config,
 		}
 		else
 		{
-			logger->reportWarning("No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frame");
+			// logger->reportWarning("No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frame");
 			link.m_inertia.m_mass = 1.f;
 			link.m_inertia.m_linkLocalFrame.setIdentity();
 			link.m_inertia.m_ixx = 1.f;
 			link.m_inertia.m_iyy = 1.f;
 			link.m_inertia.m_izz = 1.f;
-			logger->reportWarning(link.m_name.c_str());
+			// logger->reportWarning(link.m_name.c_str());
 		}
 	}
 
