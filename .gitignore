@@ -12,3 +12,6 @@ data/
 objaverse_utils/data
 runs/
 video/
+video_rl_game/
+.hydra/
+.vscode/
