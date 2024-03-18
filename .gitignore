@@ -10,3 +10,5 @@ env_construction/
 example_tasks/
 data/
 objaverse_utils/data
+runs/
+video/
