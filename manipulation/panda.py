@@ -17,7 +17,7 @@ class Panda(Robot):
                 
         super(Panda, self).__init__(controllable_joints, right_arm_joint_indices, right_end_effector, right_gripper_indices)
 
-    def init(self, directory, id, np_random, fixed_base=False, use_suction=True):
+    def init(self, directory, id, np_random, fixed_base=False, use_suction=True, debug=False):
         if self.slider:
             self.body = p.loadURDF(os.path.join(directory, 'franka_mobile', 'panda_suction_slider_mobile.urdf'), useFixedBase=fixed_base, basePosition=[-1, -1, 0.5], flags=p.URDF_USE_SELF_COLLISION, physicsClientId=id)
         else:
@@ -26,9 +26,10 @@ class Panda(Robot):
             else:
                 self.body = p.loadURDF(os.path.join(directory, 'panda_bullet', 'panda_suction.urdf'), useFixedBase=fixed_base, basePosition=[-1, -1, 0.5], flags=p.URDF_USE_SELF_COLLISION, physicsClientId=id)
 
-        for i in range(p.getNumJoints(self.body, physicsClientId=id)):
-            print(p.getJointInfo(self.body, i, physicsClientId=id))
-            link_name = p.getJointInfo(self.body, i, physicsClientId=id)[12].decode('utf-8')
-            print("link_name: ", link_name)
+        if debug:
+            for i in range(p.getNumJoints(self.body, physicsClientId=id)):
+                print(p.getJointInfo(self.body, i, physicsClientId=id))
+                link_name = p.getJointInfo(self.body, i, physicsClientId=id)[12].decode('utf-8')
+                print("link_name: ", link_name)
 
         super(Panda, self).init(self.body, id, np_random)

@@ -22,14 +22,16 @@ def rotation_matrix_x(theta):
         [0, np.sin(theta), np.cos(theta)]
     ]))
     
-def align_gripper_z_with_normal(normal):
+def align_gripper_z_with_normal(normal, horizontal=False):
     n_WS = normal
     Gz = n_WS  # gripper z axis aligns with normal 
-    # make orthonormal y axis, aligned with world down
-    # y = np.array([0.0, 0.0, -1.0])
     # or, make it horizontal
-    y = np.array([0.0, -1, 0])
-
+    if horizontal:
+        y = np.array([0.0, -1, 0])
+    else:
+    # make orthonormal y axis, aligned with world down
+        y = np.array([0.0, 0.0, -1.0])
+        
     Gy = y - np.dot(y, Gz) * Gz
     Gx = np.cross(Gy, Gz)
     R_WG = R.from_matrix(np.vstack((Gx, Gy, Gz)).T)

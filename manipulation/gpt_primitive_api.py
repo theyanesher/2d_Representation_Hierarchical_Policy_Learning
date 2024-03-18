@@ -237,7 +237,7 @@ def approach_object(simulator, object_name, dynamics=False):
                 state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
                 return rgbs, state_files
 
-def approach_object_link(simulator, object_name, link_name, dynamics=False, handle_joint_name=None, reach_till_contact=False, 
+def approach_object_link(simulator, object_name, link_name, dynamics=False, handle_joint_name=None, 
                          execute_opening_primitive=False):
     save_path = get_save_path(simulator)
     ori_simulator_state = save_env(simulator, None)
@@ -304,7 +304,12 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
             real_target_pos = target_pos + normal * -0.02
             debug_id = p.addUserDebugLine(target_pos, target_pos + normal, [1, 0, 0], 5)
             # TODO: if there is a handle, might want to align the finger direction with the handle horizontal direction
-            target_orientation = align_gripper_z_with_normal(-normal).as_quat()
+            if handle_joint_name is not None:
+                handle_orientation = get_handle_orient(handle_pc)
+                horizontal_grasp = True if handle_orientation == 'vertical' else False
+                target_orientation = align_gripper_z_with_normal(-normal, horizontal=horizontal_grasp).as_quat()
+            else:
+                target_orientation = align_gripper_z_with_normal(-normal).as_quat()
             mp_target_pos = target_pos + normal * 0.04
 
             all_objects = list(simulator.urdf_ids.keys())
@@ -386,7 +391,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                             if obj_id == simulator.urdf_ids['plane'] or obj_id == simulator.robot.body or obj_id == simulator.table:
                                 pass
                             else:
-                                print("collision detected")
+                                # print("collision detected")
                                 collision = True
                                 break
                     if collision:
@@ -395,9 +400,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                 # get a score for this grasping pose, which is the number of handle points between the two fingers
                 cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
                 score = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_pc)
-                handle_grasp_scores.append(score)
                
-                
                 # close gripper
                 close_steps = 20
                 for t in range(close_steps):
@@ -410,6 +413,27 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                     rgb = simulator.render()
                     rgbs.append(rgb)
                     
+                # NOTE: update the score such that after closing, both gripper is in contact with the handle itself.
+                points_left_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)
+                points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
+                left_collision = False
+                right_collision = False
+                if points_left_finger:
+                    collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
+                    dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
+                    if np.sum(dist_collision_to_handle < 0.01) > 0:
+                        left_collision = True
+                if points_right_finger:
+                    collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
+                    dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
+                    if np.sum(dist_collision_to_handle < 0.01) > 0:
+                        right_collision = True
+
+                if not (left_collision and right_collision):
+                    score = 0
+                
+                handle_grasp_scores.append(score)    
+                print("iteration {} score {}".format(it, score))
                 env_states.append(intermediate_states)
                 rgb_images.append(rgbs)
                     
@@ -456,9 +480,10 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                         save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(base_idx + t))
                         save_env(simulator, save_state_path)
                         intermediate_states.append(save_state_path)
-                        
                 
-                    
+            # no need to try the other normal direction
+            break
+                        
     if np.max(handle_grasp_scores) > 0:
         best_idx = np.argmax(handle_grasp_scores)
         # store the best env states
@@ -478,6 +503,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
             
             
 def get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, pc_points):
+    
     cur_pos, cur_orient = cur_eef_pos, cur_eef_orient
 
     X_GW = p.invertTransform(cur_pos, cur_orient)
@@ -515,3 +541,19 @@ def get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, pc_points):
     # print("score is: ", score)
     p.removeUserDebugItem(debug_id)
     return score
+
+def get_handle_orient(handle_pc):
+    # get axis aligned bounding box of the handle pc
+    min_xyz = np.min(handle_pc, axis=0)
+    max_xyz = np.max(handle_pc, axis=0)
+    x_range = max_xyz[0] - min_xyz[0]
+    y_range = max_xyz[1] - min_xyz[1]
+    z_range = max_xyz[2] - min_xyz[2]
+    horizontal_range = np.max([x_range, y_range])
+    vertical_range = z_range
+    if horizontal_range > vertical_range:
+        handle_orient = "horizontal"
+    else:
+        handle_orient = "vertical"
+    
+    return handle_orient

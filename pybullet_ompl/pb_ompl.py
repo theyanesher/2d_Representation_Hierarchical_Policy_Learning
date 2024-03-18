@@ -39,8 +39,8 @@ class PbOMPLRobot():
             joint_idx = control_joint_idx
         self.num_dim = len(joint_idx)
         self.joint_idx = joint_idx
-        print("pbompl joint number: ", self.num_dim)
-        print("pbompl joint idx: ", self.joint_idx)
+        # print("pbompl joint number: ", self.num_dim)
+        # print("pbompl joint idx: ", self.joint_idx)
         self.joint_bounds = []
         self.get_joint_bounds()
 
@@ -59,7 +59,7 @@ class PbOMPLRobot():
             high = joint_info[9] # high bounds
             if low < high:
                 self.joint_bounds.append([low, high])
-        print("Joint bounds: {}".format(self.joint_bounds))
+        # print("Joint bounds: {}".format(self.joint_bounds))
         return self.joint_bounds
 
     def get_cur_state(self):
@@ -124,8 +124,8 @@ class PbOMPL():
         self.obstacles = obstacles
         self.allow_collision_links = allow_collision_links
         self.allow_collision_robot_link_pairs = allow_collision_robot_link_pairs
-        print("motion planning obstables: ", self.obstacles)
-        print("robot allow collision links: ", allow_collision_links)
+        # print("motion planning obstables: ", self.obstacles)
+        # print("robot allow collision links: ", allow_collision_links)
 
         self.space = PbStateSpace(robot.num_dim)
         self.start = copy.deepcopy(self.robot.get_cur_state())
@@ -209,6 +209,7 @@ class PbOMPL():
             self.planner = og.BITstar(self.ss.getSpaceInformation())
         else:
             print("{} not recognized, please add it first".format(planner_name))
+            raise NotImplementedError
             return
 
         self.ss.setPlanner(self.planner)
@@ -217,8 +218,8 @@ class PbOMPL():
         '''
         plan a path to gaol from the given robot start state
         '''
-        print("start_planning")
-        print(self.planner.params())
+        # print("start_planning")
+        # print(self.planner.params())
 
         orig_robot_state = self.robot.get_cur_state()
 

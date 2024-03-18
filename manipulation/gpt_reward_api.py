@@ -328,7 +328,7 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
 
 
 # NOTE: hard-coded for now, should make it more general in the future
-def get_handle_pos(simulator, obj_name, joint_name, return_median=True):
+def get_handle_pos(simulator, obj_name, joint_name=None, return_median=True):
     scaling = simulator.simulator_sizes[obj_name]
 
     # get the parent frame of the revolute joint.
@@ -341,9 +341,20 @@ def get_handle_pos(simulator, obj_name, joint_name, return_median=True):
     # axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling  
     # axis_dir_body = np.array([0, -1, 0])
     mobility_info = json.load(open(f"{parent_dir}/mobility_v2.json", "r"))
-    handle_link_id = 0 # double check this
+    
+    
+    # TODO: GPT can parse the mobility.json to get the joint name, which is the joint item that has a part handle,
+    # and the id is the joint name. The joint name is "joint_{}".format(id)
+    # from joint name we can get joint id via get_joint_id_from_name(simulator, obj_name, joint_name)
+    # after we get the joint id, the link id can be obtained via pybullet.getJointInfo(obj_id, joint_id)
+    
+    joint_name = None
+    parent_joint_name = None
     for joint_info in mobility_info:
-        if joint_info["id"] == handle_link_id:
+        all_parts = [part["name"] for part in joint_info["parts"]]
+        if "handle" in all_parts:
+            joint_name = "joint_{}".format(joint_info["id"])
+            parent_joint_name = "joint_{0}".format(joint_info["parent"])
             joint_data = joint_info['jointData']
             axis_body = np.array(joint_data["axis"]["origin"]) * scaling
             axis_dir_body = np.array(joint_data["axis"]["direction"])
@@ -351,9 +362,12 @@ def get_handle_pos(simulator, obj_name, joint_name, return_median=True):
             if joint_limit['a'] > joint_limit['b']:
                 axis_dir_body = -axis_dir_body
             break
+        
+    joint_idx = get_joint_id_from_name(simulator, obj_name, joint_name) # this is the joint id in pybullet
+    parent_joint_idx = get_joint_id_from_name(simulator, obj_name, parent_joint_name) # this is the joint id in pybullet
     
-    link_state = p.getLinkState(obj_id, handle_link_id) # NOTE: the handle link id should be dependent on the object urdf.
-    link_urdf_world_pos, link_urdf_world_orn = link_state[0], link_state[1]
+    parent_link_state = p.getLinkState(obj_id, parent_joint_idx) # NOTE: the handle link id should be dependent on the object urdf.
+    link_urdf_world_pos, link_urdf_world_orn = parent_link_state[0], parent_link_state[1]
     # this is the transformation from the parent frame to the world frame. 
     T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
     T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
@@ -379,7 +393,7 @@ def get_handle_pos(simulator, obj_name, joint_name, return_median=True):
     project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
     # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
 
-    joint_idx = get_joint_id_from_name(simulator, obj_name, joint_name)
+    # TODO: GPT can parse the mobility.json to get the joint name. 
     rotation_angle = p.getJointState(obj_id, joint_idx)[0] # NOTE: this joint id should be dependent on the object urdf.
     rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
     rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local

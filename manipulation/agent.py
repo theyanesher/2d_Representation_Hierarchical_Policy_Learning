@@ -174,7 +174,8 @@ class Agent:
 
     def set_joint_angles(self, indices, angles, use_limits=True, velocities=0):
         for i, (j, a) in enumerate(zip(indices, angles)):
-            p.resetJointState(self.body, jointIndex=j, targetValue=min(max(a, self.lower_limits[j]), self.upper_limits[j]) if use_limits else a, targetVelocity=velocities if type(velocities) in [int, float] else velocities[i], physicsClientId=self.id)
+            p.resetJointState(self.body, jointIndex=j, targetValue=min(max(a, self.lower_limits[j]), self.upper_limits[j]) if use_limits else a, 
+                              physicsClientId=self.id)
 
 
     def set_gravity(self, ax=0.0, ay=0.0, az=-9.81):
