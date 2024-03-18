@@ -46,6 +46,10 @@ def blip2_caption(image):
     res = model.generate({"image": image})
     return res[0]
 
+### TODO: implement gemini_verify
+# def gemini_verify(image, prompt):
+    
+
 def verify_objaverse_object(object_name, uid, task_name=None, task_description=None, use_bard=False, use_blip2=True):
     annotations = objaverse.load_annotations([uid])[uid]
     thumbnail_urls = annotations['thumbnails']["images"]
