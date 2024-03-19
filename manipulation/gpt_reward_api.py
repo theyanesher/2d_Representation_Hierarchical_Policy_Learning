@@ -351,6 +351,7 @@ def get_handle_pos(simulator, obj_name, return_median=True):
     joint_name = None
     parent_joint_name = None
     for joint_info in mobility_info:
+        # import pdb; pdb.set_trace()
         all_parts = [part["name"] for part in joint_info["parts"]]
         if "handle" in all_parts:
             joint_name = "joint_{}".format(joint_info["id"])

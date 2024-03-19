@@ -2,7 +2,22 @@ import json
 import os
 # to import pprint
 from pprint import pprint
+import pybullet as p
+import time
 
+def show_in_bullet(obj_id):
+    id = p.connect(p.GUI)
+    p.setGravity(0, 0, -10)
+    p.setRealTimeSimulation(0)
+    p.loadURDF("data/dataset/{}/mobility.urdf".format(obj_id), useFixedBase=True)
+    p.resetDebugVisualizerCamera(cameraDistance=1.75, cameraYaw=-25, cameraPitch=-45, cameraTargetPosition=[-0.2, 0, 0.4], physicsClientId=id)
+    p.configureDebugVisualizer(p.COV_ENABLE_MOUSE_PICKING, 0, physicsClientId=id)
+    p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, physicsClientId=id)
+    p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1, physicsClientId=id)
+    for _ in range(30):
+        p.stepSimulation()
+        time.sleep(1)
+    p.disconnect(id)
 
 meta_dict = "data/partnet_mobility_dict.json"
 with open(meta_dict, 'r') as fin:
@@ -32,14 +47,12 @@ for obj_id in all_objects:
     data = tree_hier
     
     all_names = traverse(data)
-    # print(obj_id, all_names)
-    # print("obj_id: ", obj_id, "has handles: ", "handle" in all_names)   
     print(obj_id, all_names)
-    # import pdb; pdb.set_trace()
     if "handle" in all_names:
-        # print(obj_id) 
         handle_num += 1
         with_handle_obj_ids.append(obj_id)
+    else:
+        show_in_bullet(obj_id)
         
 # print(f"{name} all objects num: {len(all_objects)}, number of objects with handle: {handle_num}")    
 pprint(with_handle_obj_ids)
