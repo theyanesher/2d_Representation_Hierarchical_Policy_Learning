@@ -613,10 +613,10 @@ Joints:
     if not os.path.exists(task_save_path):
         os.makedirs(task_save_path)
 
-    print("substep: ", substeps)
-    print("substep types: ", substep_types)
-    print("reward or primitives: ", reward_or_primitives)
-    print("action spaces: ", action_spaces)
+    # print("substep: ", substeps)
+    # print("substep types: ", substep_types)
+    # print("reward or primitives: ", reward_or_primitives)
+    # print("action spaces: ", action_spaces)
 
     with open(os.path.join(task_save_path, "substeps.txt"), "w") as f:
         f.write("\n".join(substeps))

@@ -328,7 +328,7 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
 
 
 # NOTE: hard-coded for now, should make it more general in the future
-def get_handle_pos(simulator, obj_name, joint_name=None, return_median=True):
+def get_handle_pos(simulator, obj_name, return_median=True):
     scaling = simulator.simulator_sizes[obj_name]
 
     # get the parent frame of the revolute joint.
@@ -398,4 +398,4 @@ def get_handle_pos(simulator, obj_name, joint_name=None, return_median=True):
     rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
     rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
     
-    return rotated_handle_pt.flatten() if return_median else rotated_handle_pt
+    return rotated_handle_pt.flatten() if return_median else rotated_handle_pt, joint_idx

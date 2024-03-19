@@ -10,21 +10,21 @@ def query(system, user_contents, assistant_contents, model='gpt-4', save_path=No
         user_content = user_content.split("\n")
         assistant_content = assistant_content.split("\n")
         
-        for u in user_content:
-            print(u)
-        print("=====================================")
-        for a in assistant_content:
-            print(a)
-        print("=====================================")
+        # for u in user_content:
+        #     print(u)
+        # print("=====================================")
+        # for a in assistant_content:
+        #     print(a)
+        # print("=====================================")
 
-    for u in user_contents[-1].split("\n"):
-        print(u)
+    # for u in user_contents[-1].split("\n"):
+    #     print(u)
 
     if debug:
         import pdb; pdb.set_trace()
         return None
 
-    print("=====================================")
+    # print("=====================================")
 
     start = time.time()
     
@@ -51,7 +51,7 @@ def query(system, user_contents, assistant_contents, model='gpt-4', save_path=No
     end = time.time()
     used_time = end - start
 
-    print(result)
+    # print(result)
     if save_path is not None:
         with open(save_path, "w") as f:
             json.dump({"used_time": used_time, "res": result, "system": system, "user": user_contents, "assistant": assistant_contents}, f, indent=4)

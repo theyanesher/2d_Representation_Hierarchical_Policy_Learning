@@ -411,4 +411,4 @@ def build_task_given_text(object_category, task_name, task_description, addition
     with open(os.path.join(solution_path, "config.yaml"), 'w') as f:
         yaml.dump(config, f, indent=4)
 
-    return os.path.join(config_path, save_name)
+    return os.path.join(config_path, save_name), solution_path

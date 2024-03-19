@@ -183,7 +183,8 @@ class SimpleEnv(gym.Env):
             return new_pos
 
     def get_robot_base_pos(self):
-        robot_base_pos = [1, 1, 0.28]
+        # robot_base_pos = [1, 1, 0.28]
+        robot_base_pos = [1, 1, 0]
         return robot_base_pos
     
     def get_robot_init_joint_angles(self):
@@ -214,7 +215,7 @@ class SimpleEnv(gym.Env):
         planeId = p.loadURDF(osp.join(self.asset_dir, "plane", "plane.urdf"), physicsClientId=self.id)
 
         ### create and load a robot
-        self.robot_base_pose = self.load_robot(restore_state)
+        self.robot_base_pos = self.load_robot(restore_state)
 
         ### load and parse task config (including semantically meaningful distractor objects)
         self.urdf_ids = {
@@ -309,7 +310,7 @@ class SimpleEnv(gym.Env):
         self.robot.set_base_pos_orient(robot_base_pos, robot_base_orient)
         init_joint_angles = self.get_robot_init_joint_angles()
         self.robot.set_joint_angles(self.robot.right_arm_joint_indices, init_joint_angles)    
-        # self.robot.set_gravity(0, 0, 0)
+        self.robot.set_gravity(0, 0, 0)
         
         return robot_base_pos        
     

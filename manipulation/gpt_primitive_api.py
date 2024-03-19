@@ -6,7 +6,6 @@ from manipulation.motion_planning_utils import motion_planning
 from manipulation.grasping_utils import get_pc_and_normal, align_gripper_z_with_normal, align_gripper_x_with_normal
 from manipulation.gpt_reward_api import (
     get_link_pc, get_bounding_box, get_link_id_from_name, get_handle_pos, get_link_pose,
-    get_joint_id_from_name,
 )
 from manipulation.utils import save_env, load_env
 import scipy
@@ -81,46 +80,49 @@ def grasp_object(simulator, object_name):
     return rgbs, states
 
 def grasp_object_link(simulator, object_name, link_name):
-    ori_state = save_env(simulator, None)
-    p.stepSimulation()
-    object_name = object_name.lower()
-    save_path = get_save_path(simulator)
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
+    return approach_object_link(simulator, object_name, link_name)
+
+    # NOTE: old code
+    # ori_state = save_env(simulator, None)
+    # p.stepSimulation()
+    # object_name = object_name.lower()
+    # save_path = get_save_path(simulator)
+    # if not os.path.exists(save_path):
+    #     os.makedirs(save_path)
     
-    # if the target object link is already grasped.  
-    points = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.suction_id, physicsClientId=simulator.id)
-    if points:
-        for point in points:
-            obj_id, contact_link = point[2], point[4]
-            if obj_id == simulator.urdf_ids[object_name] and contact_link == get_link_id_from_name(simulator, object_name, link_name):
-                # simulator.activate_suction()
-                rgbs = []
-                states = []
-                for t in range(10):
-                    p.stepSimulation()
-                    rgbs.append(simulator.render())
-                    state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
-                    save_env(simulator, state_save_path)
-                    states.append(state_save_path)
-                return rgbs, states
+    # # if the target object link is already grasped.  
+    # points = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.suction_id, physicsClientId=simulator.id)
+    # if points:
+    #     for point in points:
+    #         obj_id, contact_link = point[2], point[4]
+    #         if obj_id == simulator.urdf_ids[object_name] and contact_link == get_link_id_from_name(simulator, object_name, link_name):
+    #             # simulator.activate_suction()
+    #             rgbs = []
+    #             states = []
+    #             for t in range(10):
+    #                 p.stepSimulation()
+    #                 rgbs.append(simulator.render())
+    #                 state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
+    #                 save_env(simulator, state_save_path)
+    #                 states.append(state_save_path)
+    #             return rgbs, states
 
 
-    rgbs, states = approach_object_link(simulator, object_name, link_name)
-    base_t = len(rgbs)
-    if base_t > 1:
-        # simulator.activate_suction()
-        for t in range(10):
-            p.stepSimulation()
-            rgbs.append(simulator.render())
-            state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
-            save_env(simulator, state_save_path)
-            states.append(state_save_path)
-    else:
-        # directy reset the state
-        load_env(simulator, state=ori_state)
+    # rgbs, states = approach_object_link(simulator, object_name, link_name)
+    # base_t = len(rgbs)
+    # if base_t > 1:
+    #     # simulator.activate_suction()
+    #     for t in range(10):
+    #         p.stepSimulation()
+    #         rgbs.append(simulator.render())
+    #         state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
+    #         save_env(simulator, state_save_path)
+    #         states.append(state_save_path)
+    # else:
+    #     # directy reset the state
+    #     load_env(simulator, state=ori_state)
 
-    return rgbs, states
+    # return rgbs, states
 
 def approach_object(simulator, object_name, dynamics=False):
     save_path = get_save_path(simulator)
@@ -237,8 +239,8 @@ def approach_object(simulator, object_name, dynamics=False):
                 state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
                 return rgbs, state_files
 
-def approach_object_link(simulator, object_name, link_name, dynamics=False, handle_joint_name=None, 
-                         execute_opening_primitive=False):
+def approach_object_link(simulator, object_name, link_name, dynamics=False, grasp_handle=True, 
+                         execute_opening_primitive=True):
     save_path = get_save_path(simulator)
     ori_simulator_state = save_env(simulator, None)
 
@@ -254,8 +256,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
     handle_grasp_scores = []
     env_states = []
     rgb_images = []
-    if handle_joint_name is not None:
-        all_handle_pos = get_handle_pos(simulator, object_name, handle_joint_name, return_median=False)
+    if grasp_handle is not None:
+        all_handle_pos, handle_joint_id = get_handle_pos(simulator, object_name, return_median=False)
         median_point = np.median(all_handle_pos, axis=0, keepdims=True)
         pc_to_handle_distance = scipy.spatial.distance.cdist(object_pc, all_handle_pos).min(axis=1)
         threshold = 0.01
@@ -271,7 +273,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
         if num_working_configs > 5:
             break
           
-        if handle_joint_name is not None:
+        if grasp_handle is not None:
             # if we have tried all the handle points to grasp, break
             if np.sum(available_pc) == 0:
                 break
@@ -299,12 +301,13 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
             align_normal = -align_normal
 
         for normal in [align_normal, -align_normal]:
+            intermediate_states = []
             simulator.reset(ori_simulator_state)
 
             real_target_pos = target_pos + normal * -0.02
             debug_id = p.addUserDebugLine(target_pos, target_pos + normal, [1, 0, 0], 5)
             # TODO: if there is a handle, might want to align the finger direction with the handle horizontal direction
-            if handle_joint_name is not None:
+            if grasp_handle is not None:
                 handle_orientation = get_handle_orient(handle_pc)
                 horizontal_grasp = True if handle_orientation == 'vertical' else False
                 target_orientation = align_gripper_z_with_normal(-normal, horizontal=horizontal_grasp).as_quat()
@@ -327,7 +330,6 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                     pickle.dump([mp_target_pos, target_orientation], f) 
                 
                 rgbs = []
-                intermediate_states = []
                 for idx, q in enumerate(path):
                     if not dynamics:
                         simulator.robot.set_joint_angles(simulator.robot.right_arm_joint_indices, q)
@@ -342,7 +344,6 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                     state = save_env(simulator)
                     intermediate_states.append(state)
                 
-                base_idx = len(intermediate_states)
                 
                 # first just open the gripper
                 steps = 20
@@ -357,7 +358,6 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                     rgbs.append(rgb)
                                         
                 # reach till contact is made, and get the number of handle points between the two fingers
-                base_idx = len(intermediate_states)
                 steps = 30
                 for t in range(steps):
                     ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
@@ -388,7 +388,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                         # Handle contact between suction with a rigid object.
                         for point in points:
                             obj_id, contact_link, contact_position_on_obj = point[2], point[4], point[6]
-                            if obj_id == simulator.urdf_ids['plane'] or obj_id == simulator.robot.body or obj_id == simulator.table:
+                            if obj_id == simulator.urdf_ids['plane'] or obj_id == simulator.robot.body or (simulator.use_table and obj_id == simulator.table):
                                 pass
                             else:
                                 # print("collision detected")
@@ -402,7 +402,9 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                 score = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_pc)
                
                 # close gripper
-                close_steps = 20
+                close_steps = 40
+                left_collision = False
+                right_collision = False
                 for t in range(close_steps):
                     new_joint_angle = 0.
                     agent = simulator.robot
@@ -413,30 +415,30 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                     rgb = simulator.render()
                     rgbs.append(rgb)
                     
-                # NOTE: update the score such that after closing, both gripper is in contact with the handle itself.
-                points_left_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)
-                points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
-                left_collision = False
-                right_collision = False
-                if points_left_finger:
-                    collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
-                    dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
-                    if np.sum(dist_collision_to_handle < 0.01) > 0:
-                        left_collision = True
-                if points_right_finger:
-                    collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
-                    dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
-                    if np.sum(dist_collision_to_handle < 0.01) > 0:
-                        right_collision = True
+                    # NOTE: update the score such that after closing, both gripper is in contact with the handle itself.
+                    points_left_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)
+                    points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
+
+                    if points_left_finger:
+                        collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
+                        dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
+                        if np.sum(dist_collision_to_handle < 0.01) > 0:
+                            left_collision = True
+                    if points_right_finger:
+                        collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
+                        dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
+                        if np.sum(dist_collision_to_handle < 0.01) > 0:
+                            right_collision = True
+                            
+                    if left_collision and right_collision and t > 20:
+                        break
 
                 if not (left_collision and right_collision):
                     score = 0
                 
                 handle_grasp_scores.append(score)    
                 print("iteration {} score {}".format(it, score))
-                env_states.append(intermediate_states)
-                rgb_images.append(rgbs)
-                    
+                   
                 # let's not test this for now
                 # pull out following the rotation axis
                 if execute_opening_primitive:
@@ -446,21 +448,19 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                     # EEf in link frame remains the same as the link frame rotates
                     eef_in_link = p.multiplyTransforms(world_to_link[0], world_to_link[1], eef_pos, eef_orient) 
 
-                    joint_id = get_joint_id_from_name(simulator, object_name, handle_joint_name)
-                    joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], joint_id)[8:10]
-                    ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], joint_id)[0]
+                    joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
+                    ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
                     eef_poses = []
                     timesteps = 250
                     for t in range(1, timesteps):
                         joint_angle = joint_limit[0] + (joint_limit[1] - joint_limit[0]) * t / timesteps
-                        p.resetJointState(simulator.urdf_ids[object_name], joint_id, joint_angle)
+                        p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, joint_angle)
                         new_link_pos, new_link_orient = get_link_pose(simulator, object_name, link_name)
                         # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
                         new_eef_pos, new_eef_orient = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
                         eef_poses.append([new_eef_pos, new_eef_orient])
                     
-                    p.resetJointState(simulator.urdf_ids[object_name], joint_id, ori_joint_angle)
-                    base_idx = len(intermediate_states)
+                    p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, ori_joint_angle)
                     for t in range(len(eef_poses)):
                         pos, orient = eef_poses[t]
                         ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
@@ -477,15 +477,21 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
                             
                         rgb = simulator.render()
                         rgbs.append(rgb)
-                        save_state_path = os.path.join(save_path, "states",  "state_{}.pkl".format(base_idx + t))
-                        save_env(simulator, save_state_path)
-                        intermediate_states.append(save_state_path)
-                
+                        state = save_env(simulator)
+                        intermediate_states.append(state)
+                        
+                    env_states.append(intermediate_states)
+                    rgb_images.append(rgbs)
+                 
             # no need to try the other normal direction
             break
                         
-    if np.max(handle_grasp_scores) > 0:
+    if len(handle_grasp_scores) > 0 and np.max(handle_grasp_scores) > 0:
         best_idx = np.argmax(handle_grasp_scores)
+        best_score = handle_grasp_scores[best_idx]
+        with open(os.path.join(save_path, "best_score.txt"), "w") as f:
+            f.write(str(best_score))
+            
         # store the best env states
         state_files = []
         for t_idx, state in enumerate(env_states[best_idx]):
@@ -493,7 +499,27 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, hand
             state_files.append(save_state_path)
             with open(save_state_path, 'wb') as f:
                 pickle.dump(state, f, pickle.HIGHEST_PROTOCOL)
+        
+        # get the opened angle of the last state
+        load_env(simulator, state=env_states[best_idx][-1])
+        joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
+        joint_limit_low, joint_limit_high = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
+        with open(os.path.join(save_path, "opened_angle.txt"), "w") as f:
+            f.write(str(joint_angle) + "\n")
+            f.write(str(joint_limit_low) + "\n")
+            f.write(str(joint_limit_high) + "\n")
+        simulator.reset(ori_simulator_state)
+                
         return rgb_images[best_idx], state_files
+    
+    with open(os.path.join(save_path, "best_score.txt"), "w") as f:
+        f.write(str(0))
+            
+    joint_limit_low, joint_limit_high = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
+    with open(os.path.join(save_path, "opened_angle.txt"), "w") as f:
+        f.write(str(0) + "\n")
+        f.write(str(joint_limit_low) + "\n")
+        f.write(str(joint_limit_high) + "\n")
             
     load_env(simulator, state=ori_simulator_state)
     save_env(simulator, os.path.join(save_path,  "state_{}.pkl".format(0)))

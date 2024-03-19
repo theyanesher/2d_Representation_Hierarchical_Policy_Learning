@@ -207,9 +207,9 @@ def generate_from_task_name(task_name, object_category, object_path, temperature
     expansion_temperature = temperature_dict.get("expansion", 0)
     task_description, additional_objects, links, joints, save_folder, articulation_tree_filled, semantics_filled = expand_task_name(
         task_name, object_category, object_path, meta_path, temperate=expansion_temperature, model=expansion_model)
-    config_path = build_task_given_text(object_category, task_name, task_description, additional_objects, links, joints, 
+    config_path, solution_path = build_task_given_text(object_category, task_name, task_description, additional_objects, links, joints, 
                           articulation_tree_filled, semantics_filled, object_path, save_folder, temperature_dict, model_dict)
-    return config_path
+    return config_path, solution_path
     
 if __name__ == "__main__":
     import argparse
@@ -243,8 +243,8 @@ if __name__ == "__main__":
     if args.object_path is None:
         possible_object_ids = partnet_mobility_dict[args.object]
         args.object_path = possible_object_ids[np.random.randint(len(possible_object_ids))]
-    config_path = generate_from_task_name(args.task_description, args.object, args.object_path, 
+    config_path, _ = generate_from_task_name(args.task_description, args.object, args.object_path, 
         temperature_dict=temperature_dict, meta_path=meta_path, model_dict=model_dict)
-    generate_distractor(config_path, temperature_dict=temperature_dict, model_dict=model_dict)
+    # generate_distractor(config_path, temperature_dict=temperature_dict, model_dict=model_dict)
     
     
