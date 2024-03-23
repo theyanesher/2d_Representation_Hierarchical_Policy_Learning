@@ -262,11 +262,15 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
         pc_to_handle_distance = scipy.spatial.distance.cdist(object_pc, all_handle_pos).min(axis=1)
         threshold = 0.01
         handle_pc = object_pc[pc_to_handle_distance < threshold]
+        debug_idx_1 = p.addUserDebugPoints(handle_pc, [[0, 1, 0] for _ in range(len(handle_pc))], 10, 0)
+        import pdb; pdb.set_trace()
         pc_to_median_distance = np.linalg.norm(handle_pc - median_point, axis=1)
         sorted_idx = np.argsort(pc_to_median_distance)
         available_pc = [1 for _ in range(len(handle_pc))]
         
     for it in range(MOTION_PLANNING_TRY_TIMES):
+        # import pdb; pdb.set_trace()
+        
         object_name = object_name.lower()
         
         num_working_configs = np.sum(np.array(handle_grasp_scores) > 0)
@@ -400,6 +404,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 # get a score for this grasping pose, which is the number of handle points between the two fingers
                 cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
                 score = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_pc)
+                # import pdb; pdb.set_trace()
+                print("points within gripper: ", score)
                
                 # close gripper
                 close_steps = 40
@@ -420,12 +426,14 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
 
                     if points_left_finger:
-                        collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
+                        # collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
+                        collision_points_b = [points_left_finger[_][5] for _ in range(len(points_left_finger))]
                         dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
                         if np.sum(dist_collision_to_handle < 0.01) > 0:
                             left_collision = True
                     if points_right_finger:
-                        collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
+                        # collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
+                        collision_points_b = [points_right_finger[_][5] for _ in range(len(points_right_finger))]
                         dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
                         if np.sum(dist_collision_to_handle < 0.01) > 0:
                             right_collision = True
@@ -510,6 +518,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
             f.write(str(joint_limit_high) + "\n")
         simulator.reset(ori_simulator_state)
                 
+        # p.removeUserDebugItem(debug_id)
         return rgb_images[best_idx], state_files
     
     with open(os.path.join(save_path, "best_score.txt"), "w") as f:
@@ -525,6 +534,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
     save_env(simulator, os.path.join(save_path,  "state_{}.pkl".format(0)))
     rgbs = [simulator.render()]
     state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
+    # p.removeUserDebugItem(debug_id)
     return rgbs, state_files
             
             

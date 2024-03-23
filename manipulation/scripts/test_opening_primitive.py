@@ -4,30 +4,19 @@ import os
 import time
 from gpt_4.prompts.prompt_from_description import generate_from_task_name
 from pprint import pprint
-from execute import execute
 
-import argparse
-parser = argparse.ArgumentParser()
-parser.add_argument('--task_config_path', type=str, default=None)
-parser.add_argument('--training_algo', type=str, default="RL_sac")
-parser.add_argument('--resume', type=int, default=0)
-parser.add_argument('--time_string', type=str, default=None)
-parser.add_argument('--gui', type=int, default=0) 
-parser.add_argument('--randomize', type=int, default=0) # whether to randomize roation of objects in the scene.
-parser.add_argument('--obj_id', type=int, default=0) # which object from the list of possible objects to use.
-parser.add_argument('--use_bard', type=int, default=1) # whether to use bard filtered objects.
-parser.add_argument('--use_gpt_size', type=int, default=1) # whether to use size outputted from gpt.
-parser.add_argument('--use_gpt_spatial_relationship', type=int, default=1) # whether to use gpt spatial relationship.
-parser.add_argument('--use_gpt_joint_angle', type=int, default=1) # whether to use initial joint angle output from gpt.
-parser.add_argument('--run_training', type=int, default=1) # if to train or just to build the scene.
-parser.add_argument('--use_motion_planning', type=int, default=1) # if to train or just to build the scene.
-parser.add_argument('--use_distractor', type=int, default=1) # if to train or just to build the scene.
-parser.add_argument('--skip', nargs="+", default=[]) # if to train or just to build the scene.
-parser.add_argument('--move_robot', type=int, default=0) # if to train or just to build the scene.
-parser.add_argument('--only_learn_substep', type=int, default=None) # if to run learning for a substep.
-parser.add_argument('--reward_learning_save_path', type=str, default=None) # where to store the learning result of RL training. 
-parser.add_argument('--last_restore_state_file', type=str, default=None) # whether to start from a specific state.
-args = parser.parse_args([])
+def get_folders_from_id(id):
+    meta_path = "data/generated_task_from_description"
+    all_tasks = os.listdir(meta_path)
+    all_tasks = sorted(all_tasks)
+    folder = [x for x in all_tasks if id in x][0]
+    task_path = os.path.join(meta_path, folder)
+    yaml_config = [x for x in os.listdir(task_path) if x.endswith(".yaml")]
+    yaml_config = yaml_config[0]
+    config_path = os.path.join(task_path, yaml_config)
+    config = yaml.safe_load(open(config_path, "r"))
+    solution_path = [x['solution_path'] for x in config if 'solution_path' in x][0]
+    return config_path, solution_path
 
 temperature_dict = {
         "reward": 0,
@@ -55,7 +44,7 @@ all_dishwasher_ids = [
 #  '12597',
 #  '12606',
 #  '12428',
-#  '12592',
+ '12592',
 #  '11700',
 #  '12085',
 #  '12590',
@@ -82,10 +71,10 @@ all_dishwasher_ids = [
 #  '12543',
 #  '12530', # weird handle
 #  '12560', # error in handle processing
- '12484',
- '12092',
- '11826',
- '12617'
+#  '12484',
+#  '12092',
+#  '11826',
+#  '12617'
 ]
 
 all_time_costs = {}
@@ -97,15 +86,17 @@ for dishwasher_id in all_dishwasher_ids:
     print("running for dishwasher: ", dishwasher_id)
     print("=" * 50)
     
-    config_path, solution_path = generate_from_task_name(
-                "open the door of the dishwasher", 
-                "Dishwasher", 
-                dishwasher_id, 
-                temperature_dict,
-                model_dict)
+    # config_path, solution_path = generate_from_task_name(
+    #             "open the door of the dishwasher", 
+    #             "Dishwasher", 
+    #             dishwasher_id, 
+    #             temperature_dict,
+    #             model_dict)
     
-    # config_path = "data/generated_task_from_description/open_the_door_of_the_dishwasher_Dishwasher_12259_2024-03-19-02-34-14/open_the_door_of_the_dishwasher_The_robotic_arm_will_open_the_door_of_the_dishwasher.yaml"
-    # solution_path = "data/generated_task_from_description/open_the_door_of_the_dishwasher_Dishwasher_12259_2024-03-19-02-34-14/task_open_the_door_of_the_dishwasher"
+    # config_path = "data/generated_task_from_description/open_the_door_of_the_dishwasher_Dishwasher_12085_2024-03-19-01-27-53/open_the_door_of_the_dishwasher_The_robot_arm_opens_the_door_of_the_dishwasher.yaml"
+    # solution_path = "data/generated_task_from_description/open_the_door_of_the_dishwasher_Dishwasher_12085_2024-03-19-01-27-53/task_open_the_door_of_the_dishwasher"
+
+    config_path, solution_path = get_folders_from_id(dishwasher_id)
 
     all_substeps_path = os.path.join(solution_path, "substeps.txt")
     with open(all_substeps_path, "r") as f:
