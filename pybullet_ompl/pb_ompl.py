@@ -14,9 +14,10 @@ import time
 from itertools import product
 import copy
 import numpy as np
+import random
 
 INTERPOLATE_NUM = 100
-DEFAULT_PLANNING_TIME = 5
+DEFAULT_PLANNING_TIME = 25
 
 class PbOMPLRobot():
     '''
@@ -26,10 +27,9 @@ class PbOMPLRobot():
     This parent class by default assumes that all joints are acutated and should be planned. If this is not your desired
     behaviour, please write your own inheritated class that overrides respective functionalities.
     '''
-    def __init__(self, id, control_joint_idx=None) -> None:
+    def __init__(self, id, control_joint_idx=None, object_id=None, env=None) -> None:
         # Public attributes
         self.id = id
-
         # prune fixed joints
         all_joint_num = p.getNumJoints(id)
         all_joint_idx = list(range(all_joint_num))
@@ -44,6 +44,16 @@ class PbOMPLRobot():
         self.joint_bounds = []
         self.get_joint_bounds()
 
+        self.object_id = object_id
+        self.env = env
+
+        if object_id is not None:
+            object_init_pos, object_init_orn = p.getBasePositionAndOrientation(object_id, physicsClientId=self.env.id)
+            robot_init_pos, robot_init_orn = env.robot.get_pos_orient(env.robot.right_end_effector)
+            world_to_robot = p.invertTransform(robot_init_pos, robot_init_orn)
+            object_in_robot = p.multiplyTransforms(world_to_robot[0], world_to_robot[1], object_init_pos, object_init_orn)
+            self.object_in_robot_pos, self.object_in_robot_orn = object_in_robot[0], object_in_robot[1]
+
     def _is_not_fixed(self, joint_idx):
         joint_info = p.getJointInfo(self.id, joint_idx)
         return joint_info[2] != p.JOINT_FIXED
@@ -57,9 +67,18 @@ class PbOMPLRobot():
             joint_info = p.getJointInfo(self.id, joint_id)
             low = joint_info[8] # low bounds
             high = joint_info[9] # high bounds
+
+            if i in self.joint_idx:
+                if i != 9 and i != 10:
+                    ori_range = high - low
+                    new_low = low + ori_range * 0.05
+                    new_high = high - ori_range * 0.05
+                    low = new_low
+                    high = new_high
+
             if low < high:
                 self.joint_bounds.append([low, high])
-        # print("Joint bounds: {}".format(self.joint_bounds))
+        print("Joint bounds: {}".format(self.joint_bounds))
         return self.joint_bounds
 
     def get_cur_state(self):
@@ -74,6 +93,10 @@ class PbOMPLRobot():
         '''
         self._set_joint_positions(self.joint_idx, state)
         self.state = state
+        if self.object_id is not None:
+            robot_target_pos, robot_target_orn = self.env.robot.get_pos_orient(self.env.robot.right_end_effector)
+            object_target_pos, objectr_target_orientation = p.multiplyTransforms(robot_target_pos, robot_target_orn, self.object_in_robot_pos, self.object_in_robot_orn)
+            p.resetBasePositionAndOrientation(self.object_id, object_target_pos, objectr_target_orientation, physicsClientId=self.env.id)
 
     def reset(self):
         '''
@@ -84,6 +107,10 @@ class PbOMPLRobot():
         state = [0] * self.num_dim
         self._set_joint_positions(self.joint_idx, state)
         self.state = state
+        if self.object_id is not None:
+            robot_target_pos, robot_target_orn = self.env.robot.get_pos_orient(self.env.robot.right_end_effector)
+            object_target_pos, objectr_target_orientation = p.multiplyTransforms(robot_target_pos, robot_target_orn, self.object_in_robot_pos, self.object_in_robot_orn)
+            p.resetBasePositionAndOrientation(self.object_id, object_target_pos, objectr_target_orientation, physicsClientId=self.env.id)
 
     def _set_joint_positions(self, joints, positions):
         for joint, value in zip(joints, positions):
@@ -113,11 +140,12 @@ class PbStateSpace(ob.RealVectorStateSpace):
         self.state_sampler = state_sampler
 
 class PbOMPL():
-    def __init__(self, robot, obstacles = [], allow_collision_links=[], allow_collision_robot_link_pairs=[]) -> None:
+    def __init__(self, robot, obstacles = [], allow_collision_links=[], allow_collision_robot_link_pairs=[], object_id=None) -> None:
         '''
         Args
             robot: A PbOMPLRobot instance.
             obstacles: list of obstacle ids. Optional.
+            object_id: id of the object holded by the robot. Optional.
         '''
         self.robot = robot
         self.robot_id = robot.id
@@ -143,8 +171,9 @@ class PbOMPL():
         # self.si.setStateValidityCheckingResolution(0.005)
         # self.collision_fn = pb_utils.get_collision_fn(self.robot_id, self.robot.joint_idx, self.obstacles, [], True, set(),
         #                                                 custom_limits={}, max_distance=0, allow_collision_links=[])
-
         self.set_obstacles(obstacles)
+        # notice this must be called after set_obstacles
+        self.set_object(object_id)
         self.set_planner("RRT") # RRT by default
 
     def set_obstacles(self, obstacles):
@@ -152,6 +181,12 @@ class PbOMPL():
 
         # update collision detection
         self.setup_collision_detection(self.robot, self.obstacles)
+    
+    def set_object(self, object_id):
+        self.object_id = object_id
+
+        if object_id is not None:
+            self.check_body_pairs = self.check_body_pairs + list(product([object_id], self.obstacles))
 
     def add_obstacles(self, obstacle_id):
         self.obstacles.append(obstacle_id)
@@ -207,6 +242,8 @@ class PbOMPL():
             self.planner = og.FMT(self.ss.getSpaceInformation())
         elif planner_name == "BITstar":
             self.planner = og.BITstar(self.ss.getSpaceInformation())
+        elif planner_name == "ABITstar":
+            self.planner = og.ABITstar(self.ss.getSpaceInformation())
         else:
             print("{} not recognized, please add it first".format(planner_name))
             raise NotImplementedError
@@ -214,7 +251,7 @@ class PbOMPL():
 
         self.ss.setPlanner(self.planner)
 
-    def plan_start_goal(self, start, goal, allowed_time = DEFAULT_PLANNING_TIME):
+    def plan_start_goal(self, start, goal, allowed_time = DEFAULT_PLANNING_TIME, smooth_path=False):
         '''
         plan a path to gaol from the given robot start state
         '''
@@ -240,9 +277,13 @@ class PbOMPL():
             print("Found solution: interpolating into {} segments".format(INTERPOLATE_NUM))
             # print the path to screen
             sol_path_geometric = self.ss.getSolutionPath()
+            if smooth_path:
+                sol_path_geometric = self.smooth_path(sol_path_geometric)
             sol_path_geometric.interpolate(INTERPOLATE_NUM)
             sol_path_states = sol_path_geometric.getStates()
             sol_path_list = [self.state_to_list(state) for state in sol_path_states]
+            # if smooth_path:
+            #     sol_path_list = self.smooth_python_path(sol_path_list)
             for sol_path in sol_path_list:
                 self.is_state_valid(sol_path)
             res = True
@@ -253,12 +294,96 @@ class PbOMPL():
         self.robot.set_state(orig_robot_state)
         return res, sol_path_list
 
-    def plan(self, goal, allowed_time = DEFAULT_PLANNING_TIME):
+    def plan(self, goal, allowed_time = DEFAULT_PLANNING_TIME, smooth_path=False):
         '''
         plan a path to gaol from current robot state
         '''
         start = self.robot.get_cur_state()
-        return self.plan_start_goal(start, goal, allowed_time=allowed_time)
+        res, path = self.plan_start_goal(start, goal, allowed_time=allowed_time, smooth_path=smooth_path)
+        return res, path
+    
+
+    def smooth_random_indices(self, N):
+        # First sample two indices without replacement
+        idx0 = random.randint(0, N - 1)
+        # This is a little trick to just not pick the same index twice
+        idx1 = random.randint(0, N - 2)
+        if idx1 >= idx0:
+            idx1 += 1
+        # Reset the variable names to be in order
+        idx0, idx1 = (idx0, idx1) if idx1 > idx0 else (idx1, idx0)
+        return idx0, idx1
+    
+    def smooth_steer_to(self, start, end):
+        """
+        I don't like the name steer_to but other people use it so whatever
+        """
+        # Check which joint has the largest movement
+        which_joint = np.argmax(np.abs(end - start))
+        num_steps = int(np.ceil(np.abs(end[which_joint] - start[which_joint]) / 0.1))
+        return np.linspace(start, end, num=num_steps)
+
+    def smooth_path(self, path):
+        '''
+        Smooth path using OMPL's path simplifier
+        '''
+        # create a path simplifier
+        ps = og.PathSimplifier(self.ss.getSpaceInformation())
+        # simplify the path
+        success1 = ps.partialShortcutPath(path)
+        success2 = ps.ropeShortcutPath(path)
+        success3 =  ps.smoothBSpline(path)
+        # if not success1 or not success2 or not success3:
+        #     print("Failed to simplify path")
+        return path
+
+    def smooth_python_path(self, path):
+        path = np.asarray(path)
+        indexed_path = list(zip(path, range(len(path))))
+        checked_pairs = set()
+
+        for _ in range(len(path)):
+            idx0, idx1 = self.smooth_random_indices(len(indexed_path))
+            start, idx_start = indexed_path[idx0]
+            end, idx_end = indexed_path[idx1]
+            # Skip if this pair was already checked
+            if (idx_start, idx_end) in checked_pairs:
+                continue
+
+            # The collision check resolution should never be smaller
+            # than the original path was, so use the indices from the original
+            # path to determine how many collision checks to do
+            shortcut_path = self.smooth_steer_to(start, end)
+            good_path = True
+            # Check the shortcut
+            for q in shortcut_path:
+                if not self.is_state_valid(q):
+                    good_path = False
+                    break
+            if good_path:
+                indexed_path = indexed_path[: idx0 + 1] + indexed_path[idx1:]
+
+            # Add the checked pair into the record to avoid duplicates
+            checked_pairs.add((idx_start, idx_end))
+
+        # TODO move this into a test suite instead of a runtime check
+        assert np.allclose(path[0], indexed_path[0][0])
+        assert np.allclose(path[-1], indexed_path[-1][0])
+        path = [p[0] for p in indexed_path]
+
+        return path
+    
+    # def smooth_and_interpolate_path(self, path, timesteps=INTERPOLATE_NUM):
+    #     curve = smooth_cubic(
+    #         path,
+    #         lambda q: not self._not_in_collision(q),
+    #         np.radians(3) * np.ones(7),
+    #         self.robot_type.VELOCITY_LIMIT,
+    #         self.robot_type.ACCELERATION_LIMIT,
+    #     )
+    #     ts = (curve.x[-1] - curve.x[0]) / (timesteps - 1)
+    #     return [curve(ts * i) for i in range(timesteps)]
+
 
     def execute(self, path, dynamics=False):
         '''
@@ -293,3 +418,4 @@ class PbOMPL():
 
     def state_to_list(self, state):
         return [state[i] for i in range(self.robot.num_dim)]
+    

@@ -27,7 +27,9 @@ class VideoRecorder(object):
             frame = env.render()
             self.frames.append(frame)
 
-    def save(self, file_name):
-        if self.enabled:
+    def save(self, file_name, path_from_work_dir=True):
+        if self.enabled and path_from_work_dir:
             path = os.path.join(self.save_dir, file_name)
             imageio.mimsave(path, self.frames, fps=self.fps)
+        elif self.enabled:
+            imageio.mimsave(file_name, self.frames, fps=self.fps)

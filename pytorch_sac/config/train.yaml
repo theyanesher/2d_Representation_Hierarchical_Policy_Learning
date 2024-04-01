@@ -6,13 +6,13 @@ env: cheetah_run
 # this needs to be specified manually
 experiment: test_exp
 
-num_train_steps: 1e6
+num_train_steps: 120000
 replay_buffer_capacity: ${num_train_steps}
 
-num_seed_steps: 5000
+num_seed_steps: 20000
 
-eval_frequency: 25000
-num_eval_episodes: 10
+eval_frequency: 10000
+num_eval_episodes: 2
 
 device: cuda
 
@@ -27,9 +27,16 @@ num_env: 2
 
 seed: 1
 
+task_config_path: None
+solution_path: None
+substep: None
+final_state_path: None
+rl_save_path: None
+time_limit: 
+
 
 # hydra configuration
 hydra:
     name: ${env}
     run:
-        dir: ../
+        dir: ./

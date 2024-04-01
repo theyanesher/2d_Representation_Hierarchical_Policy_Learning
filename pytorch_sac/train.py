@@ -15,6 +15,8 @@ from logger import Logger
 from replay_buffer import ReplayBuffer
 import utils, datetime
 from multiprocessing import Pool
+from manipulation.utils import save_env as robogen_save_env
+from pathlib import Path
 
 # import dmc2gym
 import hydra
@@ -37,22 +39,14 @@ def make_env(cfg):
     
     from manipulation.utils import build_up_env
     env, safe_config = build_up_env(
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
-        "open_the_microwave_door", 
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl",
-        # "data/tmp-grasp-door-rl-game-ppo-final.pkl",
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-11-19-46-50/grasp_the_microwave_door_primitive/states/state_171.pkl", 
-
-        # working grasping primitive
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-14-02-37-04/grasp_the_microwave_door_primitive/states/state_168.pkl",
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-14-02-59-12/grasp_the_microwave_door_primitive/states/state_169.pkl",
-        render=False, 
-        randomize=False, 
-        obj_id=0
+        cfg.task_config_path,
+        cfg.solution_path,
+        cfg.substep,
+        cfg.final_state_path,
+        render=False,
+        randomize=False,
+        obj_id=0, 
     )
-    
     assert env.action_space.low.min() >= -1
     assert env.action_space.high.max() <= 1
 
@@ -91,8 +85,19 @@ class Workspace(object):
                                           self.device)
 
         self.video_recorder = VideoRecorder(
-            log_dir if cfg.save_video else None)
+            self.work_dir if cfg.save_video else None)
         self.step = 0
+
+        self.time_limit = cfg.time_limit
+        if cfg.rl_save_path is not None:
+            self.save_checkpoint_path = os.path.join(cfg.rl_save_path, 'checkpoints')
+            self.save_states_path = os.path.join(cfg.rl_save_path, 'states')
+        if not os.path.exists(self.save_checkpoint_path):
+            os.makedirs(self.save_checkpoint_path)
+        if not os.path.exists(self.save_states_path):
+            os.makedirs(self.save_states_path)
+
+        self.highest_reward = None
 
     def evaluate(self):
         average_episode_reward = 0
@@ -116,10 +121,31 @@ class Workspace(object):
                         self.step)
         self.logger.dump(self.step)
 
+        if (self.highest_reward is None or average_episode_reward > self.highest_reward) and self.cfg.rl_save_path is not None:
+            self.highest_reward = average_episode_reward
+            self.save_snapshot()
+            print(f'New best model saved with reward {average_episode_reward}')
+
+    def save_snapshot(self):
+        ckpt_path = Path(self.save_checkpoint_path) / "pytorch_sac.pt"
+        keys_to_save = ['agent', ]
+        payload = {k: self.__dict__[k] for k in keys_to_save}
+        with ckpt_path.open('wb') as f:
+            torch.save(payload, f)
+
+    def load_snapshot(self):
+        ckpt_path = Path(self.save_checkpoint_path) / "pytorch_sac.pt"
+        with ckpt_path.open('rb') as f:
+            payload = torch.load(f)
+        for k, v in payload.items():
+            self.__dict__[k] = v
+
     def run(self):
         episode, episode_reward, done = 0, 0, True
+        begin_time = time.time()
         start_time = time.time()
         while self.step < self.cfg.num_train_steps:
+            
             if done:
                 if self.step > 0:
                     self.logger.log('train/duration',
@@ -129,9 +155,14 @@ class Workspace(object):
                         self.step, save=(self.step > self.cfg.num_seed_steps))
 
                 # evaluate agent periodically
-                if self.step > 0 and self.step % self.cfg.eval_frequency == 0:
+                if self.step > self.cfg.num_seed_steps and self.step % self.cfg.eval_frequency == 0:
                     self.logger.log('eval/episode', episode, self.step)
                     self.evaluate()
+                    if (self.time_limit is not None) and (time.time() - begin_time > self.time_limit):
+                        self.save_states_video()
+                        print("Time limit reached")
+                        return
+                        
 
                 self.logger.log('train/episode_reward', episode_reward,
                                 self.step)
@@ -169,6 +200,29 @@ class Workspace(object):
             obs = next_obs
             episode_step += 1
             self.step += 1
+        
+    def save_states_video(self):
+        self.load_snapshot()
+        it = 0
+        obs = self.env.reset()
+        self.agent.reset()
+        done = False
+        self.video_recorder.init(enabled=True)
+        episode_reward = 0
+        while not done:
+            robogen_save_env(self.env, os.path.join(self.save_states_path, f'state_{it}.pkl'))
+            with utils.eval_mode(self.agent):
+                action = self.agent.act(obs, sample=False)
+            obs, reward, done, _ = self.env.step(action)
+            episode_reward += reward
+            self.video_recorder.record(self.env)
+            it += 1
+        self.video_recorder.save(f'{self.save_checkpoint_path}/best_sac.mp4', path_from_work_dir=False)
+        print("save video to", f'{self.save_checkpoint_path}/best_sac.mp4')
+
+        # save reward to a file
+        with open(os.path.join(self.save_checkpoint_path, "best_sac_score.txt"), "w") as f:
+            f.write(str(episode_reward))
 
 
 @hydra.main(config_path='config/train.yaml', strict=True)
