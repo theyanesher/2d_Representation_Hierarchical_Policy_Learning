@@ -419,7 +419,7 @@ class SimpleEnv(gym.Env):
             
             if not self.mobile:
                 # set robot to be on the table
-                robot_base_pos_table = np.array([0, 0.5])
+                robot_base_pos_table = np.array([0.1, 0.5])
                 robot_base_pos_world = np.array([0, 0, 0.])
                 x_range = self.table_bbox_max[0] - self.table_bbox_min[0]
                 y_range = self.table_bbox_max[1] - self.table_bbox_min[1]
@@ -740,7 +740,8 @@ class SimpleEnv(gym.Env):
                     joint_angle = float(joint_angle)
                     # joint_angle = min(joint_angle, 0.7)
                     # joint_angle = max(joint_angle, 0.06)
-                    joint_angle = joint_limit_low + joint_angle * (joint_limit_high - joint_limit_low)
+                    # joint_angle = joint_limit_low + joint_angle * (joint_limit_high - joint_limit_low)
+                    joint_angle = joint_limit_low 
                 else:
                     joint_angle = self.np_random.uniform(joint_limit_low, joint_limit_high)
                 p.resetJointState(obj_id, joint_idx, joint_angle, physicsClientId=self.id)
@@ -785,6 +786,146 @@ class SimpleEnv(gym.Env):
             return img, depth
         else:
             return img
+        
+    def render_with_segmask(self, name=None):
+        name = name.lower()
+        obj_id = self.urdf_ids[name]
+        min_aabb, max_aabb = self.get_aabb(obj_id)
+        center = (min_aabb + max_aabb) / 2
+        camera_target = center
+        camera_eye = center + np.array([0.2, 0.0, 0.3])
+        near = 0.01
+        far = 1000
+        view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1], physicsClientId=self.id)
+        projection_matrix = p.computeProjectionMatrixFOV(60, self.camera_width / self.camera_height, near, far, physicsClientId=self.id)
+
+
+        w, h, img, depth, segmask = p.getCameraImage(self.camera_width, self.camera_height, 
+            view_matrix, projection_matrix, 
+            renderer=p.ER_BULLET_HARDWARE_OPENGL, 
+            physicsClientId=self.id)
+        img = np.reshape(img, (h, w, 4))[:, :, :3]
+        depth = np.reshape(depth, (h, w))
+
+        # extract near and far from projection matrix
+        depth = near * far / (far - (far - near) * depth)
+        
+        # extract the object's mask by matching the object's id
+        mask = (segmask == obj_id).astype(np.uint8)
+
+        # get camera matrix K
+        camera_K = np.array(projection_matrix).reshape(4, 4).T
+        camera_K = camera_K[:3, :3]
+        camera_K = camera_K / camera_K[2, 2]
+
+        return img, depth, camera_K, mask
+    
+    def take_direct_action(self, actions, gains=None, forces=None):
+        if gains is None:
+            gains = [a.motor_gains for a in self.agents]
+        elif type(gains) not in (list, tuple): 
+            gains = [gains]*len(self.agents)
+        if forces is None:
+            forces = [a.motor_forces for a in self.agents]
+        elif type(forces) not in (list, tuple):
+            forces = [forces]*len(self.agents)
+
+        action_index = 0
+        for i, agent in enumerate(self.agents):
+            agent_action_len = self.base_action_space.shape[0] 
+            action = np.copy(actions[action_index:action_index+agent_action_len])
+            action_index += agent_action_len
+
+            translation = action[:3]
+            rotation = action[3:6]
+            suction = action[6]
+            # for those already grasped by motion planning
+            # suction = -1
+            p.addUserDebugPoints([translation], [[1, 0, 0]], 15, physicsClientId=self.id)
+
+            joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
+            # agent_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+            ik_indices = [_ for _ in range(len(agent.right_arm_ik_indices))]
+            
+            pos = translation
+            orient = p.getQuaternionFromEuler(rotation)
+            agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, 
+                                          residualThreshold=5e-5, return_full_state=True)
+
+            # ==============================================================
+            # =============== Trying to deal with IK fails =================
+            # ==============================================================
+
+            # # check if ik finds a solution
+            # state = save_env(self)
+            # joint_idx = [j for j in list(range(p.getNumJoints(self.robot.body))) if p.getJointInfo(self.robot.body, j)[2]!=p.JOINT_FIXED]
+            # for joint, value in zip(joint_idx, agent_joint_angles):
+            #     p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
+            # # input("Press Enter to continue...")
+            # temp_pos, temp_orient = agent.get_pos_orient(agent.right_end_effector)
+            
+            # ik_success = True
+            # if np.any(agent_joint_angles[self.robot.right_arm_joint_indices] < self.robot.ik_lower_limits[self.robot.right_arm_joint_indices]) \
+            #     or np.any(agent_joint_angles[self.robot.right_arm_joint_indices] > self.robot.ik_upper_limits[self.robot.right_arm_joint_indices]):
+            #     print("IK out of joint limits")
+            #     ik_success = False
+
+            
+            # if np.linalg.norm(temp_pos - pos) > 0.01 or ik_success==False:
+            #     print("IK failed in stage one")
+            #     it = 1
+            #     while True:
+            #         ik_start_pose = np.random.uniform(self.robot.ik_lower_limits, self.robot.ik_upper_limits)
+            #         for joint, value in zip(joint_idx, ik_start_pose):
+            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
+            #         agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=5e-5, return_full_state=True)
+            #         for joint, value in zip(joint_idx, agent_joint_angles):
+            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
+            #         temp_pos, temp_orient = agent.get_pos_orient(joint)
+            #         if np.linalg.norm(temp_pos - pos) < 0.01:
+            #             ik_success = True
+            #             break
+            #         it += 1
+            #         if it > 100:
+            #             ik_success = False
+            #             print("IK failed in stage two")
+            #             break
+                    
+            # load_env(self, state=state)
+            # if ik_success == False:
+            #     agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=5e-5, return_full_state=True)
+            
+            # ==============================================================
+            # =========== but it is not working well for now ===============
+            # ==============================================================
+            
+            agent_joint_angles = agent_joint_angles[ik_indices]
+            it = 1
+            while True:
+                agent.control(agent.controllable_joint_indices, agent_joint_angles)
+                # p.setJointMotorControlArray(agent.body, jointIndices=agent.controllable_joint_indices, controlMode=p.POSITION_CONTROL, targetPositions=agent_joint_angles, 
+                #                         physicsClientId=self.id)
+                if it % 20 == 0:
+                    # print("controlling: ", it)
+                    # pos, orient = agent.get_pos_orient(joint)
+                    # orient = p.getEulerFromQuaternion(orient)
+                    # if np.linalg.norm(pos - translation) < 0.0001 and np.linalg.norm(orient - rotation) < 0.0001:
+                    #     break
+                    cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+                    if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 0.0001:
+                        break
+
+                if it > 1000:
+                    break
+
+                # gripper
+                if not self.use_suction:
+                    agent.set_gripper_open_position(agent.right_gripper_indices, [suction, suction], set_instantly=False)
+                
+                it += 1
+                p.stepSimulation(physicsClientId=self.id) 
+                
+        # self.enforce_joint_limits()
 
     def take_step(self, actions, gains=None, forces=None):
         if gains is None:

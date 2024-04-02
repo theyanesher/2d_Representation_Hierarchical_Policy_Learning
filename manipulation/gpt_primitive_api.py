@@ -4,6 +4,8 @@ import numpy as np
 import open3d as o3d
 from manipulation.motion_planning_utils import motion_planning
 from manipulation.grasping_utils import get_pc_and_normal, align_gripper_z_with_normal, align_gripper_x_with_normal
+from manipulation.gpt_reward_api import get_link_pc, get_bounding_box, get_link_id_from_name, get_groundtruth_link_pc
+from manipulation.utils import save_env, load_env
 from manipulation.gpt_reward_api import (
     get_link_pc, get_bounding_box, get_link_id_from_name, get_handle_pos, get_link_pose,
 )
@@ -80,9 +82,6 @@ def grasp_object(simulator, object_name):
     return rgbs, states
 
 def grasp_object_link(simulator, object_name, link_name):
-    return approach_object_link(simulator, object_name, link_name)
-
-    # NOTE: old code
     # ori_state = save_env(simulator, None)
     # p.stepSimulation()
     # object_name = object_name.lower()
@@ -101,7 +100,7 @@ def grasp_object_link(simulator, object_name, link_name):
     #             states = []
     #             for t in range(10):
     #                 p.stepSimulation()
-    #                 rgbs.append(simulator.render())
+    #                 rgbs.append(simulator.render()[0])
     #                 state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t))
     #                 save_env(simulator, state_save_path)
     #                 states.append(state_save_path)
@@ -114,7 +113,7 @@ def grasp_object_link(simulator, object_name, link_name):
     #     # simulator.activate_suction()
     #     for t in range(10):
     #         p.stepSimulation()
-    #         rgbs.append(simulator.render())
+    #         rgbs.append(simulator.render()[0])
     #         state_save_path = os.path.join(save_path, "states", "state_{}.pkl".format(t + base_t))
     #         save_env(simulator, state_save_path)
     #         states.append(state_save_path)
@@ -123,6 +122,7 @@ def grasp_object_link(simulator, object_name, link_name):
     #     load_env(simulator, state=ori_state)
 
     # return rgbs, states
+    return approach_object_link(simulator, object_name, link_name)
 
 def approach_object(simulator, object_name, dynamics=False):
     save_path = get_save_path(simulator)
@@ -240,13 +240,13 @@ def approach_object(simulator, object_name, dynamics=False):
                 return rgbs, state_files
 
 def approach_object_link(simulator, object_name, link_name, dynamics=False, grasp_handle=True, 
-                         execute_opening_primitive=True):
+                         execute_opening_primitive=False):
     save_path = get_save_path(simulator)
     ori_simulator_state = save_env(simulator, None)
-
-    it = 0
     object_name = object_name.lower()
-    link_pc = get_link_pc(simulator, object_name, link_name) 
+    # link_pc = get_groundtruth_link_pc(simulator, object_name, link_name) 
+    link_name = link_name.lower()
+    link_pc = get_link_pc(simulator, object_name, link_name)
     object_pc = link_pc
     pcd = o3d.geometry.PointCloud() 
     pcd.points = o3d.utility.Vector3dVector(object_pc)
@@ -258,19 +258,32 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
     rgb_images = []
     if grasp_handle is not None:
         all_handle_pos, handle_joint_id = get_handle_pos(simulator, object_name, return_median=False)
-        median_point = np.median(all_handle_pos, axis=0, keepdims=True)
-        pc_to_handle_distance = scipy.spatial.distance.cdist(object_pc, all_handle_pos).min(axis=1)
+        flattened_handle_pos = np.concatenate(all_handle_pos, axis=0).reshape(-1, 3)
+        median_points = []
+        for i in range(len(all_handle_pos)):
+            median_points.append(np.median(all_handle_pos[i], axis=0))
+        median_points = np.array(median_points)
+        median_points = median_points.reshape(-1, 3)
+        all_pc_to_handle_distances = scipy.spatial.distance.cdist(object_pc, flattened_handle_pos)
+        pc_to_handle_distance = all_pc_to_handle_distances.min(axis=1)
+
+        # deal with the handle_joint_id
+        transfered_handle_joint_id = []
+        for i in range(len(all_handle_pos)):
+            for j in range(len(all_handle_pos[i])):
+                transfered_handle_joint_id.append(handle_joint_id[i])
+        pc_to_handle_distance_idx_handle_pts = np.argmin(all_pc_to_handle_distances, axis=1)
+        handle_joint_id_list = [transfered_handle_joint_id[i] for i in pc_to_handle_distance_idx_handle_pts]
+
         threshold = 0.01
         handle_pc = object_pc[pc_to_handle_distance < threshold]
-        debug_idx_1 = p.addUserDebugPoints(handle_pc, [[0, 1, 0] for _ in range(len(handle_pc))], 10, 0)
-        import pdb; pdb.set_trace()
-        pc_to_median_distance = np.linalg.norm(handle_pc - median_point, axis=1)
+        handle_joint_id_list = np.array(handle_joint_id_list)[pc_to_handle_distance < threshold]
+        pc_to_median_distance = scipy.spatial.distance.cdist(handle_pc, median_points).min(axis=1)
+
         sorted_idx = np.argsort(pc_to_median_distance)
         available_pc = [1 for _ in range(len(handle_pc))]
-        
+
     for it in range(MOTION_PLANNING_TRY_TIMES):
-        # import pdb; pdb.set_trace()
-        
         object_name = object_name.lower()
         
         num_working_configs = np.sum(np.array(handle_grasp_scores) > 0)
@@ -286,6 +299,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 continue
 
             target_pos = handle_pc[sorted_idx[it]]
+            handle_joint_id = handle_joint_id_list[sorted_idx[it]]
             
             # we omit all other points that are very close to the current grasping points to accelerate the search
             threshold = 0.01
@@ -324,7 +338,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
             obstacles = [simulator.urdf_ids[x] for x in all_objects]
             allow_collision_links = []
             res, path = motion_planning(
-                simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path)
+                simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path, smooth_path=True)
                 
             p.removeUserDebugItem(debug_id)
 
@@ -347,19 +361,20 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     rgbs.append(rgb)
                     state = save_env(simulator)
                     intermediate_states.append(state)
-                
-                
+
                 # first just open the gripper
                 steps = 20
                 for t in range(steps):
                     new_joint_angle = (t + 1) / steps * 0.04
+                    new_joint_angle = np.clip(new_joint_angle, 0, 0.04)
                     agent = simulator.robot
                     agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
-                    p.stepSimulation()
+                    p.stepSimulation(physicsClientId=simulator.id)
                     state = save_env(simulator)
                     intermediate_states.append(state)
                     rgb = simulator.render()
                     rgbs.append(rgb)
+
                                         
                 # reach till contact is made, and get the number of handle points between the two fingers
                 steps = 30
@@ -404,8 +419,6 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 # get a score for this grasping pose, which is the number of handle points between the two fingers
                 cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
                 score = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_pc)
-                # import pdb; pdb.set_trace()
-                print("points within gripper: ", score)
                
                 # close gripper
                 close_steps = 40
@@ -426,14 +439,12 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
 
                     if points_left_finger:
-                        # collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
-                        collision_points_b = [points_left_finger[_][5] for _ in range(len(points_left_finger))]
+                        collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
                         dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
                         if np.sum(dist_collision_to_handle < 0.01) > 0:
                             left_collision = True
                     if points_right_finger:
-                        # collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
-                        collision_points_b = [points_right_finger[_][5] for _ in range(len(points_right_finger))]
+                        collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
                         dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
                         if np.sum(dist_collision_to_handle < 0.01) > 0:
                             right_collision = True
@@ -446,6 +457,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 
                 handle_grasp_scores.append(score)    
                 print("iteration {} score {}".format(it, score))
+
                    
                 # let's not test this for now
                 # pull out following the rotation axis
@@ -488,12 +500,16 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                         state = save_env(simulator)
                         intermediate_states.append(state)
                         
-                    env_states.append(intermediate_states)
-                    rgb_images.append(rgbs)
-                 
+                env_states.append(intermediate_states)
+                rgb_images.append(rgbs)
+            
             # no need to try the other normal direction
             break
-                        
+
+    if type(handle_joint_id) == list:
+        return None, None
+
+
     if len(handle_grasp_scores) > 0 and np.max(handle_grasp_scores) > 0:
         best_idx = np.argmax(handle_grasp_scores)
         best_score = handle_grasp_scores[best_idx]
@@ -511,20 +527,20 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
         # get the opened angle of the last state
         load_env(simulator, state=env_states[best_idx][-1])
         joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
-        joint_limit_low, joint_limit_high = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
+        joint_limit_low, joint_limit_high = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[8:10]
         with open(os.path.join(save_path, "opened_angle.txt"), "w") as f:
             f.write(str(joint_angle) + "\n")
             f.write(str(joint_limit_low) + "\n")
             f.write(str(joint_limit_high) + "\n")
         simulator.reset(ori_simulator_state)
                 
-        # p.removeUserDebugItem(debug_id)
         return rgb_images[best_idx], state_files
     
     with open(os.path.join(save_path, "best_score.txt"), "w") as f:
         f.write(str(0))
-            
-    joint_limit_low, joint_limit_high = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
+    
+    print("handle joint id: ", handle_joint_id)
+    joint_limit_low, joint_limit_high = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[8:10]
     with open(os.path.join(save_path, "opened_angle.txt"), "w") as f:
         f.write(str(0) + "\n")
         f.write(str(joint_limit_low) + "\n")
@@ -534,10 +550,9 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
     save_env(simulator, os.path.join(save_path,  "state_{}.pkl".format(0)))
     rgbs = [simulator.render()]
     state_files = [os.path.join(save_path,  "state_{}.pkl".format(0))]
-    # p.removeUserDebugItem(debug_id)
     return rgbs, state_files
-            
-            
+
+
 def get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, pc_points):
     
     cur_pos, cur_orient = cur_eef_pos, cur_eef_orient

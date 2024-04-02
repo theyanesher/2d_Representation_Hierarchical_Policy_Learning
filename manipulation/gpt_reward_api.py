@@ -1,7 +1,7 @@
 import pybullet as p
 import numpy as np
 from manipulation.utils import get_pc
-from manipulation.grasping_utils import get_pc_and_normal
+from manipulation.grasping_utils import get_pc_and_normal, get_full_pc_aroung_obj
 from manipulation.utils import take_round_images, rotate_point_around_axis, find_nearest_point_on_line, load_obj
 from gpt_4.query import query
 import os
@@ -25,7 +25,7 @@ def get_initial_pos_orient(simulator, object_name):
 ### success check functions
 def gripper_close_to_object_link(simulator, object_name, link_name):
     link_pc = get_link_pc(simulator, object_name, link_name)
-    gripper_pos, _ = get_eef_pose(simulator)
+    gripper_pos, _ = get_eef_pos(simulator)
     distance = np.linalg.norm(link_pc.reshape(-1, 3) - gripper_pos.reshape(1, 3), axis=1)
     if np.min(distance) < 0.06:
         return True
@@ -33,7 +33,7 @@ def gripper_close_to_object_link(simulator, object_name, link_name):
 
 def gripper_close_to_object(simulator, object_name):
     object_pc, _ = get_pc_and_normal(simulator, object_name)
-    gripper_pos, _ = get_eef_pose(simulator)
+    gripper_pos, _ = get_eef_pos(simulator)
     distance = np.linalg.norm(object_pc.reshape(-1, 3) - gripper_pos.reshape(1, 3), axis=1)
     if np.min(distance) < 0.06:
         return True
@@ -97,6 +97,13 @@ def get_position(simulator, object_name):
     object_id = simulator.urdf_ids[object_name]
     return np.array(p.getBasePositionAndOrientation(object_id, physicsClientId=simulator.id)[0])
 
+def get_mc_position(simulator, object_name):
+    object_name = object_name.lower()
+    object_id = simulator.urdf_ids[object_name]
+    bounding_box_low, bounding_box_high = simulator.get_aabb(object_id)
+    return (bounding_box_low + bounding_box_high) / 2
+
+
 def get_velocity(simulator, object_name):
     object_name = object_name.lower()
     object_id = simulator.urdf_ids[object_name]
@@ -107,7 +114,7 @@ def get_orientation(simulator, object_name):
     object_id = simulator.urdf_ids[object_name]
     return np.array(p.getEulerFromQuaternion(p.getBasePositionAndOrientation(object_id, physicsClientId=simulator.id)[1]))
 
-def get_eef_pose(simulator):
+def get_eef_pos(simulator):
     robot_eef_pos, robot_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
     return np.array(robot_eef_pos).flatten(), np.array(p.getEulerFromQuaternion(robot_eef_orient)).flatten()
 
@@ -156,6 +163,7 @@ def get_link_state(simulator, object_name, custom_link_name):
     link_id = get_link_id_from_name(simulator, object_name, urdf_link_name)
     link_pos, link_orient = p.getLinkState(object_id, link_id, physicsClientId=simulator.id)[:2]
     return np.array(link_pos)
+    
 
 def get_link_pose(simulator, object_name, custom_link_name):
     object_name = object_name.lower()
@@ -164,7 +172,6 @@ def get_link_pose(simulator, object_name, custom_link_name):
     link_id = get_link_id_from_name(simulator, object_name, urdf_link_name)
     link_pos, link_orient = p.getLinkState(object_id, link_id, physicsClientId=simulator.id)[:2]
     return np.array(link_pos), np.array(link_orient)
-    
 
 def get_link_pc(simulator, object_name, custom_link_name):
     object_name = object_name.lower()
@@ -172,6 +179,12 @@ def get_link_pc(simulator, object_name, custom_link_name):
     link_com, all_pc = render_to_get_link_com(simulator, object_name, urdf_link_name)
 
     return all_pc
+
+def get_groundtruth_link_pc(simulator, object_name, custom_link_name):
+    object_name = object_name.lower()
+    urdf_link_name = custom_link_name
+    link_pc = render_to_get_groundtruth_link_com(simulator, object_name, urdf_link_name)
+    return link_pc
 
 def set_joint_value(simulator, object_name, joint_name, joint_value="max"):
     object_name = object_name.lower()
@@ -182,7 +195,6 @@ def set_joint_value(simulator, object_name, joint_name, joint_value="max"):
     min_joint_val = 0
     for j_id in range(num_joints):
         joint_info = p.getJointInfo(object_id, j_id, physicsClientId=simulator.id)
-        print(joint_info[1])
         if joint_info[1].decode("utf-8") == joint_name:
             joint_index = j_id
             max_joint_val = joint_info[9]
@@ -299,6 +311,57 @@ def render_to_get_link_com(simulator, object_name, urdf_link_name):
 
     return link_com, all_pc
 
+def render_to_get_groundtruth_link_com(simulator, object_name, urdf_link_name):
+    ### make all other objects invisiable
+    prev_rgbas = []
+    object_id = simulator.urdf_ids[object_name]
+    for obj_name, obj_id in simulator.urdf_ids.items():
+        if obj_name != object_name:
+            num_links = p.getNumJoints(obj_id, physicsClientId=simulator.id)
+            for link_idx in range(-1, num_links):
+                prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=simulator.id)[0][14:18]
+                prev_rgbas.append(prev_rgba)
+                p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=simulator.id)
+
+    ### center camera to the target object
+    env_prev_view_matrix, env_prev_projection_matrix = simulator.view_matrix, simulator.projection_matrix
+    camera_width = 640
+    camera_height = 480
+    obj_id = object_id
+    min_aabb, max_aabb = simulator.get_aabb(obj_id)
+    camera_target = (max_aabb + min_aabb) / 2
+    distance = np.linalg.norm(max_aabb - min_aabb) * 1.2
+    elevation = 30
+
+
+    ### make only the target link visible
+    link_id = get_link_id_from_name(simulator, object_name, urdf_link_name)
+    
+    for joint_idx in range(p.getNumJoints(object_id, physicsClientId=simulator.id)):
+        if joint_idx != link_id:
+            prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=simulator.id)[0][14:18]
+            prev_rgbas.append(prev_rgba)
+            p.changeVisualShape(object_id, joint_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=simulator.id)
+
+    ### get a round of images of the target object
+    pc = get_full_pc_aroung_obj(simulator, object_name, distance=distance, elevation=elevation, camera_height=camera_height, camera_width=camera_width, ignore_pc_below_table=False)
+    link_pc = pc
+
+    ### reset the object and link rgba to previous values, and the simulator view matrix and projection matrix
+    cnt = 0
+    object_id = simulator.urdf_ids[object_name]
+    for obj_name, obj_id in simulator.urdf_ids.items():
+        if obj_name != object_name:
+            num_links = p.getNumJoints(obj_id, physicsClientId=simulator.id)
+            for link_idx in range(-1, num_links):
+                p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=simulator.id)
+                cnt += 1
+
+    simulator.view_matrix, simulator.projection_matrix = env_prev_view_matrix, env_prev_projection_matrix
+
+    return link_pc
+
+
 
 def get_link_id_from_name(simulator, object_name, link_name):
     object_id = simulator.urdf_ids[object_name]
@@ -325,6 +388,13 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
 
     return joint_index
 
+def bbox_in_bbox(bbox_a_min, bbox_a_max, bbox_b_min, bbox_b_max):
+    # check if bbox_a is in bbox_b
+    if (bbox_a_min[0] >= bbox_b_min[0] and bbox_a_min[1] >= bbox_b_min[1] and bbox_a_min[2] >= bbox_b_min[2] and \
+        bbox_a_max[0] <= bbox_b_max[0] and bbox_a_max[1] <= bbox_b_max[1] and bbox_a_max[2] <= bbox_b_max[2]):
+        return True
+    return False
+
 def get_gripper_pos(simulator):
     left_finger_pos = np.array(p.getLinkState(simulator.robot.body, simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)[0])
     right_finger_pos = np.array(p.getLinkState(simulator.robot.body, simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)[0])
@@ -333,8 +403,10 @@ def get_gripper_pos(simulator):
 def get_gripper_joint(simulator):
     return p.getJointState(simulator.robot.body, simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)[0]
 
+
 # NOTE: hard-coded for now, should make it more general in the future
 def get_handle_pos(simulator, obj_name, return_median=True):
+    obj_name = obj_name.lower()
     scaling = simulator.simulator_sizes[obj_name]
 
     # get the parent frame of the revolute joint.
@@ -353,56 +425,67 @@ def get_handle_pos(simulator, obj_name, return_median=True):
     # and the id is the joint name. The joint name is "joint_{}".format(id)
     # from joint name we can get joint id via get_joint_id_from_name(simulator, obj_name, joint_name)
     # after we get the joint id, the link id can be obtained via pybullet.getJointInfo(obj_id, joint_id)
-    
+
+    # return a list of handle points in world frame
+    ret_handle_pt_list = []
+    ret_joint_idx_list = []
+
     joint_name = None
     parent_joint_name = None
     for joint_info in mobility_info:
-        # import pdb; pdb.set_trace()
         all_parts = [part["name"] for part in joint_info["parts"]]
+        all_ids = [part["id"] for part in joint_info["parts"]]
         if "handle" in all_parts:
+            index = all_parts.index("handle")
+            handle_id = all_ids[index]
             joint_name = "joint_{}".format(joint_info["id"])
-            parent_joint_name = "joint_{0}".format(joint_info["parent"])
+            parent_joint_name = "joint_{}".format(joint_info["parent"])
             joint_data = joint_info['jointData']
             axis_body = np.array(joint_data["axis"]["origin"]) * scaling
             axis_dir_body = np.array(joint_data["axis"]["direction"])
             joint_limit = joint_data["limit"]
             if joint_limit['a'] > joint_limit['b']:
                 axis_dir_body = -axis_dir_body
-            break
-        
-    joint_idx = get_joint_id_from_name(simulator, obj_name, joint_name) # this is the joint id in pybullet
-    parent_joint_idx = get_joint_id_from_name(simulator, obj_name, parent_joint_name) # this is the joint id in pybullet
-    
-    parent_link_state = p.getLinkState(obj_id, parent_joint_idx) # NOTE: the handle link id should be dependent on the object urdf.
-    link_urdf_world_pos, link_urdf_world_orn = parent_link_state[0], parent_link_state[1]
-    # this is the transformation from the parent frame to the world frame. 
-    T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
-    T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
-    T_body_to_world[:3, 3] = link_urdf_world_pos
-    
-    axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
-    axis_pt2_body = np.array(axis_body) + axis_dir_body
-    axis_end_world = T_body_to_world[:3, :3] @ axis_pt2_body + T_body_to_world[:3, 3]
-    axis_dir_world = axis_end_world - axis_world
 
-    # get the handle points in world frame
-    handle_obj_path = f"{parent_dir}/parts_render/handle.obj" # NOTE: this path should be dependent on the object. 
-    handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
-    handle_pts = handle_pts * scaling
-    # transform this to the world frame using the object *base*'s position and orientation
-    handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
-    if return_median:
-        handle_point_median = np.median(handle_points_world, axis=1)
-    else:
-        handle_point_median = handle_points_world.T
+            joint_idx = get_joint_id_from_name(simulator, obj_name, joint_name) # this is the joint id in pybullet
+            parent_joint_idx = get_joint_id_from_name(simulator, obj_name, parent_joint_name) # this is the joint id in pybullet
+            
+            parent_link_state = p.getLinkState(obj_id, parent_joint_idx, physicsClientId=simulator.id) # NOTE: the handle link id should be dependent on the object urdf.
+            link_urdf_world_pos, link_urdf_world_orn = parent_link_state[0], parent_link_state[1]
+            # this is the transformation from the parent frame to the world frame. 
+            T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
+            T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
+            T_body_to_world[:3, 3] = link_urdf_world_pos
+            
+            axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
+            axis_pt2_body = np.array(axis_body) + axis_dir_body
+            axis_end_world = T_body_to_world[:3, :3] @ axis_pt2_body + T_body_to_world[:3, 3]
+            axis_dir_world = axis_end_world - axis_world
 
-    # find the projection of the handle point to the rotation axis, in world frame. 
-    project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
-    # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
+            # get the handle points in world frame
+            handle_obj_path = f"{parent_dir}/parts_render/{handle_id}handle.obj" # NOTE: this path should be dependent on the object. 
+            handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
+            handle_pts = handle_pts * scaling
+            # transform this to the world frame using the object *base*'s position and orientation
+            handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
+            if return_median:
+                handle_point_median = np.median(handle_points_world, axis=1)
+            else:
+                handle_point_median = handle_points_world.T
 
-    # TODO: GPT can parse the mobility.json to get the joint name. 
-    rotation_angle = p.getJointState(obj_id, joint_idx)[0] # NOTE: this joint id should be dependent on the object urdf.
-    rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
-    rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
-    
-    return rotated_handle_pt.flatten() if return_median else rotated_handle_pt, joint_idx
+            # find the projection of the handle point to the rotation axis, in world frame. 
+            project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
+            # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
+
+            # TODO: GPT can parse the mobility.json to get the joint name. 
+            rotation_angle = p.getJointState(obj_id, joint_idx, physicsClientId=simulator.id)[0] # NOTE: this joint id should be dependent on the object urdf.
+            rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
+            rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
+
+            if return_median:
+                ret_handle_pt_list.append(rotated_handle_pt.flatten())
+            else:
+                ret_handle_pt_list.append(rotated_handle_pt)
+            ret_joint_idx_list.append(joint_idx)
+
+    return ret_handle_pt_list, ret_joint_idx_list

@@ -36,7 +36,7 @@ def render(data, cur_shape_dir):
     part_v = np.vstack(cur_v_list)
     part_f = np.vstack(cur_f_list)
 
-    out_point_file = os.path.join(cur_shape_dir, "parts_render", str(data["name"])+'.obj')
+    out_point_file = os.path.join(cur_shape_dir, "parts_render", str(data['id'])+str(data["name"])+'.obj')
     with open(out_point_file, 'w') as fout:
         for i in range(part_v.shape[0]):
             fout.write('v %f %f %f\n' % (part_v[i, 0], part_v[i, 1], part_v[i, 2]))

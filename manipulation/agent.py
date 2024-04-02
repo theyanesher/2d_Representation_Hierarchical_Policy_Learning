@@ -129,7 +129,7 @@ class Agent:
             elif joint_angles[j] > self.upper_limits[j]:
                 p.resetJointState(self.body, jointIndex=j, targetValue=self.upper_limits[j], targetVelocity=0, physicsClientId=self.id)
 
-    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=1000, use_current_as_rest=False):
+    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=1000, residualThreshold=1e-4, use_current_as_rest=False, return_full_state=False):
         if target_orient is not None and len(target_orient) < 4:
             target_orient = self.get_quaternion(target_orient)
         if use_current_as_rest:
@@ -147,13 +147,13 @@ class Agent:
                     lowerLimits=ik_lower_limits.tolist(), upperLimits=ik_upper_limits.tolist(), jointRanges=ik_joint_ranges.tolist(), 
                     restPoses=ik_rest_poses, 
                     maxNumIterations=max_iterations, 
-                    residualThreshold=1e-4,
+                    residualThreshold=residualThreshold,
                     physicsClientId=self.id))
             else:
                 ik_joint_poses = np.array(p.calculateInverseKinematics(self.body, 
                     target_joint, targetPosition=target_pos, targetOrientation=target_orient, 
                     maxNumIterations=max_iterations, 
-                    residualThreshold=1e-4,
+                    residualThreshold=residualThreshold,
                     physicsClientId=self.id))
         else:
             if use_current_as_rest:
@@ -161,6 +161,8 @@ class Agent:
             else:
                 ik_joint_poses = np.array(p.calculateInverseKinematics(self.body, target_joint, targetPosition=target_pos, maxNumIterations=max_iterations, physicsClientId=self.id))            
 
+        if return_full_state:
+            return ik_joint_poses
         return ik_joint_poses[ik_indices]
 
     def print_joint_info(self, show_fixed=True):
@@ -174,8 +176,7 @@ class Agent:
 
     def set_joint_angles(self, indices, angles, use_limits=True, velocities=0):
         for i, (j, a) in enumerate(zip(indices, angles)):
-            p.resetJointState(self.body, jointIndex=j, targetValue=min(max(a, self.lower_limits[j]), self.upper_limits[j]) if use_limits else a, 
-                              physicsClientId=self.id)
+            p.resetJointState(self.body, jointIndex=j, targetValue=min(max(a, self.lower_limits[j]), self.upper_limits[j]) if use_limits else a, targetVelocity=velocities if type(velocities) in [int, float] else velocities[i], physicsClientId=self.id)
 
 
     def set_gravity(self, ax=0.0, ay=0.0, az=-9.81):
