@@ -51,7 +51,7 @@ def query(system, user_contents, assistant_contents, model='gpt-4', save_path=No
     end = time.time()
     used_time = end - start
 
-    # print(result)
+    print(result)
     if save_path is not None:
         with open(save_path, "w") as f:
             json.dump({"used_time": used_time, "res": result, "system": system, "user": user_contents, "assistant": assistant_contents}, f, indent=4)

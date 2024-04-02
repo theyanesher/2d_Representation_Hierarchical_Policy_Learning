@@ -25,7 +25,7 @@ def get_initial_pos_orient(simulator, object_name):
 ### success check functions
 def gripper_close_to_object_link(simulator, object_name, link_name):
     link_pc = get_link_pc(simulator, object_name, link_name)
-    gripper_pos, _ = get_eef_pos(simulator)
+    gripper_pos, _ = get_eef_pose(simulator)
     distance = np.linalg.norm(link_pc.reshape(-1, 3) - gripper_pos.reshape(1, 3), axis=1)
     if np.min(distance) < 0.06:
         return True
@@ -33,7 +33,7 @@ def gripper_close_to_object_link(simulator, object_name, link_name):
 
 def gripper_close_to_object(simulator, object_name):
     object_pc, _ = get_pc_and_normal(simulator, object_name)
-    gripper_pos, _ = get_eef_pos(simulator)
+    gripper_pos, _ = get_eef_pose(simulator)
     distance = np.linalg.norm(object_pc.reshape(-1, 3) - gripper_pos.reshape(1, 3), axis=1)
     if np.min(distance) < 0.06:
         return True
@@ -107,7 +107,7 @@ def get_orientation(simulator, object_name):
     object_id = simulator.urdf_ids[object_name]
     return np.array(p.getEulerFromQuaternion(p.getBasePositionAndOrientation(object_id, physicsClientId=simulator.id)[1]))
 
-def get_eef_pos(simulator):
+def get_eef_pose(simulator):
     robot_eef_pos, robot_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
     return np.array(robot_eef_pos).flatten(), np.array(p.getEulerFromQuaternion(robot_eef_orient)).flatten()
 
@@ -325,7 +325,13 @@ def get_joint_id_from_name(simulator, object_name, joint_name):
 
     return joint_index
 
+def get_gripper_pos(simulator):
+    left_finger_pos = np.array(p.getLinkState(simulator.robot.body, simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)[0])
+    right_finger_pos = np.array(p.getLinkState(simulator.robot.body, simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)[0])
+    return left_finger_pos, right_finger_pos
 
+def get_gripper_joint(simulator):
+    return p.getJointState(simulator.robot.body, simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)[0]
 
 # NOTE: hard-coded for now, should make it more general in the future
 def get_handle_pos(simulator, obj_name, return_median=True):

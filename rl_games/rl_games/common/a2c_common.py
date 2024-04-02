@@ -126,8 +126,15 @@ class A2CBase(BaseAlgorithm):
         self.vec_env = None
         self.env_info = config.get('env_info')
         if self.env_info is None:
-            self.vec_env = vecenv.create_vec_env(self.env_name, self.num_actors, **self.env_config)
-            self.env_info = self.vec_env.get_env_info()
+            # try to create the environment 10 times, sometimes it fails due to the loading urdf files
+            for _ in range(10):
+                try:
+                    self.vec_env = vecenv.create_vec_env(self.env_name, self.num_actors, **self.env_config)
+                    self.env_info = self.vec_env.get_env_info()
+                    break
+                except:
+                    print(f'Error creating environment {self.env_name}, retrying...')
+                    sleep(1)
         else:
             self.vec_env = config.get('vec_env', None)
 
@@ -156,7 +163,7 @@ class A2CBase(BaseAlgorithm):
 
         self.self_play = config.get('self_play', False)
         self.save_freq = config.get('save_frequency', 0)
-        self.save_best_after = config.get('save_best_after', 100)
+        self.save_best_after = config.get('save_best_after', 5)
         self.print_stats = config.get('print_stats', True)
         self.rnn_states = None
         self.name = base_name
@@ -1149,6 +1156,9 @@ class ContinuousA2CBase(A2CBase):
 
         self.clip_actions = self.config.get('clip_actions', True)
 
+        self.rl_save_path = self.config['env_config'].get('rl_save_path', None)
+        self.time_limit = self.config['env_config'].get('time_limit', None)
+
         # todo introduce device instead of cuda()
         self.actions_low = torch.from_numpy(action_space.low.copy()).float().to(self.ppo_device)
         self.actions_high = torch.from_numpy(action_space.high.copy()).float().to(self.ppo_device)
@@ -1300,7 +1310,7 @@ class ContinuousA2CBase(A2CBase):
 
     def train(self):
         self.init_tensors()
-        self.last_mean_rewards = -100500
+        self.last_mean_rewards = -1005000
         start_time = time.time()
         total_time = 0
         rep_count = 0
@@ -1338,6 +1348,7 @@ class ContinuousA2CBase(A2CBase):
                                 a_losses, c_losses, entropies, kls, last_lr, lr_mul, frame,
                                 scaled_time, scaled_play_time, curr_frames)
 
+
                 if len(b_losses) > 0:
                     self.writer.add_scalar('losses/bounds_loss', torch_ext.mean_list(b_losses).item(), frame)
 
@@ -1345,6 +1356,8 @@ class ContinuousA2CBase(A2CBase):
                     self.writer.add_scalar('losses/aug_loss', np.mean(aug_losses), frame)
 
                 if self.game_rewards.current_size > 0:
+                    
+
                     mean_rewards = self.game_rewards.get_mean()
                     mean_shaped_rewards = self.game_shaped_rewards.get_mean()
                     mean_lengths = self.game_lengths.get_mean()
@@ -1371,17 +1384,25 @@ class ContinuousA2CBase(A2CBase):
                     if self.save_freq > 0:
                         if epoch_num % self.save_freq == 0:
                             self.save(os.path.join(self.nn_dir, 'last_' + checkpoint_name))
-
                     if mean_rewards[0] > self.last_mean_rewards and epoch_num >= self.save_best_after:
                         print('saving next best rewards: ', mean_rewards)
                         self.last_mean_rewards = mean_rewards[0]
                         self.save(os.path.join(self.nn_dir, self.config['name']))
+
+                        if self.rl_save_path is not None:
+                            # RoboGen save best model 
+                            self.save(os.path.join(self.rl_save_path, 'checkpoints', 'rl_game_PPO'))
+                            
 
                         if 'score_to_win' in self.config:
                             if self.last_mean_rewards > self.config['score_to_win']:
                                 print('Maximum reward achieved. Network won!')
                                 self.save(os.path.join(self.nn_dir, checkpoint_name))
                                 should_exit = True
+
+                    # if reach time limits, save states and shutdown
+                    if self.time_limit is not None and total_time > self.time_limit:
+                        should_exit = True
 
                 if epoch_num >= self.max_epochs and self.max_epochs != -1:
                     if self.game_rewards.current_size == 0:

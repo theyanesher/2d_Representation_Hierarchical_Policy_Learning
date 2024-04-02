@@ -257,17 +257,11 @@ def create_robogen_env(**kwargs):
     import os
     print("current working dir: ", os.getcwd())
     from manipulation.utils import build_up_env
-    env, _ = build_up_env(
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
-        "open_the_microwave_door", 
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl", # 7310
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-10-18-54-15/grasp_the_microwave_door_primitive/states/state_129.pkl", # 7167
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-10-19-43-36/grasp_the_microwave_door_primitive/states/state_129.pkl", # 7263
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-10-21-52-57/grasp_the_microwave_door_primitive/states/state_129.pkl", # 7263 initialized to be more center at the handle
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-11-00-09-32/grasp_the_microwave_door_primitive/states/state_129.pkl", # 7263 initialized to be more center at the handle, door initially fully closed.
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-14-02-37-04/grasp_the_microwave_door_primitive/states/state_168.pkl",
+    env, safe_config = build_up_env(
+        kwargs['task_config_path'],
+        kwargs['solution_path'],
+        kwargs['substep'],
+        kwargs['final_state_path'],
         render=False, 
         randomize=False, 
         obj_id=0

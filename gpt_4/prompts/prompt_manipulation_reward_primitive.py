@@ -7,8 +7,9 @@ user_contents = [
 A robotic arm is trying to solve some household object manipulation tasks to learn corresponding skills in a simulator.
 
 We will provide with you the task description, the initial scene configurations of the task, which contains the objects in the task and certain information about them. 
-Your goal is to decompose the task into executable sub-steps for the robot, and for each substep, you should either call a primitive action that the robot can execute, or design a reward function for the robot to learn, to complete the substep. 
+Your goal is to decompose the task into executable sub-steps for the robot, and for each substep, you should either call a primitive action that the robot can execute, or design a reward function together with a observation function for the robot to learn, to complete the substep. 
 For each substep, you should also write a function that checks whether the substep has been successfully completed. 
+
 
 Common substeps include moving towards a location, grasping an object, and interacting with the joint of an articulated object.
 
@@ -62,8 +63,8 @@ Joints:
 joint_0: from the articulation tree, joint_0 connects link_0 and is a continuous joint. Therefore, the robot needs to actuate joint_0 to turn link_0, which is the knob.
 
 
-For each substep, you should decide whether the substep can be achieved by using the provided list of primitives. If not, you should then write a reward function for the robot to learn to perform this substep. 
-If you choose to write a reward function for the substep, you should also specify the action space of the robot when learning this reward function. 
+For each substep, you should decide whether the substep can be achieved by using the provided list of primitives. If not, you should then write a reward function and a observation function for the robot to learn to perform this substep. 
+If you choose to write a reward function for the substep, you should also specify the action space of the robot when learning this reward function and the obvservation dimension of the observation space (corresponding to the dimension of the return value of the observation function). 
 There are 2 options for the action space: "delta-translation", where the action is the delta translation of the robot end-effector, suited for local movements; and "normalized-direct-translation", where the action specifies the target location the robot should move to, suited for moving to a target location.
 For each substep, you should also write a condition that checks whether the substep has been successfully completed.
 
@@ -81,15 +82,31 @@ get_orientation(self, object_name): get the orientation of an object with object
 get_joint_state(self, object_name, joint_name): get the joint angle value of a joint in an object.
 get_joint_limit(self, object_name, joint_name): get the lower and upper joint angle limit of a joint in an object, returned as a 2-element tuple.
 get_link_state(self, object_name, link_name): get the position of the center of mass of the link of an object.
-get_eef_pos(self): returns the position, orientation of the robot end-effector as a list.
+get_eef_pose(self): returns the position, orientation of the robot end-effector as a list.
 get_bounding_box(self, object_name): get the axis-aligned bounding box of an object. It returns the min and max xyz coordinate of the bounding box.
 get_bounding_box_link(self, object_name, link_name): get the axis-aligned bounding box of the link of an object. It returns the min and max xyz coordinate of the bounding box.
 in_bbox(self, pos, bbox_min, bbox_max): check if pos is within the bounding box with the lowest corner at bbox_min and the highest corner at bbox_max. 
 check_grasped(self, object_name, link_name): return true if an object or a link of the object is grasped. link_name can be none, in which case it will check whether the object is grasped.
 get_initial_pos_orient(self, obj): get the initial position and orientation of an object at the beginning of the task.
 get_initial_joint_angle(self, obj_name, joint_name): get the initial joint angle of an object at the beginning of the task.
+get_handle_pos(self, object_name, return_median): get the position of the handles of an object, this is especially useful when you want to open a Microwave, StorageFurniture, Oven or similar things. If return median is true, it returns the median of the handle points' positions, otherwise it returns all the handle point positions.
+get_finger_pos(self): get the position of the left and right finger of the gripper.
+get_gripper_joint(self): get the opened joint angle of the gripper finger.
 
 You can assume that for objects, the lower joint limit corresponds to their natural state, e.g., a box is closed with the lid joint being 0, and a lever is unpushed when the joint angle is 0.
+
+As for the observation functions, you can use the helper functions below to get the position, orientation, joint angle, or bounding box of objects.
+There are several kinds of observation that might be helpful (the number following the observation type is the dimension of that observation). 
+For the final observation space, you should concatenate all the observations together:
+# 1. object positions and orientations (6 * num_objects)
+# 2. object min and max bounding box (6 * num_objects)
+# 3. articulated object joint angles (num_objects * num_joints) 
+# 4. articulated object link position and orientation (num_objects * num_joints * 6) 
+# 5. robot base position (xy)
+# 6. robot end-effector position and orientation (6)
+# 7. gripper suction activated/deactivate or gripper joint angle (if not using suction gripper) (1)
+For most tasks, you only care about the target object's position and orientation, the joint angle of articulated objects, and the robot end-effector position and orientation. 
+No need to pay no attention to the distractor objects in the scene.
 
 For the above task "Set oven temperature", it can be decomposed into the following substeps, primitives, and reward functions:
 
@@ -101,11 +118,12 @@ substep 1: grasp the temperature knob
 
 substep 2: turn the temperature knob to set a desired temperature
 ```reward
+## reward function
 def _compute_reward(self):
     # This reward encourages the end-effector to stay near the knob to grasp it.
-    eef_pos = get_eef_pos(self)[0]
+    left_finger_pos, right_finger_pos = get_finger_pos(self)
     knob_pos = get_link_state(self, "oven", "link_0")
-    reward_near = -np.linalg.norm(eef_pos - knob_pos)
+    reward_near = - np.linalg.norm(left_finger_pos - knob_pos) - np.linalg.norm(right_finger_pos - knob_pos)
 
     joint_angle = get_joint_state(self, "oven", "joint_0") 
     
@@ -119,6 +137,34 @@ def _compute_reward(self):
     success = diff < 0.1 * (joint_limit_high - joint_limit_low)
 
     return reward, success
+
+## observation function
+def _get_obs(self):
+    # initialize the observation
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as observation dimension
+    # get the position of the knob
+    knob_pos = get_link_state(self, "oven", "link_0")
+    obs[cnt:cnt+3] = knob_pos
+    cnt += 3
+    # get the joint angle of the knob
+    joint_angle = get_joint_state(self, "oven", "joint_0")
+    obs[cnt] = joint_angle
+    cnt += 1
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = get_eef_pose(self)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_orient
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = get_gripper_joint(self)
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+11
 ```
 
 ```action space
@@ -185,23 +231,61 @@ substep 1: grasp the refrigerator door
 
 substep 2: open the refrigerator door
 ```reward
+## reward function
 def _compute_reward(self):
-    # this reward encourages the end-effector to stay near door to grasp it.
-    eef_pos = get_eef_pos(self)[0]
+    # this reward encourages the end-effector to stay near the handle of the door to grasp it.
+    left_finger_pos, right_finger_pose = get_finger_pos(self)
+    handle_pos_list, _ = get_handle_pos(self, 'Refrigerator', return_median=True)
+    # get the handle that is closest to target link: link_1
     door_pos = get_link_state(self, "Refrigerator", "link_1")
-    reward_near = -np.linalg.norm(eef_pos - door_pos)
+    handle_index = np.argmin(np.linalg.norm(handle_pos_list - door_pos, axis=1))
+    handle_pos = handle_pos_list[handle_index]
+    reward_near = - np.linalg.norm(left_finger_pos - handle_pos) - np.linalg.norm(right_finger_pos - handle_pos)
 
     # Get the joint state of the door. We know from the semantics and the articulation tree that joint_1 connects link_1 and is the joint that controls the rotation of the door.
     joint_angle = get_joint_state(self, "Refrigerator", "joint_1") 
-    # The reward is the negative distance between the current joint angle and the joint angle when the door is fully open (upper limit).
     joint_limit_low, joint_limit_high = get_joint_limit(self, "Refrigerator", "joint_1")
-    diff = np.abs(joint_angle - joint_limit_high)
-    reward_joint =  -diff
-
+    # The reward measures how much the door is opened. The more the door is opened, the higher the reward.
+    reward_joint =  joint_angle
     reward = reward_near + 5 * reward_joint
+    
+    # The success condition is whether the door is opened enough.
+    diff = np.abs(joint_angle - joint_limit_high)
     success = diff < 0.35 * (joint_limit_high - joint_limit_low) # for opening, we think 65 percent is enough
 
     return reward, success
+
+## observation function
+def _get_obs(self):
+    # initialize the observation
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as observation dimension
+    # get the position of the handle
+    handle_pos_list, _ = get_handle_pos(self, 'Refrigerator', return_median=True)
+    # get the handle that is closest to the door
+    door_pos = get_link_state(self, "Refrigerator", "link_1")
+    handle_index = np.argmin(np.linalg.norm(handle_pos_list - door_pos, axis=1))
+    handle_pos = handle_pos_list[handle_index]
+    obs[cnt:cnt+3] = handle_pos
+    cnt += 3
+    # get the joint angle of the door
+    joint_angle = get_joint_state(self, "Refrigerator", "joint_1")
+    obs[cnt] = joint_angle
+    cnt += 1
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = get_eef_pose(self)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_orient
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = get_gripper_joint(self)
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+11
 ```
 
 ```action space
@@ -217,13 +301,14 @@ substep 3: grasp the item
 
 substep 4: move the item out of the refrigerator
 ```reward
+## reward function
 def _compute_reward(self):
     # Get the current item position
     item_pos = get_position(self, "Item")
 
     # The first reward encourages the end-effector to stay near the item
-    eef_pos = get_eef_pos(self)[0]
-    reward_near = -np.linalg.norm(eef_pos - item_pos)
+    left_finger_pos, right_finger_pos = get_finger_pos(self)
+    reward_near = -np.linalg.norm(left_finger_pos - item_pos) - np.linalg.norm(right_finger_pos - item_pos)
 
     # The reward is to encourage the robot to grasp the item and move the item to be on the table. 
     # The goal is not to just move the soda can to be at a random location out of the refrigerator. Instead, we need to place it somewhere on the table. 
@@ -244,6 +329,40 @@ def _compute_reward(self):
     success = diff < 0.06
     
     return reward, success
+
+## observation function
+def _get_obs(self):
+    # initialize the observation
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as observation dimension
+    # get the position of the item
+    item_pos = get_position(self, "Item")
+    obs[cnt:cnt+3] = item_pos
+    cnt += 3
+    # we also need to get the position of the table and the bounding box of the refrigerator since the item needs to be moved from the refrigerator to the table
+    table_pos = get_position(self, "init_table")
+    obs[cnt:cnt+3] = table_pos
+    cnt += 3
+    # get the bounding box of the refrigerator
+    bbox_low, bbox_high = get_bounding_box(self, "Refrigerator")
+    obs[cnt:cnt+3] = bbox_low
+    cnt += 3
+    obs[cnt:cnt+3] = bbox_high
+    cnt += 3
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = get_eef_pose(self)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_orient
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = get_gripper_joint(self)
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+19
 ```
 
 ```action space
@@ -259,34 +378,308 @@ substep 5: grasp the refrigerator door again
 
 substep 6: close the refrigerator door
 ```reward
+## reward function
 def _compute_reward(self):
-    # this reward encourages the end-effector to stay near door
-    eef_pos = get_eef_pos(self)[0]
+    # this reward encourages the end-effector to stay near the handle of the door
+    left_finger_pos, right_finger_pos = get_finger_pos(self)
+    handle_pos_list, _ = get_handle_pos(self, 'Refrigerator', return_median=True)
+    # get the handle that is closest to the door
     door_pos = get_link_state(self, "Refrigerator", "link_1")
-    reward_near = -np.linalg.norm(eef_pos - door_pos)
+    handle_index = np.argmin(np.linalg.norm(handle_pos_list - door_pos, axis=1))
+    handle_pos = handle_pos_list[handle_index]
+    reward_near = - np.linalg.norm(left_finger_pos - handle_pos) - np.linalg.norm(right_finger_pos - handle_pos)
 
     # Get the joint state of the door. 
     joint_angle = get_joint_state(self, "Refrigerator", "joint_1") 
-    # The reward encourages the robot to make joint angle of the door to be the lower limit to clost it.
-    joint_limit_low, joint_limit_high = get_joint_limit(self, "Refrigerator", "joint_1")
-    diff = np.abs(joint_limit_low - joint_angle)
-    reward_joint =  -diff
-
+    # The reward encourages the robot to make joint angle of the door to be as small as possible to close it. The more the door is closed, the higher the reward.
+    reward_joint = -joint_angle
     reward = reward_near + 5 * reward_joint
 
+    # The success condition is whether the door is closed enough.
+    joint_limit_low, joint_limit_high = get_joint_limit(self, "Refrigerator", "joint_1")
+    diff = np.abs(joint_limit_low - joint_angle)
     success = diff < 0.1 * (joint_limit_high - joint_limit_low) # for closing, we think 10 percent is enough     
 
     return reward, success
+
+## observation function
+def _get_obs(self):
+    # initialize the observation
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as observation dimension
+    # get the position of the handle
+    handle_pos_list, _ = get_handle_pos(self, 'Refrigerator', return_median=True)
+    # get the handle that is closest to the door
+    door_pos = get_link_state(self, "Refrigerator", "link_1")
+    handle_index = np.argmin(np.linalg.norm(handle_pos_list - door_pos, axis=1))
+    handle_pos = handle_pos_list[handle_index]
+    obs[cnt:cnt+3] = handle_pos
+    cnt += 3
+    # get the joint angle of the door
+    joint_angle = get_joint_state(self, "Refrigerator", "joint_1")
+    obs[cnt] = joint_angle
+    cnt += 1
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = get_eef_pose(self)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_orient
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = get_gripper_joint(self)
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+11
 ```
 
 ```action space
 delta-translation
 ```
 
-I will provide more examples in the following messages. Please reply yes if you understand the goal.
+Please reply yes if you understand the goal.
 """,
 
 """
+Please decompose the following task into substeps. For each substep, write a primitive/a reward function, write the success checking function, and the action space if the reward is used. 
+
+The primitives you can call:
+grasp_object(self, object_name): the robot arm will grasp the object specified by the argument object name.
+grasp_object_link(self, object_name, link_name): some object like an articulated object is composed of multiple links. The robot will grasp a link with link_name on the object with object_name. 
+release_grasp(self): the robot will release the grasped object.
+Note that all primitives will return a tuple (rgbs, final_state) which represents the rgb images of the execution process and the final state of the execution process. 
+You should always call the primitive in the following format:
+rgbs, final_state = some_primitive_function(self, arg1, ..., argn)
+
+The APIs you can use for writing the reward function/success checking function:
+get_position(self, object_name): get the position of center of mass of object with object_name.
+get_orientation(self, object_name): get the orientation of an object with object_name.
+get_joint_state(self, object_name, joint_name): get the joint angle value of a joint in an object.
+get_joint_limit(self, object_name, joint_name): get the lower and upper joint angle limit of a joint in an object, returned as a 2-element tuple.
+get_link_state(self, object_name, link_name): get the position of the center of mass of the link of an object.
+get_eef_pose(self): returns the position, orientation of the robot end-effector as a list.
+get_bounding_box(self, object_name): get the axis-aligned bounding box of an object. It returns the min and max xyz coordinate of the bounding box.
+get_bounding_box_link(self, object_name, link_name): get the axis-aligned bounding box of the link of an object. It returns the min and max xyz coordinate of the bounding box.
+in_bbox(self, pos, bbox_min, bbox_max): check if pos is within the bounding box with the lowest corner at bbox_min and the highest corner at bbox_max. 
+check_grasped(self, object_name, link_name): return true if an object or a link of the object is grasped. link_name can be none, in which case it will check whether the object is grasped.
+get_initial_pos_orient(self, obj): get the initial position and orientation of an object at the beginning of the task.
+get_initial_joint_angle(self, obj_name, joint_name): get the initial joint angle of an object at the beginning of the task.
+get_handle_pos(self, object_name, return_median): get the position of the handles of an object, this is especially useful when you want to open a Microwave, StorageFurniture, Oven or similar things. If return median is true, it returns the median of the handle points' positions, otherwise it returns all the handle point positions.
+get_finger_pos(self): get the position of the left and right finger of the gripper.
+get_gripper_joint(self): get the opened joint angle of the gripper finger.
+
+The action space you can use for learning with the reward: delta-translation is better suited for small movements, and normalized-direct-translation is better suited for directly specifying the target location of the robot end-effector. 
+You can assume that for objects, the lower joint limit corresponds to their natural state, e.g., a box is closed with the lid joint being 0, and a lever is unpushed when the joint angle is 0.
+"""
+]
+
+assistant_contents = [
+"""
+Yes, I understand the goal. Please proceed with the next example.
+""",
+
+"""
+Yes, I understand the goal. Please proceed with the next example.
+"""
+]
+
+
+
+reward_file_header1 = """
+from manipulation.sim import SimpleEnv
+import numpy as np
+from manipulation.gpt_reward_api import *
+from manipulation.gpt_primitive_api import *
+import gym
+from gym import spaces
+
+class {}(SimpleEnv):
+"""
+
+reward_file_header2 = """
+    def __init__(self, task_name, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.task_name = task_name
+        self.detected_position = dict()
+        num_obs = {}
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_obs, ), dtype=np.float32)
+
+"""
+
+reward_file_end = """
+gym.register(
+    id='gym-{}-v0',
+    entry_point={},
+)
+"""
+
+primitive_file_header1 = """
+from manipulation.sim import SimpleEnv
+import numpy as np
+from manipulation.gpt_primitive_api import *
+from manipulation.gpt_reward_api import *
+import gym
+
+class {}(SimpleEnv):
+"""
+
+primitive_file_header2 = """
+    def __init__(self, task_name, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.task_name = task_name
+        self.detected_position = dict()
+
+    def execute(self):
+"""
+
+primitive_file_end = """
+        return rgbs, final_state, success
+
+gym.register(
+    id='{}-v0',
+    entry_point={},
+)
+"""
+
+def decompose_and_generate_reward_or_primitive(task_name, task_description, initial_config, articulation_tree, semantics, 
+                              involved_links, involved_joints, object_id, yaml_config_path, save_path, 
+                              temperature=0.4, model='gpt-4'):
+    query_task = """
+Task name: {}
+Description: {}
+Initial config:
+```yaml
+{}
+```
+
+{}
+
+{}
+
+Links:
+{}
+Joints:
+{}
+""".format(task_name, task_description, initial_config, articulation_tree, semantics, involved_links, involved_joints)
+    
+    filled_user_contents = copy.deepcopy(user_contents)
+    filled_user_contents[-1] = filled_user_contents[-1] + query_task
+
+    system = "You are a helpful assistant."
+    reward_response = query(system, filled_user_contents, assistant_contents, save_path=save_path, debug=False, 
+                            temperature=temperature, model=model)
+    res = reward_response.split("\n")
+
+    substeps = []
+    substep_types = []
+    reward_or_primitives = []
+    action_spaces = []
+    observation_dimensions = []
+
+    num_lines = len(res)
+    for l_idx, line in enumerate(res):
+        line = line.lower()
+        if line.startswith("substep"):
+            substep_name = line.split(":")[1]
+            substeps.append(substep_name)
+
+            py_start_idx, py_end_idx = l_idx, l_idx
+            for l_idx_2 in range(l_idx + 1, num_lines):
+                ### this is a reward
+                if res[l_idx_2].lower().startswith("```reward"):
+                    substep_types.append("reward")
+                    py_start_idx = l_idx_2 + 1
+                    for l_idx_3 in range(l_idx_2 + 1, num_lines):
+                        if "```" in res[l_idx_3]:
+                            py_end_idx = l_idx_3
+                            break
+            
+                if res[l_idx_2].lower().startswith("```primitive"):
+                    substep_types.append("primitive")
+                    action_spaces.append("None")
+                    py_start_idx = l_idx_2 + 1
+                    for l_idx_3 in range(l_idx_2 + 1, num_lines):
+                        if "```" in res[l_idx_3]:
+                            py_end_idx = l_idx_3
+                            break
+                    break
+
+                if res[l_idx_2].lower().startswith("```action space"):
+                    action_space = res[l_idx_2 + 1]
+                    action_spaces.append(action_space)
+                    break
+
+                if res[l_idx_2].lower().startswith("```observation dimension"):
+                    observation_dimension = res[l_idx_2 + 1]
+                    observation_dimensions.append(observation_dimension)
+                    break
+
+            reward_or_primitive_lines = res[py_start_idx:py_end_idx]
+            reward_or_primitive_lines = [line.lstrip() for line in reward_or_primitive_lines]
+            if substep_types[-1] == 'reward':
+                # reward_or_primitive_lines[0] = "    " + reward_or_primitive_lines[0]
+                for idx in range(0, len(reward_or_primitive_lines)):
+                    if reward_or_primitive_lines[idx].startswith("def "):
+                        reward_or_primitive_lines[idx] = "    " + reward_or_primitive_lines[idx]
+                    else:
+                        reward_or_primitive_lines[idx] = "        " + reward_or_primitive_lines[idx]
+            else:
+                for idx in range(0, len(reward_or_primitive_lines)):
+                    if reward_or_primitive_lines[idx].startswith("def "):
+                        reward_or_primitive_lines[idx] = "    " + reward_or_primitive_lines[idx]
+                    else:
+                        reward_or_primitive_lines[idx] = "        " + reward_or_primitive_lines[idx]
+            reward_or_primitive = "\n".join(reward_or_primitive_lines) + "\n"
+
+            reward_or_primitives.append(reward_or_primitive)
+
+    task_name = task_name.replace(" ", "_")
+    parent_folder = os.path.dirname(os.path.dirname(save_path))
+    task_save_path = os.path.join(parent_folder, "task_{}".format(task_name))
+    if not os.path.exists(task_save_path):
+        os.makedirs(task_save_path)
+
+    print("substep: ", substeps)
+    print("substep types: ", substep_types)
+    print("reward or primitives: ", reward_or_primitives)
+    print("action spaces: ", action_spaces)
+
+    with open(os.path.join(task_save_path, "substeps.txt"), "w") as f:
+        f.write("\n".join(substeps))
+    with open(os.path.join(task_save_path, "substep_types.txt"), "w") as f:
+        f.write("\n".join(substep_types))
+    with open(os.path.join(task_save_path, "action_spaces.txt"), "w") as f:
+        f.write("\n".join(action_spaces))
+    with open(os.path.join(task_save_path, "config_path.txt"), "w") as f:
+        f.write(yaml_config_path)
+
+    observation_dimensions_index = 0
+    for idx, (substep, type, reward_or_primitive) in enumerate(zip(substeps, substep_types, reward_or_primitives)):
+        substep = substep.lstrip().replace(" ", "_")
+        substep = substep.replace("'", "")
+        file_name = os.path.join(task_save_path, f"{substep}.py")
+
+        if type == 'reward':
+            header = reward_file_header1.format(substep)
+            end = reward_file_end.format(substep, substep)
+            file_content =  header + reward_file_header2.format(observation_dimensions[observation_dimensions_index]) + reward_or_primitive + end
+            observation_dimensions_index += 1
+            with open(file_name, "w") as f:
+                f.write(file_content)
+        elif type == 'primitive':
+            header = primitive_file_header1.format(substep)
+            end = primitive_file_end.format(substep, substep)
+            file_content = header + primitive_file_header2 + reward_or_primitive + end
+            with open(file_name, "w") as f:
+                f.write(file_content)
+
+    return task_save_path
+
+
+user_not_used_contents = [
+    """
 Here is another example:
 
 Task Name:  Put a toy car inside a box
@@ -345,11 +738,16 @@ substep 1: grasp the first lid of the box
 
 substep 2: open the first lid of the box
 ```reward
+## reward function
 def _compute_reward(self):
     # This reward encourages the end-effector to stay near the lid to grasp it.
-    eef_pos = get_eef_pos(self)[0]
-    lid_pos = get_link_state(self, "box", "link_0")
-    reward_near = -np.linalg.norm(eef_pos - lid_pos)
+    left_finger_pos = np.array(p.getLinkState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0])
+    right_finger_pos = np.array(p.getLinkState(self.robot.body, self.robot.right_gripper_indices[1], physicsClientId=self.id)[0])
+    handle_pos_list, _ = get_handle_pos(self, 'Box', return_median=False)
+    flattened_handle_pos = np.concatenate(handle_pos_list, axis=0).reshape(-1, 3)
+    left_finger_distances = np.linalg.norm(flattened_handle_pos - left_finger_pos, axis=1)
+    right_finger_distances = np.linalg.norm(flattened_handle_pos - right_finger_pos, axis=1)
+    reward_near = -np.min(left_finger_distances) - np.min(right_finger_distances)
 
     # Get the joint state of the first lid. The semantics and the articulation tree show that joint_0 connects link_0 and is the joint that controls the rotation of the first lid link_0.
     joint_angle = get_joint_state(self, "box", "joint_0") 
@@ -362,6 +760,35 @@ def _compute_reward(self):
     success = diff < 0.35 * (joint_limit_high - joint_limit_low)
 
     return reward, success
+
+## observation function
+def _get_obs(self):
+    # initialize the observation
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as observation dimension
+    # get the position of the lid
+    lid_pos = get_link_state(self, "box", "link_0")
+    obs[cnt:cnt+3] = lid_pos
+    cnt += 3
+    # get the joint angle of the lid
+    joint_angle = get_joint_state(self, "box", "joint_0")
+    obs[cnt] = joint_angle
+    cnt += 1
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = self.robot.get_pos_orient(self.robot.right_end_effector)
+    robot_eef_euler_angle = p.getEulerFromQuaternion(robot_eef_orient)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_euler_angle
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = p.getJointState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0]
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+11
 ```
 
 ```action space
@@ -377,11 +804,16 @@ substep 3: grasp the second lid of the box
 
 substep 4: open the second lid of the box
 ```reward
+## reward function
 def _compute_reward(self):
     # This reward encourages the end-effector to stay near the lid to grasp it.
-    eef_pos = get_eef_pos(self)[0]
-    lid_pos = get_link_state(self, "box", "link_1")
-    reward_near = -np.linalg.norm(eef_pos - lid_pos)
+    left_finger_pos = np.array(p.getLinkState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0])
+    right_finger_pos = np.array(p.getLinkState(self.robot.body, self.robot.right_gripper_indices[1], physicsClientId=self.id)[0])
+    handle_pos_list, _ = get_handle_pos(self, 'Box', return_median=False)
+    flattened_handle_pos = np.concatenate(handle_pos_list, axis=0).reshape(-1, 3)
+    left_finger_distances = np.linalg.norm(flattened_handle_pos - left_finger_pos, axis=1)
+    right_finger_distances = np.linalg.norm(flattened_handle_pos - right_finger_pos, axis=1)
+    reward_near = -np.min(left_finger_distances) - np.min(right_finger_distances)
 
     # Get the joint state of the second lid. 
     joint_angle = get_joint_state(self, "box", "joint_1") 
@@ -393,6 +825,34 @@ def _compute_reward(self):
     reward = reward_near + 5 * reward_joint
     success = diff < 0.35 * (joint_limit_high - joint_limit_low)
     return reward, success
+
+## observation function
+def _get_obs(self):
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as observation dimension
+    # get the position of the lid
+    lid_pos = get_link_state(self, "box", "link_1")
+    obs[cnt:cnt+3] = lid_pos
+    cnt += 3
+    # get the joint angle of the lid
+    joint_angle = get_joint_state(self, "box", "joint_1")
+    obs[cnt] = joint_angle
+    cnt += 1
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = self.robot.get_pos_orient(self.robot.right_end_effector)
+    robot_eef_euler_angle = p.getEulerFromQuaternion(robot_eef_orient)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_euler_angle
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = p.getJointState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0]
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+11
 ```
 
 ```action space
@@ -407,11 +867,13 @@ substep 5: grasp the toy car
 
 substep 6: put the toy car into the box
 ```reward
+## reward function
 def _compute_reward(self):
     # This reward encourages the end-effector to stay near the car to grasp it.
     car_position = get_position(self, "toy_car")
-    eef_pos = get_eef_pos(self)[0]
-    reward_near = -np.linalg.norm(eef_pos - car_position)
+    left_finger_pos = np.array(p.getLinkState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0])
+    right_finger_pos = np.array(p.getLinkState(self.robot.body, self.robot.right_gripper_indices[1], physicsClientId=self.id)[0])
+    reward_near = -np.linalg.norm(left_finger_pos - car_position) - np.linalg.norm(right_finger_pos - car_position)
 
     # main reward is 1 if the car is inside the box. From the semantics we know that link2 is the box body
     box_bbox_low, box_bbox_high = get_bounding_box_link(self, "box", "link_2")
@@ -426,6 +888,40 @@ def _compute_reward(self):
     # We give more weight to reward_in, which is the major goal of the task.
     reward = 5 * reward_in + reward_reaching + reward_near
     return reward, success
+
+## observation function
+def _get_obs(self):
+    obs = np.zeros(self.observation_space.shape[0])
+    cnt = 0 # the final result of cnt should be the same as the length of the observation space
+    # get the position of the toy car
+    car_position = get_position(self, "toy_car")
+    obs[cnt:cnt+3] = car_position
+    cnt += 3
+    # get the position of the box
+    box_position = get_position(self, "box")
+    obs[cnt:cnt+3] = box_position
+    cnt += 3
+    # get the bounding box of the box
+    box_bbox_low, box_bbox_high = get_bounding_box_link(self, "box", "link_2")
+    obs[cnt:cnt+3] = box_bbox_low
+    cnt += 3
+    obs[cnt:cnt+3] = box_bbox_high
+    cnt += 3
+    # get the position and orientation of the robot end-effector
+    robot_eef_pos, robot_eef_orient = self.robot.get_pos_orient(self.robot.right_end_effector)
+    robot_eef_euler_angle = p.getEulerFromQuaternion(robot_eef_orient)
+    obs[cnt:cnt+3] = robot_eef_pos
+    obs[cnt+3:cnt+6] = robot_eef_euler_angle
+    cnt += 6
+    # get joint angle of the gripper
+    gripper_joint_angle = p.getJointState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0]
+    obs[cnt] = gripper_joint_angle
+    cnt += 1
+    return obs
+```
+
+```observation dimension
+19
 ```
 
 ```action space
@@ -449,7 +945,7 @@ get_orientation(self, object_name): get the orientation of an object with object
 get_joint_state(self, object_name, joint_name): get the joint angle value of a joint in an object.
 get_joint_limit(self, object_name, joint_name): get the lower and upper joint angle limit of a joint in an object, returned as a 2-element tuple.
 get_link_state(self, object_name, link_name): get the position of the center of mass of the link of an object.
-get_eef_pos(self): returns the position, orientation of the robot end-effector as a list.
+get_eef_pose(self): returns the position, orientation of the robot end-effector as a list.
 get_bounding_box(self, object_name): get the axis-aligned bounding box of an object. It returns the min and max xyz coordinate of the bounding box.
 get_bounding_box_link(self, object_name, link_name): get the axis-aligned bounding box of the link of an object. It returns the min and max xyz coordinate of the bounding box.
 in_bbox(self, pos, bbox_min, bbox_max): check if pos is within the bounding box with the lowest corner at bbox_min and the highest corner at bbox_max. 
@@ -461,190 +957,3 @@ The action space you can use for learning with the reward: delta-translation is 
 You can assume that for objects, the lower joint limit corresponds to their natural state, e.g., a box is closed with the lid joint being 0, and a lever is unpushed when the joint angle is 0.
 """
 ]
-
-assistant_contents = [
-"""
-Yes, I understand the goal. Please proceed with the next example.
-""",
-
-"""
-Yes, I understand the goal. Please proceed with the next example.
-"""
-]
-
-
-
-reward_file_header1 = """
-from manipulation.sim import SimpleEnv
-import numpy as np
-from manipulation.gpt_reward_api import *
-from manipulation.gpt_primitive_api import *
-import gym
-
-class {}(SimpleEnv):
-"""
-
-reward_file_header2 = """
-    def __init__(self, task_name, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.task_name = task_name
-        self.detected_position = {}
-
-"""
-
-reward_file_end = """
-gym.register(
-    id='gym-{}-v0',
-    entry_point={},
-)
-"""
-
-primitive_file_header1 = """
-from manipulation.sim import SimpleEnv
-import numpy as np
-from manipulation.gpt_primitive_api import *
-from manipulation.gpt_reward_api import *
-import gym
-
-class {}(SimpleEnv):
-"""
-
-primitive_file_header2 = """
-    def __init__(self, task_name, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.task_name = task_name
-        self.detected_position = {}
-
-    def execute(self):
-"""
-
-primitive_file_end = """
-        return rgbs, final_state, success
-
-gym.register(
-    id='{}-v0',
-    entry_point={},
-)
-"""
-
-def decompose_and_generate_reward_or_primitive(task_name, task_description, initial_config, articulation_tree, semantics, 
-                              involved_links, involved_joints, object_id, yaml_config_path, save_path, 
-                              temperature=0.4, model='gpt-4'):
-    query_task = """
-Task name: {}
-Description: {}
-Initial config:
-```yaml
-{}
-```
-
-{}
-
-{}
-
-Links:
-{}
-Joints:
-{}
-""".format(task_name, task_description, initial_config, articulation_tree, semantics, involved_links, involved_joints)
-    
-    filled_user_contents = copy.deepcopy(user_contents)
-    filled_user_contents[-1] = filled_user_contents[-1] + query_task
-
-    system = "You are a helpful assistant."
-    reward_response = query(system, filled_user_contents, assistant_contents, save_path=save_path, debug=False, 
-                            temperature=temperature, model=model)
-    res = reward_response.split("\n")
-
-    substeps = []
-    substep_types = []
-    reward_or_primitives = []
-    action_spaces = []
-
-    num_lines = len(res)
-    for l_idx, line in enumerate(res):
-        line = line.lower()
-        if line.startswith("substep"):
-            substep_name = line.split(":")[1]
-            substeps.append(substep_name)
-
-            py_start_idx, py_end_idx = l_idx, l_idx
-            for l_idx_2 in range(l_idx + 1, num_lines):
-                ### this is a reward
-                if res[l_idx_2].lower().startswith("```reward"):
-                    substep_types.append("reward")
-                    py_start_idx = l_idx_2 + 1
-                    for l_idx_3 in range(l_idx_2 + 1, num_lines):
-                        if "```" in res[l_idx_3]:
-                            py_end_idx = l_idx_3
-                            break
-            
-                if res[l_idx_2].lower().startswith("```primitive"):
-                    substep_types.append("primitive")
-                    action_spaces.append("None")
-                    py_start_idx = l_idx_2 + 1
-                    for l_idx_3 in range(l_idx_2 + 1, num_lines):
-                        if "```" in res[l_idx_3]:
-                            py_end_idx = l_idx_3
-                            break
-                    break
-
-                if res[l_idx_2].lower().startswith("```action space"):
-                    action_space = res[l_idx_2 + 1]
-                    action_spaces.append(action_space)
-                    break
-
-            reward_or_primitive_lines = res[py_start_idx:py_end_idx]
-            reward_or_primitive_lines = [line.lstrip() for line in reward_or_primitive_lines]
-            if substep_types[-1] == 'reward':
-                reward_or_primitive_lines[0] = "    " + reward_or_primitive_lines[0]
-                for idx in range(1, len(reward_or_primitive_lines)):
-                    reward_or_primitive_lines[idx] = "        " + reward_or_primitive_lines[idx]
-            else:
-                for idx in range(0, len(reward_or_primitive_lines)):
-                    reward_or_primitive_lines[idx] = "        " + reward_or_primitive_lines[idx]
-            reward_or_primitive = "\n".join(reward_or_primitive_lines) + "\n"
-
-            reward_or_primitives.append(reward_or_primitive)
-
-    task_name = task_name.replace(" ", "_")
-    parent_folder = os.path.dirname(os.path.dirname(save_path))
-    task_save_path = os.path.join(parent_folder, "task_{}".format(task_name))
-    if not os.path.exists(task_save_path):
-        os.makedirs(task_save_path)
-
-    # print("substep: ", substeps)
-    # print("substep types: ", substep_types)
-    # print("reward or primitives: ", reward_or_primitives)
-    # print("action spaces: ", action_spaces)
-
-    with open(os.path.join(task_save_path, "substeps.txt"), "w") as f:
-        f.write("\n".join(substeps))
-    with open(os.path.join(task_save_path, "substep_types.txt"), "w") as f:
-        f.write("\n".join(substep_types))
-    with open(os.path.join(task_save_path, "action_spaces.txt"), "w") as f:
-        f.write("\n".join(action_spaces))
-    with open(os.path.join(task_save_path, "config_path.txt"), "w") as f:
-        f.write(yaml_config_path)
-
-    for idx, (substep, type, reward_or_primitive) in enumerate(zip(substeps, substep_types, reward_or_primitives)):
-        substep = substep.lstrip().replace(" ", "_")
-        substep = substep.replace("'", "")
-        file_name = os.path.join(task_save_path, f"{substep}.py")
-
-        if type == 'reward':
-            header = reward_file_header1.format(substep)
-            end = reward_file_end.format(substep, substep)
-            file_content =  header + reward_file_header2 + reward_or_primitive + end
-            with open(file_name, "w") as f:
-                f.write(file_content)
-        elif type == 'primitive':
-            header = primitive_file_header1.format(substep)
-            end = primitive_file_end.format(substep, substep)
-            file_content = header + primitive_file_header2 + reward_or_primitive + end
-            with open(file_name, "w") as f:
-                f.write(file_content)
-
-    return task_save_path
-
-

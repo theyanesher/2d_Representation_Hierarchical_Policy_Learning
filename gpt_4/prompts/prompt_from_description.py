@@ -1,3 +1,5 @@
+import sys
+# sys.path.append("/home/ziyu/Desktop/workspace/RoboGen-sim2real")
 from gpt_4.query import query
 from gpt_4.prompts.utils import build_task_given_text
 from gpt_4.prompts.prompt_distractor import generate_distractor
@@ -5,7 +7,7 @@ import time, datetime, os, copy
 
 user_contents = [
 """
-I will give you a task name, which is for a robot arm to learn to manipulate an articulated object in household scenarios. I will provide you with the articulated object’s articulation tree and semantics. Your goal is to expand the task description to more information needed for the task. You can think of the robotic arm as a Franka Panda robot. The task will be built in a simulator for the robot to learn it. 
+I will give you a task name, which is for a robot arm to learn to manipulate an articulated object in household scenarios. I will provide you with the articulated object's articulation tree and semantics. Your goal is to expand the task description to more information needed for the task. You can think of the robotic arm as a Franka Panda robot. The task will be built in a simulator for the robot to learn it. 
 
 Given a task name, please reply with the following additional information in the following format: 
 Description: some basic descriptions of the tasks. 
@@ -239,6 +241,7 @@ if __name__ == "__main__":
     }
 
     meta_path = "generated_task_from_description"
+    print("all possible objects in the PartNet Mobility dataset: ", partnet_mobility_dict.keys())
     assert args.object in partnet_mobility_dict.keys(), "You should use articulated objects in the PartNet Mobility dataset."
     if args.object_path is None:
         possible_object_ids = partnet_mobility_dict[args.object]

@@ -1,5 +1,9 @@
+is_train: True
+is_play: False
+checkpoint:
+
 params:
-  seed: 7
+  seed: 42
   algo:
     name: a2c_continuous
 
@@ -20,7 +24,7 @@ params:
           val: 0
         fixed_sigma: True
     mlp:
-      units: [512, 256, 128]
+      units: [256, 128, 64]
       activation: elu
       initializer:
         name: default
@@ -37,7 +41,6 @@ params:
       normalize_advantage: True
       gamma: 0.99
       tau: 0.95
-
       learning_rate: 3e-4
       lr_schedule: adaptive
       kl_threshold: 0.008
@@ -49,19 +52,25 @@ params:
       use_smooth_clamp: True
       bound_loss_type: regularisation
       bounds_loss_coef: 0.0005
-      max_epochs: 2000
-      num_actors: 64
+      max_epochs: 400
+      num_actors: 128 # 128
       horizon_length: 128
-      minibatch_size: 2048
+      minibatch_size: 4096 # 4096
       mini_epochs: 5
       critic_coef: 4
 
       env_config:
         name: robogen
         seed: 5
+        task_config_path: None
+        solution_path: None
+        substep: None
+        final_state_path: None
+        rl_save_path: None
+        time_limit: 
 
       player:
-        render: True
+        render: False
         record_robogen: True
         video_dir: ./video_rl_game
 

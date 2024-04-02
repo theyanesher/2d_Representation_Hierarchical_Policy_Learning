@@ -13,6 +13,7 @@ from rl_games.common import env_configurations
 from rl_games.algos_torch import model_builder
 import imageio
 
+
 class BasePlayer(object):
 
     def __init__(self, params):
@@ -25,6 +26,9 @@ class BasePlayer(object):
         self.env_info = self.config.get('env_info')
         self.clip_actions = config.get('clip_actions', True)
         self.seed = self.env_config.pop('seed', None)
+
+        self.rl_save_path = self.env_config.get('rl_save_path', None)
+        self.time_limit = self.env_config.get('time_limit', None)
 
         if self.env_info is None:
             use_vecenv = self.player_config.get('use_vecenv', False)
@@ -66,7 +70,7 @@ class BasePlayer(object):
         self.video_recorder = VideoRecorder(
             self.player_config.get('video_dir', None) if self.record_robogen else None)
         self.video_recorder.init()
-        self.games_num = self.player_config.get('games_num', 1)
+        self.games_num = self.player_config.get('games_num', 2000)
 
         if 'deterministic' in self.player_config:
             self.is_deterministic = self.player_config['deterministic']
@@ -300,9 +304,18 @@ class BasePlayer(object):
         self.wait_for_checkpoint()
 
         need_init_rnn = self.is_rnn
+        if self.rl_save_path is not None:
+            from manipulation.utils import save_env as robogen_save_env
+            robogen_record = VideoRecorder(os.path.join(self.rl_save_path, 'checkpoints'))
+            robogen_record.init()
+            save_states_path = os.path.join(self.rl_save_path, 'states')
         for _ in range(n_games):
             if games_played >= n_games:
                 break
+
+            if self.rl_save_path is not None and games_played >= 1:
+                break 
+
 
             obses = self.env_reset(self.env)
             batch_size = 1
@@ -335,10 +348,16 @@ class BasePlayer(object):
                 if render:
                     self.env.render(mode='human')
                     time.sleep(self.render_sleep)
-                    
+
                 if self.record_robogen:
                     frame = self.env.render()
                     self.video_recorder.record(frame)
+
+                if self.rl_save_path is not None:
+                    robogen_record.record(self.env.render())
+                    # save states
+                    robogen_save_env(self.env, os.path.join(save_states_path, f'state_{n}.pkl'))
+
 
                 all_done_indices = done.nonzero(as_tuple=False)
                 done_indices = all_done_indices[::self.num_agents]
@@ -379,11 +398,15 @@ class BasePlayer(object):
                     sum_game_res += game_res
                     if batch_size//self.num_agents == 1 or games_played >= n_games:
                         break
-                    
-        self.video_recorder.save(f'{games_played}.mp4')
-        from manipulation.utils import save_env
-        save_env(self.env, f'data/tmp-grasp-door-rl-game-ppo-final.pkl')
-        print("Game played: ", games_played)
+
+            if self.rl_save_path is not None:
+                robogen_record.save(f'best_PPO.mp4')
+                # save the reward of the last game
+                with open(os.path.join(self.rl_save_path, 'checkpoints', 'best_PPO_score.txt'), 'w') as f:
+                    f.write(str(sum_rewards))
+
+            self.video_recorder.save(f'{games_played}.mp4')
+            print("========================= Game played: ", games_played, " =========================")
 
         print(sum_rewards)
         if print_game_res:
@@ -417,7 +440,7 @@ class BasePlayer(object):
 
 
 class VideoRecorder(object):
-    def __init__(self, save_dir, height=256, width=256, camera_id=0, fps=30):
+    def __init__(self, save_dir, height=256, width=256, camera_id=0, fps=60):
         try:
             os.makedirs(save_dir)
         except OSError:
@@ -441,3 +464,5 @@ class VideoRecorder(object):
             path = os.path.join(self.save_dir, file_name)
             imageio.mimsave(path, self.frames, fps=self.fps)
             self.frames = []
+
+    

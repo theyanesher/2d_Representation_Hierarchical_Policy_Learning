@@ -15,6 +15,8 @@ def execute_primitive(task_config, solution_path, substep, last_restore_state_fi
                                     render=gui, randomize=randomize, obj_id=obj_id)
     env.primitive_save_path = save_path
 
+    np.random.seed(time.time_ns() % 2**32)
+
     # execute the primitive
     max_retry = 1
     cnt = 0

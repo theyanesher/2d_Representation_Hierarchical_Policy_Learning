@@ -11,7 +11,8 @@ from gpt_4.prompts.utils import parse_response_to_get_yaml
 
 user_contents = [
 """
-Given a task, which is for a mobile Franka panda robotic arm to learn a manipulation skill in the simulator, your goal is to add more objects into the task scene such that the scene looks more realistic. The Franka panda arm is mounted on a floor, at location (1, 1, 0). It can move freely on the floor. The z axis is the gravity axis. 
+Given a task, which is for a Franka panda robotic arm to learn a manipulation skill in the simulator, your goal is to add more objects into the task scene such that the scene looks more realistic. The Franka panda arm is mounted on a floor, at location (0, 0, 0). 
+The franka panda robotic arm has a fixed base. It can not move on the floor. You should carefully specify other objects' positions: notice that any object should not bo too close (closer than 0.3m) or too far (further than 0.8m) from the robot. The z axis is the gravity axis.. 
 
 The input to you includes the following:
 Task name, task description, the essential objects involved in the task, and a config describing the current task scene, which contains only the essential objects needed for the task. The config is a yaml file in the following format:

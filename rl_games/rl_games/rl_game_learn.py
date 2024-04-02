@@ -15,7 +15,7 @@ def omegaconf_to_dict(d: DictConfig):
     return ret
 
 # Hydra decorator to pass in the config. Looks for a config file in the specified path. This file in turn has links to other configs 
-@hydra.main(config_path="./configs/robogen.yaml")
+@hydra.main(config_path="./configs", config_name='robogen')
 def launch_rlg_hydra(cfg: DictConfig):
 
     import logging
@@ -67,15 +67,9 @@ def launch_rlg_hydra(cfg: DictConfig):
     print(configurations)
     # Run either training or playing via the rl_games runner
     runner.run({
-        'train': True,
-        'play': False,
-        # 'train': False,
-        # 'play': True,
-        # "checkpoint": "runs/robogen_09-19-23-32/nn/robogen.pth" # 7310 microwave
-        # "checkpoint": "runs/robogen_10-19-02-26/nn/robogen.pth" # 7167 microwave
-        # "checkpoint": "runs/robogen_10-19-45-40/nn/robogen.pth" # 7263 microwave
-        # "checkpoint": "runs/robogen_10-22-01-47/nn/robogen.pth" # 7263 microwave better initialization
-        # "checkpoint": "runs/robogen_11-00-38-16/nn/robogen.pth"
+        'train': cfg.is_train,
+        'play': cfg.is_play,
+        'checkpoint': cfg.checkpoint,
     })
 
 

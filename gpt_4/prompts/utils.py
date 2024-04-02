@@ -8,7 +8,10 @@ from gpt_4.query import query
 from gpt_4.adjust_size import adjust_size_v2
 
 task_yaml_config_prompt = """
-I need you to describe the initial scene configuration for a given task in the following format, using a yaml file. This yaml file will help build the task in a simulator. The task is for a mobile Franka panda robotic arm to learn a manipulation skill in the simulator. The Franka panda arm is mounted on a floor, at location (1, 1, 0). It can move freely on the floor. The z axis is the gravity axis. 
+I need you to describe the initial scene configuration for a given task in the following format, using a yaml file. This yaml file will help build the task in a simulator. 
+The task is for a Franka panda robotic arm to learn a manipulation skill in the simulator. The Franka panda arm is mounted on a floor, at location (0, 0, 0). 
+The franka robot arm has a fixed base. It can not move on the floor. You should carefully specify other objects' positions to make sure they are in the robot's workspace, and they do not have collisions with the robot. The z axis is the gravity axis. 
+
 
 The format is as follows:
 ```yaml 
@@ -145,7 +148,7 @@ Output:
 - type: mesh
   name: "Chair"
   on_table: False # An oven is usually just placed on the floor.
-  center: (1.0, 0, 0) # Remember that when not on a table, the center is expressed in the world coordinate. Since the robot is at (1, 1, 0) and the table is at (0, 0, 0), we place the oven at (1.8, 2, 0) to avoid collision with the table and the robot.
+  center: (0.6, 0, 0) # Remember that when not on a table, the center is expressed in the world coordinate. Since the robot is at (0, 0, 0), we place the chair at (0.6, 0, 0) to avoid collision with the robot, and to make sure it's in the robot's workspace.
   size: 1.2 # the size of an oven is roughly 0.9m
   lang: "a standard chair"
   path: "chair.urdf"
