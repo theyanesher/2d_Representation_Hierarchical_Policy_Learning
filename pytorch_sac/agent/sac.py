@@ -4,6 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+import sys
+import pytorch_sac.agent.critic
+import pytorch_sac.agent.actor
 from agent import Agent
 import utils
 
@@ -28,12 +31,11 @@ class SACAgent(Agent):
         self.batch_size = batch_size
         self.learnable_temperature = learnable_temperature
 
-        self.critic = hydra.utils.instantiate(critic_cfg).to(self.device)
-        self.critic_target = hydra.utils.instantiate(critic_cfg).to(
-            self.device)
+        self.critic = pytorch_sac.agent.critic.DoubleQCritic(obs_dim, action_dim, critic_cfg.hidden_dim, critic_cfg.hidden_depth).to(self.device)
+        self.critic_target = pytorch_sac.agent.critic.DoubleQCritic(obs_dim, action_dim, critic_cfg.hidden_dim, critic_cfg.hidden_depth).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
-        self.actor = hydra.utils.instantiate(actor_cfg).to(self.device)
+        self.actor = pytorch_sac.agent.actor.DiagGaussianActor(obs_dim, action_dim, actor_cfg.hidden_dim, actor_cfg.hidden_depth, actor_cfg.log_std_bounds).to(self.device)
 
         self.log_alpha = torch.tensor(np.log(init_temperature)).to(self.device)
         self.log_alpha.requires_grad = True

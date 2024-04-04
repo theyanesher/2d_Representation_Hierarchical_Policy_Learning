@@ -2,7 +2,7 @@ import wandb
 import numpy as np
 import torch
 import tqdm 
-from manipulation.utils import build_up_env, save_numpy_as_gif, get_pc, take_round_images_around_object
+from manipulation.utils import build_up_env, save_numpy_as_gif, get_pc, take_round_images_around_object, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D
 from manipulation.gpt_reward_api import get_handle_pos
 import pybullet as p
 import numpy as np
@@ -14,25 +14,24 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import time
 from termcolor import cprint
+from scipy.spatial.transform import Rotation as R
 
 class RobogenPointCloudWrapper:
-    def __init__(self, env, object_name, rpy_mean_list=None):
+    def __init__(self, env, object_name, rpy_mean_list=None, seed=None):
         np.random.seed(time.time_ns() % 2**32)
-        # np.random.seed(0)
-        # torch.manual_seed(0)
-        # torch.cuda.manual_seed(0)
-        # torch.cuda.manual_seed_all(0)
+        if seed is not None:
+            np.random.seed(seed)
 
         self._env = env
         self._object_name = object_name
 
-        self.action_low = np.array([-1, -1, -1, -1, -1, -1, -1])
-        self.action_high = np.array([1, 1, 1, 1, 1, 1, 1])
+        self.action_low = np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
+        self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
         self.observation_space = spaces.Dict({
             'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 6), dtype=np.float32),
-            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32)
+            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
 
         for name in self._env.urdf_ids: # randomly center at an object
@@ -51,14 +50,18 @@ class RobogenPointCloudWrapper:
         self.project_matrices = []
 
         for rpy_mean in self.rpy_mean_list:
-            rpy = np.array(rpy_mean) + np.random.normal(0, 8, 3)
-            camera_center = self.mean_camera_target + np.random.normal(0, 0.05, 3)
-            distance = self.mean_distance + np.random.normal(0, 0.05, 1)
+            # rpy = np.array(rpy_mean) + np.random.normal(0, 8, 3)
+            # camera_center = self.mean_camera_target + np.random.normal(0, 0.05, 3)
+            # distance = self.mean_distance + np.random.normal(0, 0.05, 1)
+            rpy = np.array(rpy_mean)
+            camera_center = self.mean_camera_target
+            distance = self.mean_distance
+
             view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=env.id)
             project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=0.01, farVal=100, physicsClientId=env.id)
             self.view_matrices.append(view_matrix)
             self.project_matrices.append(project_matrix)
-            cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
+            # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
 
     def reset(self):
@@ -67,10 +70,28 @@ class RobogenPointCloudWrapper:
     
     def step(self, action):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-        orient = p.getEulerFromQuaternion(orient)
+        # orient = p.getEulerFromQuaternion(orient)
+        current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
+
+        delta_orient = action[3:9]
+
+        delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
+
+        after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
+        
+        orient = R.from_matrix(after_rotate_matrix).as_quat()
+        euler = p.getEulerFromQuaternion(orient)
+
         cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
-        pos_ori = pos.tolist() + list(orient) + [cur_joint_angle[0]]
-        action = action + np.array(pos_ori)
+        # pos_ori = pos.tolist() + list(orient) + [cur_joint_angle[0]]
+        # action = action + np.array(pos_ori)
+
+        pos = pos + np.array(action[:3])
+        target_joint_angle = action[9] + cur_joint_angle[0]
+        action = pos.tolist() + list(euler) + [target_joint_angle]
+
+        p.addUserDebugPoints([pos], [[0, 1, 0]], 25)
+
         self._env.take_direct_action(action)
         reward, success = self._env._compute_reward()
         info = {'success': success}
@@ -80,9 +101,15 @@ class RobogenPointCloudWrapper:
     
     def _get_observation(self):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-        orient = p.getEulerFromQuaternion(orient)
+        # orient = p.getEulerFromQuaternion(orient)
+
+        # get the 6D representation of orientation
+        rotate_matrix = p.getMatrixFromQuaternion(orient)
+        
+        orient = rotation_transfer_matrix_to_6D(rotate_matrix)
+
         cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
-        pos_ori = pos.tolist() + list(orient) + [cur_joint_angle[0]]
+        pos_ori = pos.tolist() + orient.tolist() + [cur_joint_angle[0]]
         # rgbs, depths, view_camera_matrices, project_camera_matrices = \
         #     take_round_images_around_object(self._env, self._object_name.lower(), elevation=30,
         #                                     return_camera_matrices=True, camera_height=480, camera_width=640, 
@@ -110,7 +137,7 @@ class RobogenPointCloudWrapper:
             point_cloud = point_cloud[mask]
 
 
-        # visualize full point cloud
+        # # visualize full point cloud
         # pc = np.array(point_cloud)
         # print("visualizing full point cloud with shape: ", pc.shape)
         # pcd = o3d.geometry.PointCloud()
@@ -146,7 +173,7 @@ class RobogenPointCloudWrapper:
         handle_point_cloud = handle_point_cloud.tolist()
         point_cloud = point_cloud + handle_point_cloud
 
-        # visualize point cloud
+        # # visualize point cloud
         # pc = np.array(point_cloud)
         # print("visualizing point cloud with shape: ", pc.shape)
         # pcd = o3d.geometry.PointCloud()

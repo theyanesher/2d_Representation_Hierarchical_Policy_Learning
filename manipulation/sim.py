@@ -13,6 +13,10 @@ from manipulation.ur5 import UR5
 from manipulation.sawyer import Sawyer
 from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, save_env
 from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from_name
+import matplotlib.pyplot as plt
+import open3d 
+from termcolor import cprint
+import time
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
@@ -20,23 +24,19 @@ class SimpleEnv(gym.Env):
                     config_path=None, 
                     gui=False, 
                     control_step=2, 
-                    # horizon=120,  # for tasks other than grasping the handle, 120 is enough
-                    horizon=250,  
+                    horizon=250, 
                     restore_state_file=None, 
                     rotation_mode='delta-axis-angle-local',
                     translation_mode='delta-translation', 
-                    # max_rotation=np.deg2rad(10), 
                     max_rotation=np.deg2rad(5), 
-                    # max_rotation=np.deg2rad(2), 
-                    # max_translation=0.025, # larger values can be used in other cases 
-                    max_translation=0.0075, # really small values need to be used to prevent penetration when openning the door.
-                    # max_translation=0.0025, # really small values need to be used to prevent penetration when openning the door.
+                    max_translation=0.0075,
                     use_suction=False,  # whether to use a suction gripper
                     object_candidate_num=6, # how many candidate objects to sample from objaverse
-                    vhacd=False, # if to perform vhacd on the object for better collision detection for pybullet
+                    vhacd=True, # if to perform vhacd on the object for better collision detection for pybullet
                     randomize=0, # if to randomize the scene
                     obj_id=0, # which object to choose to use from the candidates
                     mobile=False,
+                    
                 ):
         
         super().__init__()
@@ -81,7 +81,7 @@ class SimpleEnv(gym.Env):
                 self.id = p.connect(p.DIRECT)
         else:
             self.id = p.connect(p.DIRECT)
-                
+
         self.asset_dir = osp.join(osp.dirname(osp.realpath(__file__)), "assets/")
         p.setTimeStep(dt, physicsClientId=self.id)
 
@@ -123,6 +123,9 @@ class SimpleEnv(gym.Env):
         self.base_observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_num_obs, ), dtype=np.float32)
 
         self.detected_position = {} # not used for now, keep it
+        self.time_step = 0
+        self.success = False
+        self.control_rgbs = []
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -165,9 +168,8 @@ class SimpleEnv(gym.Env):
     def clip_within_workspace(self, robot_pos, ori_pos, on_table):
         pos = ori_pos.copy()
         # If objects are too close to the robot, push them away
-        # TODO: should set object based on its bounding box
-        x_near_low, x_near_high = robot_pos[0] - 0.5, robot_pos[0] + 0.5
-        y_near_low, y_near_high = robot_pos[1] - 0.5, robot_pos[1] + 0.5
+        x_near_low, x_near_high = robot_pos[0] - 0.4, robot_pos[0] + 0.4
+        y_near_low, y_near_high = robot_pos[1] - 0.4, robot_pos[1] + 0.4
 
         if pos[0] > x_near_low and pos[0] < x_near_high:
             pos[0] = x_near_low if pos[0] < robot_pos[0] else x_near_high
@@ -181,14 +183,39 @@ class SimpleEnv(gym.Env):
             new_pos = pos.copy()
             new_pos[:2] = np.clip(new_pos[:2], self.table_bbox_min[:2], self.table_bbox_max[:2])
             return new_pos
+        
+    def clip_x_bbox_within_workspace(self, robot_pos, ori_pos, on_table , min_bbox, max_bbox):
+        x_near_low = robot_pos[0] - 0.4
+        x_near_high = robot_pos[0] + 0.4
+        offset = 0
+        if min_bbox[0] > robot_pos[0]:
+            if min_bbox[0] < x_near_high:
+                offset = x_near_high - min_bbox[0]
+        elif max_bbox[0] < robot_pos[0]:
+            if max_bbox[0] > x_near_low:
+                offset = x_near_low - max_bbox[0]
+
+        pos = ori_pos.copy()
+        pos[0] += offset
+        
+        if not on_table:
+            return pos
+        else:
+            # Object is on table, should be within table's bounding box
+            new_pos = pos.copy()
+            new_pos[:2] = np.clip(new_pos[:2], self.table_bbox_min[:2], self.table_bbox_max[:2])
+            return new_pos
 
     def get_robot_base_pos(self):
-        # robot_base_pos = [1, 1, 0.28]
         robot_base_pos = [1, 1, 0]
         return robot_base_pos
     
     def get_robot_init_joint_angles(self):
         init_joint_angles = [0 for _ in range(len(self.robot.right_arm_joint_indices))]
+
+        init_joint_angles[3] = -0.4
+        init_joint_angles[5] = 0.4
+
         return init_joint_angles
 
     def set_scene(
@@ -197,13 +224,12 @@ class SimpleEnv(gym.Env):
     ):
         ### simulation preparation
         p.resetSimulation(physicsClientId=self.id)
-        p.setRealTimeSimulation(0, physicsClientId=self.id)
-        p.setGravity(0, 0, self.gravity, physicsClientId=self.id)
-        
         if self.gui:
             p.resetDebugVisualizerCamera(cameraDistance=1.75, cameraYaw=-25, cameraPitch=-45, cameraTargetPosition=[-0.2, 0, 0.4], physicsClientId=self.id)
             p.configureDebugVisualizer(p.COV_ENABLE_MOUSE_PICKING, 0, physicsClientId=self.id)
             p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, physicsClientId=self.id)
+        p.setRealTimeSimulation(0, physicsClientId=self.id)
+        p.setGravity(0, 0, self.gravity, physicsClientId=self.id)
 
         ### load restore state
         restore_state = None
@@ -249,7 +275,7 @@ class SimpleEnv(gym.Env):
         if self.init_state is not None:
             load_env(self, state=self.init_state)
             return
-
+        
         ### adjusting object positions
         ### place the lowest point on the object to be the height where GPT specifies
         object_height = self.adjust_object_positions(self.robot_base_pos)
@@ -258,14 +284,15 @@ class SimpleEnv(gym.Env):
         self.resolve_collision(self.robot_base_pos, object_height, spatial_relationships)
 
         ### handle any special relationships outputted by GPT
-        self.handle_gpt_special_relationships(spatial_relationships)
-
+        # self.handle_gpt_special_relationships(spatial_relationships)
         ### set all object's joint angles to the lower joint limit
         self.set_to_default_joint_angles()
 
         ### overwrite joint angles specified by GPT
         self.handle_gpt_joint_angle(articulated_init_joint_angles)
            
+       
+        
         ### stabilize the scene
         for _ in range(500):
             p.stepSimulation(physicsClientId=self.id)
@@ -273,17 +300,17 @@ class SimpleEnv(gym.Env):
         ### restore to a state if provided
         if self.restore_state_file is not None:
             load_env(self, self.restore_state_file)
+            print("Restored state from: ", self.restore_state_file)
 
         ### record initial joint angles and positions
         self.record_initial_joint_and_pose()
-        
+
         ### Enable debug rendering
         if self.gui:
             p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1, physicsClientId=self.id)
  
-        # self.init_state = p.saveState(physicsClientId=self.id)
         self.init_state = save_env(self)
-        
+
         
     def load_robot(self, restore_state):
         robot_classes = {
@@ -335,10 +362,8 @@ class SimpleEnv(gym.Env):
         ### parse config
         urdf_paths, urdf_sizes, urdf_positions, urdf_names, urdf_types, urdf_on_table, use_table, \
             articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables = parse_config(self.config, 
-                        use_bard=True, obj_id=self.obj_id, 
-                        use_vhacd=True
-                        # use_vhacd=False
-                        ) # NOTE
+                        use_bard=True, obj_id=self.obj_id,
+                        use_vhacd=True)
         if not use_table:
             urdf_on_table = [False for _ in urdf_on_table]
         urdf_names = [x.lower() for x in urdf_names]
@@ -372,9 +397,9 @@ class SimpleEnv(gym.Env):
             urdf_movables += distractor_movables
 
         if restore_state is not None:
-            # NOTE
             if "urdf_paths" in restore_state:
                 self.urdf_paths = restore_state['urdf_paths']
+                # print("self.urdf_paths", self.urdf_paths)
                 urdf_paths = [self.urdf_paths[name] for name in urdf_names]
             if "object_sizes" in restore_state:
                 self.simulator_sizes = restore_state['object_sizes']
@@ -419,7 +444,7 @@ class SimpleEnv(gym.Env):
             
             if not self.mobile:
                 # set robot to be on the table
-                robot_base_pos_table = np.array([0.1, 0.5])
+                robot_base_pos_table = np.array([0.10, 0.5, 0])
                 robot_base_pos_world = np.array([0, 0, 0.])
                 x_range = self.table_bbox_max[0] - self.table_bbox_min[0]
                 y_range = self.table_bbox_max[1] - self.table_bbox_min[1]
@@ -433,7 +458,6 @@ class SimpleEnv(gym.Env):
     def load_object(self, urdf_paths, urdf_sizes, urdf_positions, urdf_names, urdf_types, urdf_on_table, urdf_movables):
         for path, size, pos, name, type, on_table, moveable in zip(urdf_paths, urdf_sizes, urdf_positions, urdf_names, urdf_types, urdf_on_table, urdf_movables):
             # print("Loading object: {} path {}".format(name, path))
-            
             
             name = name.lower()
             # by default, all objects movable, except the urdf files
@@ -457,7 +481,6 @@ class SimpleEnv(gym.Env):
                 obj_y = self.table_bbox_min[1] + pos[1] * table_xy_range[1]
                 obj_z = self.table_height
                 load_pos = [obj_x, obj_y, obj_z]
-                        
             id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
 
             # scale size 
@@ -492,7 +515,8 @@ class SimpleEnv(gym.Env):
             object_height[id] = 2 * self.init_positions[name][2] - min_z
             pos, orient = p.getBasePositionAndOrientation(id, physicsClientId=self.id)
             new_pos = np.array(pos) 
-            new_pos = self.clip_within_workspace(robot_base_pos, new_pos, self.on_tables[name])
+            # new_pos = self.clip_within_workspace(robot_base_pos, new_pos, self.on_tables[name])
+            new_pos = self.clip_x_bbox_within_workspace(robot_base_pos, new_pos, self.on_tables[name], min_aabb, max_aabb)
             new_pos[2] = object_height[id]
             p.resetBasePositionAndOrientation(id, new_pos, orient, physicsClientId=self.id)
             self.init_positions[name] = new_pos
@@ -509,7 +533,9 @@ class SimpleEnv(gym.Env):
                     pos = self.init_positions[name]
                     _, orient = p.getBasePositionAndOrientation(id, physicsClientId=self.id)
                     new_pos = np.array(pos) + np.random.uniform(-0.2, 0.2, size=3)
-                    new_pos = self.clip_within_workspace(robot_base_pos, new_pos, self.on_tables[name])
+                    # new_pos = self.clip_within_workspace(robot_base_pos, new_pos, self.on_tables[name])
+                    min_aabb, max_aabb = self.get_aabb(id)
+                    new_pos = self.clip_x_bbox_within_workspace(robot_base_pos, new_pos, self.on_tables[name], min_aabb, max_aabb)
                     new_pos[2] = object_height[id]
                     p.resetBasePositionAndOrientation(id, new_pos, orient, physicsClientId=self.id)
                     p.stepSimulation(physicsClientId=self.id)
@@ -588,7 +614,9 @@ class SimpleEnv(gym.Env):
                 for direction in push_directions[id]:
                     pos, orient = p.getBasePositionAndOrientation(id, physicsClientId=self.id)
                     new_pos = np.array(pos) + push_distance * direction    
-                    new_pos = self.clip_within_workspace(robot_base_pos, new_pos, self.on_tables[name])
+                    # new_pos = self.clip_within_workspace(robot_base_pos, new_pos, self.on_tables[name])
+                    min_aabb, max_aabb = self.get_aabb(id)
+                    new_pos = self.clip_x_bbox_within_workspace(robot_base_pos, new_pos, self.on_tables[name], min_aabb, max_aabb)
                     new_pos[2] = object_height[id]
 
                     p.resetBasePositionAndOrientation(id, new_pos, orient, physicsClientId=self.id)
@@ -737,11 +765,11 @@ class SimpleEnv(gym.Env):
                 if joint_limit_low > joint_limit_high:
                     joint_limit_low, joint_limit_high = joint_limit_high, joint_limit_low
                 if 'random' not in joint_angle:
-                    joint_angle = float(joint_angle)
+                    # joint_angle = float(joint_angle)
                     # joint_angle = min(joint_angle, 0.7)
                     # joint_angle = max(joint_angle, 0.06)
                     # joint_angle = joint_limit_low + joint_angle * (joint_limit_high - joint_limit_low)
-                    joint_angle = joint_limit_low 
+                    joint_angle = joint_limit_low
                 else:
                     joint_angle = self.np_random.uniform(joint_limit_low, joint_limit_high)
                 p.resetJointState(obj_id, joint_idx, joint_angle, physicsClientId=self.id)
@@ -759,16 +787,17 @@ class SimpleEnv(gym.Env):
         self.view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1], physicsClientId=self.id)
         self.projection_matrix = p.computeProjectionMatrixFOV(fov, camera_width / camera_height, 0.01, 100, physicsClientId=self.id)
     
-    def setup_camera_rpy(self, camera_target=[0, 0, 0.3], distance=0.6, rpy=[0, -30, -30], fov=60, camera_width=640, camera_height=480):
+    def setup_camera_rpy(self, camera_target=None, distance=1.6, rpy=[0, -30, -30], fov=60, camera_width=640, camera_height=480):
         self.camera_width = camera_width
         self.camera_height = camera_height
-        for name in self.urdf_ids: # randomly center at an object
-            if name in ['robot', 'plane', 'init_table']: continue
-            obj_id = self.urdf_ids[name]
-            min_aabb, max_aabb = self.get_aabb(obj_id)
-            center = (min_aabb + max_aabb) / 2
-            camera_target = center 
-            break
+        if camera_target is None:
+            for name in self.urdf_ids: # randomly center at an object
+                if name in ['robot', 'plane', 'init_table']: continue
+                obj_id = self.urdf_ids[name]
+                min_aabb, max_aabb = self.get_aabb(obj_id)
+                center = (min_aabb + max_aabb) / 2
+                camera_target = center 
+                break
 
         self.view_matrix = p.computeViewMatrixFromYawPitchRoll(camera_target, distance, rpy[2], rpy[1], rpy[0], 2, physicsClientId=self.id)
         self.projection_matrix = p.computeProjectionMatrixFOV(fov, camera_width / camera_height, 0.01, 100, physicsClientId=self.id)
@@ -830,6 +859,9 @@ class SimpleEnv(gym.Env):
         elif type(forces) not in (list, tuple):
             forces = [forces]*len(self.agents)
 
+        np.random.seed(time.time_ns() % 2**32)
+
+        self.control_rgbs = []
         action_index = 0
         for i, agent in enumerate(self.agents):
             agent_action_len = self.base_action_space.shape[0] 
@@ -841,7 +873,7 @@ class SimpleEnv(gym.Env):
             suction = action[6]
             # for those already grasped by motion planning
             # suction = -1
-            p.addUserDebugPoints([translation], [[1, 0, 0]], 15, physicsClientId=self.id)
+            # p.addUserDebugPoints([translation], [[1, 0, 0]], 15, physicsClientId=self.id)
 
             joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
             # agent_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
@@ -849,51 +881,68 @@ class SimpleEnv(gym.Env):
             
             pos = translation
             orient = p.getQuaternionFromEuler(rotation)
-            agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, 
-                                          residualThreshold=5e-5, return_full_state=True)
+            agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=False, residualThreshold=1e-5, return_full_state=True)
 
             # ==============================================================
             # =============== Trying to deal with IK fails =================
             # ==============================================================
 
             # # check if ik finds a solution
-            # state = save_env(self)
-            # joint_idx = [j for j in list(range(p.getNumJoints(self.robot.body))) if p.getJointInfo(self.robot.body, j)[2]!=p.JOINT_FIXED]
-            # for joint, value in zip(joint_idx, agent_joint_angles):
-            #     p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
+            state = save_env(self)
+            joint_idx = [j for j in list(range(p.getNumJoints(self.robot.body))) if p.getJointInfo(self.robot.body, j)[2]!=p.JOINT_FIXED]
+            for joint, value in zip(joint_idx, agent_joint_angles):
+                p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
             # # input("Press Enter to continue...")
-            # temp_pos, temp_orient = agent.get_pos_orient(agent.right_end_effector)
+            temp_pos, temp_orient = agent.get_pos_orient(agent.right_end_effector)
+            # cprint("ik target pos: {}, orient: {}".format(temp_pos, temp_orient), "green")
             
-            # ik_success = True
-            # if np.any(agent_joint_angles[self.robot.right_arm_joint_indices] < self.robot.ik_lower_limits[self.robot.right_arm_joint_indices]) \
-            #     or np.any(agent_joint_angles[self.robot.right_arm_joint_indices] > self.robot.ik_upper_limits[self.robot.right_arm_joint_indices]):
-            #     print("IK out of joint limits")
-            #     ik_success = False
+            ik_success = True
+            if np.any(agent_joint_angles[self.robot.right_arm_joint_indices] < self.robot.ik_lower_limits[self.robot.right_arm_joint_indices]) \
+                or np.any(agent_joint_angles[self.robot.right_arm_joint_indices] > self.robot.ik_upper_limits[self.robot.right_arm_joint_indices]):
+                # import pdb; pdb.set_trace()
+                cprint("IK out of joint limits", "red")
+                ik_success = False
 
             
-            # if np.linalg.norm(temp_pos - pos) > 0.01 or ik_success==False:
-            #     print("IK failed in stage one")
-            #     it = 1
-            #     while True:
-            #         ik_start_pose = np.random.uniform(self.robot.ik_lower_limits, self.robot.ik_upper_limits)
-            #         for joint, value in zip(joint_idx, ik_start_pose):
-            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
-            #         agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=5e-5, return_full_state=True)
-            #         for joint, value in zip(joint_idx, agent_joint_angles):
-            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
-            #         temp_pos, temp_orient = agent.get_pos_orient(joint)
-            #         if np.linalg.norm(temp_pos - pos) < 0.01:
-            #             ik_success = True
-            #             break
-            #         it += 1
-            #         if it > 100:
-            #             ik_success = False
-            #             print("IK failed in stage two")
-            #             break
+            if np.linalg.norm(temp_pos - pos) > 0.001 or ik_success==False:
+                ik_success = False
+                cprint("IK failed in stage one", "red")
+                it = 1
+                available_joint_angle_list = []
+                while True:
+                    ik_start_pose = np.random.uniform(self.robot.ik_lower_limits, self.robot.ik_upper_limits)
+                    for joint, value in zip(joint_idx, ik_start_pose):
+                        p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
+                        
+                    joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
+                    agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
+
+                    for joint, value in zip(joint_idx, agent_joint_angles):
+                        p.resetJointState(self.robot.body, joint, value, targetVelocity=0)
+                        
+                    joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
+                    temp_pos, temp_orient = agent.get_pos_orient(joint)
+                    if np.linalg.norm(temp_pos - pos) < 0.001:
+                        available_joint_angle_list.append(agent_joint_angles[ik_indices])
+                        ik_success = True
+                    it += 1
+                    if it > 500:
+                        cprint("IK stage two finished", "green")
+                        break
+
+                if ik_success == True:
+                    # choose the one that is closest to the current joint angles
+                    available_joint_angle_list_np = np.array(available_joint_angle_list)
+                    cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+                    diff = np.linalg.norm(available_joint_angle_list_np - cur_joint_angles, axis=1)
+                    idx = np.argmin(diff)
+                    agent_joint_angles = available_joint_angle_list[idx]
+
                     
-            # load_env(self, state=state)
-            # if ik_success == False:
-            #     agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=5e-5, return_full_state=True)
+            load_env(self, state=state)
+            if ik_success == False:
+                cprint("===== IK failed ======", "red")
+                agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
             
             # ==============================================================
             # =========== but it is not working well for now ===============
@@ -912,10 +961,13 @@ class SimpleEnv(gym.Env):
                     # if np.linalg.norm(pos - translation) < 0.0001 and np.linalg.norm(orient - rotation) < 0.0001:
                     #     break
                     cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+                    rgb = self.render()
+                    self.control_rgbs.append(rgb)
                     if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 0.0001:
                         break
 
-                if it > 1000:
+                if it > 100:
+                    cprint("++++++ failed to reach the target ++++++", "red")
                     break
 
                 # gripper
@@ -926,6 +978,9 @@ class SimpleEnv(gym.Env):
                 p.stepSimulation(physicsClientId=self.id) 
                 
         # self.enforce_joint_limits()
+                
+    def get_control_rgbs(self):
+        return self.control_rgbs
 
     def take_step(self, actions, gains=None, forces=None):
         if gains is None:
@@ -1200,110 +1255,22 @@ if __name__ == "__main__":
         # "example_tasks/Change_Lamp_Direction/Change_Lamp_Direction_The_robotic_arm_will_alter_the_lamps_light_direction_by_manipulating_the_lamps_head.yaml",
         # "example_tasks/Change_Lamp_Direction/task_Change_Lamp_Direction",
         # "grasp_the_lamps_head", 
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
-        "open_the_microwave_door", 
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
-        # "data/tmp-grasp-door-rl-game-ppo-final.pkl", # microwave 7310
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-10-18-54-15/grasp_the_microwave_door_primitive/states/state_129.pkl", # microwave 7167
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-10-21-52-57/grasp_the_microwave_door_primitive/states/state_129.pkl", # 7263
-        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-11-17-49-58/grasp_the_microwave_door_primitive/states/state_204.pkl",
-
-        # all cached states after finalized the grasping primitive
-        "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-14-02-37-04/grasp_the_microwave_door_primitive/states/state_168.pkl",
+        # "data/generated_task_from_description/put_a_bottle_in_microwave/put_a_bottle_in_microwave.yaml",
+        # "data/generated_task_from_description/put_a_bottle_in_microwave/task_put_a_bottle_in_microwave",
+        # "put_a_bottle_in_the_microwave",
+        # "initial_states/bottle_lift_initialization_not_close.pkl",
+        "data/generated_task_from_description/lift_a_box/lift_a_box.yaml",
+        "data/generated_task_from_description/lift_a_box/task_lift_a_box",
+        "lift_a_box",
+        "initial_states/gold_bar_initialization_not_close.pkl",
+        # "data/generated_task_from_description/lift_a_hamburger/lift_a_hamburger.yaml",
+        # "data/generated_task_from_description/lift_a_hamburger/task_lift_a_hamburger",
+        # "lift_a_hamburger",
+        # "initial_states/hamburger_lift_initialization_not_close.pkl",
+        # None,
         render=True, 
         randomize=False, 
         obj_id=0
     )
-    
-    env.reset()
-    
-    from manipulation.gpt_reward_api import *
-    from manipulation.utils import add_sphere, save_env
-    joint_limit_low, joint_limit_high = get_joint_limit(env, "Microwave", "joint_0")
-    handle_pos = get_handle_pos(env, "microwave", "joint_0")
-    # add_sphere(handle_pos)
-    import time
-    
-    # p.removeBody(env.robot.body, physicsClientId=env.id)
-    # p.removeBody(env.table, physicsClientId=env.id)
-    # p.resetJointState(env.urdf_ids['microwave'], 1, joint_limit_high, physicsClientId=env.id)
-    
-    # for _ in range(8):
-    #     action = np.zeros(7)
-    #     # action[-1] = 1
-    #     action[0] = -0.5
-    #     action[-1] = 1
-    #     env.step(action)
-    #     time.sleep(1)
-    #     # env.render()
-
-    # # save_env(env, "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl")
-            
-    # for _ in range(8):
-    #     action = np.zeros(7)
-    #     eef_pos = env.robot.get_pos_orient(env.robot.right_end_effector)[0]
-    #     dir = handle_pos - eef_pos
-    #     dir = dir / np.linalg.norm(dir)
-    #     action[:3] = dir
-    #     action[-1] = 1
-    #     env.step(action)
-    #     time.sleep(1)
-    #     # env.render()
-        
-    # # for _ in range(10000):
-    # #     print("step")
-    # #     action = np.zeros(7)
-    # #     action[6] = 1
-    # #     action[-1] = 0
-    # #     env.step(action)
-    # #     # env.render()
-    
-    # # for _ in range(100000):
-    # #     env.step(np.zeros(7))
-        
-    # for _ in range(20):
-    #     action = np.zeros(7)
-    #     # action[-1] = 1
-    #     action[-1] = -1
-    #     env.step(action)
-    #     time.sleep(1)
-    #     collision_data = p.getContactPoints(env.robot.body, env.urdf_ids["microwave"], physicsClientId=env.id)
-    #     collision_points_a = [collision_data[_][5] for _ in range(len(collision_data))]
-    #     if len(collision_points_a) > 0:
-    #         p.addUserDebugPoints(collision_points_a, [[0, 1, 0] for _ in range(len(collision_points_a))], 50, 1.1, physicsClientId=env.id)
-    # # for _ in range(100000):
-    # #     env.step(np.zeros(7))
-        
-    # for _ in range(10):
-    #     action = np.zeros(7)
-    #     action[0] = -1
-    #     action[-1] = -1
-    #     env.step(action)
-    #     time.sleep(1)
-    #     # env.render()
-    
-    # microwave_collision_shape_data = p.getCollisionShapeData(env.urdf_ids["microwave"], 1, physicsClientId=env.id)
-    # for shape in microwave_collision_shape_data:
-    #     _, _, geo_type, dims, filename, _, _ = shape
-    #     print("geo_type: ", geo_type)
-    #     print("dims: ", dims)
-    #     print("filename: ", filename)
-
-    # for _ in range(10):
-    #     action = np.zeros(7)
-    #     action[-1] = -1
-    #     env.step(action)
-    #     # env.render()
-    #     # p.stepSimulation(physicsClientId=env.id)
-    #     time.sleep(0.1)
-
-    for _ in range(1000):
-        action = np.zeros(7)
-        action[0] = -1
-        action[-1] = -1
-        obs, reward, _, _ = env.step(action)
-        print("reward: ", reward)
-        time.sleep(0.1)
-
-    env.close()
+    # save_env(env, "initial_states/closer/gold_bar_lift_initialization_not_close.pkl")
+    input("Press Enter to continue...")

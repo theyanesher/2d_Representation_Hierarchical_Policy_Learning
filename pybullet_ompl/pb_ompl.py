@@ -70,11 +70,9 @@ class PbOMPLRobot():
 
             if i in self.joint_idx:
                 if i != 9 and i != 10:
-                    ori_range = high - low
-                    new_low = low + ori_range * 0.05
-                    new_high = high - ori_range * 0.05
-                    low = new_low
-                    high = new_high
+                    delta = 0.05 * (high - low)
+                    low += delta
+                    high -= delta
 
             if low < high:
                 self.joint_bounds.append([low, high])
@@ -174,7 +172,10 @@ class PbOMPL():
         self.set_obstacles(obstacles)
         # notice this must be called after set_obstacles
         self.set_object(object_id)
-        self.set_planner("RRT") # RRT by default
+        self.set_planner("RRTConnect") # RRTConnect by default
+
+        random.seed(time.time_ns() % 2**32)
+        np.random.seed(time.time_ns() % 2**32)
 
     def set_obstacles(self, obstacles):
         self.obstacles = obstacles
@@ -246,7 +247,6 @@ class PbOMPL():
             self.planner = og.ABITstar(self.ss.getSpaceInformation())
         else:
             print("{} not recognized, please add it first".format(planner_name))
-            raise NotImplementedError
             return
 
         self.ss.setPlanner(self.planner)

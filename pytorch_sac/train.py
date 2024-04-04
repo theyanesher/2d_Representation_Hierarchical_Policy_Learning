@@ -17,6 +17,7 @@ import utils, datetime
 from multiprocessing import Pool
 from manipulation.utils import save_env as robogen_save_env
 from pathlib import Path
+from termcolor import cprint
 
 # import dmc2gym
 import hydra
@@ -39,6 +40,22 @@ def make_env(cfg):
     
     from manipulation.utils import build_up_env
     env, safe_config = build_up_env(
+        # "data/generated_task_from_description/lift_a_box/lift_a_box.yaml",
+        # "data/generated_task_from_description/lift_a_box/task_lift_a_box",
+        # "lift_a_box",
+        # "/home/ziyu/Desktop/workspace/test/test_lift_gold_bar/initialization.pkl",
+        # "data/generated_task_from_description/put_a_bottle_in_microwave/put_a_bottle_in_microwave.yaml",
+        # "data/generated_task_from_description/put_a_bottle_in_microwave/task_put_a_bottle_in_microwave",
+        # "put_a_bottle_in_the_microwave",
+        # "/home/ziyu/Desktop/workspace/test/test_grasp_and_lift/try3/initialization.pkl",
+        # "data/generated_task_from_description/lift_a_hamburger/lift_a_hamburger.yaml",
+        # "data/generated_task_from_description/lift_a_hamburger/task_lift_a_hamburger",
+        # "lift_a_hamburger",
+        # "initial_states/hamburger_lift_initialization_close.pkl",
+        # "data/generated_task_from_description/put_an_object_into_microwave/small_bowl/put_an_object_into_microwave.yaml",
+        # "data/generated_task_from_description/put_an_object_into_microwave/put_an_object_into_microwave",
+        # "put_an_object_into_microwave",
+        # "data/generated_task_from_description/put_an_object_into_microwave/small_bowl/small_bowl.pkl",
         cfg.task_config_path,
         cfg.solution_path,
         cfg.substep,
@@ -61,19 +78,19 @@ class Workspace(object):
 
         ts = time.time()
         time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
-        log_dir = os.path.join(self.work_dir, 'pytorch_sac/exp', cfg.experiment, time_string)
+        log_dir = os.path.join(self.work_dir, 'pytorch_sac/exp', time_string, cfg.experiment)
         self.logger = Logger(log_dir,
                              save_tb=cfg.log_save_tb,
                              log_frequency=cfg.log_frequency,
-                             agent=cfg.agent.name)
+                             agent=cfg.agent_name)
 
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.env = make_env(cfg)
 
-        cfg.agent.params.obs_dim = int(self.env.observation_space.shape[0])
-        cfg.agent.params.action_dim = int(self.env.action_space.shape[0])
-        cfg.agent.params.action_range = [
+        cfg.agent.obs_dim = int(self.env.observation_space.shape[0])
+        cfg.agent.action_dim = int(self.env.action_space.shape[0])
+        cfg.agent.action_range = [
             float(self.env.action_space.low.min()),
             float(self.env.action_space.high.max())
         ]
@@ -91,9 +108,10 @@ class Workspace(object):
         self.time_limit = cfg.time_limit
         if cfg.rl_save_path is not None:
             self.save_checkpoint_path = os.path.join(cfg.rl_save_path, 'checkpoints')
-            self.save_states_path = os.path.join(cfg.rl_save_path, 'states')
         if not os.path.exists(self.save_checkpoint_path):
             os.makedirs(self.save_checkpoint_path)
+        if cfg.rl_save_path is not None:
+            self.save_states_path = os.path.join(cfg.rl_save_path, 'states')
         if not os.path.exists(self.save_states_path):
             os.makedirs(self.save_states_path)
 
@@ -126,6 +144,21 @@ class Workspace(object):
             self.save_snapshot()
             print(f'New best model saved with reward {average_episode_reward}')
 
+            # it = 0
+            # obs = self.env.reset()
+            # self.agent.reset()
+            # done = False
+            # self.video_recorder.init(enabled=True)
+            # while not done:
+            #     robogen_save_env(self.env, os.path.join(self.save_states_path, f'state_{it}.pkl'))
+            #     with utils.eval_mode(self.agent):
+            #         action = self.agent.act(obs, sample=False)
+            #     obs, reward, done, _ = self.env.step(action)
+            #     self.video_recorder.record(self.env)
+            #     it += 1
+            # self.video_recorder.save(f'{self.save_checkpoint_path}/best_sac.mp4', path_from_work_dir=False)
+            # print("save video to", f'{self.save_checkpoint_path}/best_sac.mp4')
+
     def save_snapshot(self):
         ckpt_path = Path(self.save_checkpoint_path) / "pytorch_sac.pt"
         keys_to_save = ['agent', ]
@@ -134,6 +167,7 @@ class Workspace(object):
             torch.save(payload, f)
 
     def load_snapshot(self):
+        cprint(f"restoring snapshot from {self.save_checkpoint_path}", "blue")
         ckpt_path = Path(self.save_checkpoint_path) / "pytorch_sac.pt"
         with ckpt_path.open('rb') as f:
             payload = torch.load(f)
@@ -202,6 +236,7 @@ class Workspace(object):
             self.step += 1
         
     def save_states_video(self):
+        cprint("trying to save video and states", "green")
         self.load_snapshot()
         it = 0
         obs = self.env.reset()
@@ -225,10 +260,12 @@ class Workspace(object):
             f.write(str(episode_reward))
 
 
-@hydra.main(config_path='config/train.yaml', strict=True)
+@hydra.main(config_path='/home/ziyu/Desktop/workspace/RoboGen-sim2real/pytorch_sac/config', config_name='train')
 def main(cfg):
     workspace = Workspace(cfg)
     workspace.run()
+    # workspace.load_snapshot()
+    # workspace.save_states_video()
 
 
 if __name__ == '__main__':

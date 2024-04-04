@@ -1,0 +1,31 @@
+name: robogen_open_door
+
+task_name: robogen_open_door
+
+image_shape: &image_shape [3, 640, 480]
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    # image:
+    #     shape: *image_shape
+    #     type: rgb
+    point_cloud:
+      shape: [1280, 6]
+      type: point_cloud
+    agent_pos:
+      shape: [10]
+      type: low_dim
+  action:
+    shape: [10]
+
+env_runner:
+
+dataset:
+  _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
+  zarr_path: /home/ziyu/Desktop/workspace/RoboGen-sim2real/data/extracted/sac_storagefurniture_48700_1.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: 90

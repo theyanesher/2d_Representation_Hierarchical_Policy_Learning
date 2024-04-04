@@ -60,7 +60,7 @@ def down_load_single_object(name, uids=None, candidate_num=5, vhacd=True, debug=
    
     for uid in uids:
         save_path = osp.join("objaverse_utils/data/obj", "{}".format(uid))
-        print("save_path is: ", save_path)
+        # print("save_path is: ", save_path)
         if not osp.exists(save_path):
             os.makedirs(save_path)
         if osp.exists(save_path + "/material.urdf"):
@@ -79,7 +79,7 @@ def down_load_single_object(name, uids=None, candidate_num=5, vhacd=True, debug=
                 scene, osp.join(save_path, "material.obj")
             )
         except:
-            print("cannot export obj for uid: ", uid)
+            # print("cannot export obj for uid: ", uid)
             uids.remove(uid)
             if uid in text_to_uid_dict[name]:
                 text_to_uid_dict[name].remove(uid)
@@ -140,7 +140,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config, solution_path, task_name, restore_state_file, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0,
+                    obj_id=0
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -156,6 +156,7 @@ def build_up_env(task_config, solution_path, task_name, restore_state_file, retu
     module = importlib.import_module("{}.{}".format(solution_path.replace("/", "."), task_name))
     env_class = getattr(module, task_name)
     env = env_class(**save_config)
+
 
     if not return_env_class:
         return env, save_config
@@ -455,21 +456,22 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
             if not os.path.exists(urdf_file_path):
                 down_load_single_object(name=obj['lang'], uids=[uid])
             
-            new_urdf_file_path = urdf_file_path.replace("material.urdf", "material_non_vhacd.urdf")
-            new_urdf_lines = []
-            with open(urdf_file_path, 'r') as f:
-                urdf_lines = f.readlines()
-            for line in urdf_lines:
-                if 'vhacd' in line:
-                    new_line = line.replace("_vhacd", "")
-                    new_urdf_lines.append(new_line)
-                else:
-                    new_urdf_lines.append(line)
-            with open(new_urdf_file_path, 'w') as f:
-                f.writelines(new_urdf_lines)
-            urdf_file_path = new_urdf_file_path
-            print("object {} choosing uid {} urdf_path {}".format(obj['lang'], uid, urdf_file_path))
 
+            if not use_vhacd:
+                new_urdf_file_path = urdf_file_path.replace("material.urdf", "material_non_vhacd.urdf")
+                new_urdf_lines = []
+                with open(urdf_file_path, 'r') as f:
+                    urdf_lines = f.readlines()
+                for line in urdf_lines:
+                    if 'vhacd' in line:
+                        new_line = line.replace("_vhacd", "")
+                        new_urdf_lines.append(new_line)
+                    else:
+                        new_urdf_lines.append(line)
+                with open(new_urdf_file_path, 'w') as f:
+                    f.writelines(new_urdf_lines)
+                urdf_file_path = new_urdf_file_path
+                
             urdf_paths.append(urdf_file_path)
             urdf_types.append('mesh')
             urdf_movables.append(True) # all mesh objects are movable
@@ -503,7 +505,6 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
                     new_urdf_file_path = preprocess_urdf(urdf_file_path)
                 urdf_paths.append(new_urdf_file_path)
             else:
-                print("not using vhacd")
                 urdf_paths.append(urdf_file_path)
 
             urdf_types.append('urdf')
@@ -628,6 +629,29 @@ def get_pc(proj_matrix, view_matrix, depth, width, height, mask_infinite=False):
     points = points[:, :3]
 
     return points
+
+def get_pc_in_camera_frame(proj_matrix, view_matrix, depth, width, height, mask_infinite=False):
+    proj_matrix = np.asarray(proj_matrix).reshape([4, 4], order="F")
+    view_matrix = np.asarray(view_matrix).reshape([4, 4], order="F")
+    tran_pix_world = np.linalg.inv(np.matmul(proj_matrix, view_matrix))
+
+    # create a grid with pixel coordinates and depth values
+    y, x = np.mgrid[-1:1:2 / height, -1:1:2 / width]
+    y *= -1.
+    x, y, z = x.reshape(-1), y.reshape(-1), depth.reshape(-1)
+    h = np.ones_like(z)
+
+    pixels = np.stack([x, y, z, h], axis=1)
+    # filter out "infinite" depths
+    if mask_infinite:
+        pixels = pixels[z < 0.99]
+    pixels[:, 2] = 2 * pixels[:, 2] - 1
+    # turn pixels to camera cooridnates
+    points = np.matmul(np.linalg.inv(proj_matrix), pixels.T).T
+    points /= points[:, 3: 4]
+    points = points[:, :3]
+    return points
+
     
 def setup_camera_ben(client_id, camera_eye=[0.5, -0.75, 1.5], camera_target=[-0.2, 0, 0.75], camera_width=1920//4, camera_height=1080//4, 
                  z_near=0.01, z_far=100):
@@ -840,6 +864,35 @@ def add_sphere(position, radius=0.05, rgba=[0, 1, 1, 1]):
     body = p.createMultiBody(baseMass=mass, baseCollisionShapeIndex=sphere_collision, baseVisualShapeIndex=sphere_visual, 
                              basePosition=position)
     return body
+
+def rotation_transfer_6D_to_matrix(orient):
+    if type(orient) == list or type(orient) == tuple:
+        orient = np.array(orient, dtype=np.float64)
+
+    orient = orient.reshape(2, 3)
+    a1 = orient[0]
+    a2 = orient[1]
+
+    b1 = a1 / np.linalg.norm(a1)
+    b2 = a2 - np.dot(a2, b1) * b1
+    b2 = b2 / np.linalg.norm(b2)
+    b3 = np.cross(b1, b2)
+
+    rotate_matrix = np.array([b1, b2, b3], dtype=np.float64).T
+
+    return rotate_matrix
+
+def rotation_transfer_matrix_to_6D(rotate_matrix):
+    if type(rotate_matrix) == list or type(rotate_matrix) == tuple:
+        rotate_matrix = np.array(rotate_matrix, dtype=np.float64).reshape(3, 3)
+    rotate_matrix = rotate_matrix.reshape(3, 3)
+    
+    a1 = rotate_matrix[:, 0]
+    a2 = rotate_matrix[:, 1]
+
+    orient = np.array([a1, a2], dtype=np.float64).flatten()
+    return orient
+
 
 if __name__ == '__main__':
     

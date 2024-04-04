@@ -1,12 +1,14 @@
 defaults:
-    - agent: sac
+    - sac
+
+agent_name: sac
 
 env: cheetah_run
 
 # this needs to be specified manually
 experiment: test_exp
 
-num_train_steps: 120000
+num_train_steps: 150250
 replay_buffer_capacity: ${num_train_steps}
 
 num_seed_steps: 20000
@@ -37,6 +39,5 @@ time_limit:
 
 # hydra configuration
 hydra:
-    name: ${env}
     run:
         dir: ./
