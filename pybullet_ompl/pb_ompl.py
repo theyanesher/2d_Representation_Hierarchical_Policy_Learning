@@ -76,7 +76,7 @@ class PbOMPLRobot():
 
             if low < high:
                 self.joint_bounds.append([low, high])
-        print("Joint bounds: {}".format(self.joint_bounds))
+        # print("Joint bounds: {}".format(self.joint_bounds))
         return self.joint_bounds
 
     def get_cur_state(self):
@@ -277,8 +277,8 @@ class PbOMPL():
             print("Found solution: interpolating into {} segments".format(INTERPOLATE_NUM))
             # print the path to screen
             sol_path_geometric = self.ss.getSolutionPath()
-            if smooth_path:
-                sol_path_geometric = self.smooth_path(sol_path_geometric)
+            # if smooth_path:
+            #     sol_path_geometric = self.smooth_path(sol_path_geometric)
             sol_path_geometric.interpolate(INTERPOLATE_NUM)
             sol_path_states = sol_path_geometric.getStates()
             sol_path_list = [self.state_to_list(state) for state in sol_path_states]

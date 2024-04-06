@@ -31,5 +31,5 @@ class Panda(Robot):
                 print(p.getJointInfo(self.body, i, physicsClientId=id))
                 link_name = p.getJointInfo(self.body, i, physicsClientId=id)[12].decode('utf-8')
                 print("link_name: ", link_name)
-
+        
         super(Panda, self).init(self.body, id, np_random)

@@ -29,6 +29,8 @@ def motion_planning(env, target_pos, target_orientation, planner=None, obstacles
     ik_lower_limits = env.robot.ik_lower_limits 
     ik_upper_limits = env.robot.ik_upper_limits 
     ik_joint_ranges = ik_upper_limits - ik_lower_limits
+    ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
+    ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
 
     if target_joint_angle is None:
         it = 0
@@ -36,7 +38,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None, obstacles
             # if it % 10 == 0:
             #     print("----------------- sampling target ik it: ", it, " -----------------")
 
-            p.addUserDebugPoints([target_pos], [[1, 0, 0]], 15, 0)
+            # p.addUserDebugPoints([target_pos], [[1, 0, 0]], 15, 0)
         
             ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
             ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])

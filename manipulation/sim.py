@@ -20,7 +20,8 @@ import time
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
-                    dt=1/240, 
+                    # dt=1/240, 
+                    dt=1/480, 
                     config_path=None, 
                     gui=False, 
                     control_step=2, 
@@ -207,7 +208,8 @@ class SimpleEnv(gym.Env):
             return new_pos
 
     def get_robot_base_pos(self):
-        robot_base_pos = [1, 1, 0]
+        # robot_base_pos = [1, 1, 0]
+        robot_base_pos = [0, 0, 0]
         return robot_base_pos
     
     def get_robot_init_joint_angles(self):
@@ -224,12 +226,13 @@ class SimpleEnv(gym.Env):
     ):
         ### simulation preparation
         p.resetSimulation(physicsClientId=self.id)
+        p.setRealTimeSimulation(0, physicsClientId=self.id)
+        p.setGravity(0, 0, self.gravity, physicsClientId=self.id)
         if self.gui:
             p.resetDebugVisualizerCamera(cameraDistance=1.75, cameraYaw=-25, cameraPitch=-45, cameraTargetPosition=[-0.2, 0, 0.4], physicsClientId=self.id)
             p.configureDebugVisualizer(p.COV_ENABLE_MOUSE_PICKING, 0, physicsClientId=self.id)
             p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, physicsClientId=self.id)
-        p.setRealTimeSimulation(0, physicsClientId=self.id)
-        p.setGravity(0, 0, self.gravity, physicsClientId=self.id)
+
 
         ### load restore state
         restore_state = None
@@ -778,7 +781,20 @@ class SimpleEnv(gym.Env):
         self.set_scene(reset_state)
         self.time_step = 0
         self.success = False
+        
+        # import pdb; pdb.set_trace()
+        p.changeDynamics(self.urdf_ids['storagefurniture'], 1, lateralFriction=1)
+        p.changeDynamics(self.urdf_ids['storagefurniture'], 1, rollingFriction=1)
+        p.changeDynamics(self.urdf_ids['storagefurniture'], 1, spinningFriction=1)
 
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], lateralFriction=1)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], lateralFriction=1)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], rollingFriction=1)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], rollingFriction=1)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], spinningFriction=1)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=1)
+
+        
         return self._get_obs()
 
     def setup_camera(self, camera_eye=[0.5, -0.75, 1.5], camera_target=[-0.2, 0, 0.75], fov=60, camera_width=640, camera_height=480):

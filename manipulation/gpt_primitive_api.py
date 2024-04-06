@@ -240,7 +240,7 @@ def approach_object(simulator, object_name, dynamics=False):
                 return rgbs, state_files
 
 def approach_object_link(simulator, object_name, link_name, dynamics=False, grasp_handle=True, 
-                         execute_opening_primitive=False):
+                         execute_opening_primitive=True):
     save_path = get_save_path(simulator)
     ori_simulator_state = save_env(simulator, None)
     object_name = object_name.lower()
@@ -363,9 +363,10 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     intermediate_states.append(state)
 
                 # first just open the gripper
+                import pdb; pdb.set_trace()
                 steps = 20
                 for t in range(steps):
-                    new_joint_angle = (t + 1) / steps * 0.04
+                    new_joint_angle = (t + 1) / steps * 0.05
                     new_joint_angle = np.clip(new_joint_angle, 0, 0.04)
                     agent = simulator.robot
                     agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
@@ -377,6 +378,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
 
                                         
                 # reach till contact is made, and get the number of handle points between the two fingers
+                import pdb; pdb.set_trace()
                 steps = 30
                 for t in range(steps):
                     ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
@@ -389,7 +391,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     delta_rotation_matrix = cur_eef_orient_matrix.T @ new_rotation_matrix
                     delta_axis_angle = scipy.spatial.transform.Rotation.from_matrix(delta_rotation_matrix).as_rotvec()
                     delta_axis_angle = delta_axis_angle / np.linalg.norm(delta_axis_angle)
-                    simulator.step(np.array([*delta_pos, *delta_axis_angle, 1]))
+                    simulator.step(np.array([*delta_pos, *delta_axis_angle, 0]))
                     rgb = simulator.render()
                     rgbs.append(rgb)
                     state = save_env(simulator)
@@ -413,6 +415,14 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                                 # print("collision detected")
                                 collision = True
                                 break
+                            
+                        ### take 1 step back if collision is detected
+                        inv_delta_rotation_matrix = np.linalg.inv(delta_rotation_matrix)
+                        inv_delta_axis_angle = scipy.spatial.transform.Rotation.from_matrix(inv_delta_rotation_matrix).as_rotvec()
+                        inv_delta_axis_angle = inv_delta_axis_angle / np.linalg.norm(inv_delta_axis_angle)
+                        simulator.step(np.array([*(-delta_pos), *inv_delta_axis_angle, 0]))
+                        
+                        
                     if collision:
                         break
                 
@@ -424,6 +434,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 close_steps = 40
                 left_collision = False
                 right_collision = False
+                import pdb; pdb.set_trace()
                 for t in range(close_steps):
                     new_joint_angle = 0.
                     agent = simulator.robot
@@ -439,18 +450,18 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
 
                     if points_left_finger:
-                        collision_points_b = [points_left_finger[_][6] for _ in range(len(points_left_finger))]
+                        collision_points_b = [points_left_finger[_][5] for _ in range(len(points_left_finger))]
                         dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
-                        if np.sum(dist_collision_to_handle < 0.01) > 0:
+                        if np.sum(dist_collision_to_handle < 0.005) > 0:
                             left_collision = True
                     if points_right_finger:
-                        collision_points_b = [points_right_finger[_][6] for _ in range(len(points_right_finger))]
+                        collision_points_b = [points_right_finger[_][5] for _ in range(len(points_right_finger))]
                         dist_collision_to_handle = scipy.spatial.distance.cdist(collision_points_b, handle_pc).min(axis=1)
-                        if np.sum(dist_collision_to_handle < 0.01) > 0:
+                        if np.sum(dist_collision_to_handle < 0.005) > 0:
                             right_collision = True
                             
-                    if left_collision and right_collision and t > 20:
-                        break
+                    # if left_collision and right_collision and t > 20:
+                    #     break
 
                 if not (left_collision and right_collision):
                     score = 0
@@ -461,6 +472,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                    
                 # let's not test this for now
                 # pull out following the rotation axis
+                import pdb; pdb.set_trace()
                 if execute_opening_primitive:
                     eef_pos, eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
                     link_pos, link_orient = get_link_pose(simulator, object_name, link_name)
@@ -471,9 +483,11 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
                     ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
                     eef_poses = []
-                    timesteps = 250
+                    timesteps = 300
+                    target = joint_limit[0] + 0.5 * (joint_limit[1] - joint_limit[0])
                     for t in range(1, timesteps):
-                        joint_angle = joint_limit[0] + (joint_limit[1] - joint_limit[0]) * t / timesteps
+                        joint_angle = joint_limit[0] + (target - joint_limit[0]) * t / timesteps
+                        print(joint_angle)
                         p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, joint_angle)
                         new_link_pos, new_link_orient = get_link_pose(simulator, object_name, link_name)
                         # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
@@ -484,15 +498,17 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     for t in range(len(eef_poses)):
                         pos, orient = eef_poses[t]
                         ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
-                        ik_joints = simulator.robot.ik(simulator.robot.right_end_effector, 
+                        ik_joint_angles = simulator.robot.ik(simulator.robot.right_end_effector, 
                                                         pos, orient, 
                                                         ik_indices=ik_indices)
+                        ik_joint_angles = list(ik_joint_angles) + [0, 0]
+                        ik_joints = ik_indices + list(simulator.robot.right_gripper_indices)
                         agent = simulator.robot
                         for _ in range(2):
-                            new_joint_angle = 0
-                            agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
-                            p.setJointMotorControlArray(simulator.robot.body, jointIndices=simulator.robot.right_arm_joint_indices, 
-                                                        controlMode=p.POSITION_CONTROL, targetPositions=ik_joints, physicsClientId=simulator.id)
+                            # new_joint_angle = 0
+                            # agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
+                            p.setJointMotorControlArray(simulator.robot.body, jointIndices=ik_joints, 
+                                                        controlMode=p.POSITION_CONTROL, targetPositions=ik_joint_angles, physicsClientId=simulator.id)
                             p.stepSimulation()
                             
                         rgb = simulator.render()

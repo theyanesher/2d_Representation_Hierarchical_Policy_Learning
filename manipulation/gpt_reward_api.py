@@ -25,7 +25,7 @@ def get_initial_pos_orient(simulator, object_name):
 ### success check functions
 def gripper_close_to_object_link(simulator, object_name, link_name):
     link_pc = get_link_pc(simulator, object_name, link_name)
-    gripper_pos, _ = get_eef_pos(simulator)
+    gripper_pos, _ = get_eef_pose(simulator)
     distance = np.linalg.norm(link_pc.reshape(-1, 3) - gripper_pos.reshape(1, 3), axis=1)
     if np.min(distance) < 0.06:
         return True
@@ -33,7 +33,7 @@ def gripper_close_to_object_link(simulator, object_name, link_name):
 
 def gripper_close_to_object(simulator, object_name):
     object_pc, _ = get_pc_and_normal(simulator, object_name)
-    gripper_pos, _ = get_eef_pos(simulator)
+    gripper_pos, _ = get_eef_pose(simulator)
     distance = np.linalg.norm(object_pc.reshape(-1, 3) - gripper_pos.reshape(1, 3), axis=1)
     if np.min(distance) < 0.06:
         return True
@@ -114,7 +114,7 @@ def get_orientation(simulator, object_name):
     object_id = simulator.urdf_ids[object_name]
     return np.array(p.getEulerFromQuaternion(p.getBasePositionAndOrientation(object_id, physicsClientId=simulator.id)[1]))
 
-def get_eef_pos(simulator):
+def get_eef_pose(simulator):
     robot_eef_pos, robot_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
     return np.array(robot_eef_pos).flatten(), np.array(p.getEulerFromQuaternion(robot_eef_orient)).flatten()
 

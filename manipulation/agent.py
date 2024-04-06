@@ -129,7 +129,7 @@ class Agent:
             elif joint_angles[j] > self.upper_limits[j]:
                 p.resetJointState(self.body, jointIndex=j, targetValue=self.upper_limits[j], targetVelocity=0, physicsClientId=self.id)
 
-    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=1000, residualThreshold=1e-4, use_current_as_rest=False, return_full_state=False):
+    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=5000, residualThreshold=1e-4, use_current_as_rest=False, return_full_state=False):
         if target_orient is not None and len(target_orient) < 4:
             target_orient = self.get_quaternion(target_orient)
         if use_current_as_rest:
