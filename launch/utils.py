@@ -42,7 +42,7 @@ def check_available_nodes():
             
 import subprocess
 
-def check_node_gpu(node, script_path="/project_data/held/yufeiw2/BPref/launch/check_gpu.py"):
+def check_node_gpu(node, script_path="/project_data/held/yufeiw2/RoboGen_sim2real/launch/check_gpu.py"):
     try:
         # Construct the ssh command
         cmd = ['ssh', node, 'python', script_path]

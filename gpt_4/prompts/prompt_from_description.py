@@ -204,24 +204,26 @@ def expand_task_name(task_name, object_category, object_path, meta_path="generat
 
     return task_description, additional_objects, links, joints, save_folder, articulation_tree_filled, semantics_filled
 
-def generate_from_task_name(task_name, object_category, object_path, temperature_dict=None, model_dict=None, meta_path="generated_task_from_description"):
+def generate_from_task_name(task_name, object_category, object_path, temperature_dict=None, model_dict=None, meta_path="generated_task_from_description", random_initialization=False):
     expansion_model = model_dict.get("expansion", "gpt-4")
     expansion_temperature = temperature_dict.get("expansion", 0)
     task_description, additional_objects, links, joints, save_folder, articulation_tree_filled, semantics_filled = expand_task_name(
         task_name, object_category, object_path, meta_path, temperate=expansion_temperature, model=expansion_model)
     config_path, solution_path = build_task_given_text(object_category, task_name, task_description, additional_objects, links, joints, 
-                          articulation_tree_filled, semantics_filled, object_path, save_folder, temperature_dict, model_dict)
+                          articulation_tree_filled, semantics_filled, object_path, save_folder, temperature_dict, model_dict, random_initialization=random_initialization)
     return config_path, solution_path
     
 if __name__ == "__main__":
     import argparse
     import numpy as np
     from objaverse_utils.utils import partnet_mobility_dict
+    np.random.seed(time.time_ns() % 2**32)
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_description', type=str, default="put a pen into the box")
     parser.add_argument('--object', type=str, default="Box")
     parser.add_argument('--object_path', type=str, default="100426")
+    parser.add_argument('--random_initialization', action='store_true')
     args = parser.parse_args()
     
     temperature_dict = {
@@ -247,7 +249,7 @@ if __name__ == "__main__":
         possible_object_ids = partnet_mobility_dict[args.object]
         args.object_path = possible_object_ids[np.random.randint(len(possible_object_ids))]
     config_path, _ = generate_from_task_name(args.task_description, args.object, args.object_path, 
-        temperature_dict=temperature_dict, meta_path=meta_path, model_dict=model_dict)
+        temperature_dict=temperature_dict, meta_path=meta_path, model_dict=model_dict, random_initialization=args.random_initialization)
     # generate_distractor(config_path, temperature_dict=temperature_dict, model_dict=model_dict)
     
     

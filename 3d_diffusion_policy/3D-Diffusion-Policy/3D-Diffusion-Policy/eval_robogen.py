@@ -64,13 +64,17 @@ def main(cfg):
         # run policy
         with torch.no_grad():
             obs_dict_input = {}  # flush unused keys
+
+            # change the point cloud to be in the gripper frame
+            obs_dict['point_cloud'] = env._transfer_point_cloud_to_gripper_frame(obs_dict['point_cloud'])
+
             obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
             obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
             action_dict = policy.predict_action(obs_dict_input)
         
         np_action_dict = dict_apply(action_dict, lambda x: x.detach().to('cpu').numpy())
         action = np_action_dict['action'].squeeze(0)
-        obs, reward, done, info = env.step(action)
+        obs, reward, done, info = env.step(action, in_gripper_frame=True)
 
         done = np.all(done)
         episode_reward += reward

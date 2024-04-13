@@ -130,7 +130,7 @@ def run_task(vv, log_dir=None, exp_name=None):
         json.dump(vv, f, indent=2, sort_keys=True)
     
     params = vv_to_params(vv)
-    command = "singularity exec --bind /data/yufeiw2/BPref:/mnt/BPref/ --nv /data/yufeiw2/vlm-reward.sif /mnt/BPref/launch/run_in_singularity.sh {}".format(params)
+    command = "singularity exec --bind /data/yufeiw2/RoboGen_sim2real:/mnt/RoboGen_sim2real/ --nv /data/yufeiw2/vlm-reward.sif /mnt/RoboGen_sim2real/launch/run_in_singularity.sh {}".format(params)
     os.system(command)
     
 def run_task_local(vv, log_dir=None, exp_name=None):
@@ -141,8 +141,8 @@ def run_task_local(vv, log_dir=None, exp_name=None):
     # rel_path = os.path.relpath(log_dir, os.getcwd())
     params = vv_to_params(vv)
     
-    command = "singularity exec --bind ./:/mnt/BPref/ --nv /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/singularity_images/vlm-reward/vlm-reward.sif /mnt/BPref/launch/run_in_singularity.sh {}".format(params)
-    # command = "singularity exec --bind ./:/mnt/BPref/ --nv /data/yufeiw2/vlm-reward.sif /mnt/BPref/launch/run_in_singularity.sh {}".format(params)
+    command = "singularity exec --bind ./:/mnt/RoboGen_sim2real/ --nv /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/singularity_images/vlm-reward/vlm-reward.sif /mnt/RoboGen_sim2real/launch/run_in_singularity.sh {}".format(params)
+    # command = "singularity exec --bind ./:/mnt/RoboGen_sim2real/ --nv /data/yufeiw2/vlm-reward.sif /mnt/RoboGen_sim2real/launch/run_in_singularity.sh {}".format(params)
     print(command)
     os.system(command)
 

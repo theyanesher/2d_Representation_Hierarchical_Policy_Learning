@@ -21,6 +21,7 @@ from manipulation.motion_planning_utils import motion_planning
 from termcolor import cprint
 import shutil
 from manipulation.gpt_reward_api import get_joint_state
+from argparse import ArgumentParser
 
 def sort_states_file_by_file_number(state_path):
     # all the file are named as state_0.pkl, state_1.pkl, ...
@@ -32,7 +33,7 @@ def sort_states_file_by_file_number(state_path):
     ret_files = sorted(ret_files, key=lambda x: int(x.split("_")[1].split(".")[0]))
     return ret_files
 
-def extract_pc_states_for_all_trajectories(task_config_path, solution_path, object_name):
+def extract_pc_states_for_all_trajectories(task_config_path, solution_path, object_name, in_gripper_frame=False):
     
     experiment_folder = os.path.join(solution_path, "experiment")
     all_experiments = os.listdir(experiment_folder)
@@ -59,9 +60,41 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         first_stage_states_path = os.path.join(experiment_path, first_step_folder, "states")
         
         second_step_folder = second_step.replace(" ", "_")
+        
+        ## ===========================================================
+        ## TODO: Maybe add some filters about the scores to filter out
+        ## ===========================================================
+        checkpoints_path = os.path.join(experiment_path, second_step_folder, "checkpoints")
 
-        states_folder = os.path.join(experiment_path, second_step_folder, "states")
-        simulator, _ = build_up_env(
+        if not os.path.exists(checkpoints_path):
+            print("No checkpoints found, skipping this trajectory")
+            continue
+
+        files_in_checkpoints = os.listdir(checkpoints_path)
+        for file in files_in_checkpoints:
+            if file.endswith("score.txt"):
+                score_path = os.path.join(checkpoints_path, file)
+                with open(score_path, "r") as f:
+                    score = f.readline()
+                    if float(score) < 100:
+                        print("Score is too low, skipping this trajectory")
+                        continue
+
+        # ## ===========================================================
+
+        second_stage_states_path = os.path.join(experiment_path, second_step_folder, "states")
+
+        first_stage_states = sort_states_file_by_file_number(first_stage_states_path)
+        second_stage_states = sort_states_file_by_file_number(second_stage_states_path)
+
+        expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
+        expert_states.extend([os.path.join(second_stage_states_path, x) for x in second_stage_states])
+
+        ## NOTE: Maybe generate a lot of demos on this trajectory ???
+        rpy_list = [[[0, 0, -45], [0, 0, -135]], [[0, 0, -150], [0, 0, -45]], [[0, 0, -135], [0, 0, -30]], [[0, 0, -30], [0, 0, -150]]]
+        # rpy_list = [[[0, 0, -45], [0, 0, -135]]]
+        for rpy in rpy_list:
+            simulator, _ = build_up_env(
             task_config=task_config_path,
             solution_path=solution_path,
             task_name=second_step_folder,
@@ -70,82 +103,37 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
             randomize=False,
             obj_id=0,
             )
-        load_env(simulator, load_path=os.path.join(states_folder, "state_249.pkl"))
-        joint_angle = get_joint_state(simulator, "StorageFurniture", "joint_0")
-        cprint(f"joint angle: {joint_angle}", "green")
-        
-        ## ===========================================================
-        ## TODO: Maybe add some filters about the scores to filter out
-        ## ===========================================================
-        # checkpoints_path = os.path.join(experiment_path, second_step_folder, "checkpoints")
-
-        # if not os.path.exists(checkpoints_path):
-        #     print("No checkpoints found, skipping this trajectory")
-        #     continue
-
-        # files_in_checkpoints = os.listdir(checkpoints_path)
-        # for file in files_in_checkpoints:
-        #     if file.endswith("score.txt"):
-        #         score_path = os.path.join(checkpoints_path, file)
-        #         with open(score_path, "r") as f:
-        #             score = f.readline()
-        #             if float(score) < 100:
-        #                 print("Score is too low, skipping this trajectory")
-        #                 continue
-
-        # ## ===========================================================
-
-        # second_stage_states_path = os.path.join(experiment_path, second_step_folder, "states")
-
-        # first_stage_states = sort_states_file_by_file_number(first_stage_states_path)
-        # second_stage_states = sort_states_file_by_file_number(second_stage_states_path)
-
-        # expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
-        # expert_states.extend([os.path.join(second_stage_states_path, x) for x in second_stage_states])
-
-
-        # ## NOTE: Maybe generate a lot of demos on this trajectory ???
-        # ret_pc = []
-        # ret_pos_ori = []
-        # rpy_list = [[[0, 0, -45], [0, 0, -135]], [[0, 0, -150], [0, 0, -45]], [[0, 0, -135], [0, 0, -30]], [[0, 0, -30], [0, 0, -150]]]
-        # # rpy_list = [[[0, 0, -45], [0, 0, -135]]]
-
-        # print("building env config with score: ", score)
-
-        # for rpy in rpy_list:
-        #     simulator, _ = build_up_env(
-        #     task_config=task_config_path,
-        #     solution_path=solution_path,
-        #     task_name=second_step_folder,
-        #     restore_state_file=None,
-        #     render=False,
-        #     randomize=False,
-        #     obj_id=0,
-        #     )
-        #     simulator = RobogenPointCloudWrapper(simulator, object_name, rpy_mean_list=rpy, seed=0)
-        #     pc_list = []
-        #     pos_ori_list = []
-        #     for state in tqdm.tqdm(expert_states):
-        #         load_env(simulator._env, load_path=state)
-        #         observation = simulator._get_observation()
-        #         point_cloud = observation['point_cloud'].tolist()
-        #         pos_ori = observation['agent_pos'].tolist()
-
-        #         pc_list.append(point_cloud)
-        #         pos_ori_list.append(pos_ori)
+            simulator = RobogenPointCloudWrapper(simulator, object_name, rpy_mean_list=rpy, seed=0)
+            pc_list = []
+            pos_ori_list = []
+            for state in tqdm.tqdm(expert_states):
+                load_env(simulator._env, load_path=state)
+                observation = simulator._get_observation()
                 
-        #     simulator._env.close()
-        #     ret_pc.append(pc_list)
-        #     ret_pos_ori.append(pos_ori_list)
+                # change the point cloud into gripper frame
+                if in_gripper_frame:
+                    observation['point_cloud'] = simulator._transfer_point_cloud_to_gripper_frame(observation['point_cloud'])
+
+                point_cloud = observation['point_cloud'].tolist()
+                pos_ori = observation['agent_pos'].tolist()
+
+                pc_list.append(point_cloud)
+                pos_ori_list.append(pos_ori)
+                
+            simulator._env.close()
+            ret_pc.append(pc_list)
+            ret_pos_ori.append(pos_ori_list)
+
+        cprint("Finished extracting data from trajectory index: " + str(len(ret_pc)), "green")
 
     return ret_pc, ret_pos_ori
 
-def extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_name):
+def extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_name, in_gripper_frame=False):
     expert_states = []
     experiment_folder = os.path.join(solution_path, "experiment")
     all_experiments = os.listdir(experiment_folder)
     all_experiments = sorted(all_experiments)
-    last_experiment = all_experiments[-2]
+    last_experiment = all_experiments[-1]
     print("last experiment: ", last_experiment)
     experiment_path = os.path.join(experiment_folder, last_experiment)
 
@@ -219,6 +207,12 @@ def extract_pc_states_for_one_trajectory(task_config_path, solution_path, object
         for state in tqdm.tqdm(expert_states):
             load_env(simulator._env, load_path=state)
             observation = simulator._get_observation()
+            
+            # change the point cloud into gripper frame
+            if in_gripper_frame:
+                observation['point_cloud'] = simulator._transfer_point_cloud_to_gripper_frame(observation['point_cloud'])
+
+
             point_cloud = observation['point_cloud'].tolist()
             pos_ori = observation['agent_pos'].tolist()
 
@@ -231,7 +225,7 @@ def extract_pc_states_for_one_trajectory(task_config_path, solution_path, object
 
     return ret_pc, ret_pos_ori
     
-def extract_demos_from_a_directory(dirtory_path, object_category):
+def extract_demos_from_a_directory(dirtory_path, object_category, in_gripper_frame=False):
     task_paths = os.listdir(dirtory_path)
     task_paths = sorted(task_paths)
 
@@ -252,12 +246,21 @@ def extract_demos_from_a_directory(dirtory_path, object_category):
             print("No solution path or task config path found for task: ", task_path)
             continue
 
-        # ret_pc, ret_pos_ori = extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_category)
-        ret_pc, ret_pos_ori = extract_pc_states_for_all_trajectories(task_config_path, solution_path, object_category)
+        # ret_pc, ret_pos_ori = extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_category, in_gripper_frame=in_gripper_frame)
+        ret_pc, ret_pos_ori = extract_pc_states_for_all_trajectories(task_config_path, solution_path, object_category, in_gripper_frame=in_gripper_frame)
         # for pc, pos_ori in zip(ret_pc, ret_pos_ori):
+        # import pdb; pdb.set_trace()
         for pc, pos_ori in zip(ret_pc, ret_pos_ori):
             all_pc_list = all_pc_list + pc
-            all_state_list = all_state_list + pos_ori
+
+            # change the state into gripper frame
+            if in_gripper_frame:
+                temp_pos_ori = []
+                for pos_ori_i in pos_ori:
+                    temp_pos_ori.append([0,0,0,1,0,0,0,1,0] + pos_ori_i[9:])
+                all_state_list = all_state_list + temp_pos_ori
+            else:
+                all_state_list = all_state_list + pos_ori
 
             actions = []
             for i in range(len(pos_ori) - 1):
@@ -267,6 +270,12 @@ def extract_demos_from_a_directory(dirtory_path, object_category):
                 delta_pos = np.array(target_pos) - np.array(cur_pos)
 
                 cur_ori = pos_ori[i][3:9]
+                
+                # change the delta_pos into gripper frame
+                if in_gripper_frame:
+                    cur_mat = rotation_transfer_6D_to_matrix(cur_ori)
+                    delta_pos = cur_mat.T @ delta_pos
+
                 target_ori = pos_ori[i+1][3:9]
 
                 cur_ori = rotation_transfer_6D_to_matrix(cur_ori)
@@ -288,7 +297,6 @@ def extract_demos_from_a_directory(dirtory_path, object_category):
             all_action_list = all_action_list + actions
             total_count += len(pc)
             last_state_indices.append(deepcopy(total_count))
-        # return all_pc_list, all_state_list, all_action_list, last_state_indices
     
     return all_pc_list, all_state_list, all_action_list, last_state_indices
         
@@ -319,51 +327,90 @@ def save_data(pc_list, state_list, action_list, last_state_indices, save_dir):
 
     del state_arrays, point_cloud_arrays, action_arrays, episode_ends_arrays
     del zarr_root, zarr_data, zarr_meta
-    
+
+
+def main(folder_name, object_name, save_path, in_gripper_frame=True):
+    pc_list, state_list, action_list, last_state_indices = extract_demos_from_a_directory(folder_name, object_name, in_gripper_frame=in_gripper_frame)
+    save_data(pc_list, state_list, action_list, last_state_indices, save_path)
+
 
 if __name__ == "__main__":
-    pc_list, state_list, action_list, last_state_indices = extract_demos_from_a_directory("data/storagefurniture_48700", "StorageFurniture")
-    # save_data(pc_list, state_list, action_list, last_state_indices, "data/extracted/sac_storagefurniture_48700_1.zarr")
+    # pc_list, state_list, action_list, last_state_indices = extract_demos_from_a_directory("data/storagefurniture_48700", "StorageFurniture", in_gripper_frame=True)
+    # save_data(pc_list, state_list, action_list, last_state_indices, "data/extracted/sac_storagefurniture_48700_all_4_gripper_frame.zarr")
 
-    print("last state indices: ", last_state_indices)
+    # # print("last state indices: ", last_state_indices)
 
-    # load the data
-    # zarr_root = zarr.open("data/extracted/sac_storagefurniture_48700_one_trajectory.zarr")
+    # # load the data
+    # zarr_root = zarr.open("data/extracted/sac_storagefurniture_48700_1_gripper_frame.zarr")
     # zarr_data = zarr_root['data']
     # zarr_meta = zarr_root['meta']
     # action_arrays = zarr_data['action'][:]
+    # last_state_indices = zarr_meta['episode_ends'][:]
+
     # action_list = action_arrays.tolist()
 
+    # import pdb; pdb.set_trace()
 
+    # accumulated_angle_diff_list = []
+
+    # for j in range(len(last_state_indices)):
+
+    #     # target_pos_ori = target_pos_ori[0]
+    #     env, _ = build_up_env(
+    #         "/home/ziyu/Desktop/workspace/RoboGen-sim2real/data/storagefurniture_48700/storagefurniture_48700_sac/open_the_door_of_the_storagefurniture_by_its_handle_The_robotic_arm_will_open_the_door_of_the_storage_furniture_by_its_handle.yaml",
+    #         "data/storagefurniture_48700/storagefurniture_48700_sac/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #         "open_the_storage_furniture_door",
+    #         None, 
+    #         render=True, 
+    #         randomize=False,
+    #         obj_id=0,
+    #     )
+    #     object_name = "StorageFurniture"
+    #     env.reset()
+        
+    #     env = RobogenPointCloudWrapper(env, object_name)
+    #     rgbs = []
+
+    #     np.random.seed(time.time_ns() % 2**32)
+    #     robot = env._env.robot
+
+    #     # import pdb; pdb.set_trace()
+    #     current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
+    #     accumulated_angle_diff = 0
+    #     if j == 0:
+    #         offset = 0
+    #     else:
+    #         offset = last_state_indices[j]
+    #     for i in range(400):
+    #         env.step(action_list[i+offset], in_gripper_frame=True)
+    #         control_rgbs = env._env.get_control_rgbs()
+    #         rgbs.extend(control_rgbs)
+
+    #         pos, ori = env._env.robot.get_pos_orient(env._env.robot.right_end_effector)
+            
+    #         new_current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
+    #         diff = np.array(new_current_joint_angle) - np.array(current_joint_angle)
+    #         accumulated_angle_diff += np.linalg.norm(diff)
+    #         current_joint_angle = new_current_joint_angle
+
+    #     cprint("accumulated_angle_diff: " + str(accumulated_angle_diff), "green")
+    #     accumulated_angle_diff_list.append(accumulated_angle_diff)
+
+    #     env._env.close()
+
+    #     save_numpy_as_gif(np.array(rgbs), "data/extracted/sac_storagefurniture_with_eff_48700.gif")
 
     # import pdb; pdb.set_trace()
-    # # target_pos_ori = target_pos_ori[0]
-    # env, _ = build_up_env(
-    #     "/home/ziyu/Desktop/workspace/RoboGen-sim2real/data/storagefurniture_48700/storagefurniture_48700_sac/open_the_door_of_the_storagefurniture_by_its_handle_The_robotic_arm_will_open_the_door_of_the_storage_furniture_by_its_handle.yaml",
-    #     "data/storagefurniture_48700/storagefurniture_48700_sac/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #     "open_the_storage_furniture_door",
-    #     None, 
-    #     render=True, 
-    #     randomize=False,
-    #     obj_id=0,
-    # )
-    # object_name = "StorageFurniture"
-    # env.reset()
+    # print("accumulated_angle_diff_list: ", accumulated_angle_diff_list)
+    # import pdb; pdb.set_trace()
 
-    # env = RobogenPointCloudWrapper(env, object_name)
-    # rgbs = []
+    args = ArgumentParser()
+    args.add_argument("--folder_name", type=str, required=True)
+    args.add_argument("--object_name", type=str, required=True)
+    args.add_argument("--save_path", type=str, required=True)
+    args.add_argument("--in_gripper_frame", type=bool, default=True)
+    args = args.parse_args()
 
-    # np.random.seed(time.time_ns() % 2**32)
-
-    # # import pdb; pdb.set_trace()
-    # for i in range(400):
-    #     env.step(action_list[i])
-    #     control_rgbs = env._env.get_control_rgbs()
-    #     rgbs.extend(control_rgbs)
-
-    #     pos, ori = env._env.robot.get_pos_orient(env._env.robot.right_end_effector)
-        
-
-    # save_numpy_as_gif(np.array(rgbs), "data/extracted/sac_storagefurniture_with_eff_48700.gif")
+    main(args.folder_name, args.object_name, args.save_path, in_gripper_frame=args.in_gripper_frame)
 
 

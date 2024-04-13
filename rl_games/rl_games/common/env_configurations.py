@@ -257,7 +257,21 @@ def create_robogen_env(**kwargs):
     import os
     print("current working dir: ", os.getcwd())
     from manipulation.utils import build_up_env
+    # print("kwargs: ", kwargs)
     env, safe_config = build_up_env(
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/Open_Microwave_Door_The_robotic_arm_will_open_the_microwave_door_to_insert_or_remove_items.yaml",
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door",
+        # "open_the_microwave_door", 
+        # # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/experiment/2024-03-04-21-44-32/grasp_the_microwave_door_primitive/states/state_140.pkl", 
+        # "data/generated_tasks_release/Microwave_7310_2024-03-04-21-20-19/task_Open_Microwave_Door/test_grasp_and_open_door_no_suction.pkl",
+        # "data/generated_task_from_description/lift_a_box/lift_a_box.yaml",
+        # "data/generated_task_from_description/lift_a_box/task_lift_a_box",
+        # "lift_a_box",
+        # "/home/ziyu/Desktop/workspace/test/test_lift_gold_bar/initialization.pkl",
+        # "data/generated_task_from_description/put_a_bottle_in_microwave/put_a_bottle_in_microwave.yaml",
+        # "data/generated_task_from_description/put_a_bottle_in_microwave/task_put_a_bottle_in_microwave",
+        # "put_a_bottle_in_the_microwave",
+        # "/home/ziyu/Desktop/workspace/test/test_grasp_and_lift/try3/initialization.pkl",
         kwargs['task_config_path'],
         kwargs['solution_path'],
         kwargs['substep'],

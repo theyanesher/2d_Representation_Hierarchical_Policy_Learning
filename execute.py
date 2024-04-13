@@ -121,7 +121,8 @@ def execute(task_config_path,
         "using_gpt_joint_angle": use_gpt_joint_angle,
         "using_gpt_spatial_relationship": use_gpt_spatial_relationship,
         "obj_id": obj_id,
-        "use_distractor": use_distractor
+        "use_distractor": use_distractor,
+        "config_path": task_config_path,
     }
     
     all_last_state_files = []

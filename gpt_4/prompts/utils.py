@@ -7,6 +7,9 @@ from gpt_4.prompts.prompt_spatial_relationship import query_spatial_relationship
 from gpt_4.query import query
 from gpt_4.adjust_size import adjust_size_v2
 
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
 task_yaml_config_prompt = """
 I need you to describe the initial scene configuration for a given task in the following format, using a yaml file. This yaml file will help build the task in a simulator. 
 The task is for a Franka panda robotic arm to learn a manipulation skill in the simulator. The Franka panda arm is mounted on a floor, at location (0, 0, 0). 
@@ -313,7 +316,7 @@ def parse_task_response(task_response):
     return task_names, task_descriptions, additional_objects, links, joints
 
 def build_task_given_text(object_category, task_name, task_description, additional_object, involved_links, involved_joints, 
-                          articulation_tree_filled, semantics_filled, object_path, save_folder, temperature_dict, model_dict=None):
+                          articulation_tree_filled, semantics_filled, object_path, save_folder, temperature_dict, model_dict=None, random_initialization=False):
     if model_dict is None:
         model_dict = {
             "task_generation": "gpt-4",
@@ -393,6 +396,7 @@ def build_task_given_text(object_category, task_name, task_description, addition
 
     involved_objects = []
     config = yaml.safe_load(initial_config)
+    config = extend_task_config(config, random_initialization=random_initialization)
     for obj in config:
         if "name" in obj:
             involved_objects.append(obj["name"])
@@ -415,3 +419,106 @@ def build_task_given_text(object_category, task_name, task_description, addition
         yaml.dump(config, f, indent=4)
 
     return os.path.join(config_path, save_name), solution_path
+
+
+def parse_tuple(center):   
+    if center.startswith("(") or center.startswith("["):
+        center = center[1:-1]
+
+    center = center.split(",")
+    center = [float(x) for x in center]
+    return np.array(center)
+
+def extend_task_config(config, random_initialization=False):
+    for config_dict in config:
+        if 'size' in config_dict:
+            if random_initialization:
+                size_ratio = np.random.uniform(0.8, 1.2)
+                config_dict['size'] = size_ratio * config_dict['size']
+        if 'center' in config_dict:
+            orientation = [0, 0, 0, 1]
+            if random_initialization:
+                center = parse_tuple(config_dict['center'])
+                center[0] += np.random.uniform(-0.2, 0.2)
+                center[1] += np.random.uniform(-0.2, 0.2)
+                
+                # rotate around z axis 
+                angle = np.random.uniform(-1, 1)
+                euler = [0, 0, angle]
+                quat = R.from_euler('xyz', euler).as_quat()
+                orientation = quat.tolist()
+                
+                # save the new center as a string of tuple
+                config_dict['center'] = str(tuple(center))
+            config_dict['orientation'] = str(tuple(orientation))
+
+    initial_joint_angles = [0 for _ in range(7)]
+    initial_joint_angles[3] = -0.4
+    initial_joint_angles[5] = 0.4
+
+
+    if random_initialization:
+        low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
+        high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
+        for i in range(7):
+            joint_range = high[i] - low[i]
+            low[i] += joint_range * 0.2
+            high[i] -= joint_range * 0.2
+
+            initial_joint_angles[i] = np.random.uniform(low[i], high[i])
+
+    config.append(dict(initial_joint_angles=str(tuple(initial_joint_angles))))
+
+    return config
+
+def save_another_yaml(config_path, save_path):
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    temp_config = copy.deepcopy(config)
+
+    initial_joint_angles = [0 for _ in range(7)]
+    initial_joint_angles[3] = -0.4
+    initial_joint_angles[5] = 0.4
+    low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
+    high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
+    for i in range(7):
+        joint_range = high[i] - low[i]
+        low[i] += joint_range * 0.2
+        high[i] -= joint_range * 0.2
+
+        initial_joint_angles[i] = np.random.uniform(low[i], high[i])
+
+    for config_dict in temp_config:
+        if 'size' in config_dict:
+            size_ratio = np.random.uniform(0.8, 1.2)
+            config_dict['size'] = size_ratio * config_dict['size']
+        if 'center' in config_dict:
+            orientation = [0, 0, 0, 1]
+            center = parse_tuple(config_dict['center'])
+            center[0] += np.random.uniform(-0.2, 0.2)
+            center[1] += np.random.uniform(-0.2, 0.2)
+            
+            # rotate around z axis 
+            angle = np.random.uniform(-1, 1)
+            euler = [0, 0, angle]
+            quat = R.from_euler('xyz', euler).as_quat()
+            orientation = quat.tolist()
+            
+            # save the new center as a string of tuple
+            config_dict['center'] = str(tuple(center))
+            config_dict['orientation'] = str(tuple(orientation))
+        if 'initial_joint_angles' in config_dict:
+            config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
+
+    with open(save_path, 'w') as f:
+        yaml.dump(temp_config, f, indent=4)
+
+if __name__ == '__main__':
+    # extend_task_config("/home/ziyu/Desktop/workspace/RoboGen-sim2real/gpt_4/prompts/put_an_object_into_microwave.yaml", random_initialization=True)
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument("--config_path", type=str, required=True)
+    parser.add_argument("--save_path", type=str, required=True)
+
+    args = parser.parse_args()
+    save_another_yaml(args.config_path, args.save_path)
