@@ -256,6 +256,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
     handle_grasp_scores = []
     env_states = []
     rgb_images = []
+    door_opened_scores = []
     if grasp_handle is not None:
         all_handle_pos, handle_joint_id = get_handle_pos(simulator, object_name, return_median=False)
         flattened_handle_pos = np.concatenate(all_handle_pos, axis=0).reshape(-1, 3)
@@ -363,7 +364,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     intermediate_states.append(state)
 
                 # first just open the gripper
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 steps = 20
                 for t in range(steps):
                     new_joint_angle = (t + 1) / steps * 0.05
@@ -378,7 +379,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
 
                                         
                 # reach till contact is made, and get the number of handle points between the two fingers
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 steps = 30
                 for t in range(steps):
                     ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
@@ -434,7 +435,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 close_steps = 40
                 left_collision = False
                 right_collision = False
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 for t in range(close_steps):
                     new_joint_angle = 0.
                     agent = simulator.robot
@@ -472,7 +473,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                    
                 # let's not test this for now
                 # pull out following the rotation axis
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 if execute_opening_primitive:
                     eef_pos, eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
                     link_pos, link_orient = get_link_pose(simulator, object_name, link_name)
@@ -487,7 +488,6 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     target = joint_limit[0] + 0.5 * (joint_limit[1] - joint_limit[0])
                     for t in range(1, timesteps):
                         joint_angle = joint_limit[0] + (target - joint_limit[0]) * t / timesteps
-                        print(joint_angle)
                         p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, joint_angle)
                         new_link_pos, new_link_orient = get_link_pose(simulator, object_name, link_name)
                         # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
@@ -515,6 +515,11 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                         rgbs.append(rgb)
                         state = save_env(simulator)
                         intermediate_states.append(state)
+                    
+                    final_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
+                    door_opened_scores.append(final_joint_angle)
+                    print("final joint angle: ", final_joint_angle)
+                    
                         
                 env_states.append(intermediate_states)
                 rgb_images.append(rgbs)
@@ -526,8 +531,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
         return None, None
 
 
-    if len(handle_grasp_scores) > 0 and np.max(handle_grasp_scores) > 0:
-        best_idx = np.argmax(handle_grasp_scores)
+    if len(door_opened_scores) > 0 and np.max(door_opened_scores) > 0:
+        best_idx = np.argmax(door_opened_scores)
         best_score = handle_grasp_scores[best_idx]
         with open(os.path.join(save_path, "best_score.txt"), "w") as f:
             f.write(str(best_score))

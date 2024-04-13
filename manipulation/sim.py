@@ -20,8 +20,8 @@ import time
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
-                    # dt=1/240, 
-                    dt=1/480, 
+                    dt=1/240, 
+                    # dt=1/480, 
                     config_path=None, 
                     gui=False, 
                     control_step=2, 
@@ -208,8 +208,8 @@ class SimpleEnv(gym.Env):
             return new_pos
 
     def get_robot_base_pos(self):
-        # robot_base_pos = [1, 1, 0]
-        robot_base_pos = [0, 0, 0]
+        robot_base_pos = [1, 1, 0]
+        # robot_base_pos = [0, 0, 0]
         return robot_base_pos
     
     def get_robot_init_joint_angles(self):
@@ -782,10 +782,11 @@ class SimpleEnv(gym.Env):
         self.time_step = 0
         self.success = False
         
-        # import pdb; pdb.set_trace()
-        p.changeDynamics(self.urdf_ids['storagefurniture'], 1, lateralFriction=1)
-        p.changeDynamics(self.urdf_ids['storagefurniture'], 1, rollingFriction=1)
-        p.changeDynamics(self.urdf_ids['storagefurniture'], 1, spinningFriction=1)
+        num_links = p.getNumJoints(self.urdf_ids['storagefurniture'], physicsClientId=self.id)
+        for l_id in range(num_links):
+            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, lateralFriction=1)
+            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, rollingFriction=1)
+            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, spinningFriction=1)
 
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], lateralFriction=1)
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], lateralFriction=1)

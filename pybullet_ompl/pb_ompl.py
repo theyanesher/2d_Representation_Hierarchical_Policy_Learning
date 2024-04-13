@@ -251,7 +251,7 @@ class PbOMPL():
 
         self.ss.setPlanner(self.planner)
 
-    def plan_start_goal(self, start, goal, allowed_time = DEFAULT_PLANNING_TIME, smooth_path=False):
+    def plan_start_goal(self, start, goal, allowed_time = DEFAULT_PLANNING_TIME, smooth_path=True):
         '''
         plan a path to gaol from the given robot start state
         '''
@@ -277,8 +277,8 @@ class PbOMPL():
             print("Found solution: interpolating into {} segments".format(INTERPOLATE_NUM))
             # print the path to screen
             sol_path_geometric = self.ss.getSolutionPath()
-            # if smooth_path:
-            #     sol_path_geometric = self.smooth_path(sol_path_geometric)
+            if smooth_path:
+                sol_path_geometric = self.smooth_path(sol_path_geometric)
             sol_path_geometric.interpolate(INTERPOLATE_NUM)
             sol_path_states = sol_path_geometric.getStates()
             sol_path_list = [self.state_to_list(state) for state in sol_path_states]
@@ -294,7 +294,7 @@ class PbOMPL():
         self.robot.set_state(orig_robot_state)
         return res, sol_path_list
 
-    def plan(self, goal, allowed_time = DEFAULT_PLANNING_TIME, smooth_path=False):
+    def plan(self, goal, allowed_time = DEFAULT_PLANNING_TIME, smooth_path=True):
         '''
         plan a path to gaol from current robot state
         '''
@@ -330,9 +330,12 @@ class PbOMPL():
         # create a path simplifier
         ps = og.PathSimplifier(self.ss.getSpaceInformation())
         # simplify the path
-        success1 = ps.partialShortcutPath(path)
-        success2 = ps.ropeShortcutPath(path)
-        success3 =  ps.smoothBSpline(path)
+        try:
+            success1 = ps.partialShortcutPath(path)
+            success2 = ps.ropeShortcutPath(path)
+        except:
+            success1 = ps.shortcutPath(path)
+        success3 = ps.smoothBSpline(path)
         # if not success1 or not success2 or not success3:
         #     print("Failed to simplify path")
         return path

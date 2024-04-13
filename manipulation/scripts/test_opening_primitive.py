@@ -4,6 +4,7 @@ import os
 import time
 from gpt_4.prompts.prompt_from_description import generate_from_task_name
 from pprint import pprint
+import copy
 
 def get_folders_from_id(id):
     meta_path = "data/generated_task_from_description"
@@ -17,6 +18,34 @@ def get_folders_from_id(id):
     config = yaml.safe_load(open(config_path, "r"))
     solution_path = [x['solution_path'] for x in config if 'solution_path' in x][0]
     return config_path, solution_path
+
+def get_all_test_configs():
+    path = "data/temp"
+    all_tasks = os.listdir(path)
+    all_tasks = sorted(all_tasks)
+    yaml_configs = []
+    solution_paths = []
+    reward_assets = []
+    for task in all_tasks:
+        path = os.path.join("data/temp", task)
+        yaml_config = [x for x in os.listdir(path) if x.endswith(".yaml")]
+        yaml_config = yaml_config[0]
+        config_path = os.path.join(path, yaml_config)
+        config = yaml.safe_load(open(config_path, "r"))
+        solution_path = [x['solution_path'] for x in config if 'solution_path' in x][0]
+        reward_assets.append([x['reward_asset_path'] for x in config if 'reward_asset_path' in x][0])
+        new_config = copy.deepcopy(config)
+        for obj in new_config:
+            if 'solution_path' in obj:
+                obj['solution_path'] = obj['solution_path'].replace("data/sac_storagefurniture/", "data/temp/")
+            
+        with open(config_path, "w") as f:
+            yaml.dump(new_config, f)    
+        solution_path = solution_path.replace("data/sac_storagefurniture/", "data/temp/")
+        yaml_configs.append(config_path)
+        solution_paths.append(solution_path)
+        
+    return yaml_configs, solution_paths, reward_assets
 
 temperature_dict = {
         "reward": 0,
@@ -44,7 +73,7 @@ all_dishwasher_ids = [
 #  '12597',
 #  '12606',
 #  '12428',
- '12592',
+#  '12592',
 #  '11700',
 #  '12085',
 #  '12590',
@@ -77,14 +106,26 @@ all_dishwasher_ids = [
 #  '12617'
 ]
 
-all_time_costs = {}
-handle_grasping_scores = {}
-opened_angles = {}
-for dishwasher_id in all_dishwasher_ids:
+# all_time_costs = {}
+# handle_grasping_scores = {}
+# opened_angles = {}
+# for dishwasher_id in all_dishwasher_ids:
+
+all_time_costs = []
+handle_grasping_scores = []
+opened_angles = []
+
+all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
+for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
     
-    print("=" * 50)
-    print("running for dishwasher: ", dishwasher_id)
-    print("=" * 50)
+    object_name = "StorageFurniture"
+    os.system(f"python manipulation/scripts/extract_handle_mesh.py --category {object_name} --obj_id {obj_id}")
+    
+    
+    
+    # print("=" * 50)
+    # print("running for dishwasher: ", dishwasher_id)
+    # print("=" * 50)
     
     # config_path, solution_path = generate_from_task_name(
     #             "open the door of the dishwasher", 
@@ -96,7 +137,7 @@ for dishwasher_id in all_dishwasher_ids:
     # config_path = "data/generated_task_from_description/open_the_door_of_the_dishwasher_Dishwasher_12085_2024-03-19-01-27-53/open_the_door_of_the_dishwasher_The_robot_arm_opens_the_door_of_the_dishwasher.yaml"
     # solution_path = "data/generated_task_from_description/open_the_door_of_the_dishwasher_Dishwasher_12085_2024-03-19-01-27-53/task_open_the_door_of_the_dishwasher"
 
-    config_path, solution_path = get_folders_from_id(dishwasher_id)
+    # config_path, solution_path = get_folders_from_id(dishwasher_id)
 
     all_substeps_path = os.path.join(solution_path, "substeps.txt")
     with open(all_substeps_path, "r") as f:
@@ -110,7 +151,28 @@ for dishwasher_id in all_dishwasher_ids:
     # run execute.py
     beg_time = time.time()
     
-    os.system("python execute.py --task_config_path {} --gui 1 --skip {}".format(config_path, skip_argument))
+    trained = False
+    experiment_path = os.path.join(solution_path, "experiment")
+    if os.path.exists(experiment_path):
+        all_experiments = os.listdir(experiment_path)
+        all_experiments = sorted(all_experiments)
+        newest_experiment = all_experiments[-1]
+        newest_experiment_path = os.path.join(experiment_path, newest_experiment)
+        
+        
+        all_substeps_type = os.path.join(solution_path, "substep_types.txt")
+        with open(all_substeps_type, "r") as f:
+            all_substeps_type = f.readlines()
+            first_step_type = all_substeps_type[0].lstrip().rstrip()
+        first_step_folder = first_step.replace(" ", "_") + "_" + first_step_type
+        first_step_folder_path = os.path.join(newest_experiment_path, first_step_folder)
+        
+        score_file = os.path.join(first_step_folder_path, "best_score.txt")
+        if os.path.exists(score_file):
+            trained = True
+    
+    if not trained:
+        os.system("python execute.py --task_config_path {} --gui 1 --skip {}".format(config_path, skip_argument))
     # execute(config_path, 
     #         resume=args.resume, 
     #         training_algo=args.training_algo, 
@@ -134,9 +196,8 @@ for dishwasher_id in all_dishwasher_ids:
     
     end_time = time.time()
         
-    all_time_costs[dishwasher_id] = (end_time - beg_time)
+    # all_time_costs[dishwasher_id] = (end_time - beg_time)
     
-    experiment_path = os.path.join(solution_path, "experiment")
     all_experiments = os.listdir(experiment_path)
     all_experiments = sorted(all_experiments)
     newest_experiment = all_experiments[-1]
@@ -150,33 +211,39 @@ for dishwasher_id in all_dishwasher_ids:
     first_step_folder = first_step.replace(" ", "_") + "_" + first_step_type
     first_step_folder_path = os.path.join(newest_experiment_path, first_step_folder)
     
-    
-    
-    
     score_file = os.path.join(first_step_folder_path, "best_score.txt")
     angle_file = os.path.join(first_step_folder_path, "opened_angle.txt")
     with open(score_file, "r") as f:
         score = f.readlines()
         score = float(score[0].lstrip().rstrip())
-        handle_grasping_scores[dishwasher_id] = (score)
+        # handle_grasping_scores[dishwasher_id] = (score)
+        handle_grasping_scores.append(score)
     with open(angle_file, "r") as f:
         angle = f.readlines()
         opened_angle = float(angle[0].lstrip().rstrip())
-        angle_low_limit = float(angle[1].lstrip().rstrip())
-        angle_high_limit = float(angle[2].lstrip().rstrip())
-        opened_angles[dishwasher_id] = ((opened_angle - angle_low_limit) / (angle_high_limit - angle_low_limit))   
+        opened_angles.append(opened_angle)
+        # angle_low_limit = float(angle[1].lstrip().rstrip())
+        # angle_high_limit = float(angle[2].lstrip().rstrip())
+        # opened_angles[dishwasher_id] = ((opened_angle - angle_low_limit) / (angle_high_limit - angle_low_limit))   
+        # opened_angles[dishwasher_id] = ((opened_angle - angle_low_limit) / (angle_high_limit - angle_low_limit))   
 
-print("=============== time cost =============")
-pprint(all_time_costs)
-print("=============== handle_grasping_scores =============")
-pprint(handle_grasping_scores)
-print("=============== opened_angles =============")
-pprint(opened_angles)
 
+print("=============== opened angles =============")
+print(opened_angles)
 with open("data/opened_angles.yaml", "w") as f:
     yaml.dump(opened_angles, f)
-with open("data/handle_grasping_scores.yaml", "w") as f:
-    yaml.dump(handle_grasping_scores, f)
-with open("data/all_time_costs.yaml", "w") as f:
-    yaml.dump(all_time_costs, f)
+
+# print("=============== time cost =============")
+# pprint(all_time_costs)
+# print("=============== handle_grasping_scores =============")
+# pprint(handle_grasping_scores)
+# print("=============== opened_angles =============")
+# pprint(opened_angles)
+
+# with open("data/opened_angles.yaml", "w") as f:
+#     yaml.dump(opened_angles, f)
+# with open("data/handle_grasping_scores.yaml", "w") as f:
+#     yaml.dump(handle_grasping_scores, f)
+# with open("data/all_time_costs.yaml", "w") as f:
+#     yaml.dump(all_time_costs, f)
  
