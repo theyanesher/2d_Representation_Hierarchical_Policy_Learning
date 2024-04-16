@@ -4,17 +4,20 @@ import pybullet as p
 import copy
 import os, pickle
 import time
+from termcolor import cprint
 
 PLANNER = "RRTConnect" # BITstar
 
 # add argument 'object_id' to indicate whether you need to plan the motion while the robot holding an object
-def motion_planning(env, target_pos, target_orientation, planner=None, obstacles=[], allow_collision_links=[], object_id=None, save_path=None, target_joint_angle=None, target_link=None, max_sampling_it=100, smooth_path=True):
+def motion_planning(env, target_pos, target_orientation, planner=None, 
+                obstacles=[], allow_collision_links=[], object_id=None, save_path=None, 
+                robot_target_joint_angle=None, target_link=None, max_sampling_it=80, smooth_path=True,
+                try_times=3):
     np.random.seed(time.time_ns() % 2**32)
     if target_link is None:
         target_link = env.robot.right_end_effector
-    if planner is None:
-        planner = PLANNER
 
+    
     current_joint_angles = copy.deepcopy(env.robot.get_joint_angles(indices=env.robot.right_arm_joint_indices))
     ompl_robot = pb_ompl.PbOMPLRobot(env.robot.body, control_joint_idx=env.robot.right_arm_joint_indices, object_id=object_id, env=env)
     ompl_robot.set_state(current_joint_angles)
@@ -23,82 +26,112 @@ def motion_planning(env, target_pos, target_orientation, planner=None, obstacles
     pb_ompl_interface = pb_ompl.PbOMPL(ompl_robot, obstacles, allow_collision_links, 
                                        allow_collision_robot_link_pairs=allow_collision_robot_link_pairs,
                                        object_id=object_id)
-    pb_ompl_interface.set_planner(planner)
 
-    # first need to compute a collision-free IK solution
-    ik_lower_limits = env.robot.ik_lower_limits 
-    ik_upper_limits = env.robot.ik_upper_limits 
-    ik_joint_ranges = ik_upper_limits - ik_lower_limits
-    ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
-    ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
+    paths = []
+    path_translation_lengths, path_rotation_lengths = [], []
+    for try_idx in range(try_times):
+        ompl_robot.set_state(current_joint_angles)
+        # first need to compute a collision-free IK solution
+        ik_lower_limits = env.robot.ik_lower_limits 
+        ik_upper_limits = env.robot.ik_upper_limits 
+        ik_joint_ranges = ik_upper_limits - ik_lower_limits
+        ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
+        ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
 
-    if target_joint_angle is None:
-        it = 0
-        while True:
-            # if it % 10 == 0:
-            #     print("----------------- sampling target ik it: ", it, " -----------------")
+        ik_success = False
+        if robot_target_joint_angle is None:
+            it = 0
+            while True:
+                ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
+                ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
 
-            # p.addUserDebugPoints([target_pos], [[1, 0, 0]], 15, 0)
+                target_joint_angle = np.array(p.calculateInverseKinematics(
+                    env.robot.body, target_link, 
+                    targetPosition=target_pos, targetOrientation=target_orientation, 
+                    maxNumIterations=10000,
+                    residualThreshold=1e-4
+                ))
+
+                ompl_robot.set_state(target_joint_angle)
+                
+                eef_pos, eef_orient = env.robot.get_pos_orient(target_link)
+                ik_error = np.linalg.norm(eef_pos - target_pos)
+                # print("within lower limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]))
+                # print("within upper limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]))
+                # print("is state valid: ", pb_ompl_interface.is_state_valid(target_joint_angle))
+                # print("ik_error: ", ik_error)
+                if np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]) \
+                        and np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]) \
+                        and pb_ompl_interface.is_state_valid(target_joint_angle) \
+                        and ik_error < 0.001:
+
+                    # if object_id is None:
+                    ik_success = True
+                    break
+                    # elif p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[0], -1, physicsClientId=env.id) \
+                    #     and p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[1], -1, physicsClientId=env.id):
+                    #     break
+
+                it += 1
+
+                if it > max_sampling_it:
+                    ompl_robot.set_state(current_joint_angles)
+                    ik_success = False
+                    break
         
-            ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
-            ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
+        if not ik_success:
+            cprint(f"try_idx: {try_idx}, ik failed", "red")
+            continue
+        
+        for planner in ["RRTConnect", "RRTstar", "BITstar", "ABITstar"]:
+            pb_ompl_interface.set_planner(planner)
+            # then plan using ompl
+            target_joint_angle = target_joint_angle[env.robot.right_arm_joint_indices]    
+            assert len(target_joint_angle) == ompl_robot.num_dim
+            assert pb_ompl_interface.is_state_valid(target_joint_angle)
 
-            target_joint_angle = np.array(p.calculateInverseKinematics(
-                env.robot.body, target_link, 
-                targetPosition=target_pos, targetOrientation=target_orientation, 
-                # lowerLimits=ik_lower_limits.tolist(), upperLimits=ik_upper_limits.tolist(), jointRanges=ik_joint_ranges.tolist(), 
-                # restPoses=ik_rest_poses.tolist(), 
-                maxNumIterations=10000,
-                residualThreshold=1e-4
-            ))
+            ompl_robot.set_state(current_joint_angles)
+            res, path = pb_ompl_interface.plan(target_joint_angle, smooth_path=smooth_path)
+            ompl_robot.set_state(current_joint_angles)
 
-            ompl_robot.set_state(target_joint_angle)
-            
-            eef_pos, eef_orient = env.robot.get_pos_orient(target_link)
-            ik_error = np.linalg.norm(eef_pos - target_pos)
-            # print("within lower limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]))
-            # print("within upper limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]))
-            # print("is state valid: ", pb_ompl_interface.is_state_valid(target_joint_angle))
-            # print("ik_error: ", ik_error)
-            if np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]) \
-                    and np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]) \
-                    and pb_ompl_interface.is_state_valid(target_joint_angle) \
-                    and ik_error < 0.1:
-                if object_id is None:
-                    break
-                elif p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[0], -1, physicsClientId=env.id) \
-                    and p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[1], -1, physicsClientId=env.id):
-                    break
-
-            it += 1
-
-            if it > max_sampling_it:
+            if not res:
+                print("motion planning failed to find a path")
+            else:
+                paths.append(path)
+                translation_length, rotation_length = get_path_length(env, path)
+                path_translation_lengths.append(translation_length)
+                path_rotation_lengths.append(rotation_length)
                 ompl_robot.set_state(current_joint_angles)
-
-                return False, None
-        
-        # import pdb; pdb.set_trace()
+                cprint(f"try_idx: {try_idx}, planner: {planner}, translation length: {translation_length}, rotation length: {rotation_length}", "red")
     
-        # then plan using ompl
-        target_joint_angle = target_joint_angle[env.robot.right_arm_joint_indices]    
-        assert len(target_joint_angle) == ompl_robot.num_dim
-    assert pb_ompl_interface.is_state_valid(target_joint_angle)
-
-    ompl_robot.set_state(current_joint_angles)
-
-    res, path = pb_ompl_interface.plan(target_joint_angle, smooth_path=smooth_path)
-    ompl_robot.set_state(current_joint_angles)
-
-    if not res:
-        print("motion planning failed to find a path")
-    else:
-        if save_path is not None:
-            with open(os.path.join(save_path, "target_joint_angle.pkl"), "wb") as f:
-                pickle.dump(target_joint_angle, f)
-            with open(os.path.join(save_path, "current_joint_angle.pkl"), "wb") as f:
-                pickle.dump(current_joint_angles, f)
+    if len(paths) == 0:
+        return None, None
+    
+    ompl_robot.set_state(current_joint_angles)    
+    # total_lengths = np.array(path_translation_lengths) + np.array(path_rotation_lengths)
+    best_idx = np.argmin(path_translation_lengths)
+    path = paths[best_idx]
+        
+    if save_path is not None:
+        with open(os.path.join(save_path, "target_joint_angle.pkl"), "wb") as f:
+            pickle.dump(target_joint_angle, f)
+        with open(os.path.join(save_path, "current_joint_angle.pkl"), "wb") as f:
+            pickle.dump(current_joint_angles, f)
 
     return res, path
+
+def get_path_length(env, path):
+    cur_pos, cur_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+    length_pos = 0
+    length_orient = 0
+    for idx, q in enumerate(path):
+        env.robot.set_joint_angles(env.robot.right_arm_joint_indices, q)
+        pos, orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+        length_pos += np.linalg.norm(pos - cur_pos)
+        length_orient += np.arccos(2 * np.dot(orient, cur_orient)**2 - 1)
+        cur_pos, cur_orient = pos, orient
+    return length_pos, length_orient
+    
 
 def motion_planning_joint_angle(env, target_joint_angle, planner="BITstar", obstacles=[], allow_collision_links=[]):
     current_joint_angles = copy.deepcopy(env.robot.get_joint_angles(indices=env.robot.right_arm_joint_indices))

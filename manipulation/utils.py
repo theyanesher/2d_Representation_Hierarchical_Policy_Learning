@@ -19,6 +19,9 @@ import objaverse
 import trimesh
 from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapaien_cannot_vhacd_part_dict
 
+workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+data_dir = os.path.join(workspace, "data")
+
 default_config = {
     "gui": False,
     "use_suction": False,
@@ -140,7 +143,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config, solution_path, task_name, restore_state_file, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0
+                    obj_id=0, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -151,6 +154,8 @@ def build_up_env(task_config, solution_path, task_name, restore_state_file, retu
     save_config['gui'] = render
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
+    for key, value in kwargs.items():
+        save_config[key] = value
 
     ### you might want to restore to a specific state
     module = importlib.import_module("{}.{}".format(solution_path.replace("/", "."), task_name))
@@ -402,7 +407,7 @@ def preprocess_urdf(urdf_file_path, num_processes=6):
     with open(new_path, 'w') as f:
         f.writelines("".join(new_lines))
 
-    with open("data/sapien_cannot_vhacd_part.json", 'w') as f:
+    with open(f"{data_dir}/sapien_cannot_vhacd_part.json", 'w') as f:
         json.dump(sapaien_cannot_vhacd_part_dict, f, indent=4)
 
     return new_path
@@ -412,6 +417,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
     urdf_paths = []
     urdf_sizes = []
     urdf_locations = []
+    urdf_orientations = []
     urdf_names = []
     urdf_types = []
     urdf_on_tables = []
@@ -420,6 +426,8 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
     articulated_joint_angles = {}
     spatial_relationships = []
     distractor_config_path = None
+
+    robot_initial_joint_angles = [0.0, 0.0, 0.0, -0.4, 0.0, 0.4, 0.0]
 
     for obj in config:
         # print(obj)
@@ -440,6 +448,11 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
 
         if "distractor_config_path" in obj.keys():
             distractor_config_path = obj['distractor_config_path']
+
+        if 'initial_joint_angles' in obj.keys():
+            initial_joint_angles = obj['initial_joint_angles']
+            initial_joint_angles = parse_center(initial_joint_angles)
+            robot_initial_joint_angles = initial_joint_angles
 
         if "type" not in obj.keys():
             continue
@@ -498,7 +511,9 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
                     obj_path = str(10638)
             else:
                 obj_path = obj['reward_asset_path']
-            urdf_file_path = osp.join("data/dataset", obj_path, "mobility.urdf")
+                
+
+            urdf_file_path = osp.join(f"{data_dir}/dataset", obj_path, "mobility.urdf")
             if use_vhacd:
                 new_urdf_file_path = urdf_file_path.replace("mobility.urdf", "mobility_vhacd.urdf")
                 if not osp.exists(new_urdf_file_path):
@@ -512,11 +527,14 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
 
         urdf_sizes.append(obj['size'])
         urdf_locations.append(parse_center(obj['center']))
+        ori = obj.get('orientation', [0, 0, 0, 1])
+        if type(ori) == str:
+            ori = parse_center(ori)
+        urdf_orientations.append(ori)
         urdf_names.append(obj['name'])
         urdf_on_tables.append(obj.get('on_table', False))
-
-    return urdf_paths, urdf_sizes, urdf_locations, urdf_names, urdf_types, urdf_on_tables, use_table, \
-        articulated_joint_angles, spatial_relationships, distractor_config_path, urdf_movables
+    return urdf_paths, urdf_sizes, urdf_locations, urdf_orientations, urdf_names, urdf_types, urdf_on_tables, use_table, \
+        articulated_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, robot_initial_joint_angles
             
         
 

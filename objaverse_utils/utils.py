@@ -1,18 +1,21 @@
 import json
-import os.path as osp
+import os 
 from collections import defaultdict
 
-with open("data/partnet_mobility_dict.json", 'r') as f:
+
+workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+data_dir = os.path.join(workspace, "data")
+with open(f"{data_dir}/partnet_mobility_dict.json", 'r') as f:
     partnet_mobility_dict = json.load(f)
 
-if osp.exists("objaverse_utils/text_to_uid.json"):
+if os.path.exists("objaverse_utils/text_to_uid.json"):
     with open("objaverse_utils/text_to_uid.json", 'r') as f:
         text_to_uid_dict = json.load(f)
 else:
     text_to_uid_dict = {}
 
-if osp.exists("data/sapien_cannot_vhacd_part.json"):
-    with open("data/sapien_cannot_vhacd_part.json", 'r') as f:
+if os.path.exists(f"{data_dir}/sapien_cannot_vhacd_part.json"):
+    with open(f"{data_dir}/sapien_cannot_vhacd_part.json", 'r') as f:
         sapaien_cannot_vhacd_part_dict = json.load(f)
 else:
     sapaien_cannot_vhacd_part_dict = defaultdict(list)

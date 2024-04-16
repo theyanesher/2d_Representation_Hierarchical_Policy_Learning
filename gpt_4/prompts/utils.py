@@ -471,7 +471,12 @@ def extend_task_config(config, random_initialization=False):
 
     return config
 
-def save_another_yaml(config_path, save_path):
+def save_another_yaml(config_path, save_path, 
+                      randomize_position=True, 
+                      randomize_orientation=True,
+                      randomize_robot_joint_angle=True,  
+                      randomize_size=True,
+                    ):
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     temp_config = copy.deepcopy(config)
@@ -489,10 +494,10 @@ def save_another_yaml(config_path, save_path):
         initial_joint_angles[i] = np.random.uniform(low[i], high[i])
 
     for config_dict in temp_config:
-        if 'size' in config_dict:
+        if randomize_size and 'size' in config_dict:
             size_ratio = np.random.uniform(0.8, 1.2)
             config_dict['size'] = size_ratio * config_dict['size']
-        if 'center' in config_dict:
+        if (randomize_orientation or randomize_position) and 'center' in config_dict:
             orientation = [0, 0, 0, 1]
             center = parse_tuple(config_dict['center'])
             center[0] += np.random.uniform(-0.2, 0.2)
@@ -505,9 +510,11 @@ def save_another_yaml(config_path, save_path):
             orientation = quat.tolist()
             
             # save the new center as a string of tuple
-            config_dict['center'] = str(tuple(center))
-            config_dict['orientation'] = str(tuple(orientation))
-        if 'initial_joint_angles' in config_dict:
+            if randomize_position:
+                config_dict['center'] = str(tuple(center))
+            if randomize_orientation:
+                config_dict['orientation'] = str(tuple(orientation))
+        if randomize_robot_joint_angle and 'center' in config_dict:
             config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
 
     with open(save_path, 'w') as f:

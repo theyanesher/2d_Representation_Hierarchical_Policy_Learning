@@ -108,6 +108,7 @@ def execute(task_config_path,
             only_learn_substep=None,
             reward_learning_save_path=None,
             last_restore_state_file=None,
+            exp_name="debug",
 ):
 
     if time_string is None:
@@ -140,7 +141,7 @@ def execute(task_config_path,
         os.makedirs(solution_path, exist_ok=True)
 
     
-    experiment_path = os.path.join(solution_path, "experiment", time_string)
+    experiment_path = os.path.join(solution_path, "experiment", exp_name, time_string)
     if not os.path.exists(experiment_path):
         os.makedirs(experiment_path, exist_ok=True)
     with open(os.path.join(experiment_path, "meta_info.json"), 'w') as f:
@@ -256,6 +257,7 @@ if __name__ == "__main__":
     parser.add_argument('--training_algo', type=str, default="RL_sac")
     parser.add_argument('--resume', type=int, default=0)
     parser.add_argument('--time_string', type=str, default=None)
+    parser.add_argument('--exp_name', type=str, default=None)
     parser.add_argument('--gui', type=int, default=0) 
     parser.add_argument('--randomize', type=int, default=0) # whether to randomize roation of objects in the scene.
     parser.add_argument('--obj_id', type=int, default=0) # which object from the list of possible objects to use.
@@ -289,5 +291,6 @@ if __name__ == "__main__":
             move_robot=args.move_robot,
             only_learn_substep=args.only_learn_substep,
             reward_learning_save_path=args.reward_learning_save_path,
-            last_restore_state_file=args.last_restore_state_file
+            last_restore_state_file=args.last_restore_state_file,
+            exp_name=args.exp_name
     )

@@ -13,6 +13,7 @@ from manipulation.utils import save_env, load_env
 import scipy
 import time
 import copy
+from termcolor import cprint
 
 MOTION_PLANNING_TRY_TIMES=100
 
@@ -257,6 +258,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
     env_states = []
     rgb_images = []
     door_opened_scores = []
+    stage_lengths = []
+
     if grasp_handle is not None:
         all_handle_pos, handle_joint_id = get_handle_pos(simulator, object_name, return_median=False)
         flattened_handle_pos = np.concatenate(all_handle_pos, axis=0).reshape(-1, 3)
@@ -285,9 +288,11 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
         available_pc = [1 for _ in range(len(handle_pc))]
 
     for it in range(MOTION_PLANNING_TRY_TIMES):
+        stage_length = {}
+        
         object_name = object_name.lower()
         
-        num_working_configs = np.sum(np.array(handle_grasp_scores) > 0)
+        num_working_configs = np.sum(np.array(door_opened_scores) > 0)
         if num_working_configs > 5:
             break
           
@@ -309,6 +314,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
             
         else:
             target_pos = link_pc[np.random.randint(0, link_pc.shape[0])]
+            
         nearest_point_idx = np.argmin(np.linalg.norm(object_pc - target_pos.reshape(1, 3), axis=1))
         align_normal = object_normal[nearest_point_idx]
         
@@ -344,6 +350,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
             p.removeUserDebugItem(debug_id)
 
             if res:
+                stage_length['reach_handle'] = len(path)
+                
                 with open(os.path.join(save_path, "motion_planning_target.pkl"), "wb") as f:
                     import pickle
                     pickle.dump([mp_target_pos, target_orientation], f) 
@@ -364,7 +372,6 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     intermediate_states.append(state)
 
                 # first just open the gripper
-                # import pdb; pdb.set_trace()
                 steps = 20
                 for t in range(steps):
                     new_joint_angle = (t + 1) / steps * 0.05
@@ -376,10 +383,11 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     intermediate_states.append(state)
                     rgb = simulator.render()
                     rgbs.append(rgb)
+                    
+                stage_length['open_gripper'] = steps
 
                                         
                 # reach till contact is made, and get the number of handle points between the two fingers
-                # import pdb; pdb.set_trace()
                 steps = 30
                 for t in range(steps):
                     ik_indices = [_ for _ in range(len(simulator.robot.right_arm_joint_indices))]
@@ -426,6 +434,9 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                         
                     if collision:
                         break
+                    
+                stage_length['reach_to_contact'] = steps
+                
                 
                 # get a score for this grasping pose, which is the number of handle points between the two fingers
                 cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
@@ -435,7 +446,7 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                 close_steps = 40
                 left_collision = False
                 right_collision = False
-                # import pdb; pdb.set_trace()
+                after_collision_steps = 0
                 for t in range(close_steps):
                     new_joint_angle = 0.
                     agent = simulator.robot
@@ -461,14 +472,18 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                         if np.sum(dist_collision_to_handle < 0.005) > 0:
                             right_collision = True
                             
-                    # if left_collision and right_collision and t > 20:
-                    #     break
+                    if left_collision and right_collision:
+                        after_collision_steps += 1
+                    if after_collision_steps >= 10:
+                        break
 
                 if not (left_collision and right_collision):
                     score = 0
                 
+                stage_length['close_gripper'] = close_steps
+                
                 handle_grasp_scores.append(score)    
-                print("iteration {} score {}".format(it, score))
+                cprint("iteration {} score {}".format(it, score), "green")
 
                    
                 # let's not test this for now
@@ -484,8 +499,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
                     ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
                     eef_poses = []
-                    timesteps = 300
-                    target = joint_limit[0] + 0.5 * (joint_limit[1] - joint_limit[0])
+                    timesteps = 150
+                    target = joint_limit[0] + 0.6 * (joint_limit[1] - joint_limit[0])
                     for t in range(1, timesteps):
                         joint_angle = joint_limit[0] + (target - joint_limit[0]) * t / timesteps
                         p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, joint_angle)
@@ -493,6 +508,8 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                         # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
                         new_eef_pos, new_eef_orient = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
                         eef_poses.append([new_eef_pos, new_eef_orient])
+                        
+                    stage_length['open_door'] = len(eef_poses)
                     
                     p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, ori_joint_angle)
                     for t in range(len(eef_poses)):
@@ -518,11 +535,12 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
                     
                     final_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
                     door_opened_scores.append(final_joint_angle)
-                    print("final joint angle: ", final_joint_angle)
+                    cprint(f"final joint angle: {final_joint_angle}", "green")
                     
                         
                 env_states.append(intermediate_states)
                 rgb_images.append(rgbs)
+                stage_lengths.append(stage_length)
             
             # no need to try the other normal direction
             break
@@ -554,6 +572,11 @@ def approach_object_link(simulator, object_name, link_name, dynamics=False, gras
             f.write(str(joint_limit_low) + "\n")
             f.write(str(joint_limit_high) + "\n")
         simulator.reset(ori_simulator_state)
+        
+        best_stage_length = stage_lengths[best_idx]
+        import json
+        with open(os.path.join(save_path, "stage_lengths.json"), "w") as f:
+            json.dump(best_stage_length, f, indent=4)
                 
         return rgb_images[best_idx], state_files
     

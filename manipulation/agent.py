@@ -1,5 +1,9 @@
 import numpy as np
 import pybullet as p
+from termcolor import cprint
+# import ikpy.chain
+from tracikpy import TracIKSolver
+import os
 
 class Agent:
     def __init__(self):
@@ -19,6 +23,15 @@ class Agent:
         if indices != -1:
             pass
         
+        active_masks = [0,1,1,1,1,1,1,1,0,0,1]
+
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        # self.franka_ikpy_chain = ikpy.chain.Chain.from_urdf_file(f"{current_path}/assets/panda_bullet/panda.urdf", base_elements=["panda_link0"], active_links_mask=active_masks)
+        
+        self.franka_tracik_solver = TracIKSolver(f"{current_path}/assets/panda_ik/franka.urdf", "panda_link0", "panda_grasptarget", 
+                                                 epsilon=1e-5, timeout=0.05)
+
+
     def control(self, indices, target_angles, gains=None, forces=None):
         if gains is not None:
             if type(gains) in [int, float]:
@@ -129,7 +142,7 @@ class Agent:
             elif joint_angles[j] > self.upper_limits[j]:
                 p.resetJointState(self.body, jointIndex=j, targetValue=self.upper_limits[j], targetVelocity=0, physicsClientId=self.id)
 
-    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=5000, residualThreshold=1e-4, use_current_as_rest=False, return_full_state=False):
+    def ik(self, target_joint, target_pos, target_orient, ik_indices, max_iterations=1000, residualThreshold=1e-4, use_current_as_rest=False, return_full_state=False):
         if target_orient is not None and len(target_orient) < 4:
             target_orient = self.get_quaternion(target_orient)
         if use_current_as_rest:
@@ -164,6 +177,68 @@ class Agent:
         if return_full_state:
             return ik_joint_poses
         return ik_joint_poses[ik_indices]
+    
+    def ik_ikpy_franka(self, target_pos, target_orient, ik_indices):
+        print(target_pos)
+        target_pos = target_pos - np.array([1, 1, 0])
+        import pdb; pdb.set_trace()
+
+        # self.franka_ikpy_chain.active_links = ik_indices
+        joint_angles = self.franka_ikpy_chain.inverse_kinematics(target_position=target_pos)
+        real_frame = self.franka_ikpy_chain.forward_kinematics(joint_angles)
+        cprint(real_frame, 'green')
+        cprint(joint_angles, 'red')
+        joint_angles = joint_angles[ik_indices]
+
+        for i, j in enumerate(ik_indices):
+            p.resetJointState(self.body, j, targetValue=joint_angles[i], targetVelocity=0, physicsClientId=self.id)
+
+        import ikpy.utils.plot as plot_utils
+        import matplotlib.pyplot as plt
+        fig, ax = plot_utils.init_3d_figure()
+        self.franka_ikpy_chain.plot(self.franka_ikpy_chain.inverse_kinematics(target_pos), ax, target=target_pos)
+        plt.xlim(-0.5, 0.5)
+        plt.ylim(-0.2, 0.2)
+        plt.show()
+         
+        
+        import pdb; pdb.set_trace()
+
+
+    def ik_tracik_franka(self, target_pos, target_orient, ik_indices):
+        p.addUserDebugPoints([target_pos], [[1,0,0]], 25)
+        original_joint_angles = self.get_joint_angles(self.all_joint_indices)
+        original_joint_angles = original_joint_angles[ik_indices]
+
+        # get robot base position and orientation
+        base_pos, base_orient = self.get_base_pos_orient()
+        base_pos = np.array(base_pos)
+
+        target_pos = target_pos - base_pos + np.array([0, 0, 0.05])
+        target_orient = np.array(p.getMatrixFromQuaternion(target_orient)).reshape(3, 3)
+
+        target_eef = np.eye(4)
+        target_eef[:3, :3] = target_orient
+        target_eef[:3, 3] = target_pos
+
+        joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=original_joint_angles)
+        
+        # import pdb; pdb.set_trace()
+        
+        # for i, j in enumerate(ik_indices):
+        #     p.resetJointState(self.body, j, targetValue=joint_angles[i], targetVelocity=0, physicsClientId=self.id)
+        if joint_angles is None:
+            cprint('tracIK failed', 'red')
+            return None, False
+
+        eef_out = self.franka_tracik_solver.fk(joint_angles)
+        eef_out = eef_out[:3, 3]
+        # import pdb; pdb.set_trace()
+        if np.linalg.norm(eef_out - target_pos) > 1e-4:
+            cprint('tracIK failed', 'red')
+            return None, False
+        return joint_angles, True
+        
 
     def print_joint_info(self, show_fixed=True):
         joint_names = []

@@ -37,11 +37,12 @@ def render(data, cur_shape_dir):
     part_f = np.vstack(cur_f_list)
 
     out_point_file = os.path.join(cur_shape_dir, "parts_render", str(data['id'])+str(data["name"])+'.obj')
-    with open(out_point_file, 'w') as fout:
-        for i in range(part_v.shape[0]):
-            fout.write('v %f %f %f\n' % (part_v[i, 0], part_v[i, 1], part_v[i, 2]))
-        for i in range(part_f.shape[0]):
-            fout.write('f %d %d %d\n' % (part_f[i, 0], part_f[i, 1], part_f[i, 2]))
+    if not os.path.exists(out_point_file):
+        with open(out_point_file, 'w') as fout:
+            for i in range(part_v.shape[0]):
+                fout.write('v %f %f %f\n' % (part_v[i, 0], part_v[i, 1], part_v[i, 2]))
+            for i in range(part_f.shape[0]):
+                fout.write('f %d %d %d\n' % (part_f[i, 0], part_f[i, 1], part_f[i, 2]))
                         
     return part_v, part_f
 

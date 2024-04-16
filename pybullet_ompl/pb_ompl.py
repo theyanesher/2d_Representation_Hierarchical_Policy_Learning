@@ -17,7 +17,7 @@ import numpy as np
 import random
 
 INTERPOLATE_NUM = 100
-DEFAULT_PLANNING_TIME = 25
+DEFAULT_PLANNING_TIME = 5
 
 class PbOMPLRobot():
     '''
@@ -274,7 +274,7 @@ class PbOMPL():
         res = False
         sol_path_list = []
         if solved:
-            print("Found solution: interpolating into {} segments".format(INTERPOLATE_NUM))
+            # print("Found solution: interpolating into {} segments".format(INTERPOLATE_NUM))
             # print the path to screen
             sol_path_geometric = self.ss.getSolutionPath()
             if smooth_path:
