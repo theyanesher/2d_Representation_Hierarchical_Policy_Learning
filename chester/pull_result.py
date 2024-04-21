@@ -13,6 +13,7 @@ if __name__ == "__main__":
     parser.add_argument('--bare', action='store_true', default=False)
     parser.add_argument('--img', action='store_true', default=False)
     parser.add_argument('--pkl', action='store_true', default=False)
+    parser.add_argument('--checkpoint', action='store_true', default=False)
     parser.add_argument('--pth', action='store_true', default=False)
     parser.add_argument('--gif', action='store_true', default=False)
     parser.add_argument('--best', action='store_true', default=False)
@@ -20,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument('--policy', action='store_true', default=False)
     args = parser.parse_args()
 
-    local_dir = os.path.join('./exp', args.host, args.exp_name)
+    local_dir = os.path.join('3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data', args.host, args.exp_name)
     if not os.path.exists(local_dir):
         os.makedirs(local_dir)
     print("pulling from {} {}".format(args.host, args.exp_name))
@@ -28,9 +29,9 @@ if __name__ == "__main__":
     if args.host == 'seuss':
         dir_path = '/data/yufeiw2/RoboGen_sim2real/'
     elif args.host == 'autobot':
-        dir_path = '/project_data/held/yufeiw2/RoboGen_sim2real/'
+        dir_path = '/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/'
 
-    remote_data_dir = os.path.join(dir_path, 'exp', args.exp_name)
+    remote_data_dir = os.path.join(dir_path, args.exp_name)
     command = """rsync -avzh --progress {host}:{remote_data_dir} {local_dir} --include '*best_model.pth'  """.format(host=args.host,
                                                                                                 remote_data_dir=remote_data_dir,
                                                                                                 local_dir=local_dir)
@@ -55,9 +56,12 @@ if __name__ == "__main__":
     if not args.pkl:
         command += """ --exclude '*.pkl'  """
     
+    if not args.checkpoint:
+        command += """ --exclude '*checkpoint*'  """
+        command += """ --exclude '*.ckpt'  """
 
     if args.bare:
-        command += """  --exclude '*checkpoint*' --exclude '*ckpt*' --exclude '*wandb*' --exclude '*.pth' --exclude '*.mp4'  --exclude '*tfevents*' --exclude '*.pt' --include '*.csv' --include '*.json' --delete"""
+        command += """ --exclude '*wandb*' --exclude '*.pth' --exclude '*.mp4'  --exclude '*tfevents*' --exclude '*.pt' --include '*.csv' --include '*.json' --delete"""
 
 
 
