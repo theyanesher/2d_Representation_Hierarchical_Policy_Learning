@@ -1,6 +1,7 @@
 name: robogen_open_door
 
 task_name: robogen_open_door
+in_gripper_frame: false
 
 image_shape: &image_shape [3, 640, 480]
 shape_meta: &shape_meta
@@ -10,19 +11,31 @@ shape_meta: &shape_meta
     #     shape: *image_shape
     #     type: rgb
     point_cloud:
-      shape: [1280, 6]
+      # shape: [1280, 6]
+      shape: [3000, 3]
       type: point_cloud
     agent_pos:
+      # shape: [12]
       shape: [10]
       type: low_dim
   action:
     shape: [10]
 
 env_runner:
+  _target_: diffusion_policy_3d.env_runner.robogen_runner.RoboGenRunner
+  # max_steps: 400
+  max_steps: 250
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  eval_episodes: 3
+  in_gripper_frame: ${task.in_gripper_frame}
+  gripper_num_points: 0
+  start_after_reaching: 0
+  add_contact: 0
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
-  zarr_path: /home/ziyu/Desktop/workspace/RoboGen-sim2real/data/extracted/sac_storagefurniture_48700_all_4_gripper_frame.zarr
+  zarr_path: /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/data/dp3_demo/test_different_init_joint_angle_world
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}
   pad_after: ${eval:'${n_action_steps}-1'}

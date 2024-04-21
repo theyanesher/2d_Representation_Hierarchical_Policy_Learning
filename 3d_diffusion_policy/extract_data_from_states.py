@@ -61,9 +61,6 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         
         second_step_folder = second_step.replace(" ", "_")
         
-        ## ===========================================================
-        ## TODO: Maybe add some filters about the scores to filter out
-        ## ===========================================================
         checkpoints_path = os.path.join(experiment_path, second_step_folder, "checkpoints")
 
         if not os.path.exists(checkpoints_path):
@@ -335,75 +332,6 @@ def main(folder_name, object_name, save_path, in_gripper_frame=True):
 
 
 if __name__ == "__main__":
-    # pc_list, state_list, action_list, last_state_indices = extract_demos_from_a_directory("data/storagefurniture_48700", "StorageFurniture", in_gripper_frame=True)
-    # save_data(pc_list, state_list, action_list, last_state_indices, "data/extracted/sac_storagefurniture_48700_all_4_gripper_frame.zarr")
-
-    # # print("last state indices: ", last_state_indices)
-
-    # # load the data
-    # zarr_root = zarr.open("data/extracted/sac_storagefurniture_48700_1_gripper_frame.zarr")
-    # zarr_data = zarr_root['data']
-    # zarr_meta = zarr_root['meta']
-    # action_arrays = zarr_data['action'][:]
-    # last_state_indices = zarr_meta['episode_ends'][:]
-
-    # action_list = action_arrays.tolist()
-
-    # import pdb; pdb.set_trace()
-
-    # accumulated_angle_diff_list = []
-
-    # for j in range(len(last_state_indices)):
-
-    #     # target_pos_ori = target_pos_ori[0]
-    #     env, _ = build_up_env(
-    #         "/home/ziyu/Desktop/workspace/RoboGen-sim2real/data/storagefurniture_48700/storagefurniture_48700_sac/open_the_door_of_the_storagefurniture_by_its_handle_The_robotic_arm_will_open_the_door_of_the_storage_furniture_by_its_handle.yaml",
-    #         "data/storagefurniture_48700/storagefurniture_48700_sac/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #         "open_the_storage_furniture_door",
-    #         None, 
-    #         render=True, 
-    #         randomize=False,
-    #         obj_id=0,
-    #     )
-    #     object_name = "StorageFurniture"
-    #     env.reset()
-        
-    #     env = RobogenPointCloudWrapper(env, object_name)
-    #     rgbs = []
-
-    #     np.random.seed(time.time_ns() % 2**32)
-    #     robot = env._env.robot
-
-    #     # import pdb; pdb.set_trace()
-    #     current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
-    #     accumulated_angle_diff = 0
-    #     if j == 0:
-    #         offset = 0
-    #     else:
-    #         offset = last_state_indices[j]
-    #     for i in range(400):
-    #         env.step(action_list[i+offset], in_gripper_frame=True)
-    #         control_rgbs = env._env.get_control_rgbs()
-    #         rgbs.extend(control_rgbs)
-
-    #         pos, ori = env._env.robot.get_pos_orient(env._env.robot.right_end_effector)
-            
-    #         new_current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
-    #         diff = np.array(new_current_joint_angle) - np.array(current_joint_angle)
-    #         accumulated_angle_diff += np.linalg.norm(diff)
-    #         current_joint_angle = new_current_joint_angle
-
-    #     cprint("accumulated_angle_diff: " + str(accumulated_angle_diff), "green")
-    #     accumulated_angle_diff_list.append(accumulated_angle_diff)
-
-    #     env._env.close()
-
-    #     save_numpy_as_gif(np.array(rgbs), "data/extracted/sac_storagefurniture_with_eff_48700.gif")
-
-    # import pdb; pdb.set_trace()
-    # print("accumulated_angle_diff_list: ", accumulated_angle_diff_list)
-    # import pdb; pdb.set_trace()
-
     args = ArgumentParser()
     args.add_argument("--folder_name", type=str, required=True)
     args.add_argument("--object_name", type=str, required=True)

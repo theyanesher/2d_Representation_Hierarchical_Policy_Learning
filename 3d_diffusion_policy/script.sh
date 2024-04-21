@@ -1,0 +1,3 @@
+python train.py --config-name=dp3.yaml task=robogen_open_door exp_name=vary_init_angle eval_first=0
+python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug_eval load_checkpoint_path=/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/world_different_robot_init_angle/2024.04.16/01.11.47_train_dp3_robogen_open_door/checkpoints/latest.ckpt
+python 3d_diffusion_policy/extract_data_from_states_new.py --folder_name data/temp/ --object_name storagefurniture --save_path data/dp3_demo/test_different_init_joint_angle_gripper --in_gripper_frame 1 --exp_name vary_robot_init_joint

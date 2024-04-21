@@ -1,7 +1,0 @@
-- task=robogen_open_door
-- training.debug=False
-- training.seed=0
-- training.device=cuda:0
-- exp_name=robogen_open_door-dp3-0322
-- logging.mode=online
-- checkpoint.save_ckpt=True

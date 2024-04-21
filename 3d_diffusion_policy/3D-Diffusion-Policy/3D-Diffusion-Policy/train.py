@@ -1,11 +1,11 @@
-if __name__ == "__main__":
-    import sys
-    import os
-    import pathlib
+# if __name__ == "__main__":
+#     import sys
+#     import os
+#     import pathlib
 
-    ROOT_DIR = str(pathlib.Path(__file__).parent.parent.parent)
-    sys.path.append(ROOT_DIR)
-    os.chdir(ROOT_DIR)
+#     ROOT_DIR = str(pathlib.Path(__file__).parent.parent.parent)
+#     sys.path.append(ROOT_DIR)
+#     os.chdir(ROOT_DIR)
 
 import os
 import hydra
@@ -40,8 +40,8 @@ class TrainDP3Workspace:
 
     def __init__(self, cfg: OmegaConf, output_dir=None):
         self.cfg = cfg
-        print("cfg: ", cfg)
-        input("Press Enter to continue...")
+        # print("cfg: ", cfg)
+        # input("Press Enter to continue...")
         self._output_dir = output_dir
         self._saving_thread = None
         
@@ -78,9 +78,10 @@ class TrainDP3Workspace:
             cfg.training.max_train_steps = 10
             cfg.training.max_val_steps = 3
             cfg.training.rollout_every = 20
-            cfg.training.checkpoint_every = 1
-            cfg.training.val_every = 1
-            cfg.training.sample_every = 1
+            cfg.training.checkpoint_every = 1000
+            cfg.training.val_every = 20
+            # cfg.training.sample_every = 1
+            cfg.dataloader.batch_size = 32
             RUN_ROLLOUT = True
             RUN_CKPT = False
             verbose = True
@@ -187,6 +188,7 @@ class TrainDP3Workspace:
             with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
                     leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 for batch_idx, batch in enumerate(tepoch):
+                    # print("train batch_idx {}/{}".format(batch_idx, len(tepoch)))
                     t1 = time.time()
                     # device transfer
                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
@@ -238,6 +240,7 @@ class TrainDP3Workspace:
                         wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
+                    # import pdb; pdb.set_trace()
                     if (cfg.training.max_train_steps is not None) \
                         and batch_idx >= (cfg.training.max_train_steps-1):
                         break
@@ -255,13 +258,17 @@ class TrainDP3Workspace:
 
             # run rollout
             if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
-                t3 = time.time()
-                # runner_log = env_runner.run(policy, dataset=dataset)
-                runner_log = env_runner.run(policy)
-                t4 = time.time()
-                # print(f"rollout time: {t4-t3:.3f}")
-                # log all
-                step_log.update(runner_log)
+                if self.epoch == 0 and not cfg.eval_first:
+                    pass
+                else:
+                    t3 = time.time()
+                    # runner_log = env_runner.run(policy, dataset=dataset)
+                    runner_log = env_runner.run(policy, self.epoch)
+                    # wandb_run.log(runner_log, step=self.epoch)
+                    t4 = time.time()
+                    cprint(f"rollout time: {t4-t3:.3f}", "red")
+                    # log all
+                    step_log.update(runner_log)
 
             
                 
@@ -306,26 +313,32 @@ class TrainDP3Workspace:
                 step_log['test_mean_score'] = - train_loss
                 
             # checkpoint
-            if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
-                # checkpointing
-                if cfg.checkpoint.save_last_ckpt:
-                    self.save_checkpoint()
-                if cfg.checkpoint.save_last_snapshot:
-                    self.save_snapshot()
+            if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt: 
+                if self.epoch == 0 and not cfg.eval_first:
+                    pass
+                else:
+                    # checkpointing
+                    if cfg.checkpoint.save_last_ckpt:
+                        self.save_checkpoint()
+                    if cfg.checkpoint.save_last_snapshot:
+                        self.save_snapshot()
 
-                # sanitize metric names
-                metric_dict = dict()
-                for key, value in step_log.items():
-                    new_key = key.replace('/', '_')
-                    metric_dict[new_key] = value
-                
-                # We can't copy the last checkpoint here
-                # since save_checkpoint uses threads.
-                # therefore at this point the file might have been empty!
-                topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                    # sanitize metric names
+                    metric_dict = dict()
+                    for key, value in step_log.items() :
+                        new_key = key.replace('/', '_')
+                        metric_dict[new_key] = value
+                    # for key, value in runner_log.items():
+                    #     new_key = key.replace('/', '_')
+                    #     metric_dict[new_key] = value
+                    
+                    # We can't copy the last checkpoint here
+                    # since save_checkpoint uses threads.
+                    # therefore at this point the file might have been empty!
+                    topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                if topk_ckpt_path is not None:
-                    self.save_checkpoint(path=topk_ckpt_path)
+                    if topk_ckpt_path is not None:
+                        self.save_checkpoint(path=topk_ckpt_path)
             # ========= eval end for this epoch ==========
             policy.train()
 
@@ -369,6 +382,7 @@ class TrainDP3Workspace:
     @property
     def output_dir(self):
         output_dir = self._output_dir
+        # import pdb; pdb.set_trace()
         if output_dir is None:
             output_dir = HydraConfig.get().runtime.output_dir
         return output_dir
@@ -503,6 +517,7 @@ class TrainDP3Workspace:
 )
 def main(cfg):
     workspace = TrainDP3Workspace(cfg)
+    # import pdb; pdb.set_trace()
     workspace.run()
 
 if __name__ == "__main__":
