@@ -5,6 +5,9 @@ import time
 from gpt_4.prompts.prompt_from_description import generate_from_task_name
 import copy
 from gpt_4.prompts.utils import save_another_yaml
+from manipulation.utils import build_up_env
+from manipulation.gpt_reward_api import get_handle_pos, get_link_pc
+import scipy
 
 def get_folders_from_id(id):
     meta_path = "data/generated_task_from_description"
@@ -29,7 +32,9 @@ def get_all_test_configs():
     for task in all_tasks:
         path = os.path.join("data/temp", task)
         yaml_config = [x for x in os.listdir(path) if x.endswith(".yaml")]
-        yaml_config = yaml_config[0]
+        yaml_config_lengths = [len(x) for x in yaml_config]
+        least_length = np.argmin(yaml_config_lengths)
+        yaml_config = yaml_config[least_length]
         config_path = os.path.join(path, yaml_config)
         config = yaml.safe_load(open(config_path, "r"))
         solution_path = [x['solution_path'] for x in config if 'solution_path' in x][0]
@@ -72,15 +77,17 @@ handle_grasping_scores = []
 opened_angles = []
 
 all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
-beg_idx = 1
-end_idx = 5
+beg_idx = 0
+end_idx = 1
 all_config_paths = all_config_paths[beg_idx:end_idx]
 all_solution_paths = all_solution_paths[beg_idx:end_idx]
 reward_assets = reward_assets[beg_idx:end_idx]
 
 exp_name = "vary_robot_init_joint"
-try_times_min = 0
-try_times_max = 40
+exp_name = "vary_robot_init_joint_near_handle"
+exp_name = "debug"
+try_times_min = 40
+try_times_max = 140
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
@@ -126,9 +133,45 @@ for try_idx in range(try_times_min, try_times_max):
         #         trained = True
         
         new_config_path = config_path.replace(".yaml", f"_{try_idx}.yaml")
-        save_another_yaml(config_path, new_config_path,
-                          randomize_orientation=False, randomize_position=False,
-                          randomize_robot_joint_angle=True, randomize_size=False)
+        task_name = "grasp_the_door_handle"
+        env, _ = build_up_env(config_path, solution_path, task_name, None, 
+                            render=False)
+        env.reset()
+        object_name = 'storagefurniture'
+        all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
+        handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+        link_name = "link_0"
+        link_name = link_name.lower()
+        link_pc = get_link_pc(env, object_name, link_name)
+        distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
+        min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
+        min_distance_handle_idx = np.argmin(min_distance)
+        handle_pos = all_handle_pos[min_distance_handle_idx]
+
+        initial_joint_angles = [0 for _ in range(7)]
+        low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
+        high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
+        for i in range(7):
+            joint_range = high[i] - low[i]
+            low[i] += joint_range * 0.2
+            high[i] -= joint_range * 0.2
+
+        good_config = False
+        while not good_config:
+            for i in range(7):
+                initial_joint_angles[i] = np.random.uniform(low[i], high[i])
+            env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
+            robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+            distance = np.linalg.norm(handle_pos - robot_eef_pos)
+            if distance < 0.6:
+                good_config = True
+                break
+            
+        save_another_yaml(config_path, new_config_path, randomize_position=False, randomize_orientation=False, 
+                          randomize_robot_joint_angle=False, randomize_size=False, 
+                          initial_joint_angles=initial_joint_angles)
+        env.close()
+            
         if not trained:
             os.system("python execute.py --task_config_path {} --gui 0 --skip {} --exp_name {}".format(
                 new_config_path, skip_argument, exp_name

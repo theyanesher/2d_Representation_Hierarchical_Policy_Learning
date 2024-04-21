@@ -476,22 +476,24 @@ def save_another_yaml(config_path, save_path,
                       randomize_orientation=True,
                       randomize_robot_joint_angle=True,  
                       randomize_size=True,
+                      initial_joint_angles=None,
                     ):
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     temp_config = copy.deepcopy(config)
 
-    initial_joint_angles = [0 for _ in range(7)]
-    initial_joint_angles[3] = -0.4
-    initial_joint_angles[5] = 0.4
-    low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
-    high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
-    for i in range(7):
-        joint_range = high[i] - low[i]
-        low[i] += joint_range * 0.2
-        high[i] -= joint_range * 0.2
+    if randomize_robot_joint_angle and initial_joint_angles is None:
+        initial_joint_angles = [0 for _ in range(7)]
+        initial_joint_angles[3] = -0.4
+        initial_joint_angles[5] = 0.4
+        low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
+        high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
+        for i in range(7):
+            joint_range = high[i] - low[i]
+            low[i] += joint_range * 0.2
+            high[i] -= joint_range * 0.2
 
-        initial_joint_angles[i] = np.random.uniform(low[i], high[i])
+            initial_joint_angles[i] = np.random.uniform(low[i], high[i])
 
     for config_dict in temp_config:
         if randomize_size and 'size' in config_dict:
@@ -514,7 +516,7 @@ def save_another_yaml(config_path, save_path,
                 config_dict['center'] = str(tuple(center))
             if randomize_orientation:
                 config_dict['orientation'] = str(tuple(orientation))
-        if randomize_robot_joint_angle and 'center' in config_dict:
+        if initial_joint_angles is not None and 'center' in config_dict:
             config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
 
     with open(save_path, 'w') as f:

@@ -222,21 +222,31 @@ class Agent:
         target_eef[:3, 3] = target_pos
 
         joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=original_joint_angles)
-        
-        # import pdb; pdb.set_trace()
-        
-        # for i, j in enumerate(ik_indices):
-        #     p.resetJointState(self.body, j, targetValue=joint_angles[i], targetVelocity=0, physicsClientId=self.id)
         if joint_angles is None:
-            cprint('tracIK failed', 'red')
-            return None, False
+            cprint('with current joint angle as init, tracIK failed' , 'red')
+        else:
+            return joint_angles, True
 
-        eef_out = self.franka_tracik_solver.fk(joint_angles)
-        eef_out = eef_out[:3, 3]
-        # import pdb; pdb.set_trace()
-        if np.linalg.norm(eef_out - target_pos) > 1e-4:
-            cprint('tracIK failed', 'red')
+        solutions = []
+        for try_time in range(100): # try 100 times
+            joint_angles = self.franka_tracik_solver.ik(target_eef)
+            if joint_angles is not None:
+                solutions.append(joint_angles)
+
+        if len(solutions) == 0:
+            cprint('After 100 tries, tracIK failed', 'red')
             return None, False
+        
+        solution_np = np.array(solutions)
+        distances = np.linalg.norm(solution_np - original_joint_angles, axis=1)
+        joint_angles = solution_np[np.argmin(distances)]
+
+        # eef_out = self.franka_tracik_solver.fk(joint_angles)
+        # eef_out = eef_out[:3, 3]
+        # # import pdb; pdb.set_trace()
+        # if np.linalg.norm(eef_out - target_pos) > 1e-4:
+        #     cprint('tracIK failed', 'red')
+        #     return None, False
         return joint_angles, True
         
 

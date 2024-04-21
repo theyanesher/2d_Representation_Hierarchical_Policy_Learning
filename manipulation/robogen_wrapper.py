@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import time
 from termcolor import cprint
 from scipy.spatial.transform import Rotation as R
+import fpsample
 
 class RobogenPointCloudWrapper:
     def __init__(self, 
@@ -26,6 +27,10 @@ class RobogenPointCloudWrapper:
                  num_points=3000,
                  handle_num_points=0,
                  horizon=400,
+                 include_contact=False,
+                 gripper_num_points=0, # 500
+                 gripper_bbox=0.1, 
+                 add_contact=False,
             ):
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
@@ -34,10 +39,15 @@ class RobogenPointCloudWrapper:
 
         self._env = env
         self._object_name = object_name
+        self.horizon = horizon
+        
         self.in_gripper_frame = in_gripper_frame
         self.num_points = num_points
         self.handle_num_points = handle_num_points
-        self.horizon = horizon
+        self.include_contact = include_contact
+        self.gripper_num_points = gripper_num_points
+        self.gripper_bbox = gripper_bbox
+        self.add_contact = add_contact
 
         self.action_low = np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
@@ -77,18 +87,21 @@ class RobogenPointCloudWrapper:
             self.project_matrices.append(project_matrix)
             # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
+        self.time_step = 0
+
 
     def reset(self):
         self._env.reset()
+        self.time_step = 0
         return self._get_observation()
     
-    def step(self, action, in_gripper_frame=False, render=True):
+    def step(self, action, render=True):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
         # orient = p.getEulerFromQuaternion(orient)
         current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
         
         # transfer the action to the gripper frame
-        if in_gripper_frame:
+        if self.in_gripper_frame:
             action[:3] = current_rotate_matrix @ np.array(action[:3])
             
 
@@ -122,7 +135,7 @@ class RobogenPointCloudWrapper:
         
         return self._get_observation(render=render), reward, done, info
     
-    def _get_observation(self, use_color=False, render=True):
+    def _get_observation(self, use_color=False, render=True, using_torch=False):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
         # get the 6D representation of orientation
@@ -159,19 +172,62 @@ class RobogenPointCloudWrapper:
                 mask = np.all(point_cloud[:, :3] < max_bound, axis=1)
                 point_cloud = point_cloud[mask]
             
-            if self.handle_num_points > 0:
+            if self.handle_num_points > 0 or self.gripper_num_points > 0:
                 full_point_cloud = deepcopy(point_cloud)
                 
             # sampled_indices = np.random.choice(point_cloud.shape[0], 1024*20, replace=False)
             # point_cloud = point_cloud[sampled_indices]
             
-            point_cloud = torch.from_numpy(point_cloud).unsqueeze(0)#.cuda()
-            num_points = torch.tensor([self.num_points])#.cuda()
-            _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-            point_cloud = point_cloud.squeeze(0).cpu().numpy()
-            point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
+            num_points = self.num_points
+            if self.gripper_num_points > 0:
+                gripper_pc = self._transfer_point_cloud_to_gripper_frame(full_point_cloud)
+                bounding_box = np.array([[-self.gripper_bbox, -self.gripper_bbox, -self.gripper_bbox], [self.gripper_bbox, self.gripper_bbox, self.gripper_bbox]])
+                mask = np.all(gripper_pc[:, :3] > bounding_box[0], axis=1) & np.all(gripper_pc[:, :3] < bounding_box[1], axis=1)
+                pc_within_gripper = full_point_cloud[mask]
+                gripper_fps_num_point = min(self.gripper_num_points, pc_within_gripper.shape[0])
+                # import pdb; pdb.set_trace()
+                if len(pc_within_gripper) > 2:
+                    if using_torch:
+                        pc_within_gripper = torch.from_numpy(pc_within_gripper).unsqueeze(0).cuda()
+                        fps_num_points = torch.tensor([gripper_fps_num_point]).cuda()
+                        _, sampled_indices = torch3d_ops.sample_farthest_points(points=pc_within_gripper[...,:3], K=fps_num_points)
+                        pc_within_gripper = pc_within_gripper.squeeze(0).cpu().numpy()
+                        pc_within_gripper = pc_within_gripper[sampled_indices.squeeze(0).cpu().numpy()]
+                    else:
+                        kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc_within_gripper, gripper_fps_num_point, h=1)
+                        # kdline_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, gripper_fps_num_point)
+                        pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
+                    num_points -= gripper_fps_num_point
+                
+                    if self.time_step >= 100:
+                        from matplotlib import pyplot as plt
+                        image = self._env.render()
+                        plt.imshow(image)
+                        plt.show()
+                        ax = plt.axes(projection='3d')
+                        ax.scatter(pc_within_gripper[:, 0], pc_within_gripper[:, 1], pc_within_gripper[:, 2], c='r', s=5)
+                        # ax.scatter(np.array(point_cloud)[:, 0], np.array(point_cloud)[:, 1], np.array(point_cloud)[:, 2], c='b', s=1)
+                        plt.show()
+                    
+                else:
+                    pc_within_gripper = np.array([])
+            
+            if using_torch:
+                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([num_points]).cuda()
+                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
+            else:
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud, num_points, h=9)
+                point_cloud = point_cloud[kdline_fps_samples_idx]
+
             point_cloud = point_cloud.tolist()
             
+            
+            if self.gripper_num_points > 0:
+                point_cloud = point_cloud + pc_within_gripper.tolist()
+                
             if self.handle_num_points > 0:
                 all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name.lower(), return_median=False)
                 masks = []
@@ -183,8 +239,8 @@ class RobogenPointCloudWrapper:
                     masks.append(mask)
                 mask = np.any(masks, axis=0)
                 handle_point_cloud = full_point_cloud[mask]
-                handle_point_cloud = torch.from_numpy(handle_point_cloud).unsqueeze(0)#.cuda()
-                num_points = torch.tensor([self.handle_num_points])#.cuda()
+                handle_point_cloud = torch.from_numpy(handle_point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([self.handle_num_points]).cuda()
                 _, sampled_indices = torch3d_ops.sample_farthest_points(points=handle_point_cloud[...,:3], K=num_points)
                 handle_point_cloud = handle_point_cloud.squeeze(0).cpu().numpy()
                 handle_point_cloud = handle_point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
@@ -204,22 +260,43 @@ class RobogenPointCloudWrapper:
             obs_dict_input['agent_pos'] = np.array(pos_ori)
             if self.in_gripper_frame:
                 obs_dict_input['point_cloud'] = self._transfer_point_cloud_to_gripper_frame(obs_dict_input['point_cloud'])
+                
+            if self.add_contact:
+                simulator = self._env
+                points_left_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)
+                points_right_finger = p.getContactPoints(bodyA=simulator.robot.body, linkIndexA=simulator.robot.right_gripper_indices[1], physicsClientId=simulator.id)
+                contact_left = int(len(points_left_finger) > 0)
+                contact_right = int(len(points_right_finger) > 0)
+                obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], [contact_left, contact_right]])
+                
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
             obs_dict_input['agent_pos'] = np.array(pos_ori)
 
+        self.time_step += 1
         return obs_dict_input
     
     def _transfer_point_cloud_to_gripper_frame(self, point_cloud):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
         # TODO: check this with my way of performing the transformation 
-        rotate_matrix = p.getMatrixFromQuaternion(orient)
-        rotate_matrix = np.array(rotate_matrix).reshape(3, 3)
-        rotate_matrix = np.linalg.inv(rotate_matrix)
-        point_cloud[:, :3] -= pos
-        point_cloud[:, :3] = point_cloud[:, :3] @ rotate_matrix
-        return point_cloud
+        # rotate_matrix = p.getMatrixFromQuaternion(orient)
+        # rotate_matrix = np.array(rotate_matrix).reshape(3, 3)
+        # rotate_matrix = np.linalg.inv(rotate_matrix)
+        # new_pc = point_cloud.copy()
+        # new_pc[:, :3] -= pos
+        # new_pc[:, :3] = new_pc[:, :3] @ rotate_matrix
+        
+        
+        T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
+        T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
+        T_body_to_world[:3, 3] = pos
+        T_world_to_body = np.linalg.inv(T_body_to_world)
+        point_cloud = np.array(point_cloud).reshape(-1, 3)
+        point_cloud_homogeneous = np.concatenate([point_cloud, np.ones((point_cloud.shape[0], 1))], axis=1)
+        transformed_pc_homogeneous = (T_world_to_body @ point_cloud_homogeneous.T).T
+        transformed_pc = transformed_pc_homogeneous[:, :3]
+        return transformed_pc
 
     
     def render(self):
@@ -244,7 +321,7 @@ class RobogenPointCloudWrapper:
         project_camera_matrices = []
         
         for view_matrix, project_matrix in zip(self.view_matrices, self.project_matrices):
-            w, h, img, depth, segmask = p.getCameraImage(640, 480, view_matrix, project_matrix, renderer=p.ER_BULLET_HARDWARE_OPENGL, physicsClientId=env.id)
+            w, h, img, depth, _ = p.getCameraImage(camera_width, camera_height, view_matrix, project_matrix, renderer=p.ER_BULLET_HARDWARE_OPENGL, physicsClientId=env.id)
             img = np.reshape(img, (h, w, 4))[:, :, :3]
             depth = np.reshape(depth, (h, w))
 

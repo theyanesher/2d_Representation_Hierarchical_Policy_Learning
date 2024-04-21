@@ -24,7 +24,8 @@ class SimpleEnv(gym.Env):
                     dt=1/240, 
                     config_path=None, 
                     gui=False, 
-                    control_step=2, 
+                    # control_step=2, 
+                    control_step=3, 
                     horizon=250, 
                     restore_state_file=None, 
                     rotation_mode='delta-axis-angle-local',
@@ -896,116 +897,122 @@ class SimpleEnv(gym.Env):
             action_index += agent_action_len
             translation = action[:3]
             rotation = action[3:6]
-            suction = action[6]
-            # for those already grasped by motion planning
-            # suction = -1
-            # p.addUserDebugPoints([translation], [[1, 0, 0]], 15, physicsClientId=self.id)
+            finger_joint_angle = action[6]
 
-            joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
-            # agent_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+            ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
             ik_indices = [_ for _ in range(len(agent.right_arm_ik_indices))]
             
             pos = translation
             orient = p.getQuaternionFromEuler(rotation)
-            # agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=False, residualThreshold=1e-5, return_full_state=True)
-            # agent_joint_angles = np.array(p.calculateInverseKinematics(agent.body, 
-            #                     joint, targetPosition=pos, targetOrientation=orient, 
-            #                     maxNumIterations=5000, 
-            #                     residualThreshold=1e-5,
-            #                     jointDamping= [100.0]*9,
-            #                     physicsClientId=self.id))
 
             # trying to use ikpy
             # agent.ik_ikpy_franka(pos, orient, ik_indices)
             # trying to use tracik
             agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
-            if ik_success is False:
-                cprint("tracik failed", "red")
-                # input("Press Enter to continue...")
-                agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=False, residualThreshold=1e-5, return_full_state=True)
+            if not ik_success:
+                cprint("tracIK failed, maintain current joint angle", "red")
+                original_joint_angles = agent.get_joint_angles(agent.all_joint_indices)
+                original_joint_angles = original_joint_angles[ik_indices]
+                agent_joint_angles = original_joint_angles
+            
+            # if ik_success is False:
+            #     cprint("tracik failed", "red")
+            #     # input("Press Enter to continue...")
+            #     agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=False, residualThreshold=1e-5, return_full_state=True)
 
 
             # ==============================================================
             # =============== Trying to deal with IK fails =================
             # ==============================================================
 
-            # # check if ik finds a solution
-            state = save_env(self)
-            for joint_idx, value in zip(agent.right_arm_ik_indices, agent_joint_angles):
-                p.resetJointState(self.robot.body, joint_idx, value, physicsClientId=self.id)
-            temp_pos, temp_orient = agent.get_pos_orient(agent.right_end_effector)
+            # # check if ik finds a solution This should be checked already inside tracIK
+            # state = save_env(self)
+            # for joint_idx, value in zip(agent.right_arm_ik_indices, agent_joint_angles):
+            #     p.resetJointState(self.robot.body, joint_idx, value, physicsClientId=self.id)
+            # temp_pos, temp_orient = agent.get_pos_orient(agent.right_end_effector)
             
-            ik_success = True
-            if np.any(agent_joint_angles[self.robot.right_arm_joint_indices] < self.robot.ik_lower_limits[self.robot.right_arm_joint_indices]) \
-                or np.any(agent_joint_angles[self.robot.right_arm_joint_indices] > self.robot.ik_upper_limits[self.robot.right_arm_joint_indices]):
-                # import pdb; pdb.set_trace()
-                cprint("IK out of joint limits", "red")
-                ik_success = False
+            # I think this is probably not needed since trac_IK alreay handles the joint limit
+            # ik_success = True
+            # if np.any(agent_joint_angles[self.robot.right_arm_joint_indices] < self.robot.ik_lower_limits[self.robot.right_arm_joint_indices]) \
+            #     or np.any(agent_joint_angles[self.robot.right_arm_joint_indices] > self.robot.ik_upper_limits[self.robot.right_arm_joint_indices]):
+            #     # import pdb; pdb.set_trace()
+            #     cprint("IK out of joint limits", "red")
+            #     ik_success = False
 
-            # import pdb; pdb.set_trace()
-            if np.linalg.norm(temp_pos - pos) > 0.001 or not ik_success:
-                ik_success = False
-                cprint("IK failed in stage one", "red")
-                it = 1
-                available_joint_angle_list = []
-                while True:
-                    ik_start_pose = np.random.uniform(self.robot.ik_lower_limits, self.robot.ik_upper_limits)
-                    for joint, value in zip(agent.right_arm_ik_indices, ik_start_pose):
-                        p.resetJointState(self.robot.body, joint, value, targetVelocity=0, physicsClientId=self.id)
+            # TODO: clean this
+            # if np.linalg.norm(temp_pos - pos) > 0.001 or not ik_success:
+            #     ik_success = False
+            #     cprint("IK failed in stage one", "red")
+            #     it = 1
+            #     available_joint_angle_list = []
+            #     while True:
+            #         ik_start_pose = np.random.uniform(self.robot.ik_lower_limits, self.robot.ik_upper_limits)
+            #         for joint, value in zip(agent.right_arm_ik_indices, ik_start_pose):
+            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0, physicsClientId=self.id)
                         
-                    ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
-                    agent_joint_angles = agent.ik(ik_joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
+            #         ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
+            #         agent_joint_angles = agent.ik(ik_joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
 
-                    for joint, value in zip(agent.right_arm_ik_indices, agent_joint_angles):
-                        p.resetJointState(self.robot.body, joint, value, targetVelocity=0, physicsClientId=self.id)
+            #         for joint, value in zip(agent.right_arm_ik_indices, agent_joint_angles):
+            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0, physicsClientId=self.id)
                         
-                    ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
-                    temp_pos, temp_orient = agent.get_pos_orient(ik_joint)
-                    if np.linalg.norm(temp_pos - pos) < 0.001:
-                        available_joint_angle_list.append(agent_joint_angles[ik_indices])
-                        ik_success = True
-                    it += 1
-                    if it > 500:
-                        cprint("IK stage two finished", "green")
-                        break
+            #         ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
+            #         temp_pos, temp_orient = agent.get_pos_orient(ik_joint)
+            #         if np.linalg.norm(temp_pos - pos) < 0.001:
+            #             available_joint_angle_list.append(agent_joint_angles[ik_indices])
+            #             ik_success = True
+            #         it += 1
+            #         if it > 500:
+            #             cprint("IK stage two finished", "green")
+            #             break
 
-                if ik_success == True:
-                    # choose the one that is closest to the current joint angles
-                    available_joint_angle_list_np = np.array(available_joint_angle_list)
-                    cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
-                    diff = np.linalg.norm(available_joint_angle_list_np - cur_joint_angles, axis=1)
-                    idx = np.argmin(diff)
-                    agent_joint_angles = available_joint_angle_list[idx]
+            #     if ik_success == True:
+            #         # choose the one that is closest to the current joint angles
+            #         available_joint_angle_list_np = np.array(available_joint_angle_list)
+            #         cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+            #         diff = np.linalg.norm(available_joint_angle_list_np - cur_joint_angles, axis=1)
+            #         idx = np.argmin(diff)
+            #         agent_joint_angles = available_joint_angle_list[idx]
 
                     
-            load_env(self, state=state)
-            if ik_success == False:
-                cprint("===== IK failed ======", "red")
-                agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
+            # load_env(self, state=state)
+            # if ik_success == False:
+            #     cprint("===== IK failed ======", "red")
+            #     agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
             
             # ==============================================================
             # =========== but it is not working well for now ===============
             # ==============================================================
             
             agent_joint_angles = agent_joint_angles[ik_indices]
-            it = 1
+            it = 0
+            
+            # # new way of controlling a fixed time steps
+            # for control_t in range(self.control_step):
+            #     agent.control(agent.controllable_joint_indices, agent_joint_angles)
+            #     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
+            #     p.stepSimulation(physicsClientId=self.id)
+            
+            # old way of control till reach
+            control_total = 50
+            save_img_interval = 0
             while True:
                 agent.control(agent.controllable_joint_indices, agent_joint_angles)
                 cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
                 if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 1e-4:
                     break
 
-                if it % 20 == 0:
+                if save_img_interval > 0 and it % save_img_interval == 0:
                     rgb = self.render()
                     self.control_rgbs.append(rgb)
 
-                if it > 100:
-                    cprint("++++++ failed to reach the target ++++++", "red")
+                if it > control_total:
+                    # cprint("++++control total steps reached++++", "red")
                     break
 
                 # gripper
                 if not self.use_suction:
-                    agent.set_gripper_open_position(agent.right_gripper_indices, [suction, suction], set_instantly=False)
+                    agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
                 
                 it += 1
                 p.stepSimulation(physicsClientId=self.id) 
