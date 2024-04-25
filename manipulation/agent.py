@@ -223,7 +223,8 @@ class Agent:
 
         joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=original_joint_angles)
         if joint_angles is None:
-            cprint('with current joint angle as init, tracIK failed' , 'red')
+            # cprint('with current joint angle as init, tracIK failed' , 'red')
+            pass
         else:
             return joint_angles, True
 
@@ -234,7 +235,7 @@ class Agent:
                 solutions.append(joint_angles)
 
         if len(solutions) == 0:
-            cprint('After 100 tries, tracIK failed', 'red')
+            # cprint('After 100 tries, tracIK failed', 'red')
             return None, False
         
         solution_np = np.array(solutions)

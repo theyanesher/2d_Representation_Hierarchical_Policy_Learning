@@ -19,7 +19,7 @@ import objaverse
 import trimesh
 from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapaien_cannot_vhacd_part_dict
 
-workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+workspace = os.environ['PROJECT_DIR']
 data_dir = os.path.join(workspace, "data")
 
 default_config = {
@@ -141,7 +141,7 @@ def load_gif(gif_path):
     frames_arrays = [np.array(frame) for frame in frames]
     return frames_arrays
 
-def build_up_env(task_config, solution_path, task_name, restore_state_file, return_env_class=False, 
+def build_up_env(task_config=None, solution_path=None, task_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
                     obj_id=0, **kwargs,
                 ):
@@ -154,6 +154,7 @@ def build_up_env(task_config, solution_path, task_name, restore_state_file, retu
     save_config['gui'] = render
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
+    save_config['task_name'] = task_name
     for key, value in kwargs.items():
         save_config[key] = value
 

@@ -146,6 +146,7 @@ def execute(task_config_path,
         os.makedirs(experiment_path, exist_ok=True)
     with open(os.path.join(experiment_path, "meta_info.json"), 'w') as f:
         json.dump(meta_info, f)
+    os.system("cp {} {}".format(task_config_path, os.path.join(experiment_path, "task_config.yaml")))
 
     all_substeps = os.path.join(solution_path, "substeps.txt")
     with open(all_substeps, 'r') as f:
@@ -251,6 +252,10 @@ def execute(task_config_path,
 
 
 if __name__ == "__main__":
+    from multiprocessing import set_start_method
+    set_start_method('spawn', force=True)
+    
+    
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_config_path', type=str, default=None)

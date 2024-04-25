@@ -56,10 +56,6 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                 
                 eef_pos, eef_orient = env.robot.get_pos_orient(target_link)
                 ik_error = np.linalg.norm(eef_pos - target_pos)
-                # print("within lower limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]))
-                # print("within upper limit: ", np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]))
-                # print("is state valid: ", pb_ompl_interface.is_state_valid(target_joint_angle))
-                # print("ik_error: ", ik_error)
                 if np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]) \
                         and np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]) \
                         and pb_ompl_interface.is_state_valid(target_joint_angle) \
@@ -105,7 +101,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                 cprint(f"try_idx: {try_idx}, planner: {planner}, translation length: {translation_length}, rotation length: {rotation_length}", "red")
     
     if len(paths) == 0:
-        return None, None
+        return None, None, None
     
     ompl_robot.set_state(current_joint_angles)    
     # total_lengths = np.array(path_translation_lengths) + np.array(path_rotation_lengths)
@@ -118,7 +114,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
         with open(os.path.join(save_path, "current_joint_angle.pkl"), "wb") as f:
             pickle.dump(current_joint_angles, f)
 
-    return res, path
+    return res, path, path_translation_lengths[best_idx]
 
 def get_path_length(env, path):
     cur_pos, cur_orient = env.robot.get_pos_orient(env.robot.right_end_effector)

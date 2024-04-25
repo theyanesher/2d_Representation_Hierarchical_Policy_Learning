@@ -32,17 +32,46 @@ def rotation_matrix_y(theta):
     ]))
     
     
-def align_gripper_z_with_normal(normal, horizontal=False):
+def align_gripper_z_with_normal(normal, horizontal=False, randomize=False, flip=False):
     n_WS = normal
     Gz = n_WS  # gripper z axis aligns with normal 
     # or, make it horizontal
+    # import pdb; pdb.set_trace()
     if horizontal:
         y = np.array([0.0, -1, 0])
+        if flip:
+            y = np.array([0.0, 1, 0])
+        if randomize:
+            succeed = False
+            while not succeed:
+                y = np.random.uniform(-1, 1, 3)
+                y /= np.linalg.norm(y)
+                deg1 = np.rad2deg(np.arccos(np.dot(y, np.array([0.0, -1, 0]))))
+                deg2 = np.rad2deg(np.arccos(np.dot(y, np.array([0.0, -1, 0]))))
+                if deg1 < 30 or deg2 < 30:
+                    succeed = True
+                    break
+        # import pdb; pdb.set_trace()
+        
     else:
-    # make orthonormal y axis, aligned with world down
+        # make orthonormal y axis, aligned with world down
         y = np.array([0.0, 0.0, -1.0])
+        if flip:
+            y = np.array([0.0, 0.0, 1.0])
+        if randomize:
+            succeed = False
+            while not succeed:
+                y = np.random.uniform(-1, 1, 3)
+                y /= np.linalg.norm(y)
+                deg1 = np.rad2deg(np.arccos(np.dot(y, np.array([0.0, 0.0, -1.0]))))
+                deg2 = np.rad2deg(np.arccos(np.dot(y, np.array([0.0, 0.0, 1.0]))))
+                if deg1 < 30 or deg2 < 30:
+                    succeed = True
+                    break
+        # import pdb; pdb.set_trace()
         
     Gy = y - np.dot(y, Gz) * Gz
+    # import pdb; pdb.set_trace()
     Gx = np.cross(Gy, Gz)
     R_WG = R.from_matrix(np.vstack((Gx, Gy, Gz)).T)
     return R_WG

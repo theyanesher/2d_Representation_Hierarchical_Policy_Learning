@@ -24,7 +24,7 @@ class RobogenPointCloudWrapper:
                  rpy_mean_list=None, 
                  seed=None, 
                  in_gripper_frame=False,
-                 num_points=3000,
+                 num_points=4000,
                  handle_num_points=0,
                  horizon=400,
                  include_contact=False,

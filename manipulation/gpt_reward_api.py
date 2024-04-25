@@ -414,6 +414,10 @@ def get_handle_pos(simulator, obj_name, return_median=True):
     urdf_path = simulator.urdf_paths[obj_name]
     parent_dir = os.path.dirname(urdf_path)
     
+    start_idx = parent_dir.find("data/dataset")
+    parent_dir = parent_dir[start_idx:]
+    parent_dir = os.path.join(os.environ["PROJECT_DIR"], parent_dir)
+    
     # axis in parent frame, transform everything to world frame
     # NOTE: this axis angle value should be dependent on the object urdf.
     # axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling  

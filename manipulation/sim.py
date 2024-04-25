@@ -18,14 +18,15 @@ import open3d
 from termcolor import cprint
 import time
 import scipy
+import os
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
                     dt=1/240, 
                     config_path=None, 
                     gui=False, 
-                    # control_step=2, 
-                    control_step=3, 
+                    control_step=2, 
+                    # control_step=3, 
                     horizon=250, 
                     restore_state_file=None, 
                     rotation_mode='delta-axis-angle-local',
@@ -38,13 +39,14 @@ class SimpleEnv(gym.Env):
                     randomize=0, # if to randomize the scene
                     obj_id=0, # which object to choose to use from the candidates
                     mobile=False,
-                    
+                    task_name=None,
                 ):
         
         super().__init__()
         
         # Task
         self.config_path = config_path
+        self.task_name = task_name
         self.restore_state_file = restore_state_file
         self.control_step = control_step
         self.horizon = horizon
@@ -406,8 +408,14 @@ class SimpleEnv(gym.Env):
 
         if restore_state is not None:
             if "urdf_paths" in restore_state:
-                self.urdf_paths = restore_state['urdf_paths']
-                # print("self.urdf_paths", self.urdf_paths)
+                self.urdf_paths = {}
+                for urdf_name in restore_state['urdf_paths']:
+                    urdf_path = restore_state['urdf_paths'][urdf_name]
+                    start_idx = urdf_path.find("data/dataset")
+                    urdf_path = urdf_path[start_idx:]
+                    urdf_path = os.path.join(os.environ["PROJECT_DIR"], urdf_path)
+                    self.urdf_paths[urdf_name] = urdf_path
+                    
                 urdf_paths = [self.urdf_paths[name] for name in urdf_names]
             if "object_sizes" in restore_state:
                 self.simulator_sizes = restore_state['object_sizes']
@@ -910,7 +918,7 @@ class SimpleEnv(gym.Env):
             # trying to use tracik
             agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
             if not ik_success:
-                cprint("tracIK failed, maintain current joint angle", "red")
+                # cprint("tracIK failed, maintain current joint angle", "red")
                 original_joint_angles = agent.get_joint_angles(agent.all_joint_indices)
                 original_joint_angles = original_joint_angles[ik_indices]
                 agent_joint_angles = original_joint_angles
