@@ -35,7 +35,10 @@ def main(cfg):
     # workspace.load_checkpoint(path=checkpoint_dir)
     # workspace.load_checkpoint(path="/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/autobot/vary_init_joint_angle_gripper/vary_init_joint_angle_gripper/2024.04.17/04.46.46_train_dp3_robogen_open_door/checkpoints/epoch=2000-test_mean_score=0.015.ckpt")
     # workspace.load_checkpoint(path="/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/vary_init_angle/2024.04.16/16.04.17_train_dp3_robogen_open_door/checkpoints/epoch=1000-test_mean_score=0.304.ckpt")
-    checkpoint_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/vary_robot_init_joint_near_handle/2024.04.19/14.26.08_train_dp3_robogen_open_door/checkpoints/latest.ckpt"
+    # checkpoint_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/vary_robot_init_joint_near_handle/2024.04.19/14.26.08_train_dp3_robogen_open_door/checkpoints/latest.ckpt"
+    # checkpoint_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/vary_robot_init_joint_near_handle_after_reaching_filter_small_action/2024.04.21/03.47.03_train_dp3_robogen_open_door/checkpoints/epoch=1500-test_mean_score=0.528.ckpt"
+    # checkpoint_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/vary_robot_init_joint_near_handle_filter_small_action_only_after_reaching/2024.04.21/18.06.07_train_dp3_robogen_open_door/checkpoints/epoch-1800-test_mean_score=0.051.ckpt"
+    checkpoint_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/vary_robot_init_joint_near_handle_after_reaching/2024.04.20/15.48.13_train_dp3_robogen_open_door/checkpoints/latest.ckpt"
     workspace.load_checkpoint(path=checkpoint_dir)
 
     policy = deepcopy(workspace.model)
@@ -47,13 +50,26 @@ def main(cfg):
     experiment_name = "vary_robot_init_joint_near_handle"
     experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
     all_experiments = os.listdir(experiment_path)
-    all_experiments = sorted(all_experiments)
+    all_experiments = sorted(all_experiments)[2:] # to handle a stupid bug 
 
     after_reaching_init_state_file = []
     config_files = []
     for experiment in all_experiments:
         first_step_folder = "grasp_the_door_handle_primitive"
         first_stage_states_path = os.path.join(experiment_path, experiment, first_step_folder, "states")
+        
+        if os.path.exists(os.path.join(experiment_path, experiment, first_step_folder, "label.json")):
+            with open(os.path.join(experiment_path, experiment, first_step_folder, "label.json"), 'r') as f:
+                label = json.load(f)
+            if not label['good_traj']: continue
+        
+        expert_opened_angle_file = os.path.join(experiment_path, experiment, first_step_folder, "opened_angle.txt")
+        with open(expert_opened_angle_file, "r") as f:
+            expert_opened_angle = f.readlines()
+            expert_opened_angle = float(expert_opened_angle[0].lstrip().rstrip())
+        if expert_opened_angle < 0.1:
+            continue
+        
         stage_lengths = os.path.join(experiment_path, experiment, first_step_folder, "stage_lengths.json")
         with open(stage_lengths, "r") as f:
             stage_lengths = json.load(f)
@@ -68,7 +84,7 @@ def main(cfg):
     starting_from_pregrasp = True
 
     opened_joint_angles = {}
-    for idx in tqdm.tqdm(range(len(config_files))):
+    for idx in tqdm.tqdm(range(1, len(config_files))):
         print("config path: ", config_files[idx])
         config_path = config_files[idx]
         env, _ = build_up_env(
@@ -86,10 +102,10 @@ def main(cfg):
         
         object_name = "StorageFurniture"
         env.reset()
-        env_ = RobogenPointCloudWrapper(env, object_name, 
+        pointcloud_env = RobogenPointCloudWrapper(env, object_name, 
                                         in_gripper_frame=in_gripper_frame, 
                                         gripper_num_points=0)
-        env = MultiStepWrapper(env_, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
+        env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                             max_episode_steps=600, reward_agg_method='sum')
         obs = env.reset()
         policy.reset()
@@ -99,7 +115,7 @@ def main(cfg):
         for _ in tqdm.tqdm(range(horizon)):
             np_obs_dict = dict(obs)
             # change the point cloud to be in the gripper frame
-            # np_obs_dict['point_cloud'] = env_._transfer_point_cloud_to_gripper_frame(np_obs_dict['point_cloud'])
+            # np_obs_dict['point_cloud'] = pointcloud_env._transfer_point_cloud_to_gripper_frame(np_obs_dict['point_cloud'])
             obs_dict = dict_apply(np_obs_dict,
                                         lambda x: torch.from_numpy(x).to('cuda'))
             # run policy
@@ -117,13 +133,15 @@ def main(cfg):
             if done:
                 break
             
-        joint_angle = get_joint_state(env_._env, "StorageFurniture", "joint_0")
+        joint_angle = get_joint_state(pointcloud_env._env, "StorageFurniture", "joint_0")
         # print("episode reward: ", episode_reward)
         cprint(f"joint angle: {joint_angle}", "blue")
-        env_._env.close()
-        opened_joint_angles[config_path] = float(joint_angle)
+        pointcloud_env._env.close()
+        opened_joint_angles[config_path] = [float(joint_angle), expert_opened_angle, 
+                                            max(float(joint_angle), 0) / expert_opened_angle]
     
-        save_path = "data/eval_results/{}".format(checkpoint_dir.replace("/", "_"))
+        checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
+        save_path = "data/eval_results/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         with open("{}/opened_joint_angles_pregrasped_{}.json".format(save_path, starting_from_pregrasp), "w") as f:

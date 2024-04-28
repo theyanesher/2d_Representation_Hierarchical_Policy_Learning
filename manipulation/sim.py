@@ -906,6 +906,7 @@ class SimpleEnv(gym.Env):
             translation = action[:3]
             rotation = action[3:6]
             finger_joint_angle = action[6]
+            # finger_joint_angle = np.clip(finger_joint_angle, 0, 0.04)
 
             ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
             ik_indices = [_ for _ in range(len(agent.right_arm_ik_indices))]

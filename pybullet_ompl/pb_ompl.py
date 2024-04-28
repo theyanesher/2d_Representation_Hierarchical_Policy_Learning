@@ -138,20 +138,21 @@ class PbStateSpace(ob.RealVectorStateSpace):
         self.state_sampler = state_sampler
 
 class PbOMPL():
-    def __init__(self, robot, obstacles = [], allow_collision_links=[], allow_collision_robot_link_pairs=[], object_id=None) -> None:
+    def __init__(self, robot, obstacles = [], allow_collision_links=[], allow_collision_robot_link_pairs=[], object_id=None,
+                 interpolation_num=None) -> None:
         '''
         Args
             robot: A PbOMPLRobot instance.
             obstacles: list of obstacle ids. Optional.
             object_id: id of the object holded by the robot. Optional.
         '''
+        
         self.robot = robot
         self.robot_id = robot.id
         self.obstacles = obstacles
         self.allow_collision_links = allow_collision_links
         self.allow_collision_robot_link_pairs = allow_collision_robot_link_pairs
-        # print("motion planning obstables: ", self.obstacles)
-        # print("robot allow collision links: ", allow_collision_links)
+        self.interpolation_num = interpolation_num
 
         self.space = PbStateSpace(robot.num_dim)
         self.start = copy.deepcopy(self.robot.get_cur_state())
@@ -279,7 +280,9 @@ class PbOMPL():
             sol_path_geometric = self.ss.getSolutionPath()
             if smooth_path:
                 sol_path_geometric = self.smooth_path(sol_path_geometric)
-            sol_path_geometric.interpolate(INTERPOLATE_NUM)
+            if self.interpolation_num is None:
+                self.interpolation_num = INTERPOLATE_NUM
+            sol_path_geometric.interpolate(self.interpolation_num)
             sol_path_states = sol_path_geometric.getStates()
             sol_path_list = [self.state_to_list(state) for state in sol_path_states]
             # if smooth_path:

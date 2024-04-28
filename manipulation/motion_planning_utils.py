@@ -11,8 +11,8 @@ PLANNER = "RRTConnect" # BITstar
 # add argument 'object_id' to indicate whether you need to plan the motion while the robot holding an object
 def motion_planning(env, target_pos, target_orientation, planner=None, 
                 obstacles=[], allow_collision_links=[], object_id=None, save_path=None, 
-                robot_target_joint_angle=None, target_link=None, max_sampling_it=80, smooth_path=True,
-                try_times=3):
+                robot_target_joint_angle=None, target_link=None, max_sampling_it=40, smooth_path=True,
+                try_times=6, interpolation_num=None):
     np.random.seed(time.time_ns() % 2**32)
     if target_link is None:
         target_link = env.robot.right_end_effector
@@ -25,7 +25,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
     allow_collision_robot_link_pairs = []
     pb_ompl_interface = pb_ompl.PbOMPL(ompl_robot, obstacles, allow_collision_links, 
                                        allow_collision_robot_link_pairs=allow_collision_robot_link_pairs,
-                                       object_id=object_id)
+                                       object_id=object_id, interpolation_num=interpolation_num)
 
     paths = []
     path_translation_lengths, path_rotation_lengths = [], []
@@ -41,6 +41,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
         ik_success = False
         if robot_target_joint_angle is None:
             it = 0
+            solutions = []
             while True:
                 ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
                 ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
@@ -63,7 +64,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
 
                     # if object_id is None:
                     ik_success = True
-                    break
+                    solutions.append(target_joint_angle)
                     # elif p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[0], -1, physicsClientId=env.id) \
                     #     and p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[1], -1, physicsClientId=env.id):
                     #     break
@@ -72,8 +73,17 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
 
                 if it > max_sampling_it:
                     ompl_robot.set_state(current_joint_angles)
-                    ik_success = False
                     break
+            
+            if len(solutions) > 0:
+                solutions = np.array(solutions)[:, env.robot.right_arm_joint_indices]
+                distance = np.linalg.norm(solutions - current_joint_angles, axis=1)
+                best_idx = np.argmin(distance)
+                target_joint_angle = solutions[best_idx]
+                ik_success = True
+        else:
+            target_joint_angle = robot_target_joint_angle
+            ik_success = True
         
         if not ik_success:
             cprint(f"try_idx: {try_idx}, ik failed", "red")

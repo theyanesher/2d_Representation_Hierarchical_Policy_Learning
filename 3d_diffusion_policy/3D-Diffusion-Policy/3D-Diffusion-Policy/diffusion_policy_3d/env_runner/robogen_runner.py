@@ -63,11 +63,26 @@ class RoboGenRunner(BaseRunner):
         experiment_path = os.path.join(experiment_folder, "experiment", "vary_robot_init_joint_near_handle")
         all_experiments = os.listdir(experiment_path)
         all_experiments = sorted(all_experiments)
+        all_experiments = [x for x in all_experiments if 'perturb' not in x]
 
         for experiment in all_experiments:
             first_step_folder = "grasp_the_door_handle_primitive"
-            first_stage_states_path = os.path.join(experiment_path, experiment, first_step_folder, "states")
-            stage_lengths = os.path.join(experiment_path, experiment, first_step_folder, "stage_lengths.json")
+            first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
+            if os.path.exists(os.path.join(first_step_folder, "label.json")):
+                with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
+                    label = json.load(f)
+                if not label['good_traj']: continue
+                
+            expert_opened_angle_file = os.path.join(experiment_path, experiment, first_step_folder, "opened_angle.txt")
+            if os.path.exists(expert_opened_angle_file):
+                with open(expert_opened_angle_file, "r") as f:
+                    expert_opened_angle = f.readlines()
+                    expert_opened_angle = float(expert_opened_angle[0].lstrip().rstrip())
+                if expert_opened_angle < 0.5:
+                    continue
+            
+            first_stage_states_path = os.path.join(first_step_folder, "states")
+            stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
             reaching_phase = stage_lengths['reach_handle']
@@ -77,7 +92,7 @@ class RoboGenRunner(BaseRunner):
             with open(meta_info, "r") as f:
                 meta_info = json.load(f)
             config_files.append(meta_info['config_path'])
-        
+                    
         self.after_reaching_init_state_files = after_reaching_init_state_files
         self.config_files = config_files
 
@@ -164,7 +179,7 @@ class RoboGenRunner(BaseRunner):
 
             # import pdb; pdb.set_trace()
             save_numpy_as_gif(np.array(frames), os.path.join(self.save_video_dir, 
-                    "{}_eval_episode_{}_{:.3f}.mp4".format(epoch, episode_idx, info['opened_joint_angle'][-1])))
+                    "{}_eval_episode_{}_{:.3f}.gif".format(epoch, episode_idx, info['opened_joint_angle'][-1])))
 
         # log
         log_data = dict()

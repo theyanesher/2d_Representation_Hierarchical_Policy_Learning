@@ -206,7 +206,7 @@ class Agent:
 
 
     def ik_tracik_franka(self, target_pos, target_orient, ik_indices):
-        p.addUserDebugPoints([target_pos], [[1,0,0]], 25)
+        # p.addUserDebugPoints([target_pos], [[1,0,0]], 25)
         original_joint_angles = self.get_joint_angles(self.all_joint_indices)
         original_joint_angles = original_joint_angles[ik_indices]
 
