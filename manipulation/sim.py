@@ -40,6 +40,7 @@ class SimpleEnv(gym.Env):
                     obj_id=0, # which object to choose to use from the candidates
                     mobile=False,
                     task_name=None,
+                    open_gripper_at_reset=True,
                 ):
         
         super().__init__()
@@ -58,6 +59,7 @@ class SimpleEnv(gym.Env):
         self.primitive_save_path = None # to be used for saving the primitives execution results
         self.randomize = randomize
         self.obj_id = obj_id # which object to choose to use from the candidates
+        self.open_gripper_at_reset = open_gripper_at_reset
         
         # robot
         self.mobile = mobile
@@ -797,8 +799,15 @@ class SimpleEnv(gym.Env):
                     joint_angle = self.np_random.uniform(joint_limit_low, joint_limit_high)
                 p.resetJointState(obj_id, joint_idx, joint_angle, physicsClientId=self.id)
 
-    def reset(self, reset_state=None):
+    def reset(self, reset_state=None, open_gripper_at_reset=False):
         self.set_scene(reset_state)
+        if self.open_gripper_at_reset:
+            for _ in range(20):
+                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
+        if open_gripper_at_reset:
+            for _ in range(20):
+                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
+                
         self.time_step = 0
         self.success = False
         
