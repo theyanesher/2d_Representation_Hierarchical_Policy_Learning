@@ -139,7 +139,7 @@ class PbStateSpace(ob.RealVectorStateSpace):
 
 class PbOMPL():
     def __init__(self, robot, obstacles = [], allow_collision_links=[], allow_collision_robot_link_pairs=[], object_id=None,
-                 interpolation_num=None) -> None:
+                 interpolation_num=None, goal_allow_collide=False) -> None:
         '''
         Args
             robot: A PbOMPLRobot instance.
@@ -153,9 +153,11 @@ class PbOMPL():
         self.allow_collision_links = allow_collision_links
         self.allow_collision_robot_link_pairs = allow_collision_robot_link_pairs
         self.interpolation_num = interpolation_num
+        self.goal_allow_collide = goal_allow_collide
 
         self.space = PbStateSpace(robot.num_dim)
         self.start = copy.deepcopy(self.robot.get_cur_state())
+        self.goal = copy.deepcopy(self.robot.get_cur_state())
 
         bounds = ob.RealVectorBounds(robot.num_dim)
         joint_bounds = self.robot.joint_bounds
@@ -204,7 +206,11 @@ class PbOMPL():
         cur_state = self.state_to_list(state)
         if np.allclose(self.start, cur_state):
             return True
-
+        
+        if self.goal_allow_collide:
+            if np.allclose(cur_state, self.goal):
+                return True
+            
         # check self-collision
         self.robot.set_state(self.state_to_list(state))
         for link1, link2 in self.check_link_pairs:
@@ -301,6 +307,7 @@ class PbOMPL():
         '''
         plan a path to gaol from current robot state
         '''
+        self.goal = list(goal)
         start = self.robot.get_cur_state()
         res, path = self.plan_start_goal(start, goal, allowed_time=allowed_time, smooth_path=smooth_path)
         return res, path
