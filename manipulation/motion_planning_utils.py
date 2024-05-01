@@ -12,7 +12,7 @@ PLANNER = "RRTConnect" # BITstar
 def motion_planning(env, target_pos, target_orientation, planner=None, 
                 obstacles=[], allow_collision_links=[], object_id=None, save_path=None, 
                 robot_target_joint_angle=None, target_link=None, max_sampling_it=40, smooth_path=True,
-                try_times=6, interpolation_num=None):
+                try_times=6, interpolation_num=None, goal_allow_collide=False):
     np.random.seed(time.time_ns() % 2**32)
     if target_link is None:
         target_link = env.robot.right_end_effector
@@ -25,7 +25,8 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
     allow_collision_robot_link_pairs = []
     pb_ompl_interface = pb_ompl.PbOMPL(ompl_robot, obstacles, allow_collision_links, 
                                        allow_collision_robot_link_pairs=allow_collision_robot_link_pairs,
-                                       object_id=object_id, interpolation_num=interpolation_num)
+                                       object_id=object_id, interpolation_num=interpolation_num,
+                                       goal_allow_collide=goal_allow_collide)
 
     paths = []
     path_translation_lengths, path_rotation_lengths = [], []

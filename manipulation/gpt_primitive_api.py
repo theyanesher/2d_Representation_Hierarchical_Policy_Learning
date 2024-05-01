@@ -686,6 +686,7 @@ def approach_object_link_parallel(simulator, object_name, link_name):
             real_target_pos = target_pos + normal * -0.02
             mp_target_pos = target_pos + normal * 0.04
 
+            ### randomly generating some grasping orientations
             # for orientation_idx in range(SAMPLE_ORIENTATION_NUM):
             #     target_orientation = align_gripper_z_with_normal(-normal, horizontal=horizontal_grasp, randomize=True).as_quat()
             #     mp_target_poses.append(mp_target_pos)

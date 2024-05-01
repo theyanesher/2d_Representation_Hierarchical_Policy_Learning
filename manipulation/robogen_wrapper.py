@@ -90,8 +90,8 @@ class RobogenPointCloudWrapper:
         self.time_step = 0
 
 
-    def reset(self):
-        self._env.reset()
+    def reset(self, **kwargs):
+        self._env.reset(**kwargs)
         self.time_step = 0
         return self._get_observation()
     
