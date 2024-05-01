@@ -78,7 +78,8 @@ opened_angles = []
 
 all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
 beg_idx = 0
-end_idx = 1
+end_idx = 1 
+# end_idx = len(all_config_paths)
 all_config_paths = all_config_paths[beg_idx:end_idx]
 all_solution_paths = all_solution_paths[beg_idx:end_idx]
 reward_assets = reward_assets[beg_idx:end_idx]
@@ -86,8 +87,8 @@ reward_assets = reward_assets[beg_idx:end_idx]
 exp_name = "vary_robot_init_joint"
 exp_name = "vary_robot_init_joint_near_handle"
 exp_name = "debug"
-try_times_min = 40
-try_times_max = 140
+try_times_min = 10000
+try_times_max = 10001
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
@@ -153,8 +154,8 @@ for try_idx in range(try_times_min, try_times_max):
         high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
         for i in range(7):
             joint_range = high[i] - low[i]
-            low[i] += joint_range * 0.2
-            high[i] -= joint_range * 0.2
+            low[i] += joint_range * 0.1
+            high[i] -= joint_range * 0.1
 
         good_config = False
         while not good_config:
@@ -163,7 +164,7 @@ for try_idx in range(try_times_min, try_times_max):
             env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
             robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
             distance = np.linalg.norm(handle_pos - robot_eef_pos)
-            if distance < 0.6:
+            if distance < 0.7:
                 good_config = True
                 break
             

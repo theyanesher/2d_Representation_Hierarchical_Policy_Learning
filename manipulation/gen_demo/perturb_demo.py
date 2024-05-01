@@ -221,15 +221,13 @@ def perturb_demo(args):
         stage_lengths = json.load(f)
 
     perturb_reaching = True
-    perturb_grasping = True
-    perturb_opening = True
+    perturb_grasping = False
+    perturb_opening = False
 
     # for getting the relative pose we still use the pose that is during the reaching to make contact
     object_name = "storagefurniture" # TODO: change to env.target_object
     link_name = "link_0" # TODO: change to env.target_link    
-    recover_idx = np.random.randint(
-        stage_lengths["reach_handle"] + stage_lengths["open_gripper"], 
-        stage_lengths["reach_handle"] + stage_lengths["open_gripper"] + stage_lengths["reach_to_contact"] // 3 * 2)
+    recover_idx = stage_lengths["reach_handle"] + stage_lengths["open_gripper"]
     recover_state_file = os.path.join(demo_path, step_name, "states", "state_{}.pkl".format(recover_idx))
     reset_state = pickle.load(open(recover_state_file, "rb"))
     env.reset(reset_state=reset_state)
@@ -263,14 +261,10 @@ def perturb_demo(args):
         else:
             start_step = 0
             end_step = stage_lengths["reach_handle"]
-            last_state_file = os.path.join(demo_path, step_name, "states", "state_{}.pkl".format(end_step))
-            reset_state = pickle.load(open(recover_state_file, "rb"))
-            env.reset(reset_state=reset_state)
-            recover_eef_pos, recover_eef_quat = env.robot.get_pos_orient(env.robot.right_end_effector)
 
             perturb_t = np.random.randint(0, end_step // 3)
             # NOTE: I should really directly store the eef pose and orient in the state file instead of recovering it by resetting the env and using the FK to get the pose
-            start_state = generate_and_execute_perturbed_actions(env, demo_path, step_name, perturb_t, end_step, noise_ratio=0.5)
+            start_state = generate_and_execute_perturbed_actions(env, demo_path, step_name, perturb_t, end_step, noise_ratio=0.8)
             new_link_pos, new_link_orient = get_link_pose(env, object_name, link_name)
             # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
             recover_eef_pos, recover_eef_quat = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
@@ -291,8 +285,6 @@ def perturb_demo(args):
     # add noise for position/orientation, open finger
     # replan to the grasp contact pose, close finger
     if perturb_grasping:
-        
-        
         new_demo_path = os.path.join(demo_path + "_perturbed_grasp")
         if os.path.exists(os.path.join(new_demo_path, step_name, "all.gif")): 
             pass
@@ -300,7 +292,7 @@ def perturb_demo(args):
             start_step = stage_lengths["reach_handle"]
             end_step = stage_lengths["reach_handle"] + stage_lengths["open_gripper"] + stage_lengths["reach_to_contact"] 
             perturb_t = start_step
-            start_state = generate_and_execute_perturbed_actions(env, demo_path, step_name, perturb_t, end_step, noise_ratio=0.3, perturb_finger=True)
+            start_state = generate_and_execute_perturbed_actions(env, demo_path, step_name, perturb_t, end_step, noise_ratio=0.8, perturb_finger=True)
             new_link_pos, new_link_orient = get_link_pose(env, object_name, link_name)
             # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
             recover_eef_pos, recover_eef_quat = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
@@ -317,13 +309,11 @@ def perturb_demo(args):
         if os.path.exists(os.path.join(new_demo_path, step_name, "all.gif")): 
             pass
         else:
-            object_name = "storagefurniture" # TODO: change to env.target_object
-            link_name = "link_0" # TODO: change to env.target_link
             start_step = stage_lengths["reach_handle"] + stage_lengths["open_gripper"] + stage_lengths["reach_to_contact"] + stage_lengths['close_gripper']
             end_step = start_step + stage_lengths["open_door"]
 
             perturb_t = np.random.randint(start_step, start_step + (end_step - start_step) // 2)
-            start_state = generate_and_execute_perturbed_actions(env, demo_path, step_name, perturb_t, end_step, noise_ratio=0.3, perturb_finger=True)
+            start_state = generate_and_execute_perturbed_actions(env, demo_path, step_name, perturb_t, end_step, noise_ratio=0.2, perturb_finger=True)
             new_link_pos, new_link_orient = get_link_pose(env, object_name, link_name)
             # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
             recover_eef_pos, recover_eef_quat = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
@@ -351,6 +341,7 @@ if __name__ == "__main__":
         [exp_path, task_name, ts] for ts in all_timesteps
     ]
     
-    pool.map(perturb_demo, all_args)
+    for _ in range(5):
+        pool.map(perturb_demo, all_args)
     # perturb_demo(exp_path, task_name, all_timesteps[1])
     
