@@ -116,6 +116,7 @@ class PointNetEncoderXYZ(nn.Module):
                  use_layernorm: bool=False,
                  final_norm: str='none',
                  use_projection: bool=True,
+                 block_channel: List[int]=[64, 128, 256],
                  **kwargs
                  ):
         """_summary_
@@ -127,23 +128,31 @@ class PointNetEncoderXYZ(nn.Module):
             is_seg (bool, optional): for segmentation or classification. Defaults to False.
         """
         super().__init__()
-        block_channel = [64, 128, 256]
         cprint("[PointNetEncoderXYZ] use_layernorm: {}".format(use_layernorm), 'cyan')
         cprint("[PointNetEncoderXYZ] use_final_norm: {}".format(final_norm), 'cyan')
         
         assert in_channels == 3, cprint(f"PointNetEncoderXYZ only supports 3 channels, but got {in_channels}", "red")
        
-        self.mlp = nn.Sequential(
-            nn.Linear(in_channels, block_channel[0]),
-            nn.LayerNorm(block_channel[0]) if use_layernorm else nn.Identity(),
-            nn.ReLU(),
-            nn.Linear(block_channel[0], block_channel[1]),
-            nn.LayerNorm(block_channel[1]) if use_layernorm else nn.Identity(),
-            nn.ReLU(),
-            nn.Linear(block_channel[1], block_channel[2]),
-            nn.LayerNorm(block_channel[2]) if use_layernorm else nn.Identity(),
-            nn.ReLU(),
-        )
+        all_channels = [in_channels] + block_channel
+        modules = []
+        for idx in range(len(all_channels) - 1):
+            cprint(f"[PointNetEncoderXYZ] block {idx}: {all_channels[idx]} -> {all_channels[idx + 1]}", "yellow")
+            modules.append(nn.Linear(all_channels[idx], all_channels[idx + 1]))
+            modules.append(nn.LayerNorm(all_channels[idx + 1]) if use_layernorm else nn.Identity())
+            modules.append(nn.ReLU())
+        self.mlp = nn.Sequential(*modules)
+            
+        # self.mlp = nn.Sequential(
+        #     nn.Linear(in_channels, block_channel[0]),
+        #     nn.LayerNorm(block_channel[0]) if use_layernorm else nn.Identity(),
+        #     nn.ReLU(),
+        #     nn.Linear(block_channel[0], block_channel[1]),
+        #     nn.LayerNorm(block_channel[1]) if use_layernorm else nn.Identity(),
+        #     nn.ReLU(),
+        #     nn.Linear(block_channel[1], block_channel[2]),
+        #     nn.LayerNorm(block_channel[2]) if use_layernorm else nn.Identity(),
+        #     nn.ReLU(),
+        # )
         
         
         if final_norm == 'layernorm':
@@ -210,6 +219,7 @@ class DP3Encoder(nn.Module):
                  pointcloud_encoder_cfg=None,
                  use_pc_color=False,
                  pointnet_type='pointnet',
+                 use_state=True,
                  ):
         super().__init__()
         self.imagination_key = 'imagin_robot'
@@ -217,6 +227,7 @@ class DP3Encoder(nn.Module):
         self.point_cloud_key = 'point_cloud'
         self.rgb_image_key = 'image'
         self.n_output_channels = out_channel
+        self.use_state = use_state
         
         self.use_imagined_robot = self.imagination_key in observation_space.keys()
         self.point_cloud_shape = observation_space[self.point_cloud_key]
@@ -246,16 +257,17 @@ class DP3Encoder(nn.Module):
             raise NotImplementedError(f"pointnet_type: {pointnet_type}")
 
 
-        if len(state_mlp_size) == 0:
-            raise RuntimeError(f"State mlp size is empty")
-        elif len(state_mlp_size) == 1:
-            net_arch = []
-        else:
-            net_arch = state_mlp_size[:-1]
-        output_dim = state_mlp_size[-1]
+        if self.use_state:
+            if len(state_mlp_size) == 0:
+                raise RuntimeError(f"State mlp size is empty")
+            elif len(state_mlp_size) == 1:
+                net_arch = []
+            else:
+                net_arch = state_mlp_size[:-1]
+            output_dim = state_mlp_size[-1]
 
-        self.n_output_channels  += output_dim
-        self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
+            self.n_output_channels  += output_dim
+            self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
         cprint(f"[DP3Encoder] output dim: {self.n_output_channels}", "red")
 
@@ -271,9 +283,12 @@ class DP3Encoder(nn.Module):
         # points: B * 3 * (N + sum(Ni))
         pn_feat = self.extractor(points)    # B * out_channel
             
-        state = observations[self.state_key]
-        state_feat = self.state_mlp(state)  # B * 64
-        final_feat = torch.cat([pn_feat, state_feat], dim=-1)
+        if self.use_state:
+            state = observations[self.state_key]
+            state_feat = self.state_mlp(state)  # B * 64
+            final_feat = torch.cat([pn_feat, state_feat], dim=-1)
+        else:
+            final_feat = pn_feat
         return final_feat
 
 

@@ -15,7 +15,7 @@ from multiprocessing import set_start_method
 import json
 from scipy.spatial.transform import Rotation as R
 import pickle
-
+from manipulation.utils import save_numpy_as_gif
 from multiprocessing import Pool
 
 def parallel_render(args):
@@ -38,12 +38,13 @@ def parallel_render(args):
         gripper_num_points=gripper_num_points, add_contact=add_contact)
     load_env(simulator._env, load_path=state)
     observation = simulator._get_observation()
+    rgb = simulator._env.render()
     
     point_cloud = observation['point_cloud'].tolist()
     pos_ori = observation['agent_pos'].tolist()
     simulator._env.close()
         
-    return point_cloud, pos_ori, idx
+    return point_cloud, pos_ori, rgb, idx
 
 def sort_states_file_by_file_number(state_path):
     # all the file are named as state_0.pkl, state_1.pkl, ...
@@ -66,13 +67,24 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
     all_experiments = os.listdir(experiment_folder)
     all_experiments = sorted(all_experiments)
     all_experiments = all_experiments
-    if not args.use_perturbation:
-        all_experiments = [x for x in all_experiments if 'perturb' not in x]
+    
+    # non_perturbed_experiments = [x for x in all_experiments if 'perturb' not in x]
+    # perturbed_reaching_experiments = [x for x in all_experiments if 'perturb' in x and 'reaching' in x]
+    # perturned_open_expierments = [x for x in all_experiments if 'perturb' in x and 'open' in x]
+
+    # all_experiments = non_perturbed_experiments
+    # if args.include_reaching_perturbation:
+    #     all_experiments += perturbed_reaching_experiments
+    # if args.include_open_perturbation:
+    #     all_experiments += perturned_open_expierments
+
+    # all_experiments = all_experiments[:5]
     
     ret_pc = []
     ret_pos_ori = []
     stages = []
     store_experiment_label_paths = []
+    all_traj_rgbs = []
     for experiment in tqdm.tqdm(all_experiments):
         expert_states = []
         experiment_path = os.path.join(experiment_folder, experiment)
@@ -102,14 +114,17 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         with open(stage_lengths, "r") as f:
             stage_lengths = json.load(f)
         stages.append(stage_lengths)
-        reaching_phase = stage_lengths['reach_handle']
-          
+        
+        if 'reach_handle' in stage_lengths.keys():
+            reaching_phase = stage_lengths['reach_handle']
+        else:
+            reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
       
         first_stage_states = sort_states_file_by_file_number(first_stage_states_path)      
         expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
         if len(expert_states) == 0:
             continue
-        
+    
         opened_angle_file = os.path.join(experiment_path, first_step_folder, "opened_angle.txt")
         if os.path.exists(opened_angle_file): # for some perturbed trajectories, we did not really continue openeing the handle. 
             with open(opened_angle_file, "r") as f:
@@ -120,11 +135,23 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
 
         if os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
             with open(os.path.join(experiment_path, first_step_folder, "extracted.pkl"), "rb") as f:
-                pc_list, pos_ori_list = pickle.load(f)
+                data = pickle.load(f)
+                if len(data) == 2:
+                    pc_list, pos_ori_list = data
+                    rgb_list = None
+                else:
+                    pc_list, pos_ori_list, rgb_list = data
                 
             if args.after_reaching:
                 pc_list = pc_list[reaching_phase:]
                 pos_ori_list = pos_ori_list[reaching_phase:]
+                if rgb_list is not None:
+                    rgb_list = rgb_list[reaching_phase:]
+            if args.after_opening:
+                pc_list = pc_list[stage_lengths['open_gripper']:]
+                pos_ori_list = pos_ori_list[stage_lengths['open_gripper']:]
+                if rgb_list is not None:
+                    rgb_list = rgb_list[stage_lengths['open_gripper']:]
         else:
             rpy_list = [[[0, 0, -45], [0, 0, -135]]]
             beg = time.time()
@@ -159,25 +186,29 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     # parallel version
                     if args.after_reaching:
                         expert_states = expert_states[reaching_phase:]
+                    if args.after_opening:
+                        expert_states = expert_states[stage_lengths['open_gripper']:]
                     results = pool.map(parallel_render, 
                         [(task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact,
                         expert_states[i], object_name, i) for i in range(len(expert_states))])
-                    results = sorted(results, key=lambda x: x[2])
-                    print([result[2] for result in results])
+                    results = sorted(results, key=lambda x: x[-1])
+                    # print([result[2] for result in results])
                     pc_list = [x[0] for x in results]        
                     pos_ori_list = [x[1] for x in results]
+                    rgb_list = [x[2] for x in results]
     
             end = time.time()
             cprint(f"Finished extracting data from trajectory index: {str(len(ret_pc))} time cost {end - beg}" , "green")
 
         ret_pc.append(pc_list)
         ret_pos_ori.append(pos_ori_list)
+        all_traj_rgbs.append(rgb_list)
             
-        if not os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
+        if not args.after_reaching and not args.after_opening and not os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
             with open(os.path.join(experiment_path, first_step_folder, "extracted.pkl"), "wb") as f:
-                pickle.dump((pc_list, pos_ori_list), f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump((pc_list, pos_ori_list, rgb_list), f, protocol=pickle.HIGHEST_PROTOCOL)
         
-    return ret_pc, ret_pos_ori, stages, store_experiment_label_paths
+    return ret_pc, ret_pos_ori, all_traj_rgbs, stages, store_experiment_label_paths
     
 def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None, in_gripper_frame=False, parallel=True, 
                                     gripper_num_points=0, add_contact=False, save_path=None):
@@ -187,6 +218,9 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     action_dist_save_path = os.path.join(save_path, "action_dist")
     if not os.path.exists(action_dist_save_path):
         os.makedirs(action_dist_save_path)
+    demo_rgb_save_path = os.path.join(save_path, "demo_rgbs")
+    if not os.path.exists(demo_rgb_save_path):
+        os.makedirs(demo_rgb_save_path)
 
     all_pc_list = []
     all_state_list = []
@@ -206,12 +240,14 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             continue
 
         # ret_pc, ret_pos_ori = extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_category, in_gripper_frame=in_gripper_frame)
-        ret_pc, ret_pos_ori, stages, store_label_paths = extract_pc_states_for_all_trajectories(
+        ret_pc, ret_pos_ori, all_traj_rgbs, stages, store_label_paths = extract_pc_states_for_all_trajectories(
             task_config_path, solution_path, object_category, exp_name=exp_name, 
             in_gripper_frame=in_gripper_frame, parallel=parallel,
             gripper_num_points=gripper_num_points, add_contact=add_contact)
         
-
+        with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
+            f.write("\n".join(store_label_paths))
+        
         for traj_idx, (pc, pos_ori, stage_length, store_label_path) in tqdm.tqdm(enumerate(zip(ret_pc, ret_pos_ori, stages, store_label_paths))):
             good_traj = True
 
@@ -222,12 +258,19 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             base_finger_angle = pos_ori[0][9]
             
             open_door_start_idx = 0
-            keys = ["reach_handle", "open_gripper", "reach_to_contact", "close_gripper"]
+            # NOTE: for open_door_per_angle_new.py the keys order are different
+            if 'stage' not in stage_length.keys():
+                keys = ["reach_handle", "open_gripper", "reach_to_contact", "close_gripper"]
+            else:
+                keys = ['open_gripper', "grasp_handle", 'close_gripper'] if "open_gripper" in stage_length['stage'] else ['grasp_handle', 'close_gripper']
+
             for key in keys:
                 open_door_start_idx += stage_length[key]
         
             filtered_pcs = []
             filtered_pos_oris = []
+            filtered_rgbs = []
+            base_rgb = all_traj_rgbs[traj_idx][0]
             base_pc = pc[0]
             base_pos_ori = pos_ori[0]
             for i in range(len(pos_ori) - 1):
@@ -279,44 +322,74 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 # delta_finger_angle = target_finger_angle - cur_finger_angle
                 delta_finger_angle = target_finger_angle - base_finger_angle
                 
-                if args.filter_small_action and ((not args.filter_after_reaching) or (args.filter_after_reaching and i > stage_length["reach_handle"])) and np.linalg.norm(delta_pos) < args.min_translation and np.linalg.norm(quat_diff) < args.min_rotation and np.abs(delta_finger_angle) < args.min_finger_angle_diff:
+                filter_action = False
+                if args.filter_small_action: 
+                    if args.after_reaching or args.after_opening:
+                        if np.linalg.norm(delta_pos) < args.min_translation and np.linalg.norm(quat_diff) < args.min_rotation and np.abs(delta_finger_angle) < args.min_finger_angle_diff:
+                            filter_action = True
+                    else:
+                        if np.linalg.norm(delta_pos) < args.min_translation and np.linalg.norm(quat_diff) < args.min_rotation and np.abs(delta_finger_angle) < args.min_finger_angle_diff:
+                            if args.filter_after_reaching and i > stage_length["reach_handle"]:
+                                filter_action = True
+                            if not args.filter_after_reaching:
+                                filter_action = True
+
+                if filter_action:
                     continue
                 else:
                     action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
                     traj_actions.append(action)
                     filtered_pcs.append(base_pc)
                     filtered_pos_oris.append(base_pos_ori)
+                    filtered_rgbs.append(base_rgb)
                     base_pc = pc[i+1]
                     base_pos_ori = pos_ori[i+1]
                     base_pos = target_pos
                     base_ori_6d = target_ori_6d
                     base_finger_angle = target_finger_angle
+                    base_rgb = all_traj_rgbs[traj_idx][i+1]
                     
+           
             # plot the delta translation action distribution
-            try:
-                delta_translations = np.array(traj_actions)[:, :3]
-                delta_translations_lengths = np.linalg.norm(delta_translations, axis=1)
-                delta_joint_angles = np.abs(np.array(traj_actions)[:, -1])
-                plt.close("all")
-                fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-                axes = axes.reshape(-1)
-                vals = [delta_translations_lengths, quaternion_diffs, delta_joint_angles]
-                titles = ["delta_translation_lengths", "quaternion_diffs", "delta_joint_angles"]
-                for idx, val in enumerate(vals):
-                    axes[idx].plot(range(len(val)), val, "-*")
-                    keys = ["reach_handle", "open_gripper", "reach_to_contact", "close_gripper", "open_door"]
-                    base = 0
-                    for key in keys:
-                        base += stage_length[key]
-                        axes[idx].axvline(x=base, color='r', linestyle='--')
-                        axes[idx].text(base, 0, key, rotation=90)
-                    axes[idx].set_title(titles[idx])
-                suffix = "good" if good_traj else "bad"
-                save_fig_path = os.path.join(action_dist_save_path, "delta_distribution_{}_{}.png".format(traj_idx, suffix))
-                plt.savefig(save_fig_path)
-                plt.close("all")
-            except:
-                pass
+            if traj_idx % 8 == 0:        
+                try:
+                    save_numpy_as_gif(np.array(filtered_rgbs), os.path.join(demo_rgb_save_path, "demo_" + str(traj_idx) + ".gif"))
+                    delta_translations = np.array(traj_actions)[:, :3]
+                    delta_translations_lengths = np.linalg.norm(delta_translations, axis=1)
+                    # delta_ori_6d = np.array(traj_actions)[:, 3:9]
+                    # delta_ori_matrix = np.array([rotation_transfer_6D_to_matrix(x) for x in delta_ori_6d])
+                    # delta_ori_rotvec = np.array([R.from_matrix(x).as_rotvec() for x in delta_ori_matrix])
+                    # delta_ori_rotvec_norm = np.linalg.norm(delta_ori_rotvec, axis=1)
+                    delta_joint_angles = np.abs(np.array(traj_actions)[:, -1])
+                    plt.close("all")
+                    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+                    axes = axes.reshape(-1)
+                    vals = [delta_translations_lengths, quaternion_diffs, delta_joint_angles]
+                    titles = ["delta_translation_lengths", "quaternion_diffs", "delta_joint_angles"]
+                    for idx, val in enumerate(vals):
+                        axes[idx].plot(range(len(val)), val, "-*")
+                        if 'stage' not in stage_length.keys():
+                            if not args.after_reaching:
+                                keys = ["reach_handle", "open_gripper", "reach_to_contact", "close_gripper", "open_door"]
+                            else:
+                                keys = ["open_gripper", "reach_to_contact", "close_gripper", "open_door"]
+                        else:
+                            keys = stage_length['stage']
+                            if args.after_opening:
+                                keys = keys[1:]
+                            
+                        base = 0
+                        for key in keys:
+                            base += stage_length[key]
+                            axes[idx].axvline(x=base, color='r', linestyle='--')
+                            axes[idx].text(base, 0, key, rotation=90)
+                        axes[idx].set_title(titles[idx])
+                    suffix = "good" if good_traj else "bad"
+                    save_fig_path = os.path.join(action_dist_save_path, "delta_distribution_{}_{}.png".format(traj_idx, suffix))
+                    plt.savefig(save_fig_path)
+                    plt.close("all")
+                except:
+                    pass
 
             path = os.path.join(store_label_path, "label.json")
             if not os.path.exists(path):
@@ -394,7 +467,7 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     }
     meta_info.update(args.__dict__)
     with open(os.path.join(save_path, "meta_info.json"), "w") as f:
-        json.dump(meta_info, f)
+        json.dump(meta_info, f, indent=4)
     
     pc_list, state_list, action_list, last_state_indices = extract_demos_from_a_directory(
         folder_name, object_name,exp_name=exp_name, in_gripper_frame=in_gripper_frame, parallel=parallel, 
@@ -419,12 +492,14 @@ if __name__ == "__main__":
     args.add_argument("--gripper_num_points", type=int, default=0)
     args.add_argument("--add_contact", type=int, default=0)
     args.add_argument("--after_reaching", type=int, default=0)
+    args.add_argument("--after_opening", type=int, default=0)
     args.add_argument("--filter_small_action", type=float, default=1)
     args.add_argument("--filter_after_reaching", type=float, default=1)
     args.add_argument("--min_translation", type=float, default=0.0045)
     args.add_argument("--min_rotation", type=float, default=0.008)
     args.add_argument("--min_finger_angle_diff", type=float, default=0.001)
-    args.add_argument("--use_perturbation", type=int, default=1)
+    args.add_argument("--include_reaching_perturbation", type=int, default=0)
+    args.add_argument("--include_open_perturbation", type=int, default=0)
 
     
     args.add_argument("--generate", type=bool, default=True)

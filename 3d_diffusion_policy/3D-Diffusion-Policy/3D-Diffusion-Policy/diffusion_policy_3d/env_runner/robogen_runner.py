@@ -30,6 +30,7 @@ class RoboGenRunner(BaseRunner):
                  gripper_num_points=0,
                  add_contact=0,
                  start_after_reaching=0,
+                 experiment_name="vary_robot_init_joint_near_handle_perturbed_open_per_angle_direct_grasp",
                  ):
         super().__init__(output_dir)
         self.task_name = task_name
@@ -43,6 +44,7 @@ class RoboGenRunner(BaseRunner):
         self.gripper_num_points = gripper_num_points
         self.add_contact = add_contact
         self.start_after_reaching = start_after_reaching
+        self.experiment_name = experiment_name
         
         self.eval_episodes = eval_episodes
         # self.env = env_fn()
@@ -58,12 +60,13 @@ class RoboGenRunner(BaseRunner):
         self.logger_util_test10 = logger_util.LargestKRecorder(K=5)
         
         after_reaching_init_state_files = []
+        init_state_files = []
         config_files = []
         experiment_folder = "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle".format(os.environ['PROJECT_DIR'])
-        experiment_path = os.path.join(experiment_folder, "experiment", "vary_robot_init_joint_near_handle")
+        experiment_name = self.experiment_name
+        experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
         all_experiments = os.listdir(experiment_path)
         all_experiments = sorted(all_experiments)
-        all_experiments = [x for x in all_experiments if 'perturb' not in x]
 
         for experiment in all_experiments:
             first_step_folder = "grasp_the_door_handle_primitive"
@@ -85,16 +88,25 @@ class RoboGenRunner(BaseRunner):
             stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
-            reaching_phase = stage_lengths['reach_handle']
-            init_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
-            after_reaching_init_state_files.append(init_state_file)
+            
+            if 'stage' in stage_lengths:
+                reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
+            else:
+                reaching_phase = stage_lengths['reach_handle']
+            after_init_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
+            after_reaching_init_state_files.append(after_init_state_file)
+            init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
+            init_state_files.append(init_state_file)
             meta_info = os.path.join(experiment_path, experiment, "meta_info.json")
+            if not os.path.exists(meta_info):
+                meta_info = os.path.join(experiment_path, experiment, first_step_folder, "meta_info.json")
             with open(meta_info, "r") as f:
                 meta_info = json.load(f)
             config_files.append(meta_info['config_path'])
                     
         self.after_reaching_init_state_files = after_reaching_init_state_files
         self.config_files = config_files
+        self.init_state_files = init_state_files
 
     def build_env(self, idx):
         # TODO: change to the test configs, which should probably be passed in here. 
@@ -104,12 +116,13 @@ class RoboGenRunner(BaseRunner):
             "{}/{}".format(os.environ['PROJECT_DIR'], self.config_files[idx]),
             "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
             "grasp_the_door_handle",
-            None if not self.start_after_reaching else self.after_reaching_init_state_files[idx],
+            self.init_state_files[idx] if not self.start_after_reaching else self.after_reaching_init_state_files[idx],
             render=False, 
             randomize=False,
             obj_id=0,
             horizon=400,
         )
+        
         env.reset()
         object_name = "StorageFurniture"
         pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=self.in_gripper_frame, 
@@ -138,7 +151,6 @@ class RoboGenRunner(BaseRunner):
             policy.reset()
 
             done = False
-            num_goal_achieved = 0
             actual_step_count = 0
             while not done:
                 # create obs dict

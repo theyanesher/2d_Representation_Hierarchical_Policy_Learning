@@ -39,6 +39,7 @@ class DP3(BasePolicy):
             use_pc_color=False,
             pointnet_type="pointnet",
             pointcloud_encoder_cfg=None,
+            use_state=True,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -65,6 +66,7 @@ class DP3(BasePolicy):
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
                                                 use_pc_color=use_pc_color,
                                                 pointnet_type=pointnet_type,
+                                                use_state=use_state
                                                 )
 
         # create diffusion model

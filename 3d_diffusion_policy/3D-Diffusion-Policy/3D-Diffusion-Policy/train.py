@@ -98,6 +98,9 @@ class TrainDP3Workspace:
             if lastest_ckpt_path.is_file():
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
                 self.load_checkpoint(path=lastest_ckpt_path)
+        if cfg.load_checkpoint_path is not None:
+            print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
+            self.load_checkpoint(path=cfg.load_checkpoint_path)
 
         # configure dataset
         dataset: BaseDataset
