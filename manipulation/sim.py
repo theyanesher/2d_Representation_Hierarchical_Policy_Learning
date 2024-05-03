@@ -301,9 +301,12 @@ class SimpleEnv(gym.Env):
 
         ### overwrite joint angles specified by GPT
         self.handle_gpt_joint_angle(articulated_init_joint_angles)
-           
-       
-        
+          
+        # open the gripper at reset 
+        if self.open_gripper_at_reset:
+            for _ in range(20):
+                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
+
         ### stabilize the scene
         for _ in range(500):
             p.stepSimulation(physicsClientId=self.id)
@@ -371,8 +374,9 @@ class SimpleEnv(gym.Env):
                 break
         
         ### parse config
-        urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, use_table, \
-            articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, robot_initial_joint_angles = parse_config(self.config, 
+        urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, \
+            use_table, articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, \
+                robot_initial_joint_angles = parse_config(self.config, 
                         use_bard=True, obj_id=self.obj_id,
                         use_vhacd=True)
         if not use_table:
@@ -781,33 +785,32 @@ class SimpleEnv(gym.Env):
                         
 
     def handle_gpt_joint_angle(self, articulated_init_joint_angles):
+        # import pdb; pdb.set_trace()
         for name in articulated_init_joint_angles:
             obj_id = self.urdf_ids[name.lower()]
 
-            for joint_name, joint_angle in articulated_init_joint_angles[name].items():
-                joint_idx = get_joint_id_from_name(self, name.lower(), joint_name)
-                joint_limit_low, joint_limit_high = p.getJointInfo(obj_id, joint_idx, physicsClientId=self.id)[8:10]
-                if joint_limit_low > joint_limit_high:
-                    joint_limit_low, joint_limit_high = joint_limit_high, joint_limit_low
-                if 'random' not in joint_angle:
-                    # joint_angle = float(joint_angle)
-                    # joint_angle = min(joint_angle, 0.7)
-                    # joint_angle = max(joint_angle, 0.06)
-                    # joint_angle = joint_limit_low + joint_angle * (joint_limit_high - joint_limit_low)
-                    joint_angle = joint_limit_low
-                else:
-                    joint_angle = self.np_random.uniform(joint_limit_low, joint_limit_high)
-                p.resetJointState(obj_id, joint_idx, joint_angle, physicsClientId=self.id)
+            if "set_joint_angle_joint_id" not in articulated_init_joint_angles[name].keys():
+                for joint_name, joint_angle in articulated_init_joint_angles[name].items():
+                    joint_idx = get_joint_id_from_name(self, name.lower(), joint_name)
+                    joint_limit_low, joint_limit_high = p.getJointInfo(obj_id, joint_idx, physicsClientId=self.id)[8:10]
+                    if joint_limit_low > joint_limit_high:
+                        joint_limit_low, joint_limit_high = joint_limit_high, joint_limit_low
+                    if 'random' not in joint_angle:
+                        # joint_angle = float(joint_angle)
+                        # joint_angle = min(joint_angle, 0.7)
+                        # joint_angle = max(joint_angle, 0.06)
+                        # joint_angle = joint_limit_low + joint_angle * (joint_limit_high - joint_limit_low)
+                        joint_angle = joint_limit_low
+                    else:
+                        joint_angle = self.np_random.uniform(joint_limit_low, joint_limit_high)
+            else:
+                # TODO: account for cases when there are multiple joints to be set.
+                p.resetJointState(obj_id, articulated_init_joint_angles[name]["set_joint_angle_joint_id"], 
+                              articulated_init_joint_angles[name]['set_joint_angle_joint_angle'], physicsClientId=self.id)
 
     def reset(self, reset_state=None, open_gripper_at_reset=False):
         self.set_scene(reset_state)
-        if self.open_gripper_at_reset:
-            for _ in range(20):
-                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
-        if open_gripper_at_reset:
-            for _ in range(20):
-                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
-                
+            
         self.time_step = 0
         self.success = False
         
@@ -933,75 +936,6 @@ class SimpleEnv(gym.Env):
                 original_joint_angles = original_joint_angles[ik_indices]
                 agent_joint_angles = original_joint_angles
             
-            # if ik_success is False:
-            #     cprint("tracik failed", "red")
-            #     # input("Press Enter to continue...")
-            #     agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=False, residualThreshold=1e-5, return_full_state=True)
-
-
-            # ==============================================================
-            # =============== Trying to deal with IK fails =================
-            # ==============================================================
-
-            # # check if ik finds a solution This should be checked already inside tracIK
-            # state = save_env(self)
-            # for joint_idx, value in zip(agent.right_arm_ik_indices, agent_joint_angles):
-            #     p.resetJointState(self.robot.body, joint_idx, value, physicsClientId=self.id)
-            # temp_pos, temp_orient = agent.get_pos_orient(agent.right_end_effector)
-            
-            # I think this is probably not needed since trac_IK alreay handles the joint limit
-            # ik_success = True
-            # if np.any(agent_joint_angles[self.robot.right_arm_joint_indices] < self.robot.ik_lower_limits[self.robot.right_arm_joint_indices]) \
-            #     or np.any(agent_joint_angles[self.robot.right_arm_joint_indices] > self.robot.ik_upper_limits[self.robot.right_arm_joint_indices]):
-            #     # import pdb; pdb.set_trace()
-            #     cprint("IK out of joint limits", "red")
-            #     ik_success = False
-
-            # TODO: clean this
-            # if np.linalg.norm(temp_pos - pos) > 0.001 or not ik_success:
-            #     ik_success = False
-            #     cprint("IK failed in stage one", "red")
-            #     it = 1
-            #     available_joint_angle_list = []
-            #     while True:
-            #         ik_start_pose = np.random.uniform(self.robot.ik_lower_limits, self.robot.ik_upper_limits)
-            #         for joint, value in zip(agent.right_arm_ik_indices, ik_start_pose):
-            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0, physicsClientId=self.id)
-                        
-            #         ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
-            #         agent_joint_angles = agent.ik(ik_joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
-
-            #         for joint, value in zip(agent.right_arm_ik_indices, agent_joint_angles):
-            #             p.resetJointState(self.robot.body, joint, value, targetVelocity=0, physicsClientId=self.id)
-                        
-            #         ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
-            #         temp_pos, temp_orient = agent.get_pos_orient(ik_joint)
-            #         if np.linalg.norm(temp_pos - pos) < 0.001:
-            #             available_joint_angle_list.append(agent_joint_angles[ik_indices])
-            #             ik_success = True
-            #         it += 1
-            #         if it > 500:
-            #             cprint("IK stage two finished", "green")
-            #             break
-
-            #     if ik_success == True:
-            #         # choose the one that is closest to the current joint angles
-            #         available_joint_angle_list_np = np.array(available_joint_angle_list)
-            #         cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
-            #         diff = np.linalg.norm(available_joint_angle_list_np - cur_joint_angles, axis=1)
-            #         idx = np.argmin(diff)
-            #         agent_joint_angles = available_joint_angle_list[idx]
-
-                    
-            # load_env(self, state=state)
-            # if ik_success == False:
-            #     cprint("===== IK failed ======", "red")
-            #     agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000, use_current_as_rest=True, residualThreshold=1e-5, return_full_state=True)
-            
-            # ==============================================================
-            # =========== but it is not working well for now ===============
-            # ==============================================================
-            
             agent_joint_angles = agent_joint_angles[ik_indices]
             it = 0
             
@@ -1027,13 +961,15 @@ class SimpleEnv(gym.Env):
                 if it > control_total:
                     # cprint("++++control total steps reached++++", "red")
                     break
-
-                # gripper
-                if not self.use_suction:
-                    agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
                 
                 it += 1
                 p.stepSimulation(physicsClientId=self.id) 
+                
+            # gripper
+            for _ in range(2):
+                if not self.use_suction:
+                    agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
+                
                 
     def get_control_rgbs(self):
         return self.control_rgbs

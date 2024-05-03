@@ -7,7 +7,6 @@ import copy
 from gpt_4.prompts.utils import save_another_yaml
 from manipulation.utils import build_up_env
 from manipulation.gpt_reward_api import get_handle_pos, get_link_pc
-from manipulation.gpt_primitive_api import get_link_handle
 import scipy
 import pybullet as p
 
@@ -80,18 +79,16 @@ opened_angles = []
 
 all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
 beg_idx = 0
-end_idx = 1 
-# end_idx = len(all_config_paths)
+end_idx = 1
 all_config_paths = all_config_paths[beg_idx:end_idx]
 all_solution_paths = all_solution_paths[beg_idx:end_idx]
 reward_assets = reward_assets[beg_idx:end_idx]
 
 exp_name = "vary_robot_init_joint"
 exp_name = "vary_robot_init_joint_near_handle"
-exp_name = "debug"
+exp_name = "0502-vary-obj-init-angle-robot-init-joint-near-handle-larger"
 try_times_min = 0
-try_times_max = 1
-np.random.seed(time.time_ns() % 2**32)
+try_times_max = 50
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
@@ -136,79 +133,86 @@ for try_idx in range(try_times_min, try_times_max):
         #     if os.path.exists(score_file):
         #         trained = True
         
-        
         config_variant_paths = os.path.join("/".join(config_path.split("/")[:-1]), "configs")
-        # new_config_path = config_path.replace(".yaml", f"_{try_idx}.yaml")
         new_config_path = os.path.join(config_variant_paths, f"config_{try_idx}.yaml")
+        base_config = yaml.safe_load(open(config_path, "r"))
         task_name = "grasp_the_door_handle"
         env, _ = build_up_env(config_path, solution_path, task_name, None, 
-                            render=True)
+                            render=False)
         env.reset()
         
-        # Randomize the object position & orientation a bit, and also the robot initial joint angles
+        
+        
         object_name = 'storagefurniture'
-        link_name = "link_0"    
-        object_id = env.urdf_ids[object_name]   
-        base_config = yaml.safe_load(open(config_path, "r"))
-        
-        
-        good_config = False
+        all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
+        handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+        link_name = "link_0"
+        link_name = link_name.lower()
+        link_pc = get_link_pc(env, object_name, link_name)
+        distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
+        min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
+        min_distance_handle_idx = np.argmin(min_distance)
+        handle_pos = all_handle_pos[min_distance_handle_idx]
+        handle_joint_id = handle_joint_id[min_distance_handle_idx]
+
         initial_joint_angles = [0 for _ in range(7)]
-        low = [-2.96, -1.83, -2.96, -3.14, -2.96, -0.08, -2.96]
-        high = [2.96, 1.83, 2.96, 0.0, 2.96, 3.82, 2.96]
+        low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
+        high = [2.9, 1.8, 2.9, 0.0, 2.9, 3.8, 2.9]
         for i in range(7):
             joint_range = high[i] - low[i]
-            low[i] += joint_range * 0.1
-            high[i] -= joint_range * 0.1
+            low[i] += joint_range * 0.2
+            high[i] -= joint_range * 0.2    
+
+        object_id = env.urdf_ids[object_name]   
         init_pos, init_orient = p.getBasePositionAndOrientation(object_id, physicsClientId=env.id)
         init_euler = p.getEulerFromQuaternion(init_orient)
 
-        while not good_config:        
-            # reset object base and orientation
-
+        good_config = False
+        while not good_config:
             # new_pos = np.array([0, 0, init_pos[2]])
             # new_pos[0] = np.random.uniform(-0.1, 0.1) + init_pos[0]
             # new_pos[1] = np.random.uniform(-0.1, 0.1) + init_pos[1]
             # new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(-np.pi / 6, np.pi / 6)])
-            new_pos = init_pos
-            new_orient = p.getQuaternionFromEuler(init_euler)
-            p.resetBasePositionAndOrientation(object_id, new_pos, new_orient, physicsClientId=env.id)
+            # p.resetBasePositionAndOrientation(object_id, new_pos, new_orient, physicsClientId=env.id)
             
-            link_pc = get_link_pc(env, object_name, link_name)
-            all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
-            handle_pc, handle_joint_id, handle_median = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
-            handle_pos = handle_median
-
+            joint_limit_low, joint_limit_high = p.getJointInfo(object_id, handle_joint_id, physicsClientId=env.id)[8:10]
+            max_opened_joint = joint_limit_low + 0.2 * (joint_limit_high - joint_limit_low)
+            random_joint = np.random.uniform(joint_limit_low, max_opened_joint)
+            p.resetJointState(object_id, handle_joint_id, random_joint, physicsClientId=env.id)
+            
             for test_time in range(100):
                 for i in range(7):
                     initial_joint_angles[i] = np.random.uniform(low[i], high[i])
-                env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)            
+
+                env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
                 for _ in range(5):
                     p.stepSimulation()
+                    
                 contact_points = p.getContactPoints(env.robot.id, object_id, physicsClientId=env.id)
                 if len(contact_points) > 0:
                     print("fail due to contact")
                     continue
-                else:
-                    robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
-                    distance = np.linalg.norm(handle_pos - robot_eef_pos)
-                    if distance < 0.5 and distance > 0.15:
-                        good_config = True
-                        break
-                    else:
-                        print("fail due to distance")
+                
+                robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+                distance = np.linalg.norm(handle_pos - robot_eef_pos)
+                if distance < 0.7 and distance > 0.2:
+                    good_config = True
+                    break
             
         new_config = copy.deepcopy(base_config)
         for config_dict in new_config:
             if 'center' in config_dict:
-                new_pos = [new_pos[0], new_pos[1], 0]
-                config_dict['center'] = str(tuple(new_pos))
-                config_dict['orientation'] = str(tuple(new_orient))
+                # new_pos = [new_pos[0], new_pos[1], 0]
+                # config_dict['center'] = str(tuple(new_pos))
+                # config_dict['orientation'] = str(tuple(new_orient))
                 config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
+            if "set_joint_angle_object_name" in config_dict:
+                config_dict['set_joint_angle_object_name'] = object_name
+                config_dict['set_joint_angle_joint_id'] = handle_joint_id
+                config_dict['set_joint_angle_joint_angle'] = random_joint
 
         with open(new_config_path, 'w') as f:
             yaml.dump(new_config, f, indent=4)
-            
         env.close()
             
         if not trained:
@@ -217,31 +221,31 @@ for try_idx in range(try_times_min, try_times_max):
             ))
         
         end_time = time.time()
-                    
-        # all_experiments = os.listdir(experiment_path)
-        # all_experiments = sorted(all_experiments)
-        # newest_experiment = all_experiments[-1]
-        # newest_experiment_path = os.path.join(experiment_path, newest_experiment)
+        
+    #     all_experiments = os.listdir(experiment_path)
+    #     all_experiments = sorted(all_experiments)
+    #     newest_experiment = all_experiments[-1]
+    #     newest_experiment_path = os.path.join(experiment_path, newest_experiment)
         
         
-        # all_substeps_type = os.path.join(solution_path, "substep_types.txt")
-        # with open(all_substeps_type, "r") as f:
-        #     all_substeps_type = f.readlines()
-        #     first_step_type = all_substeps_type[0].lstrip().rstrip()
-        # first_step_folder = first_step.replace(" ", "_") + "_" + first_step_type
-        # first_step_folder_path = os.path.join(newest_experiment_path, first_step_folder)
+    #     all_substeps_type = os.path.join(solution_path, "substep_types.txt")
+    #     with open(all_substeps_type, "r") as f:
+    #         all_substeps_type = f.readlines()
+    #         first_step_type = all_substeps_type[0].lstrip().rstrip()
+    #     first_step_folder = first_step.replace(" ", "_") + "_" + first_step_type
+    #     first_step_folder_path = os.path.join(newest_experiment_path, first_step_folder)
         
-        # score_file = os.path.join(first_step_folder_path, "best_score.txt")
-        # angle_file = os.path.join(first_step_folder_path, "opened_angle.txt")
-        # with open(score_file, "r") as f:
-        #     score = f.readlines()
-        #     score = float(score[0].lstrip().rstrip())
-        #     # handle_grasping_scores[dishwasher_id] = (score)
-        #     handle_grasping_scores.append(score)
-        # with open(angle_file, "r") as f:
-        #     angle = f.readlines()
-        #     opened_angle = float(angle[0].lstrip().rstrip())
-        #     opened_angles.append(opened_angle)
+    #     score_file = os.path.join(first_step_folder_path, "best_score.txt")
+    #     angle_file = os.path.join(first_step_folder_path, "opened_angle.txt")
+    #     with open(score_file, "r") as f:
+    #         score = f.readlines()
+    #         score = float(score[0].lstrip().rstrip())
+    #         # handle_grasping_scores[dishwasher_id] = (score)
+    #         handle_grasping_scores.append(score)
+    #     with open(angle_file, "r") as f:
+    #         angle = f.readlines()
+    #         opened_angle = float(angle[0].lstrip().rstrip())
+    #         opened_angles.append(opened_angle)
 
     # print("=============== opened angles =============")
     # print(opened_angles)

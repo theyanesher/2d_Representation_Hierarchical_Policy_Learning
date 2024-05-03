@@ -30,6 +30,7 @@ class Panda(Robot):
             for i in range(p.getNumJoints(self.body, physicsClientId=id)):
                 print(p.getJointInfo(self.body, i, physicsClientId=id))
                 link_name = p.getJointInfo(self.body, i, physicsClientId=id)[12].decode('utf-8')
+                joint_limits = p.getJointInfo(self.body, i, physicsClientId=id)[8:10]
                 print("link_name: ", link_name)
         
         super(Panda, self).init(self.body, id, np_random)

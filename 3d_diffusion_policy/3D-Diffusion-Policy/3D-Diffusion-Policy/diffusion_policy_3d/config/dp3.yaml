@@ -31,6 +31,7 @@ policy:
   crop_shape:
   - 80
   - 80
+  # encoder_output_dim: 128
   encoder_output_dim: 64
   horizon: ${horizon}
   kernel_size: 5
@@ -65,6 +66,9 @@ policy:
     use_layernorm: true
     final_norm: layernorm # layernorm, none
     normal_channel: false
+    # block_channel: [128, 256, 1024, 512]
+
+  use_state: true
 
 
 ema:
@@ -76,14 +80,14 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 128
+  batch_size: 200
   num_workers: 8
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 128
+  batch_size: 200
   num_workers: 8
   shuffle: False
   pin_memory: True
@@ -103,11 +107,11 @@ training:
   resume: False
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 5000
+  num_epochs: 3000
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 500
-  checkpoint_every: 500
+  rollout_every: 300
+  checkpoint_every: 300
   val_every: 1
   sample_every: 5
   max_train_steps: null

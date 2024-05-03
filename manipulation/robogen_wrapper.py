@@ -120,6 +120,11 @@ class RobogenPointCloudWrapper:
 
         pos = pos + np.array(action[:3])
         target_joint_angle = action[9] + cur_joint_angle[0]
+        
+        # if action[9] > 0:
+        #     target_joint_angle = action[9] - 0.005
+        # else:
+        #     target_joint_angle = action[9]
         action = pos.tolist() + list(euler) + [target_joint_angle]
 
         # p.addUserDebugPoints([pos], [[0, 1, 0]], 25)

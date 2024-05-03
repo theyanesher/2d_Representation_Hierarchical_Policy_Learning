@@ -12,7 +12,7 @@ shape_meta: &shape_meta
     #     type: rgb
     point_cloud:
       # shape: [1280, 6]
-      shape: [3000, 3]
+      shape: [4000, 3]
       type: point_cloud
     agent_pos:
       # shape: [12]
@@ -32,6 +32,7 @@ env_runner:
   gripper_num_points: 0
   start_after_reaching: 0
   add_contact: 0
+  experiment_name: null
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset

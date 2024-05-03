@@ -1,3 +1,4 @@
+# TODO: after the reach till contact stage, the gripper action should always be close. 
 import numpy as np
 from manipulation.utils import build_up_env
 from manipulation.utils import load_env, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D
@@ -20,7 +21,7 @@ from multiprocessing import Pool
 
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact, \
-        state, object_name, idx = args
+        state, object_name, num_point_in_pc, idx = args
     
     # cprint("Extracting data from state idx " + str(idx), "blue")
     simulator, _ = build_up_env(
@@ -35,7 +36,7 @@ def parallel_render(args):
     
     simulator = RobogenPointCloudWrapper(simulator, 
         object_name, rpy_mean_list=rpy, seed=0, in_gripper_frame=in_gripper_frame, 
-        gripper_num_points=gripper_num_points, add_contact=add_contact)
+        gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=num_point_in_pc)
     load_env(simulator._env, load_path=state)
     observation = simulator._get_observation()
     rgb = simulator._env.render()
@@ -78,7 +79,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
     # if args.include_open_perturbation:
     #     all_experiments += perturned_open_expierments
 
-    # all_experiments = all_experiments[:5]
+    all_experiments = all_experiments[:args.num_experiment]
     
     ret_pc = []
     ret_pos_ori = []
@@ -89,6 +90,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         expert_states = []
         experiment_path = os.path.join(experiment_folder, experiment)
         cprint("Extracting data from experiment: " + experiment, "blue")
+        task_config_path = os.path.join(experiment_path, "task_config.yaml")
 
         all_substeps_path = os.path.join(solution_path, "substeps.txt")
         with open(all_substeps_path, "r") as f:
@@ -190,7 +192,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                         expert_states = expert_states[stage_lengths['open_gripper']:]
                     results = pool.map(parallel_render, 
                         [(task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact,
-                        expert_states[i], object_name, i) for i in range(len(expert_states))])
+                        expert_states[i], object_name, args.pointcloud_num, i) for i in range(len(expert_states))])
                     results = sorted(results, key=lambda x: x[-1])
                     # print([result[2] for result in results])
                     pc_list = [x[0] for x in results]        
@@ -227,7 +229,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     all_action_list = []
     last_state_indices = []
     total_count = 0
-    for task_path in task_paths[:1]:
+    for task_path in task_paths[:args.num_task]:
         files_and_folders = os.listdir(os.path.join(dirtory_path, task_path))
         solution_path, task_config_path = None, None
         for file_or_folder in files_and_folders:
@@ -265,7 +267,9 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 keys = ['open_gripper', "grasp_handle", 'close_gripper'] if "open_gripper" in stage_length['stage'] else ['grasp_handle', 'close_gripper']
 
             for key in keys:
-                open_door_start_idx += stage_length[key]
+                open_door_start_idx += stage_length.get(key, 0)
+            
+            after_contact_step_idx = stage_length['reach_handle'] + stage_length['reach_to_contact']
         
             filtered_pcs = []
             filtered_pos_oris = []
@@ -309,7 +313,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 quaternion_diffs.append(quat_diff)
                 
                 # if single step rotation is too large, ignore this trajectory
-                if np.abs(one_step_quaternion_diff) > 0.065:
+                if np.abs(one_step_quaternion_diff) > 0.085:
                     good_traj = False
                     break
                 if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
@@ -321,6 +325,11 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
 
                 # delta_finger_angle = target_finger_angle - cur_finger_angle
                 delta_finger_angle = target_finger_angle - base_finger_angle
+                # NOTE: the finger dimension only controls the open or close, and it will open/close by a fixed amount
+                # import pdb; pdb.set_trace()
+                if args.fixed_finger_movement:
+                    if i > after_contact_step_idx:
+                        delta_finger_angle = traj_actions[after_contact_step_idx - 1][-1]
                 
                 filter_action = False
                 if args.filter_small_action: 
@@ -351,7 +360,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     
            
             # plot the delta translation action distribution
-            if traj_idx % 8 == 0:        
+            if traj_idx % 5 == 0:        
                 try:
                     save_numpy_as_gif(np.array(filtered_rgbs), os.path.join(demo_rgb_save_path, "demo_" + str(traj_idx) + ".gif"))
                     delta_translations = np.array(traj_actions)[:, :3]
@@ -360,7 +369,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     # delta_ori_matrix = np.array([rotation_transfer_6D_to_matrix(x) for x in delta_ori_6d])
                     # delta_ori_rotvec = np.array([R.from_matrix(x).as_rotvec() for x in delta_ori_matrix])
                     # delta_ori_rotvec_norm = np.linalg.norm(delta_ori_rotvec, axis=1)
-                    delta_joint_angles = np.abs(np.array(traj_actions)[:, -1])
+                    delta_joint_angles = np.array(traj_actions)[:, -1]
                     plt.close("all")
                     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
                     axes = axes.reshape(-1)
@@ -368,16 +377,18 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     titles = ["delta_translation_lengths", "quaternion_diffs", "delta_joint_angles"]
                     for idx, val in enumerate(vals):
                         axes[idx].plot(range(len(val)), val, "-*")
-                        if 'stage' not in stage_length.keys():
-                            if not args.after_reaching:
-                                keys = ["reach_handle", "open_gripper", "reach_to_contact", "close_gripper", "open_door"]
-                            else:
-                                keys = ["open_gripper", "reach_to_contact", "close_gripper", "open_door"]
-                        else:
-                            keys = stage_length['stage']
-                            if args.after_opening:
-                                keys = keys[1:]
-                            
+                        # if 'stage' not in stage_length.keys():
+                        #     if not args.after_reaching:
+                        #         keys = ["reach_handle", "reach_to_contact", "close_gripper", "open_door"]
+                        #     else:
+                        #         keys = ["open_gripper", "reach_to_contact", "close_gripper", "open_door"]
+                        # else:
+                        #     keys = stage_length['stage']
+                        #     if args.after_opening:
+                        #         keys = keys[1:]
+                        # import pdb; pdb.set_trace()
+                        keys = ["reach_handle", "reach_to_contact", "close_gripper", "open_door"]
+                        
                         base = 0
                         for key in keys:
                             base += stage_length[key]
@@ -485,30 +496,35 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
 
 if __name__ == "__main__":
     args = ArgumentParser()
-    args.add_argument("--folder_name", type=str, required=True)
-    args.add_argument("--object_name", type=str, required=True)
-    args.add_argument("--save_path", type=str, required=True)
     args.add_argument("--in_gripper_frame", type=int, default=0)
     args.add_argument("--gripper_num_points", type=int, default=0)
     args.add_argument("--add_contact", type=int, default=0)
     args.add_argument("--after_reaching", type=int, default=0)
     args.add_argument("--after_opening", type=int, default=0)
-    args.add_argument("--filter_small_action", type=float, default=1)
-    args.add_argument("--filter_after_reaching", type=float, default=1)
+    args.add_argument("--filter_small_action", type=float, default=0)
+    args.add_argument("--filter_after_reaching", type=float, default=0)
     args.add_argument("--min_translation", type=float, default=0.0045)
     args.add_argument("--min_rotation", type=float, default=0.008)
     args.add_argument("--min_finger_angle_diff", type=float, default=0.001)
     args.add_argument("--include_reaching_perturbation", type=int, default=0)
     args.add_argument("--include_open_perturbation", type=int, default=0)
+    args.add_argument("--fixed_finger_movement", type=int, default=1)
+    args.add_argument("--pointcloud_num", type=int, default=4500)
 
     
-    args.add_argument("--generate", type=bool, default=True)
+    args.add_argument("--object_name", type=str, required=True)
+    args.add_argument("--save_path", type=str, required=True)
     args.add_argument("--exp_name", type=str, default=None)
+    args.add_argument("--folder_name", type=str, required=True)
+    args.add_argument("--generate", type=bool, default=True)
     args.add_argument("--parallel", type=int, default=1)
+    args.add_argument("--num_task", type=int, default=1)
+    args.add_argument("--num_experiment", type=int, default=10000)
+    args.add_argument("--num_worker", type=int, default=80)
     args = args.parse_args()
     
     set_start_method('spawn', force=True)
-    num_worker = 80
+    num_worker = args.num_worker
     pool = Pool(processes=num_worker)
 
     if args.generate:

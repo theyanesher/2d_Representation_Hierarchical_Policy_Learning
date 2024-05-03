@@ -16,7 +16,7 @@ import os, json
 class RoboGenRunner(BaseRunner):
     def __init__(self,
                  output_dir,
-                 eval_episodes=3,
+                 eval_episodes=1,
                  max_steps=200,
                  n_obs_steps=8,
                  n_action_steps=8,
@@ -97,12 +97,8 @@ class RoboGenRunner(BaseRunner):
             after_reaching_init_state_files.append(after_init_state_file)
             init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
-            meta_info = os.path.join(experiment_path, experiment, "meta_info.json")
-            if not os.path.exists(meta_info):
-                meta_info = os.path.join(experiment_path, experiment, first_step_folder, "meta_info.json")
-            with open(meta_info, "r") as f:
-                meta_info = json.load(f)
-            config_files.append(meta_info['config_path'])
+            config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
+            config_files.append(config_file)
                     
         self.after_reaching_init_state_files = after_reaching_init_state_files
         self.config_files = config_files
@@ -113,7 +109,7 @@ class RoboGenRunner(BaseRunner):
         
         env, _ = build_up_env(
             # "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/open_the_door_of_the_storagefurniture_by_its_handle_The_robot_arm_will_open_the_door_of_the_storage_furniture_by_manipulating_its_handle_{}.yaml".format(os.environ['PROJECT_DIR'], idx),
-            "{}/{}".format(os.environ['PROJECT_DIR'], self.config_files[idx]),
+            self.config_files[idx],
             "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
             "grasp_the_door_handle",
             self.init_state_files[idx] if not self.start_after_reaching else self.after_reaching_init_state_files[idx],
@@ -148,6 +144,8 @@ class RoboGenRunner(BaseRunner):
                 
             # start rollout
             obs = env.reset()
+            init_info = env.env._env._get_info()
+            init_angle = init_info['opened_joint_angle']
             policy.reset()
 
             done = False
@@ -184,14 +182,14 @@ class RoboGenRunner(BaseRunner):
                 actual_step_count += 1
                 # print("actual step count: ", actual_step_count)
 
-            all_success_rates.append(info['opened_joint_angle'][-1])
+            all_success_rates.append(info['opened_joint_angle'][-1] - init_angle)
             # all_goal_achieved.append(num_goal_achieved)
             env.env._env.close()
             del env
 
             # import pdb; pdb.set_trace()
             save_numpy_as_gif(np.array(frames), os.path.join(self.save_video_dir, 
-                    "{}_eval_episode_{}_{:.3f}.gif".format(epoch, episode_idx, info['opened_joint_angle'][-1])))
+                    "{}_eval_episode_{}_{:.3f}.gif".format(epoch, episode_idx, info['opened_joint_angle'][-1] - init_angle)))
 
         # log
         log_data = dict()

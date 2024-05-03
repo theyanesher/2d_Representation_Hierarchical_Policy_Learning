@@ -1,0 +1,4 @@
+# python manipulation/gen_demo/open_door_per_angle_new.py
+python 3d_diffusion_policy/extract_data_from_states_new.py --folder_name data/temp/ --object_name storagefurniture --save_path data/dp3_demo/0502-vary-obj-init-angle-robot-init-joint-near-handle-larger --exp_name 0502-vary-obj-init-angle-robot-init-joint-near-handle-larger
+cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
+python train.py --config-name=dp3.yaml task=robogen_open_door exp_name=0502-vary-obj-init-angle-robot-init-joint-near-handle-larger eval_first=0  task.dataset.zarr_path="${PROJECT_DIR}/data/dp3_demo/0502-vary-obj-init-angle-robot-init-joint-near-handle-larger/" task.env_runner.experiment_name=0502-vary-obj-init-angle-robot-init-joint-near-handle-larger
