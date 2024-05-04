@@ -152,11 +152,13 @@ class RobogenPointCloudWrapper:
         pos_ori = pos.tolist() + orient.tolist() + [cur_joint_angle[0]]
         
         if render:
+            beg = time.time()
             rgbs, depths, view_camera_matrices, project_camera_matrices = \
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=30,
                                                 return_camera_matrices=True, camera_height=480, camera_width=640, 
                                                 only_object=True)
-
+            end = time.time()
+            # cprint("point cloud rendering time {}".format(end - beg), "green")
             pcs = []
             for rgb, depth, view_matrix, project_matrix in zip(rgbs, depths, view_camera_matrices, project_camera_matrices):
                 pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=640, height=480, mask_infinite=False)
@@ -204,16 +206,6 @@ class RobogenPointCloudWrapper:
                         pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
                     num_points -= gripper_fps_num_point
                 
-                    if self.time_step >= 100:
-                        from matplotlib import pyplot as plt
-                        image = self._env.render()
-                        plt.imshow(image)
-                        plt.show()
-                        ax = plt.axes(projection='3d')
-                        ax.scatter(pc_within_gripper[:, 0], pc_within_gripper[:, 1], pc_within_gripper[:, 2], c='r', s=5)
-                        # ax.scatter(np.array(point_cloud)[:, 0], np.array(point_cloud)[:, 1], np.array(point_cloud)[:, 2], c='b', s=1)
-                        plt.show()
-                    
                 else:
                     pc_within_gripper = np.array([])
             

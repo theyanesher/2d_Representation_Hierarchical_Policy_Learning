@@ -133,6 +133,7 @@ class SimpleEnv(gym.Env):
         self.time_step = 0
         self.success = False
         self.control_rgbs = []
+        self.init_joint_angle = None
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -918,7 +919,7 @@ class SimpleEnv(gym.Env):
             translation = action[:3]
             rotation = action[3:6]
             finger_joint_angle = action[6]
-            # finger_joint_angle = np.clip(finger_joint_angle, 0, 0.04)
+            original_joint_angles = agent.get_joint_angles(agent.all_joint_indices)
 
             ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
             ik_indices = [_ for _ in range(len(agent.right_arm_ik_indices))]
@@ -929,11 +930,12 @@ class SimpleEnv(gym.Env):
             # trying to use ikpy
             # agent.ik_ikpy_franka(pos, orient, ik_indices)
             # trying to use tracik
+            beg = time.time()
             agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
+            end  = time.time()
+            # cprint("IK time: {}".format(end - beg), "green")
             if not ik_success:
                 # cprint("tracIK failed, maintain current joint angle", "red")
-                original_joint_angles = agent.get_joint_angles(agent.all_joint_indices)
-                original_joint_angles = original_joint_angles[ik_indices]
                 agent_joint_angles = original_joint_angles
             
             agent_joint_angles = agent_joint_angles[ik_indices]
@@ -946,8 +948,10 @@ class SimpleEnv(gym.Env):
             #     p.stepSimulation(physicsClientId=self.id)
             
             # old way of control till reach
+            # control_total = 50 # previously it was 50
             control_total = 50
             save_img_interval = 0
+            beg = time.time()
             while True:
                 agent.control(agent.controllable_joint_indices, agent_joint_angles)
                 cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
@@ -969,7 +973,8 @@ class SimpleEnv(gym.Env):
             for _ in range(2):
                 if not self.use_suction:
                     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
-                
+            end = time.time()
+            # cprint("control time: {}".format(end - beg), "red")
                 
     def get_control_rgbs(self):
         return self.control_rgbs
@@ -1174,10 +1179,14 @@ class SimpleEnv(gym.Env):
             min_distance_handle_idx = np.argmin(min_distance)
             handle_joint = handle_joint_id[min_distance_handle_idx]
             self.handle_joint = handle_joint
-            
+                
         opened_joint_angle = p.getJointState(self.urdf_ids[object_name], self.handle_joint)[0]
+        if self.init_joint_angle is None:
+            self.init_joint_angle = opened_joint_angle
+
         return {
-            "opened_joint_angle": opened_joint_angle
+            "opened_joint_angle": opened_joint_angle,
+            "improved_joint_angle": opened_joint_angle - self.init_joint_angle
         }
 
     def _get_obs(self):

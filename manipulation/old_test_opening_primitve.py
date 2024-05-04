@@ -87,8 +87,9 @@ reward_assets = reward_assets[beg_idx:end_idx]
 exp_name = "vary_robot_init_joint"
 exp_name = "vary_robot_init_joint_near_handle"
 exp_name = "0502-vary-obj-init-angle-robot-init-joint-near-handle-larger"
+exp_name = "0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
 try_times_min = 0
-try_times_max = 50
+try_times_max = 100
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
@@ -169,11 +170,12 @@ for try_idx in range(try_times_min, try_times_max):
 
         good_config = False
         while not good_config:
-            # new_pos = np.array([0, 0, init_pos[2]])
-            # new_pos[0] = np.random.uniform(-0.1, 0.1) + init_pos[0]
-            # new_pos[1] = np.random.uniform(-0.1, 0.1) + init_pos[1]
+            new_pos = np.array([0, 0, init_pos[2]])
+            new_pos[0] = np.random.uniform(-0.1, 0.1) + init_pos[0]
+            new_pos[1] = np.random.uniform(-0.1, 0.1) + init_pos[1]
             # new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(-np.pi / 6, np.pi / 6)])
-            # p.resetBasePositionAndOrientation(object_id, new_pos, new_orient, physicsClientId=env.id)
+            new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(0, np.pi / 6)])
+            p.resetBasePositionAndOrientation(object_id, new_pos, new_orient, physicsClientId=env.id)
             
             joint_limit_low, joint_limit_high = p.getJointInfo(object_id, handle_joint_id, physicsClientId=env.id)[8:10]
             max_opened_joint = joint_limit_low + 0.2 * (joint_limit_high - joint_limit_low)
@@ -202,9 +204,9 @@ for try_idx in range(try_times_min, try_times_max):
         new_config = copy.deepcopy(base_config)
         for config_dict in new_config:
             if 'center' in config_dict:
-                # new_pos = [new_pos[0], new_pos[1], 0]
-                # config_dict['center'] = str(tuple(new_pos))
-                # config_dict['orientation'] = str(tuple(new_orient))
+                new_pos = [new_pos[0], new_pos[1], 0]
+                config_dict['center'] = str(tuple(new_pos))
+                config_dict['orientation'] = str(tuple(new_orient))
                 config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
             if "set_joint_angle_object_name" in config_dict:
                 config_dict['set_joint_angle_object_name'] = object_name

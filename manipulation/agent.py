@@ -229,8 +229,16 @@ class Agent:
             return joint_angles, True
 
         solutions = []
-        for try_time in range(100): # try 100 times
-            joint_angles = self.franka_tracik_solver.ik(target_eef)
+        ik_lower_limits = self.ik_lower_limits 
+        ik_upper_limits = self.ik_upper_limits 
+        ik_joint_ranges = ik_upper_limits - ik_lower_limits
+        ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
+        ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
+            
+        for try_time in range(5): # try 100 times
+            # TODO: sample different init joint angles
+            ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
+            joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=ik_start_pose[self.right_arm_joint_indices])
             if joint_angles is not None:
                 solutions.append(joint_angles)
 

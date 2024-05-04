@@ -106,6 +106,11 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         first_stage_states_path = os.path.join(experiment_path, first_step_folder, "states")
         stage_lengths = os.path.join(experiment_path, first_step_folder, "stage_lengths.json")
         
+        first_stage_states = sort_states_file_by_file_number(first_stage_states_path)      
+        expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
+        if len(expert_states) == 0:
+            continue
+        
         store_experiment_label_paths.append(os.path.join(experiment_path, first_step_folder))
         label_path = os.path.join(experiment_path, first_step_folder, "label.json")
         if os.path.exists(label_path):
@@ -122,10 +127,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         else:
             reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
       
-        first_stage_states = sort_states_file_by_file_number(first_stage_states_path)      
-        expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
-        if len(expert_states) == 0:
-            continue
+        
     
         opened_angle_file = os.path.join(experiment_path, first_step_folder, "opened_angle.txt")
         if os.path.exists(opened_angle_file): # for some perturbed trajectories, we did not really continue openeing the handle. 
