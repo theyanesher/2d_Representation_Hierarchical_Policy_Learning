@@ -7,6 +7,7 @@ from gpt_4.query import query
 import os
 from scipy import ndimage
 import json
+import random
 
 def compute_obj_to_center_dist(simulator, obj_a, obj_b):
     obj_a_center = get_position(simulator, obj_a)
@@ -403,6 +404,19 @@ def get_gripper_pos(simulator):
 def get_gripper_joint(simulator):
     return p.getJointState(simulator.robot.body, simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)[0]
 
+def sample_point_inside_triangle(v1,v2,v3):
+    r1 = random.uniform(0, 1)
+    r2 = random.uniform(0, 1)
+    while r1 + r2 >= 1:
+        r1 = random.uniform(0, 1)
+        r2 = random.uniform(0, 1)
+    r3 = 1 - r1 - r2
+
+    # Calculate the point using barycentric coordinates
+    x = r1 * v1[0] + r2 * v2[0] + r3 * v3[0]
+    y = r1 * v1[1] + r2 * v2[1] + r3 * v3[1]
+    z = r1 * v1[2] + r2 * v2[2] + r3 * v3[2]
+    return [x, y, z]
 
 # NOTE: hard-coded for now, should make it more general in the future
 def get_handle_pos(simulator, obj_name, return_median=True):
@@ -470,6 +484,29 @@ def get_handle_pos(simulator, obj_name, return_median=True):
             handle_obj_path = f"{parent_dir}/parts_render/{handle_id}handle.obj" # NOTE: this path should be dependent on the object. 
             handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
             handle_pts = handle_pts * scaling
+
+            # add more dense points around handle
+            added_points = []
+            for f in handle_faces:
+                v1,v2,v3 = f
+                v1 = handle_pts[v1-1]
+                v2 = handle_pts[v2-1]
+                v3 = handle_pts[v3-1]
+                a = np.linalg.norm(v1-v2)
+                b = np.linalg.norm(v2-v3)
+                c = np.linalg.norm(v3-v1)
+                s = (a+b+c) / 2
+                surface = np.sqrt(s*(s-a)*(s-b)*(s-c))
+                num_points = surface * 1e6
+                num_points = int(num_points)
+                num_points = np.clip(num_points, 0, 5)
+                added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
+
+            if added_points != []:
+                added_points = np.array(added_points)
+                handle_pts = np.concatenate((handle_pts, added_points), axis=0)
+
+            
             # transform this to the world frame using the object *base*'s position and orientation
             handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
             if return_median:

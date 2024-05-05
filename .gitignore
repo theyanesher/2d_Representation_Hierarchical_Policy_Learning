@@ -15,3 +15,6 @@ video/
 video_rl_game/
 .hydra/
 .vscode/
+local_exps/
+3d_diffusion_policy/dp3_data/
+local_gifs/
