@@ -508,7 +508,7 @@ class SimpleEnv(gym.Env):
                 table_xy_range = self.table_bbox_max[:2] - self.table_bbox_min[:2]
                 obj_x = self.table_bbox_min[0] + pos[0] * table_xy_range[0]
                 obj_y = self.table_bbox_min[1] + pos[1] * table_xy_range[1]
-                obj_z = self.table_height
+                obj_z = self.table_height + pos[2]
                 load_pos = [obj_x, obj_y, obj_z]
             id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
 
