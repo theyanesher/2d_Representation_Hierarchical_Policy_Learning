@@ -809,17 +809,17 @@ class SimpleEnv(gym.Env):
                 p.resetJointState(obj_id, articulated_init_joint_angles[name]["set_joint_angle_joint_id"], 
                               articulated_init_joint_angles[name]['set_joint_angle_joint_angle'], physicsClientId=self.id)
 
-    def reset(self, reset_state=None, open_gripper_at_reset=False):
+    def reset(self, reset_state=None, object_name='microwave', open_gripper_at_reset=False):
         self.set_scene(reset_state)
             
         self.time_step = 0
         self.success = False
-        
-        num_links = p.getNumJoints(self.urdf_ids['storagefurniture'], physicsClientId=self.id)
+        object_name = object_name.lower()
+        num_links = p.getNumJoints(self.urdf_ids[object_name], physicsClientId=self.id)
         for l_id in range(num_links):
-            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, lateralFriction=1, physicsClientId=self.id)
-            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, rollingFriction=1, physicsClientId=self.id)
-            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, spinningFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, lateralFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, rollingFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, spinningFriction=1, physicsClientId=self.id)
 
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], lateralFriction=1, physicsClientId=self.id)
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], lateralFriction=1, physicsClientId=self.id)
@@ -1167,7 +1167,7 @@ class SimpleEnv(gym.Env):
 
     def _get_info(self):
         # TODO: this should be implemented by GPT
-        object_name = 'storagefurniture'
+        object_name = 'microwave'
         if self.handle_joint is None:
             all_handle_pos, handle_joint_id = get_handle_pos(self, object_name, return_median=False)
             handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)

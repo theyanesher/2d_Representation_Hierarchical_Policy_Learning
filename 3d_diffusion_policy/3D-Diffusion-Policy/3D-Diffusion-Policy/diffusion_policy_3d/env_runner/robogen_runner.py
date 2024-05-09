@@ -62,14 +62,16 @@ class RoboGenRunner(BaseRunner):
         after_reaching_init_state_files = []
         init_state_files = []
         config_files = []
-        experiment_folder = "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle".format(os.environ['PROJECT_DIR'])
+        # experiment_folder = "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle".format(os.environ['PROJECT_DIR'])
+        experiment_folder = "{}/data/temp/open_microwave_Microwave_7310_2024-05-05-18-28-58/task_open_microwave".format(os.environ['PROJECT_DIR'])
         experiment_name = self.experiment_name
         experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
         all_experiments = os.listdir(experiment_path)
         all_experiments = sorted(all_experiments)
 
         for experiment in all_experiments:
-            first_step_folder = "grasp_the_door_handle_primitive"
+            # first_step_folder = "grasp_the_door_handle_primitive"
+            first_step_folder = "grasp_the_microwave_door_primitive"
             first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
             if os.path.exists(os.path.join(first_step_folder, "label.json")):
                 with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
@@ -110,8 +112,10 @@ class RoboGenRunner(BaseRunner):
         env, _ = build_up_env(
             # "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/open_the_door_of_the_storagefurniture_by_its_handle_The_robot_arm_will_open_the_door_of_the_storage_furniture_by_manipulating_its_handle_{}.yaml".format(os.environ['PROJECT_DIR'], idx),
             self.config_files[idx],
-            "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "grasp_the_door_handle",
+            # "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            # "grasp_the_door_handle",
+            "data/temp/open_microwave_Microwave_7310_2024-05-05-18-28-58/task_open_microwave",
+            "grasp_the_microwave_door",
             self.init_state_files[idx] if not self.start_after_reaching else self.after_reaching_init_state_files[idx],
             render=False, 
             randomize=False,
@@ -120,7 +124,7 @@ class RoboGenRunner(BaseRunner):
         )
         
         env.reset()
-        object_name = "StorageFurniture"
+        object_name = "Microwave"
         pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=self.in_gripper_frame, 
                                                   gripper_num_points=self.gripper_num_points, add_contact=self.add_contact)
         env = MultiStepWrapper(pointcloud_env, n_obs_steps=self.n_obs_steps, n_action_steps=self.n_action_steps, 

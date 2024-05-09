@@ -8,6 +8,7 @@ import os
 from scipy import ndimage
 import json
 import random
+import matplotlib.pyplot as plt
 
 def compute_obj_to_center_dist(simulator, obj_a, obj_b):
     obj_a_center = get_position(simulator, obj_a)
@@ -258,24 +259,23 @@ def render_to_get_link_com(simulator, object_name, urdf_link_name):
     p.changeVisualShape(obj_id, link_id, rgbaColor=[0, 0, 0, 0], physicsClientId=simulator.id)
 
     ### get a round of images of the target object with link invisiable
-    rgbs_link_invisiable, _ = take_round_images(
+    rgbs_link_invisiable, depths_link_invisible, _, _ = take_round_images(
         simulator, camera_target, distance, elevation,
         camera_width=camera_width, camera_height=camera_height, 
-        z_near=0.01, z_far=10,
+        z_near=0.01, z_far=10, return_camera_matrices=True
     )
 
     ### use subtraction to get the link mask
     max_num_diff_pixels = 0
     best_idx = 0
-    for idx, (rgb, rgb_link_invisiable) in enumerate(zip(rgbs, rgbs_link_invisiable)):
-        diff_image = np.abs(rgb - rgb_link_invisiable)
+    for idx, (depth, depth_) in enumerate(zip(depths, depths_link_invisible)):
+        diff_image = np.abs(depth - depth_)
         diff_pixels = np.sum(diff_image > 0)
         if diff_pixels > max_num_diff_pixels:
             max_num_diff_pixels = diff_pixels
             best_idx = idx
-
-    best_mask = np.abs(rgbs[best_idx] - rgbs_link_invisiable[best_idx]) > 0
-    best_mask = np.any(best_mask, axis=2)
+    best_mask = np.abs(depths[best_idx] - depths_link_invisible[best_idx]) > 0
+    # best_mask = np.any(best_mask)
 
 
     ### get the link mask center
@@ -486,25 +486,25 @@ def get_handle_pos(simulator, obj_name, return_median=True):
             handle_pts = handle_pts * scaling
 
             # add more dense points around handle
-            added_points = []
-            for f in handle_faces:
-                v1,v2,v3 = f
-                v1 = handle_pts[v1-1]
-                v2 = handle_pts[v2-1]
-                v3 = handle_pts[v3-1]
-                a = np.linalg.norm(v1-v2)
-                b = np.linalg.norm(v2-v3)
-                c = np.linalg.norm(v3-v1)
-                s = (a+b+c) / 2
-                surface = np.sqrt(s*(s-a)*(s-b)*(s-c))
-                num_points = surface * 1e6
-                num_points = int(num_points)
-                num_points = np.clip(num_points, 0, 5)
-                added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
+            # added_points = []
+            # for f in handle_faces:
+            #     v1,v2,v3 = f
+            #     v1 = handle_pts[v1-1]
+            #     v2 = handle_pts[v2-1]
+            #     v3 = handle_pts[v3-1]
+            #     a = np.linalg.norm(v1-v2)
+            #     b = np.linalg.norm(v2-v3)
+            #     c = np.linalg.norm(v3-v1)
+            #     s = (a+b+c) / 2
+            #     surface = np.sqrt(s*(s-a)*(s-b)*(s-c))
+            #     num_points = surface * 1e6
+            #     num_points = int(num_points)
+            #     num_points = np.clip(num_points, 0, 5)
+            #     added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
 
-            if added_points != []:
-                added_points = np.array(added_points)
-                handle_pts = np.concatenate((handle_pts, added_points), axis=0)
+            # if added_points != []:
+            #     added_points = np.array(added_points)
+            #     handle_pts = np.concatenate((handle_pts, added_points), axis=0)
 
             
             # transform this to the world frame using the object *base*'s position and orientation

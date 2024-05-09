@@ -1,4 +1,4 @@
 # python manipulation/old_test_opening_primitve.py
-python 3d_diffusion_policy/extract_data_from_states_new.py --folder_name data/temp/ --object_name storagefurniture --save_path data/dp3_demo/0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo --exp_name 0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo
+python 3d_diffusion_policy/extract_data_from_states_new.py --folder_name data/temp/ --object_name microwave --save_path data/dp3_demo/0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo --exp_name 0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 python train.py --config-name=dp3.yaml task=robogen_open_door exp_name=0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo eval_first=0  task.dataset.zarr_path="${PROJECT_DIR}/data/dp3_demo/0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo/" task.env_runner.experiment_name=0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo

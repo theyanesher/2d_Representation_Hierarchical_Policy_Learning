@@ -224,6 +224,7 @@ if __name__ == "__main__":
     parser.add_argument('--object', type=str, default="Box")
     parser.add_argument('--object_path', type=str, default="100426")
     parser.add_argument('--random_initialization', action='store_true')
+    parser.add_argument('--meta_path', type=str, default='generated_task_from_description')
     args = parser.parse_args()
     
     temperature_dict = {
@@ -242,7 +243,7 @@ if __name__ == "__main__":
         "spatial_relationship": "gpt-4",
     }
 
-    meta_path = "generated_task_from_description"
+    meta_path = args.meta_path
     print("all possible objects in the PartNet Mobility dataset: ", partnet_mobility_dict.keys())
     assert args.object in partnet_mobility_dict.keys(), "You should use articulated objects in the PartNet Mobility dataset."
     if args.object_path is None:

@@ -46,7 +46,7 @@ def get_all_test_configs():
                 obj['solution_path'] = obj['solution_path'].replace("data/sac_storagefurniture/", "data/temp/")
         for obj in new_config:
             if 'center' in obj:
-                obj['center'] = "[0.7, 0, 0]"
+                obj['center'] = "[0.5, 0.5, 0]"
             
         with open(config_path, "w") as f:
             yaml.dump(new_config, f)    
@@ -93,7 +93,7 @@ try_times_max = 100
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
-        object_name = "StorageFurniture"
+        object_name = "Microwave"
         os.system(f"python manipulation/scripts/extract_handle_mesh.py --category {object_name} --obj_id {obj_id}")
         
         # config_path, solution_path = generate_from_task_name(
@@ -137,14 +137,22 @@ for try_idx in range(try_times_min, try_times_max):
         config_variant_paths = os.path.join("/".join(config_path.split("/")[:-1]), "configs")
         new_config_path = os.path.join(config_variant_paths, f"config_{try_idx}.yaml")
         base_config = yaml.safe_load(open(config_path, "r"))
-        task_name = "grasp_the_door_handle"
+        task_name = "grasp_the_microwave_door"
         env, _ = build_up_env(config_path, solution_path, task_name, None, 
                             render=False)
         env.reset()
+
+        on_table = False
+        for config_dict in base_config:
+            if 'use_table' in config_dict:
+                on_table = config_dict['use_table']
+        print("use table", on_table)
+        
+        if on_table:
+            table_bbox_min, table_bbox_max = env.table_bbox_min, env.table_bbox_max
         
         
-        
-        object_name = 'storagefurniture'
+        object_name = 'microwave'
         all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
         handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
         link_name = "link_0"
@@ -189,22 +197,32 @@ for try_idx in range(try_times_min, try_times_max):
                 env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
                 for _ in range(5):
                     p.stepSimulation()
-                    
+                
                 contact_points = p.getContactPoints(env.robot.id, object_id, physicsClientId=env.id)
                 if len(contact_points) > 0:
                     print("fail due to contact")
                     continue
                 
                 robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
-                distance = np.linalg.norm(handle_pos - robot_eef_pos)
+                distance = np.linalg.norm(np.mean(handle_pos, axis=0) - robot_eef_pos)
+                print("distance", distance)
+                # import pdb; pdb.set_trace()
                 if distance < 0.7 and distance > 0.2:
                     good_config = True
                     break
             
         new_config = copy.deepcopy(base_config)
+
+        
         for config_dict in new_config:
             if 'center' in config_dict:
-                new_pos = [new_pos[0], new_pos[1], 0]
+                if on_table:
+                    table_xy_range = table_bbox_max[:2] - table_bbox_min[:2]
+                    obj_x = (new_pos[0] - table_bbox_min[0]) / table_xy_range[0]
+                    obj_y = (new_pos[1] - table_bbox_min[1]) / table_xy_range[1]
+                    new_pos = [obj_x, obj_y, 0]
+                else:
+                    new_pos = [new_pos[0], new_pos[1], 0]
                 config_dict['center'] = str(tuple(new_pos))
                 config_dict['orientation'] = str(tuple(new_orient))
                 config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
