@@ -33,6 +33,7 @@ env_runner:
   start_after_reaching: 0
   add_contact: 0
   experiment_name: null
+  experiment_folder: null
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset

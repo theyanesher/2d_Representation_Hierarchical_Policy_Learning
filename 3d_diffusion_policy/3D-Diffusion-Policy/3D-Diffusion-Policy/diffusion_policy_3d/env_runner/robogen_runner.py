@@ -12,6 +12,7 @@ from termcolor import cprint
 from manipulation.utils import build_up_env, save_numpy_as_gif
 from manipulation.robogen_wrapper import RobogenPointCloudWrapper
 import os, json
+import yaml
 
 class RoboGenRunner(BaseRunner):
     def __init__(self,
@@ -31,6 +32,7 @@ class RoboGenRunner(BaseRunner):
                  add_contact=0,
                  start_after_reaching=0,
                  experiment_name="vary_robot_init_joint_near_handle_perturbed_open_per_angle_direct_grasp",
+                 experiment_folder = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
                  ):
         super().__init__(output_dir)
         self.task_name = task_name
@@ -62,26 +64,41 @@ class RoboGenRunner(BaseRunner):
         after_reaching_init_state_files = []
         init_state_files = []
         config_files = []
-        experiment_folder = "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle".format(os.environ['PROJECT_DIR'])
+        experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
         experiment_name = self.experiment_name
         experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
         all_experiments = os.listdir(experiment_path)
         all_experiments = sorted(all_experiments)
 
+
+
+        all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
+        with open(all_substeps_path, "r") as f:
+            substeps = f.readlines()
+            first_step = substeps[0].lstrip().rstrip()
+        
+
         for experiment in all_experiments:
-            first_step_folder = "grasp_the_door_handle_primitive"
+            first_step_folder = first_step.replace(" ", "_") + "_primitive"
             first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
             if os.path.exists(os.path.join(first_step_folder, "label.json")):
                 with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
                     label = json.load(f)
                 if not label['good_traj']: continue
                 
+            first_stage_states_path = os.path.join(first_step_folder, "states")
+            expert_states = os.listdir(first_stage_states_path)
+            if len(expert_states) == 0:
+                continue
+                
             expert_opened_angle_file = os.path.join(experiment_path, experiment, first_step_folder, "opened_angle.txt")
             if os.path.exists(expert_opened_angle_file):
                 with open(expert_opened_angle_file, "r") as f:
-                    expert_opened_angle = f.readlines()
-                    expert_opened_angle = float(expert_opened_angle[0].lstrip().rstrip())
-                if expert_opened_angle < 0.5:
+                    angles = f.readlines()
+                    opened_angle = float(angles[0].lstrip().rstrip())
+                    max_angle = float(angles[-1].lstrip().rstrip())
+                    ratio = opened_angle / max_angle
+                if ratio < 0.5:
                     continue
             
             first_stage_states_path = os.path.join(first_step_folder, "states")
@@ -106,12 +123,19 @@ class RoboGenRunner(BaseRunner):
 
     def build_env(self, idx):
         # TODO: change to the test configs, which should probably be passed in here. 
+        config_file = self.config_files[idx]
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+        solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
+        all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
+        with open(all_substeps_path, "r") as f:
+            substeps = f.readlines()
+            first_step = substeps[0].lstrip().rstrip()
         
         env, _ = build_up_env(
-            # "{}/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/open_the_door_of_the_storagefurniture_by_its_handle_The_robot_arm_will_open_the_door_of_the_storage_furniture_by_manipulating_its_handle_{}.yaml".format(os.environ['PROJECT_DIR'], idx),
             self.config_files[idx],
-            "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "grasp_the_door_handle",
+            solution_path,
+            first_step.replace(" ", "_"),
             self.init_state_files[idx] if not self.start_after_reaching else self.after_reaching_init_state_files[idx],
             render=False, 
             randomize=False,
