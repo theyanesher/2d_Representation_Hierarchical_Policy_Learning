@@ -89,7 +89,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
             cprint(f"try_idx: {try_idx}, ik failed", "red")
             continue
         
-        for planner in ["RRTConnect", "RRTstar", "BITstar", "ABITstar"]:
+        for planner in ["RRTstar", "BITstar", "ABITstar"]:
             pb_ompl_interface.set_planner(planner)
             # then plan using ompl
             target_joint_angle = target_joint_angle[env.robot.right_arm_joint_indices]    
@@ -111,11 +111,15 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                 cprint(f"try_idx: {try_idx}, planner: {planner}, translation length: {translation_length}, rotation length: {rotation_length}", "red")
     
     if len(paths) == 0:
-        return None, None, None
+        return None, None, None, None
     
     ompl_robot.set_state(current_joint_angles)    
-    # total_lengths = np.array(path_translation_lengths) + np.array(path_rotation_lengths)
-    best_idx = np.argmin(path_translation_lengths)
+    rank_translation = np.argsort(path_translation_lengths)
+    rank_rotation = np.argsort(path_rotation_lengths)
+    total_rank = rank_translation + rank_rotation
+    best_idx = np.argmin(total_rank)
+
+    # best_idx = np.argmin(path_translation_lengths)
     path = paths[best_idx]
         
     if save_path is not None:
@@ -124,7 +128,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
         with open(os.path.join(save_path, "current_joint_angle.pkl"), "wb") as f:
             pickle.dump(current_joint_angles, f)
 
-    return res, path, path_translation_lengths[best_idx]
+    return res, path, path_translation_lengths[best_idx], path_rotation_lengths[best_idx]
 
 def get_path_length(env, path):
     cur_pos, cur_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
@@ -134,7 +138,10 @@ def get_path_length(env, path):
         env.robot.set_joint_angles(env.robot.right_arm_joint_indices, q)
         pos, orient = env.robot.get_pos_orient(env.robot.right_end_effector)
         length_pos += np.linalg.norm(pos - cur_pos)
-        length_orient += np.arccos(2 * np.dot(orient, cur_orient)**2 - 1)
+        
+        temp = 2 * np.dot(orient, cur_orient)**2 - 1
+        temp = np.clip(temp, -1, 1)
+        length_orient += np.arccos(temp)
         cur_pos, cur_orient = pos, orient
     return length_pos, length_orient
     

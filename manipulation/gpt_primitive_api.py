@@ -352,7 +352,8 @@ def approach_object_link_parallel(simulator, object_name, link_name):
     all_traj_states = [x[2] for x in results]
     all_traj_rgbs = [x[3] for x in results]
     all_stage_lengths = [x[4] for x in results]
-    all_motion_planning_path_lengths = [x[5] for x in results]
+    all_motion_planning_path_translation_lengths = [x[5] for x in results]
+    all_motion_planning_path_rotation_lengths = [x[6] for x in results]
 
 
     if len(door_opened_scores) > 0 and np.max(door_opened_scores) > 0.1:
@@ -362,12 +363,14 @@ def approach_object_link_parallel(simulator, object_name, link_name):
         else:
             # TODO: optimize orientation length as well. 
             best_rank = 100000
-            path_length_rank = np.argsort(all_motion_planning_path_lengths)
+            path_translation_length_rank = np.argsort(all_motion_planning_path_translation_lengths)
+            path_rotation_length_rank = np.argsort(all_motion_planning_path_rotation_lengths)
             grasping_score_rank = np.argsort(-np.array(grasp_scores))
             for idx, score in enumerate(door_opened_scores):
-                if score > 0.8 and path_length_rank[idx] + grasping_score_rank[idx] < best_rank:
+                if score > 0.8 and path_translation_length_rank[idx] + path_rotation_length_rank[idx] + \
+                        grasping_score_rank[idx] < best_rank:
                     best_idx = idx
-                    best_rank = path_length_rank[idx] + grasping_score_rank[idx]
+                    best_rank = path_translation_length_rank[idx] + path_rotation_length_rank[idx] + grasping_score_rank[idx]
             # total_rank = path_length_rank + grasping_score_rank
             # best_idx = np.argmin(total_rank)
             
@@ -582,7 +585,7 @@ def parallel_motion_planning(args):
     translation_steps = int(translation_length / 0.004) + 1
     rotation_steps = int(rotation_length / 1.8) + 1
     interpolation_steps = max(translation_steps, rotation_steps)
-    res, path, path_length = motion_planning(
+    res, path, path_translation_length, path_rotation_length = motion_planning(
         simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path, 
         smooth_path=True, interpolation_num=interpolation_steps)
             
@@ -628,9 +631,9 @@ def parallel_motion_planning(args):
         stage_length['open_door'] = len(open_door_states)
 
         cprint(f"final joint angle: {final_joint_angle}", "green")
-        return final_joint_angle, score, intermediate_states, rgbs, stage_length, path_length
+        return final_joint_angle, score, intermediate_states, rgbs, stage_length, path_translation_length, path_rotation_length
         
-    return -1, -1, [], [], {}, np.inf
+    return -1, -1, [], [], {}, np.inf, np.inf
 
 def open_gripper(simulator):
     intermediate_states = []
