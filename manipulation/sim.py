@@ -921,7 +921,6 @@ class SimpleEnv(gym.Env):
             finger_joint_angle = action[6]
             original_joint_angles = agent.get_joint_angles(agent.all_joint_indices)
 
-            ik_joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
             ik_indices = [_ for _ in range(len(agent.right_arm_ik_indices))]
             
             pos = translation
@@ -930,50 +929,72 @@ class SimpleEnv(gym.Env):
             # trying to use ikpy
             # agent.ik_ikpy_franka(pos, orient, ik_indices)
             # trying to use tracik
-            beg = time.time()
-            agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
-            end  = time.time()
-            # cprint("IK time: {}".format(end - beg), "green")
-            if not ik_success:
-                # cprint("tracIK failed, maintain current joint angle", "red")
-                agent_joint_angles = original_joint_angles
+            # agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
+            tracIK_solutions = agent.ik_tracik_franka(pos, orient, ik_indices)
+            # if not ik_success:
+            #     cprint("tracIK failed, maintain current joint angle", "red")
+            #     agent_joint_angles = original_joint_angles
             
-            agent_joint_angles = agent_joint_angles[ik_indices]
+            bullet_solutions = []
+            old_state = save_env(self)
+            ik_indices = [_ for _ in range(len(self.robot.right_arm_joint_indices))]
+            for try_idx in range(25):
+                if try_idx > 0: 
+                    new_joint_angles = original_joint_angles[ik_indices] + np.random.uniform(-0.3, 0.3, size=len(ik_indices))
+                    self.robot.set_joint_angles(ik_indices, new_joint_angles)
+
+                ik_joint_angles = self.robot.ik(self.robot.right_end_effector, 
+                                                pos, orient, 
+                                                ik_indices=ik_indices, 
+                                            max_iterations=10000, residualThreshold=1e-4)
+                if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
+                    bullet_solutions.append(ik_joint_angles)
+
+            load_env(self, state = old_state)
+            all_possible_solutions = tracIK_solutions + bullet_solutions
+            if len(all_possible_solutions) > 0:
+                all_possible_solutions = np.array(all_possible_solutions).reshape(-1, len(ik_indices))
+                distance_to_cur_angle = np.linalg.norm(all_possible_solutions - original_joint_angles[ik_indices].reshape(1, -1), axis=1)
+                min_idx = np.argmin(distance_to_cur_angle)
+                min_joint_distance = distance_to_cur_angle[min_idx]
+                best_joint_angles = all_possible_solutions[min_idx]
+                agent_joint_angles = best_joint_angles
+                ik_success = min_joint_distance < 0.2
+            else:
+                ik_success = False
+            
+            # agent_joint_angles = agent_joint_angles[ik_indices]
             it = 0
-            
-            # # new way of controlling a fixed time steps
-            # for control_t in range(self.control_step):
-            #     agent.control(agent.controllable_joint_indices, agent_joint_angles)
-            #     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
-            #     p.stepSimulation(physicsClientId=self.id)
-            
             # old way of control till reach
             # control_total = 50 # previously it was 50
-            control_total = 50
-            save_img_interval = 0
-            beg = time.time()
-            while True:
-                agent.control(agent.controllable_joint_indices, agent_joint_angles)
-                cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
-                if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 1e-4:
-                    break
+            if ik_success:
+                control_total = 50
+                save_img_interval = 0
+                # gripper
+                for _ in range(2):
+                    if not self.use_suction:
+                        agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
+                    p.stepSimulation(physicsClientId=self.id) 
+                    
+                while True:
+                    agent.control(agent.controllable_joint_indices, agent_joint_angles)
+                    cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+                    if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 1e-4:
+                        break
 
-                if save_img_interval > 0 and it % save_img_interval == 0:
-                    rgb = self.render()
-                    self.control_rgbs.append(rgb)
+                    if save_img_interval > 0 and it % save_img_interval == 0:
+                        rgb = self.render()
+                        self.control_rgbs.append(rgb)
 
-                if it > control_total:
-                    # cprint("++++control total steps reached++++", "red")
-                    break
+                    if it > control_total:
+                        # cprint("++++control total steps reached++++", "red")
+                        break
+                    
+                    it += 1
+                    p.stepSimulation(physicsClientId=self.id) 
+                    
                 
-                it += 1
-                p.stepSimulation(physicsClientId=self.id) 
-                
-            # gripper
-            for _ in range(2):
-                if not self.use_suction:
-                    agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
-            end = time.time()
+                end = time.time()
             # cprint("control time: {}".format(end - beg), "red")
                 
     def get_control_rgbs(self):

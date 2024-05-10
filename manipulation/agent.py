@@ -221,12 +221,12 @@ class Agent:
         target_eef[:3, :3] = target_orient
         target_eef[:3, 3] = target_pos
 
-        joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=original_joint_angles)
-        if joint_angles is None:
-            # cprint('with current joint angle as init, tracIK failed' , 'red')
-            pass
-        else:
-            return joint_angles, True
+        # joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=original_joint_angles)
+        # if joint_angles is None:
+        #     # cprint('with current joint angle as init, tracIK failed' , 'red')
+        #     pass
+        # else:
+        #     return joint_angles, True
 
         solutions = []
         ik_lower_limits = self.ik_lower_limits 
@@ -235,16 +235,27 @@ class Agent:
         ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
         ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
             
-        for try_time in range(5): # try 100 times
+        import time
+        beg = time.time()
+        for try_time in range(25): # try 100 times
             # TODO: sample different init joint angles
-            ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
+            if try_time == 0:
+                ik_start_pose = original_joint_angles
+            else:
+                ik_start_pose = original_joint_angles + np.random.uniform(-0.3, 0.3, len(original_joint_angles))
             joint_angles = self.franka_tracik_solver.ik(target_eef, qinit=ik_start_pose[self.right_arm_joint_indices])
             if joint_angles is not None:
                 solutions.append(joint_angles)
+            if try_time == 0 and joint_angles is None:
+                return []
+        end = time.time()
+        
+        # cprint("IK time: {}".format(end - beg), "blue")
+        return solutions        
 
         if len(solutions) == 0:
             # cprint('After 100 tries, tracIK failed', 'red')
-            return None, False
+            return solutions, False
         
         solution_np = np.array(solutions)
         distances = np.linalg.norm(solution_np - original_joint_angles, axis=1)
