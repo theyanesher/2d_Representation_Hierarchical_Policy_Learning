@@ -132,9 +132,11 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         opened_angle_file = os.path.join(experiment_path, first_step_folder, "opened_angle.txt")
         if os.path.exists(opened_angle_file): # for some perturbed trajectories, we did not really continue openeing the handle. 
             with open(opened_angle_file, "r") as f:
-                opened_angle = f.readlines()
-                opened_angle = float(opened_angle[0].lstrip().rstrip())
-            if opened_angle < 0.5:
+                angles = f.readlines()
+                opened_angle = float(angles[0].lstrip().rstrip())
+                max_angle = float(angles[-1].lstrip().rstrip())
+                ratio = opened_angle / max_angle
+            if ratio < 0.5:
                 continue
 
         if os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
@@ -231,7 +233,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     all_action_list = []
     last_state_indices = []
     total_count = 0
-    for task_path in task_paths[:args.num_task]:
+    for task_path in task_paths[args.task_beg_idx:args.task_end_idx]:
         files_and_folders = os.listdir(os.path.join(dirtory_path, task_path))
         solution_path, task_config_path = None, None
         for file_or_folder in files_and_folders:
@@ -520,7 +522,8 @@ if __name__ == "__main__":
     args.add_argument("--folder_name", type=str, required=True)
     args.add_argument("--generate", type=bool, default=True)
     args.add_argument("--parallel", type=int, default=1)
-    args.add_argument("--num_task", type=int, default=1)
+    args.add_argument("--task_beg_idx", type=int, default=0)
+    args.add_argument("--task_end_idx", type=int, default=1)
     args.add_argument("--num_experiment", type=int, default=10000)
     args.add_argument("--num_worker", type=int, default=80)
     args = args.parse_args()
