@@ -119,7 +119,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
     total_rank = rank_translation + rank_rotation
     best_idx = np.argmin(total_rank)
 
-    # best_idx = np.argmin(path_translation_lengths)
+    best_idx = np.argmin(path_translation_lengths)
     path = paths[best_idx]
         
     if save_path is not None:

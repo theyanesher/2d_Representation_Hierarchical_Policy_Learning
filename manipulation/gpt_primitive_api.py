@@ -367,10 +367,11 @@ def approach_object_link_parallel(simulator, object_name, link_name):
             path_rotation_length_rank = np.argsort(all_motion_planning_path_rotation_lengths)
             grasping_score_rank = np.argsort(-np.array(grasp_scores))
             for idx, score in enumerate(door_opened_scores):
-                if score > 0.8 and path_translation_length_rank[idx] + path_rotation_length_rank[idx] + \
-                        grasping_score_rank[idx] < best_rank:
+                # if score > 0.8 and path_translation_length_rank[idx] + path_rotation_length_rank[idx] + grasping_score_rank[idx] < best_rank:
+                if score > 0.8 and path_translation_length_rank[idx] + grasping_score_rank[idx] < best_rank:
                     best_idx = idx
-                    best_rank = path_translation_length_rank[idx] + path_rotation_length_rank[idx] + grasping_score_rank[idx]
+                    # best_rank = path_translation_length_rank[idx] + path_rotation_length_rank[idx] + grasping_score_rank[idx]
+                    best_rank = path_translation_length_rank[idx] + grasping_score_rank[idx]
             # total_rank = path_length_rank + grasping_score_rank
             # best_idx = np.argmin(total_rank)
             
@@ -515,10 +516,11 @@ def open_door(simulator, object_name, link_name, handle_joint_id):
     eef_poses = []
     timesteps = 100
     
+    ratio = 0.8
     cur_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
-    target = joint_limit[0] + 0.7 * (joint_limit[1] - joint_limit[0])
+    target = joint_limit[0] + ratio * (joint_limit[1] - joint_limit[0])
     cur_move_amount = target - cur_joint_angle
-    full_move_amount = 0.7 * (joint_limit[1] - joint_limit[0])
+    full_move_amount = ratio * (joint_limit[1] - joint_limit[0])
     timesteps = int(timesteps * np.abs(cur_move_amount) / full_move_amount)
     for t in range(1, timesteps):
         joint_angle = cur_joint_angle + (target - cur_joint_angle) * t / timesteps

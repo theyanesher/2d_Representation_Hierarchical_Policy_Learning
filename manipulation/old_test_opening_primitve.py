@@ -9,6 +9,8 @@ from manipulation.utils import build_up_env
 from manipulation.gpt_reward_api import get_handle_pos, get_link_pc
 import scipy
 import pybullet as p
+import argparse
+import json
 
 def get_folders_from_id(id):
     meta_path = "data/generated_task_from_description"
@@ -73,23 +75,32 @@ model_dict = {
 }
 
 
-all_time_costs = []
-handle_grasping_scores = []
-opened_angles = []
+parser = argparse.ArgumentParser()
+parser.add_argument("--exp_name", type=str, default="debug")
+parser.add_argument("--beg_idx", type=int, default=0)
+parser.add_argument("--end_idx", type=int, default=1)
+parser.add_argument("--near_distance", type=float, default=0.15)
+parser.add_argument("--far_distance", type=float, default=0.4)
+
+args = parser.parse_args()
 
 all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
-beg_idx = 0
-end_idx = 1
+beg_idx = args.beg_idx
+end_idx = args.end_idx
 all_config_paths = all_config_paths[beg_idx:end_idx]
 all_solution_paths = all_solution_paths[beg_idx:end_idx]
 reward_assets = reward_assets[beg_idx:end_idx]
 
-exp_name = "vary_robot_init_joint"
-exp_name = "vary_robot_init_joint_near_handle"
-exp_name = "0502-vary-obj-init-angle-robot-init-joint-near-handle-larger"
-exp_name = "0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
+# exp_name = "0502-vary-obj-init-angle-robot-init-joint-near-handle-larger"
+# exp_name = "0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
+# exp_name = "0505-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
+# exp_name = "0509-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo"
+args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+
+exp_name = args.exp_name
 try_times_min = 0
-try_times_max = 100
+try_times_max = 300
+
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
@@ -116,6 +127,13 @@ for try_idx in range(try_times_min, try_times_max):
         
         trained = False
         experiment_path = os.path.join(solution_path, "experiment", exp_name)
+        if not os.path.exists(experiment_path):
+            os.makedirs(experiment_path)
+            
+        meta_info_path = os.path.join(experiment_path, "meta_info.json")
+        with open(meta_info_path, "w") as f:
+            json.dump(args.__dict__, f, indent=4)
+        
         # if os.path.exists(experiment_path):
         #     all_experiments = os.listdir(experiment_path)
         #     all_experiments = sorted(all_experiments)
@@ -137,12 +155,14 @@ for try_idx in range(try_times_min, try_times_max):
         config_variant_paths = os.path.join("/".join(config_path.split("/")[:-1]), "configs")
         new_config_path = os.path.join(config_variant_paths, f"config_{try_idx}.yaml")
         base_config = yaml.safe_load(open(config_path, "r"))
-        task_name = "grasp_the_door_handle"
-        env, _ = build_up_env(config_path, solution_path, task_name, None, 
+        all_substeps_path = os.path.join(solution_path, "substeps.txt")
+        with open(all_substeps_path, "r") as f:
+            substeps = f.readlines()
+            first_step = substeps[0].lstrip().rstrip()
+        
+        env, _ = build_up_env(config_path, solution_path, first_step.replace(" ", "_"), None, 
                             render=False)
         env.reset()
-        
-        
         
         object_name = 'storagefurniture'
         all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
@@ -153,7 +173,7 @@ for try_idx in range(try_times_min, try_times_max):
         distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
         min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
         min_distance_handle_idx = np.argmin(min_distance)
-        handle_pos = all_handle_pos[min_distance_handle_idx]
+        handle_pos = handle_median_points[min_distance_handle_idx]
         handle_joint_id = handle_joint_id[min_distance_handle_idx]
 
         initial_joint_angles = [0 for _ in range(7)]
@@ -197,7 +217,10 @@ for try_idx in range(try_times_min, try_times_max):
                 
                 robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
                 distance = np.linalg.norm(handle_pos - robot_eef_pos)
-                if distance < 0.7 and distance > 0.2:
+                print("dsitance: ", distance)
+                print("eef pos: ", robot_eef_pos)
+                print("handle pos: ", handle_pos)
+                if distance < args.far_distance and distance > args.near_distance:
                     good_config = True
                     break
             

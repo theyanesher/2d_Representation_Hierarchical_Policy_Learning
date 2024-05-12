@@ -87,6 +87,9 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
     store_experiment_label_paths = []
     all_traj_rgbs = []
     for experiment in tqdm.tqdm(all_experiments):
+        if "meta" in experiment:
+            continue
+        
         expert_states = []
         experiment_path = os.path.join(experiment_folder, experiment)
         cprint("Extracting data from experiment: " + experiment, "blue")
@@ -109,6 +112,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         first_stage_states = sort_states_file_by_file_number(first_stage_states_path)      
         expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
         if len(expert_states) == 0:
+            print("No states found for experiment continue")
             continue
         
         store_experiment_label_paths.append(os.path.join(experiment_path, first_step_folder))
@@ -116,6 +120,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         if os.path.exists(label_path):
             label = json.load(open(label_path, "r"))
             if label["good_traj"] == False:
+                print("Not good traj continue")
                 continue
             
         with open(stage_lengths, "r") as f:
@@ -136,10 +141,11 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
                 ratio = opened_angle / max_angle
-            if ratio < 0.5:
+            if not (ratio > 0.5 or opened_angle > 0.6):
+                print("not open enough, continue")
                 continue
 
-        if os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
+        if args.use_extracted and os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
             with open(os.path.join(experiment_path, first_step_folder, "extracted.pkl"), "rb") as f:
                 data = pickle.load(f)
                 if len(data) == 2:
@@ -290,6 +296,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 # if single step translation is too large, ignore this trajectory
                 if np.linalg.norm(single_step_delta_pos) > 0.02:
                     good_traj = False
+                    print("not good traj due to delta movement too large")
                     break
                 
                 delta_pos = np.array(target_pos) - np.array(base_pos)
@@ -319,9 +326,11 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 # if single step rotation is too large, ignore this trajectory
                 if np.abs(one_step_quaternion_diff) > 0.085:
                     good_traj = False
+                    print("not good due to delta quaternion too large")
                     break
                 if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
                     good_traj = False
+                    print("not good due to delta quaternion too large during opening door")
                     break
                 
                 # cur_finger_angle = pos_ori[i][9]
@@ -453,7 +462,10 @@ def save_data(pc_list, state_list, action_list, last_state_indices, save_dir):
     del zarr_root, zarr_data, zarr_meta
 
 def save_example_pointcloud(pc_list, save_dir):
-    idxes = np.random.choice(len(pc_list), 10)
+    if len(pc_list) > 10:
+        idxes = np.random.choice(len(pc_list), 10)
+    else:
+        idxes = range(len(pc_list))
     save_dir = os.path.join(save_dir, "example_pointcloud")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -493,7 +505,6 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     # with open(os.path.join(save_path, "raw_data.pkl"), "wb") as f:
     #     pickle.dump((pc_list, state_list, action_list, last_state_indices), f, protocol=pickle.HIGHEST_PROTOCOL)
 
-   
     save_data(pc_list, state_list, action_list, last_state_indices, save_path)
     save_example_pointcloud(pc_list, save_path)
 
@@ -526,6 +537,7 @@ if __name__ == "__main__":
     args.add_argument("--task_end_idx", type=int, default=1)
     args.add_argument("--num_experiment", type=int, default=10000)
     args.add_argument("--num_worker", type=int, default=80)
+    args.add_argument("--use_extracted", type=int, default=1)
     args = args.parse_args()
     
     set_start_method('spawn', force=True)
