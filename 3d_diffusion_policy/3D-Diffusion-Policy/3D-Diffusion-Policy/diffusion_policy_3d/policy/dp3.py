@@ -184,8 +184,8 @@ class DP3(BasePolicy):
         nobs = self.normalizer.normalize(obs_dict)
         # import pdb; pdb.set_trace()
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
-        if not self.use_pc_color:
-            nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        # if not self.use_pc_color:
+        #     nobs['point_cloud'] = nobs['point_cloud'][..., :3]
         this_n_point_cloud = nobs['point_cloud']
         
         
@@ -266,8 +266,8 @@ class DP3(BasePolicy):
 
         # import pdb; pdb.set_trace()
 
-        if not self.use_pc_color:
-            nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        # if not self.use_pc_color:
+        #     nobs['point_cloud'] = nobs['point_cloud'][..., :3]
         
         batch_size = nactions.shape[0]
         horizon = nactions.shape[1]

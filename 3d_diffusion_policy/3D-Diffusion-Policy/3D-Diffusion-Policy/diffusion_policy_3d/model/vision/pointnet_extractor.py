@@ -247,11 +247,11 @@ class DP3Encoder(nn.Module):
         self.use_pc_color = use_pc_color
         self.pointnet_type = pointnet_type
         if pointnet_type == "pointnet":
-            if use_pc_color:
-                pointcloud_encoder_cfg.in_channels = 6
+            if pointcloud_encoder_cfg.in_channels > 3:
+            #     pointcloud_encoder_cfg.in_channels = 6
                 self.extractor = PointNetEncoderXYZRGB(**pointcloud_encoder_cfg)
             else:
-                pointcloud_encoder_cfg.in_channels = 3
+            #     pointcloud_encoder_cfg.in_channels = 3
                 self.extractor = PointNetEncoderXYZ(**pointcloud_encoder_cfg)
         else:
             raise NotImplementedError(f"pointnet_type: {pointnet_type}")

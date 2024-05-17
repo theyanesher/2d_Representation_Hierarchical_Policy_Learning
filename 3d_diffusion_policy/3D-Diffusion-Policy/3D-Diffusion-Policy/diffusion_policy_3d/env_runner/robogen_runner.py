@@ -31,6 +31,10 @@ class RoboGenRunner(BaseRunner):
                  gripper_num_points=0,
                  add_contact=0,
                  start_after_reaching=0,
+                 use_joint_angle=False,
+                 num_point_in_pc=4500,
+                 use_segmask=False,
+                 only_handle_points=False,
                  experiment_name="vary_robot_init_joint_near_handle_perturbed_open_per_angle_direct_grasp",
                  experiment_folder = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
                  ):
@@ -47,6 +51,10 @@ class RoboGenRunner(BaseRunner):
         self.add_contact = add_contact
         self.start_after_reaching = start_after_reaching
         self.experiment_name = experiment_name
+        self.use_joint_angle = use_joint_angle
+        self.num_point_in_pc = num_point_in_pc
+        self.use_segmask = use_segmask
+        self.only_handle_points = only_handle_points
         
         self.eval_episodes = eval_episodes
         # self.env = env_fn()
@@ -79,6 +87,9 @@ class RoboGenRunner(BaseRunner):
         
 
         for experiment in all_experiments:
+            if "meta" in experiment:
+                continue
+            
             first_step_folder = first_step.replace(" ", "_") + "_primitive"
             first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
             if os.path.exists(os.path.join(first_step_folder, "label.json")):
@@ -98,7 +109,7 @@ class RoboGenRunner(BaseRunner):
                     opened_angle = float(angles[0].lstrip().rstrip())
                     max_angle = float(angles[-1].lstrip().rstrip())
                     ratio = opened_angle / max_angle
-                if ratio < 0.5:
+                if ratio < 0.65:
                     continue
             
             first_stage_states_path = os.path.join(first_step_folder, "states")
@@ -145,8 +156,15 @@ class RoboGenRunner(BaseRunner):
         
         env.reset()
         object_name = "StorageFurniture"
+        
         pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=self.in_gripper_frame, 
-                                                  gripper_num_points=self.gripper_num_points, add_contact=self.add_contact)
+                                                  gripper_num_points=self.gripper_num_points, add_contact=self.add_contact,
+                                                  num_points=self.num_point_in_pc,
+                                                  use_joint_angle=self.use_joint_angle, 
+                                                  use_segmask=self.use_segmask,
+                                                  only_handle_points=self.only_handle_points,
+                                                  )
+
         env = MultiStepWrapper(pointcloud_env, n_obs_steps=self.n_obs_steps, n_action_steps=self.n_action_steps, 
                         max_episode_steps=self.max_steps, reward_agg_method='sum')
         

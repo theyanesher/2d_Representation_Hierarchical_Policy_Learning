@@ -4,7 +4,8 @@ import numpy as np
 import torch
 from collections import defaultdict, deque
 import dill
-
+import time
+from termcolor import cprint
 
 def stack_repeated(x, n):
     return np.repeat(np.expand_dims(x,axis=0),n,axis=0)
@@ -147,7 +148,10 @@ class MultiStepWrapper(gym.Wrapper):
             # if a_idx != len(action) - 1:
             #     observation, reward, done, info = self.env.step(act, render=False, **kwrags)
             # else:
+            # beg = time.time()
             observation, reward, done, info = self.env.step(act, render=True, **kwrags)
+            # end = time.time()
+            # cprint(f"multistep wrapper Step time: {end - beg}", "yellow")
                 
             self.obs.append(observation)
             self.reward.append(reward)

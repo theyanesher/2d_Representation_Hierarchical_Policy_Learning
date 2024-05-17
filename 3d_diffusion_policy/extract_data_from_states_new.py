@@ -21,7 +21,7 @@ from multiprocessing import Pool
 
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact, \
-        state, object_name, num_point_in_pc, idx = args
+        state, object_name, num_point_in_pc, use_joint_angle, use_segmask, only_handle_points, idx = args
     
     # cprint("Extracting data from state idx " + str(idx), "blue")
     simulator, _ = build_up_env(
@@ -36,7 +36,8 @@ def parallel_render(args):
     
     simulator = RobogenPointCloudWrapper(simulator, 
         object_name, rpy_mean_list=rpy, seed=0, in_gripper_frame=in_gripper_frame, 
-        gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=num_point_in_pc)
+        gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=num_point_in_pc,
+        use_joint_angle=use_joint_angle, use_segmask=use_segmask, only_handle_points=only_handle_points)
     load_env(simulator._env, load_path=state)
     observation = simulator._get_observation()
     rgb = simulator._env.render()
@@ -119,7 +120,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         label_path = os.path.join(experiment_path, first_step_folder, "label.json")
         if os.path.exists(label_path):
             label = json.load(open(label_path, "r"))
-            if label["good_traj"] == False:
+            if not label["good_traj"]:
                 print("Not good traj continue")
                 continue
             
@@ -141,18 +142,23 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
                 ratio = opened_angle / max_angle
-            if not (ratio > 0.5 or opened_angle > 0.6):
+            if not (ratio > 0.65):
                 print("not open enough, continue")
                 continue
 
-        if args.use_extracted and os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
-            with open(os.path.join(experiment_path, first_step_folder, "extracted.pkl"), "rb") as f:
+        if args.use_extracted and os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(
+                args.use_joint_angle, args.use_segmask, args.only_handle_points))):
+            with open(os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(
+                args.use_joint_angle, args.use_segmask, args.only_handle_points)), "rb") as f:
+               
                 data = pickle.load(f)
                 if len(data) == 2:
                     pc_list, pos_ori_list = data
                     rgb_list = None
                 else:
                     pc_list, pos_ori_list, rgb_list = data
+                    
+                assert len(pc_list[0]) == args.pointcloud_num
                 
             if args.after_reaching:
                 pc_list = pc_list[reaching_phase:]
@@ -180,7 +186,8 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     )
                     simulator = RobogenPointCloudWrapper(simulator, 
                         object_name, rpy_mean_list=rpy, seed=0, in_gripper_frame=in_gripper_frame, 
-                        gripper_num_points=gripper_num_points, add_contact=add_contact)
+                        gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=args.pointcloud_num,
+                        use_joint_angle=args.use_joint_angle, use_segmask=args.use_segmask, only_handle_points=args.only_handle_points)
                     pc_list = []
                     pos_ori_list = []
                     for state in tqdm.tqdm(expert_states):
@@ -202,7 +209,8 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                         expert_states = expert_states[stage_lengths['open_gripper']:]
                     results = pool.map(parallel_render, 
                         [(task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact,
-                        expert_states[i], object_name, args.pointcloud_num, i) for i in range(len(expert_states))])
+                        expert_states[i], object_name, args.pointcloud_num, args.use_joint_angle, args.use_segmask, args.only_handle_points, \
+                            i) for i in range(len(expert_states))])
                     results = sorted(results, key=lambda x: x[-1])
                     # print([result[2] for result in results])
                     pc_list = [x[0] for x in results]        
@@ -216,8 +224,9 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         ret_pos_ori.append(pos_ori_list)
         all_traj_rgbs.append(rgb_list)
             
-        if not args.after_reaching and not args.after_opening and not os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted.pkl")):
-            with open(os.path.join(experiment_path, first_step_folder, "extracted.pkl"), "wb") as f:
+        if not args.after_reaching and not args.after_opening:
+            with open(os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(
+                    args.use_joint_angle, args.use_segmask, args.only_handle_points)), "wb") as f:
                 pickle.dump((pc_list, pos_ori_list, rgb_list), f, protocol=pickle.HIGHEST_PROTOCOL)
         
     return ret_pc, ret_pos_ori, all_traj_rgbs, stages, store_experiment_label_paths
@@ -265,9 +274,10 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
 
             traj_actions = []
             quaternion_diffs = []
-            base_pos = pos_ori[0][:3]
-            base_ori_6d = pos_ori[0][3:9]
-            base_finger_angle = pos_ori[0][9]
+            if not args.use_joint_angle:
+                base_pos = pos_ori[0][:3]
+                base_ori_6d = pos_ori[0][3:9]
+                base_finger_angle = pos_ori[0][9]
             
             open_door_start_idx = 0
             # NOTE: for open_door_per_angle_new.py the keys order are different
@@ -288,61 +298,66 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             base_pc = pc[0]
             base_pos_ori = pos_ori[0]
             for i in range(len(pos_ori) - 1):
-                cur_pos = pos_ori[i][:3]
-                target_pos = pos_ori[i+1][:3]
+                target_pos_ori = pos_ori[i+1]
 
-                single_step_delta_pos = np.array(target_pos) - np.array(cur_pos)
-                
-                # if single step translation is too large, ignore this trajectory
-                if np.linalg.norm(single_step_delta_pos) > 0.02:
-                    good_traj = False
-                    print("not good traj due to delta movement too large")
-                    break
-                
-                delta_pos = np.array(target_pos) - np.array(base_pos)
+                if not args.use_joint_angle:                
+                    cur_pos = pos_ori[i][:3]
+                    target_pos = pos_ori[i+1][:3]
 
-                cur_ori_6d = pos_ori[i][3:9]
-                
-                # change the delta_pos into gripper frame
-                if in_gripper_frame:
-                    cur_mat = rotation_transfer_6D_to_matrix(cur_ori_6d)
-                    delta_pos = cur_mat.T @ delta_pos                    
+                    single_step_delta_pos = np.array(target_pos) - np.array(cur_pos)
+                    
+                    # if single step translation is too large, ignore this trajectory
+                    if np.linalg.norm(single_step_delta_pos) > 0.02:
+                        good_traj = False
+                        print("not good traj due to delta movement too large")
+                        break
+                    
+                    delta_pos = np.array(target_pos) - np.array(base_pos)
 
-                target_ori_6d = pos_ori[i+1][3:9]
-                cur_ori_matrix = rotation_transfer_6D_to_matrix(cur_ori_6d)
-                base_ori_matrix = rotation_transfer_6D_to_matrix(base_ori_6d)
-                target_ori_matrix = rotation_transfer_6D_to_matrix(target_ori_6d)
+                    cur_ori_6d = pos_ori[i][3:9]
+                    
+                    # change the delta_pos into gripper frame
+                    if in_gripper_frame:
+                        cur_mat = rotation_transfer_6D_to_matrix(cur_ori_6d)
+                        delta_pos = cur_mat.T @ delta_pos                    
 
-                delta_ori_matrix = base_ori_matrix.T @ target_ori_matrix
-                delta_ori_6d = rotation_transfer_matrix_to_6D(delta_ori_matrix)
-                
-                cur_ori_quat =  R.from_matrix(cur_ori_matrix).as_quat()
-                base_ori_quat =  R.from_matrix(base_ori_matrix).as_quat()
-                target_ori_quat = R.from_matrix(target_ori_matrix).as_quat()
-                quat_diff = np.arccos(2 * np.dot(base_ori_quat, target_ori_quat)**2 - 1)
-                one_step_quaternion_diff = np.arccos(2 * np.dot(cur_ori_quat, target_ori_quat)**2 - 1)
-                quaternion_diffs.append(quat_diff)
-                
-                # if single step rotation is too large, ignore this trajectory
-                if np.abs(one_step_quaternion_diff) > 0.085:
-                    good_traj = False
-                    print("not good due to delta quaternion too large")
-                    break
-                if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
-                    good_traj = False
-                    print("not good due to delta quaternion too large during opening door")
-                    break
-                
-                # cur_finger_angle = pos_ori[i][9]
-                target_finger_angle = pos_ori[i+1][9]
+                    target_ori_6d = pos_ori[i+1][3:9]
+                    cur_ori_matrix = rotation_transfer_6D_to_matrix(cur_ori_6d)
+                    base_ori_matrix = rotation_transfer_6D_to_matrix(base_ori_6d)
+                    target_ori_matrix = rotation_transfer_6D_to_matrix(target_ori_6d)
 
-                # delta_finger_angle = target_finger_angle - cur_finger_angle
-                delta_finger_angle = target_finger_angle - base_finger_angle
-                # NOTE: the finger dimension only controls the open or close, and it will open/close by a fixed amount
-                # import pdb; pdb.set_trace()
-                if args.fixed_finger_movement:
-                    if i > after_contact_step_idx:
-                        delta_finger_angle = traj_actions[after_contact_step_idx - 1][-1]
+                    delta_ori_matrix = base_ori_matrix.T @ target_ori_matrix
+                    delta_ori_6d = rotation_transfer_matrix_to_6D(delta_ori_matrix)
+                    
+                    cur_ori_quat =  R.from_matrix(cur_ori_matrix).as_quat()
+                    base_ori_quat =  R.from_matrix(base_ori_matrix).as_quat()
+                    target_ori_quat = R.from_matrix(target_ori_matrix).as_quat()
+                    quat_diff = np.arccos(2 * np.dot(base_ori_quat, target_ori_quat)**2 - 1)
+                    one_step_quaternion_diff = np.arccos(2 * np.dot(cur_ori_quat, target_ori_quat)**2 - 1)
+                    quaternion_diffs.append(quat_diff)
+                    
+                    # if single step rotation is too large, ignore this trajectory
+                    if np.abs(one_step_quaternion_diff) > 0.085:
+                        good_traj = False
+                        print("not good due to delta quaternion too large")
+                        break
+                    if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
+                        good_traj = False
+                        print("not good due to delta quaternion too large during opening door")
+                        break
+                    
+                    # cur_finger_angle = pos_ori[i][9]
+                    target_finger_angle = pos_ori[i+1][9]
+
+                    # delta_finger_angle = target_finger_angle - cur_finger_angle
+                    delta_finger_angle = target_finger_angle - base_finger_angle
+                    if args.fixed_finger_movement:
+                        # NOTE: the finger dimension only controls the open or close, and it will open/close by a fixed amount
+                        if i > after_contact_step_idx:
+                            # print("after contact finger movement: ", delta_finger_angle)
+                            delta_finger_angle = -0.003
+                        else:
+                            # print("before contact finger movement: ", delta_finger_angle)
                 
                 filter_action = False
                 if args.filter_small_action: 
@@ -359,55 +374,70 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 if filter_action:
                     continue
                 else:
-                    action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
+                    if not args.use_joint_angle:
+                        action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
+                    else:
+                        # pos_ori is the normalized joint angle. Action is the delta change in normalized joint angle
+                        action = np.array(target_pos_ori) - np.array(base_pos_ori) 
+                        action = action[:-1] # action only controls one finger; the other one is symmetric
+                        if i > after_contact_step_idx:
+                            action[-1] = -0.08
+                        #     action[-1] = traj_actions[after_contact_step_idx - 1][-1]
+                        #     print("after contact finger movement: ", action[-1])
+                        # else:
+                        #     print("before contact finger movement: ", action[-1])
+                            
+                        action = action.tolist()
+                            
                     traj_actions.append(action)
                     filtered_pcs.append(base_pc)
                     filtered_pos_oris.append(base_pos_ori)
                     filtered_rgbs.append(base_rgb)
                     base_pc = pc[i+1]
                     base_pos_ori = pos_ori[i+1]
-                    base_pos = target_pos
-                    base_ori_6d = target_ori_6d
-                    base_finger_angle = target_finger_angle
                     base_rgb = all_traj_rgbs[traj_idx][i+1]
+                    if not args.use_joint_angle:
+                        base_pos = target_pos
+                        base_ori_6d = target_ori_6d
+                        base_finger_angle = target_finger_angle
                     
            
             # plot the delta translation action distribution
             if traj_idx % 5 == 0:        
                 try:
                     save_numpy_as_gif(np.array(filtered_rgbs), os.path.join(demo_rgb_save_path, "demo_" + str(traj_idx) + ".gif"))
-                    delta_translations = np.array(traj_actions)[:, :3]
-                    delta_translations_lengths = np.linalg.norm(delta_translations, axis=1)
-                    # delta_ori_6d = np.array(traj_actions)[:, 3:9]
-                    # delta_ori_matrix = np.array([rotation_transfer_6D_to_matrix(x) for x in delta_ori_6d])
-                    # delta_ori_rotvec = np.array([R.from_matrix(x).as_rotvec() for x in delta_ori_matrix])
-                    # delta_ori_rotvec_norm = np.linalg.norm(delta_ori_rotvec, axis=1)
-                    delta_joint_angles = np.array(traj_actions)[:, -1]
                     plt.close("all")
-                    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-                    axes = axes.reshape(-1)
-                    vals = [delta_translations_lengths, quaternion_diffs, delta_joint_angles]
-                    titles = ["delta_translation_lengths", "quaternion_diffs", "delta_joint_angles"]
-                    for idx, val in enumerate(vals):
-                        axes[idx].plot(range(len(val)), val, "-*")
-                        # if 'stage' not in stage_length.keys():
-                        #     if not args.after_reaching:
-                        #         keys = ["reach_handle", "reach_to_contact", "close_gripper", "open_door"]
-                        #     else:
-                        #         keys = ["open_gripper", "reach_to_contact", "close_gripper", "open_door"]
-                        # else:
-                        #     keys = stage_length['stage']
-                        #     if args.after_opening:
-                        #         keys = keys[1:]
-                        # import pdb; pdb.set_trace()
+
+                    if not args.use_joint_angle:
+                        delta_translations = np.array(traj_actions)[:, :3]
+                        delta_translations_lengths = np.linalg.norm(delta_translations, axis=1)
+                        delta_joint_angles = np.array(traj_actions)[:, -1]
+                        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+                        axes = axes.reshape(-1)
+                        vals = [delta_translations_lengths, quaternion_diffs, delta_joint_angles]
+                        titles = ["delta_translation_lengths", "quaternion_diffs", "delta_joint_angles"]
+                        for idx, val in enumerate(vals):
+                            axes[idx].plot(range(len(val)), val, "-*")
+                            keys = ["reach_handle", "reach_to_contact", "close_gripper", "open_door"]
+                            
+                            base = 0
+                            for key in keys:
+                                base += stage_length[key]
+                                axes[idx].axvline(x=base, color='r', linestyle='--')
+                                axes[idx].text(base, 0, key, rotation=90)
+                            axes[idx].set_title(titles[idx])
+                    else:
+                        delta_joint_angles = np.linalg.norm(np.array(traj_actions), axis=1)
+                        fig, axes = plt.subplots(1, 1, figsize=(6, 5))
+                        axes.plot(range(len(delta_joint_angles)), delta_joint_angles, "-*")
                         keys = ["reach_handle", "reach_to_contact", "close_gripper", "open_door"]
-                        
                         base = 0
                         for key in keys:
                             base += stage_length[key]
-                            axes[idx].axvline(x=base, color='r', linestyle='--')
-                            axes[idx].text(base, 0, key, rotation=90)
-                        axes[idx].set_title(titles[idx])
+                            axes.axvline(x=base, color='r', linestyle='--')
+                            axes.text(base, 0, key, rotation=90)
+                        axes.set_title("delta_joint_angles")
+                            
                     suffix = "good" if good_traj else "bad"
                     save_fig_path = os.path.join(action_dist_save_path, "delta_distribution_{}_{}.png".format(traj_idx, suffix))
                     plt.savefig(save_fig_path)
@@ -475,7 +505,7 @@ def save_example_pointcloud(pc_list, save_dir):
         ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2])
         ax.view_init(azim=-90, elev=10)
         plt.savefig(os.path.join(save_dir, "example_pc_" + str(i) + ".png"))
-        # plt.show()
+        plt.show()
         plt.close()
 
 
@@ -525,13 +555,16 @@ if __name__ == "__main__":
     args.add_argument("--include_open_perturbation", type=int, default=0)
     args.add_argument("--fixed_finger_movement", type=int, default=1)
     args.add_argument("--pointcloud_num", type=int, default=4500)
+    args.add_argument("--use_joint_angle", type=int, default=0)
+    args.add_argument("--use_segmask", type=int, default=0)
+    args.add_argument("--only_handle_points", type=int, default=0)
 
     
     args.add_argument("--object_name", type=str, required=True)
     args.add_argument("--save_path", type=str, required=True)
     args.add_argument("--exp_name", type=str, default=None)
     args.add_argument("--folder_name", type=str, required=True)
-    args.add_argument("--generate", type=bool, default=True)
+    args.add_argument("--generate", type=int, default=1)
     args.add_argument("--parallel", type=int, default=1)
     args.add_argument("--task_beg_idx", type=int, default=0)
     args.add_argument("--task_end_idx", type=int, default=1)
@@ -540,17 +573,18 @@ if __name__ == "__main__":
     args.add_argument("--use_extracted", type=int, default=1)
     args = args.parse_args()
     
-    set_start_method('spawn', force=True)
-    num_worker = args.num_worker
-    pool = Pool(processes=num_worker)
+   
 
     if args.generate:
+        set_start_method('spawn', force=True)
+        num_worker = args.num_worker
+        pool = Pool(processes=num_worker)
         main(args.folder_name, args.object_name, args.save_path, exp_name=args.exp_name, 
              in_gripper_frame=args.in_gripper_frame, parallel=args.parallel, 
              gripper_num_points=args.gripper_num_points, add_contact=args.add_contact)
     else:
         # # load the data
-        zarr_root = zarr.open("data/extracted/sac_storagefurniture_48700_1_gripper_frame.zarr")
+        zarr_root = zarr.open("data/dp3_demo/0512-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first-joint-angle-action")
         zarr_data = zarr_root['data']
         zarr_meta = zarr_root['meta']
         action_arrays = zarr_data['action'][:]
@@ -564,10 +598,10 @@ if __name__ == "__main__":
 
             # target_pos_ori = target_pos_ori[0]
             env, _ = build_up_env(
-                "/home/ziyu/Desktop/workspace/RoboGen-sim2real/data/storagefurniture_48700/storagefurniture_48700_sac/open_the_door_of_the_storagefurniture_by_its_handle_The_robotic_arm_will_open_the_door_of_the_storage_furniture_by_its_handle.yaml",
-                "data/storagefurniture_48700/storagefurniture_48700_sac/task_open_the_door_of_the_storagefurniture_by_its_handle",
-                "open_the_storage_furniture_door",
-                None, 
+                "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-05-11-00-24-52/task_config.yaml",
+                "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle",
+                "grasp_the_door_handle",
+                "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-05-11-00-24-52/grasp_the_door_handle_primitive/states/state_0.pkl", 
                 render=True, 
                 randomize=False,
                 obj_id=0,
@@ -575,39 +609,40 @@ if __name__ == "__main__":
             object_name = "StorageFurniture"
             env.reset()
             
-            env = RobogenPointCloudWrapper(env, object_name)
+            env = RobogenPointCloudWrapper(env, 
+                object_name, seed=0, in_gripper_frame=args.in_gripper_frame, 
+                gripper_num_points=args.gripper_num_points, add_contact=args.add_contact, 
+                num_points=args.pointcloud_num,
+                use_joint_angle=args.use_joint_angle)
+            
             rgbs = []
 
             np.random.seed(time.time_ns() % 2**32)
             robot = env._env.robot
 
-            # import pdb; pdb.set_trace()
             current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
             accumulated_angle_diff = 0
             if j == 0:
                 offset = 0
             else:
                 offset = last_state_indices[j]
-            for i in range(400):
-                env.step(action_list[i+offset], in_gripper_frame=True)
-                control_rgbs = env._env.get_control_rgbs()
-                rgbs.extend(control_rgbs)
-
-                pos, ori = env._env.robot.get_pos_orient(env._env.robot.right_end_effector)
                 
-                new_current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
-                diff = np.array(new_current_joint_angle) - np.array(current_joint_angle)
-                accumulated_angle_diff += np.linalg.norm(diff)
-                current_joint_angle = new_current_joint_angle
+            for i in range(min(400, len(action_list))):
+                env.step(action_list[i+offset])
+                rgbs.append(env.render())
+                # control_rgbs = env._env.get_control_rgbs()
+                # rgbs.extend(control_rgbs)
 
-            cprint("accumulated_angle_diff: " + str(accumulated_angle_diff), "green")
-            accumulated_angle_diff_list.append(accumulated_angle_diff)
+                # pos, ori = env._env.robot.get_pos_orient(env._env.robot.right_end_effector)
+                
+                # new_current_joint_angle = robot.get_joint_angles(robot.all_joint_indices)
+                # diff = np.array(new_current_joint_angle) - np.array(current_joint_angle)
+                # accumulated_angle_diff += np.linalg.norm(diff)
+                # current_joint_angle = new_current_joint_angle
+
+            # cprint("accumulated_angle_diff: " + str(accumulated_angle_diff), "green")
+            # accumulated_angle_diff_list.append(accumulated_angle_diff)
 
             env._env.close()
 
-            save_numpy_as_gif(np.array(rgbs), "data/extracted/sac_storagefurniture_with_eff_48700.gif")
-
-        import pdb; pdb.set_trace()
-        print("accumulated_angle_diff_list: ", accumulated_angle_diff_list)
-        import pdb; pdb.set_trace()
-
+            save_numpy_as_gif(np.array(rgbs), "data/debug.gif")

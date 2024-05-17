@@ -11,11 +11,9 @@ shape_meta: &shape_meta
     #     shape: *image_shape
     #     type: rgb
     point_cloud:
-      # shape: [1280, 6]
       shape: [4000, 3]
       type: point_cloud
     agent_pos:
-      # shape: [12]
       shape: [10]
       type: low_dim
   action:
@@ -24,7 +22,7 @@ shape_meta: &shape_meta
 env_runner:
   _target_: diffusion_policy_3d.env_runner.robogen_runner.RoboGenRunner
   # max_steps: 400
-  max_steps: 250
+  max_steps: 320
   n_obs_steps: ${n_obs_steps}
   n_action_steps: ${n_action_steps}
   eval_episodes: 3
@@ -34,6 +32,10 @@ env_runner:
   add_contact: 0
   experiment_name: null
   experiment_folder: null
+  use_joint_angle: false
+  num_point_in_pc: 4500
+  use_segmask: false
+  only_handle_points: false
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset

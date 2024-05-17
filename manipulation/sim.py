@@ -13,6 +13,7 @@ from manipulation.ur5 import UR5
 from manipulation.sawyer import Sawyer
 from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, save_env
 from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from_name, get_handle_pos, get_link_pc
+from manipulation.gpt_primitive_api import get_link_handle
 import matplotlib.pyplot as plt
 import open3d 
 from termcolor import cprint
@@ -508,7 +509,7 @@ class SimpleEnv(gym.Env):
                 table_xy_range = self.table_bbox_max[:2] - self.table_bbox_min[:2]
                 obj_x = self.table_bbox_min[0] + pos[0] * table_xy_range[0]
                 obj_y = self.table_bbox_min[1] + pos[1] * table_xy_range[1]
-                obj_z = self.table_height
+                obj_z = self.table_height + pos[2]
                 load_pos = [obj_x, obj_y, obj_z]
             id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
 
@@ -809,17 +810,17 @@ class SimpleEnv(gym.Env):
                 p.resetJointState(obj_id, articulated_init_joint_angles[name]["set_joint_angle_joint_id"], 
                               articulated_init_joint_angles[name]['set_joint_angle_joint_angle'], physicsClientId=self.id)
 
-    def reset(self, reset_state=None, open_gripper_at_reset=False):
+    def reset(self, reset_state=None, object_name='StorageFurniture', open_gripper_at_reset=False):
         self.set_scene(reset_state)
             
         self.time_step = 0
         self.success = False
-        
-        num_links = p.getNumJoints(self.urdf_ids['storagefurniture'], physicsClientId=self.id)
+        object_name = object_name.lower()
+        num_links = p.getNumJoints(self.urdf_ids[object_name], physicsClientId=self.id)
         for l_id in range(num_links):
-            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, lateralFriction=1, physicsClientId=self.id)
-            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, rollingFriction=1, physicsClientId=self.id)
-            p.changeDynamics(self.urdf_ids['storagefurniture'], l_id, spinningFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, lateralFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, rollingFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, spinningFriction=1, physicsClientId=self.id)
 
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], lateralFriction=1, physicsClientId=self.id)
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], lateralFriction=1, physicsClientId=self.id)
@@ -967,6 +968,7 @@ class SimpleEnv(gym.Env):
             it = 0
             # old way of control till reach
             # control_total = 50 # previously it was 50
+            beg = time.time()
             if ik_success:
                 control_total = 50
                 save_img_interval = 0
@@ -996,7 +998,48 @@ class SimpleEnv(gym.Env):
                 
                 end = time.time()
             # cprint("control time: {}".format(end - beg), "red")
-                
+    
+    def take_joint_action(self, action):
+        # action is the normalized delta joint angle for right arm joints and the finger joint
+        # import pdb; pdb.set_trace()
+
+        right_arm_indices = self.robot.right_arm_joint_indices
+        cur_joint_angle_right_arm = self.robot.get_joint_angles(right_arm_indices)
+        ik_lower_limit = self.robot.ik_lower_limits[right_arm_indices] 
+        ik_upper_limit = self.robot.ik_upper_limits[right_arm_indices]
+        unormalized_arm_delta_joint = action[:7] * (ik_upper_limit - ik_lower_limit) 
+        new_joint_angle_right_arm = cur_joint_angle_right_arm + unormalized_arm_delta_joint
+        new_joint_angle_right_arm = np.clip(new_joint_angle_right_arm, ik_lower_limit, ik_upper_limit)
+        
+        
+        cur_joint_angle_finger = self.robot.get_joint_angles(self.robot.right_gripper_indices)
+        new_finger_joint_angle = cur_joint_angle_finger[0] + action[7] * 0.04
+        # print("action[7]: ", action[7])
+        new_finger_joint_angle = np.clip(new_finger_joint_angle, 0, 0.04)
+        # print("old_finger_joint_angle: ", cur_joint_angle_finger)
+        # print("new_finger_joint_angle: ", new_finger_joint_angle)
+        
+        agent = self.robot
+        save_img_interval = 0
+        # for _ in range(2):
+        #     p.stepSimulation(physicsClientId=self.id)
+        
+        for it in range(50):
+            agent.control(right_arm_indices, new_joint_angle_right_arm)
+            agent.set_gripper_open_position(agent.right_gripper_indices, [new_finger_joint_angle, new_finger_joint_angle], set_instantly=False)
+            cur_joint_angles = agent.get_joint_angles(right_arm_indices)
+            if np.linalg.norm(cur_joint_angles - new_joint_angle_right_arm) < 1e-4:
+                break
+
+            if save_img_interval > 0 and it % save_img_interval == 0:
+                rgb = self.render()
+                self.control_rgbs.append(rgb)
+
+            it += 1
+            p.stepSimulation(physicsClientId=self.id) 
+        
+        
+    
     def get_control_rgbs(self):
         return self.control_rgbs
 
@@ -1190,24 +1233,42 @@ class SimpleEnv(gym.Env):
         # TODO: this should be implemented by GPT
         object_name = 'storagefurniture'
         if self.handle_joint is None:
-            all_handle_pos, handle_joint_id = get_handle_pos(self, object_name, return_median=False)
-            handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+            # all_handle_pos, handle_joint_id = get_handle_pos(self, object_name, return_median=False)
+            # handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+            # link_name = "link_0"
+            # link_name = link_name.lower()
+            # link_pc = get_link_pc(self, object_name, link_name)
+            # distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
+            # min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
+            # min_distance_handle_idx = np.argmin(min_distance)
+            # handle_joint = handle_joint_id[min_distance_handle_idx]
+            # self.handle_joint = handle_joint
+            # handle_pos = handle_median_points[min_distance_handle_idx]
+
+            all_handle_pos, all_handle_joint_id, handle_pts_obj_frame, mobility_info = get_handle_pos(self, object_name, return_median=False, return_info=True)
+            self.handle_pts_obj_frame = handle_pts_obj_frame
+            self.mobility_info = mobility_info
             link_name = "link_0"
-            link_name = link_name.lower()
             link_pc = get_link_pc(self, object_name, link_name)
-            distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
-            min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
-            min_distance_handle_idx = np.argmin(min_distance)
-            handle_joint = handle_joint_id[min_distance_handle_idx]
-            self.handle_joint = handle_joint
-                
-        opened_joint_angle = p.getJointState(self.urdf_ids[object_name], self.handle_joint)[0]
+            _, link_handle_joint_id, link_handle_median, min_link_idx = get_link_handle(all_handle_pos, all_handle_joint_id, link_pc)
+            self.handle_joint = link_handle_joint_id
+            self.handle_pos = link_handle_median
+            self.min_link_idx = min_link_idx
+        else:
+            all_handle_pos, _ = get_handle_pos(self, object_name, return_median=False, handle_pts_obj_frame=self.handle_pts_obj_frame, mobility_info=self.mobility_info)
+            handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+            self.handle_pos = handle_median_points[self.min_link_idx]
+            
+        opened_joint_angle = p.getJointState(self.urdf_ids[object_name], self.handle_joint, physicsClientId=self.id)[0]
         if self.init_joint_angle is None:
             self.init_joint_angle = opened_joint_angle
-
+            
+        
         return {
             "opened_joint_angle": opened_joint_angle,
-            "improved_joint_angle": opened_joint_angle - self.init_joint_angle
+            "improved_joint_angle": opened_joint_angle - self.init_joint_angle,
+            "handle_pos": self.handle_pos, 
+            "initial_joint_angle": self.init_joint_angle,
         }
 
     def _get_obs(self):

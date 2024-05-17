@@ -261,11 +261,11 @@ def get_link_handle(all_handle_pos, handle_joint_id, link_pc):
     handle_pc = all_handle_pos[min_distance_handle_idx]
     handle_median = handle_median_points[min_distance_handle_idx]
     
-    threshold = 0.01
+    threshold = 0.02
     pc_to_handle_distance = scipy.spatial.distance.cdist(link_pc, handle_pc).min(axis=1)
     handle_pc = link_pc[pc_to_handle_distance < threshold]
     
-    return handle_pc, handle_joint_id, handle_median
+    return handle_pc, handle_joint_id, handle_median, min_distance_handle_idx
 
 def approach_object_link_parallel(simulator, object_name, link_name):    
     save_path = get_save_path(simulator)
@@ -280,7 +280,7 @@ def approach_object_link_parallel(simulator, object_name, link_name):
     object_normal = np.asarray(pcd.normals)
 
     all_handle_pos, handle_joint_id = get_handle_pos(simulator, object_name, return_median=False)
-    handle_pc, handle_joint_id, handle_median = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
+    handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
 
     # use fps to get a bunch of trying points
     fps_point = HANDLE_FPS_NUM_POINT

@@ -8,6 +8,7 @@ import os
 from scipy import ndimage
 import json
 import random
+import matplotlib.pyplot as plt
 
 def compute_obj_to_center_dist(simulator, obj_a, obj_b):
     obj_a_center = get_position(simulator, obj_a)
@@ -258,24 +259,23 @@ def render_to_get_link_com(simulator, object_name, urdf_link_name):
     p.changeVisualShape(obj_id, link_id, rgbaColor=[0, 0, 0, 0], physicsClientId=simulator.id)
 
     ### get a round of images of the target object with link invisiable
-    rgbs_link_invisiable, _ = take_round_images(
+    rgbs_link_invisiable, depths_link_invisible, _, _ = take_round_images(
         simulator, camera_target, distance, elevation,
         camera_width=camera_width, camera_height=camera_height, 
-        z_near=0.01, z_far=10,
+        z_near=0.01, z_far=10, return_camera_matrices=True
     )
 
     ### use subtraction to get the link mask
     max_num_diff_pixels = 0
     best_idx = 0
-    for idx, (rgb, rgb_link_invisiable) in enumerate(zip(rgbs, rgbs_link_invisiable)):
-        diff_image = np.abs(rgb - rgb_link_invisiable)
+    for idx, (depth, depth_) in enumerate(zip(depths, depths_link_invisible)):
+        diff_image = np.abs(depth - depth_)
         diff_pixels = np.sum(diff_image > 0)
         if diff_pixels > max_num_diff_pixels:
             max_num_diff_pixels = diff_pixels
             best_idx = idx
-
-    best_mask = np.abs(rgbs[best_idx] - rgbs_link_invisiable[best_idx]) > 0
-    best_mask = np.any(best_mask, axis=2)
+    best_mask = np.abs(depths[best_idx] - depths_link_invisible[best_idx]) > 0
+    # best_mask = np.any(best_mask)
 
 
     ### get the link mask center
@@ -404,6 +404,19 @@ def get_gripper_pos(simulator):
 def get_gripper_joint(simulator):
     return p.getJointState(simulator.robot.body, simulator.robot.right_gripper_indices[0], physicsClientId=simulator.id)[0]
 
+def sample_point_inside_triangle(v1,v2,v3):
+    r1 = random.uniform(0, 1)
+    r2 = random.uniform(0, 1)
+    while r1 + r2 >= 1:
+        r1 = random.uniform(0, 1)
+        r2 = random.uniform(0, 1)
+    r3 = 1 - r1 - r2
+
+    # Calculate the point using barycentric coordinates
+    x = r1 * v1[0] + r2 * v2[0] + r3 * v3[0]
+    y = r1 * v1[1] + r2 * v2[1] + r3 * v3[1]
+    z = r1 * v1[2] + r2 * v2[2] + r3 * v3[2]
+    return [x, y, z]
 
 def sample_point_inside_triangle(v1,v2,v3):
     r1 = random.uniform(0, 1)
@@ -420,41 +433,33 @@ def sample_point_inside_triangle(v1,v2,v3):
     return [x, y, z]
 
 # NOTE: hard-coded for now, should make it more general in the future
-def get_handle_pos(simulator, obj_name, return_median=True):
+def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame=None, mobility_info=None, return_info=False):
     obj_name = obj_name.lower()
     scaling = simulator.simulator_sizes[obj_name]
 
     # get the parent frame of the revolute joint.
     obj_id = simulator.urdf_ids[obj_name] 
-    urdf_path = simulator.urdf_paths[obj_name]
-    parent_dir = os.path.dirname(urdf_path)
-    
-    start_idx = parent_dir.find("data/dataset")
-    parent_dir = parent_dir[start_idx:]
-    parent_dir = os.path.join(os.environ["PROJECT_DIR"], parent_dir)
-    
-    # axis in parent frame, transform everything to world frame
-    # NOTE: this axis angle value should be dependent on the object urdf.
-    # axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling  
-    # axis_dir_body = np.array([0, -1, 0])
-    mobility_info = json.load(open(f"{parent_dir}/mobility_v2.json", "r"))
-    
-    
-    # TODO: GPT can parse the mobility.json to get the joint name, which is the joint item that has a part handle,
-    # and the id is the joint name. The joint name is "joint_{}".format(id)
-    # from joint name we can get joint id via get_joint_id_from_name(simulator, obj_name, joint_name)
-    # after we get the joint id, the link id can be obtained via pybullet.getJointInfo(obj_id, joint_id)
 
+    # axis in parent frame, transform everything to world frame
+    if mobility_info is None:
+        urdf_path = simulator.urdf_paths[obj_name]
+        parent_dir = os.path.dirname(urdf_path)
+        start_idx = parent_dir.find("data/dataset")
+        parent_dir = parent_dir[start_idx:]
+        parent_dir = os.path.join(os.environ["PROJECT_DIR"], parent_dir)
+        mobility_info = json.load(open(f"{parent_dir}/mobility_v2.json", "r"))
+    
     # return a list of handle points in world frame
     ret_handle_pt_list = []
     ret_joint_idx_list = []
 
     joint_name = None
     parent_joint_name = None
-    for joint_info in mobility_info:
+    all_handle_pts_object_frame = []
+    for idx, joint_info in enumerate(mobility_info):
         all_parts = [part["name"] for part in joint_info["parts"]]
-        all_ids = [part["id"] for part in joint_info["parts"]]
         if "handle" in all_parts:
+            all_ids = [part["id"] for part in joint_info["parts"]]
             index = all_parts.index("handle")
             handle_id = all_ids[index]
             joint_name = "joint_{}".format(joint_info["id"])
@@ -482,30 +487,38 @@ def get_handle_pos(simulator, obj_name, return_median=True):
             axis_dir_world = axis_end_world - axis_world
 
             # get the handle points in world frame
-            handle_obj_path = f"{parent_dir}/parts_render/{handle_id}handle.obj" # NOTE: this path should be dependent on the object. 
-            handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
-            handle_pts = handle_pts * scaling
-            
-            # add more dense points around handle
-            added_points = []
-            for f in handle_faces:
-                v1,v2,v3 = f
-                v1 = handle_pts[v1-1]
-                v2 = handle_pts[v2-1]
-                v3 = handle_pts[v3-1]
-                a = np.linalg.norm(v1-v2)
-                b = np.linalg.norm(v2-v3)
-                c = np.linalg.norm(v3-v1)
-                s = (a+b+c) / 2
-                surface = np.sqrt(s*(s-a)*(s-b)*(s-c))
-                num_points = surface * 1e6
-                num_points = int(num_points)
-                num_points = np.clip(num_points, 0, 5)
-                added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
+            if handle_pts_obj_frame is None:
+                handle_obj_path = f"{parent_dir}/parts_render/{handle_id}handle.obj" # NOTE: this path should be dependent on the object. 
+                handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
 
-            if added_points != []:
-                added_points = np.array(added_points)
-                handle_pts = np.concatenate((handle_pts, added_points), axis=0)
+                handle_pts = handle_pts * scaling
+                # add more dense points around handle
+                added_points = []
+                for f in handle_faces:
+                    v1,v2,v3 = f
+                    v1 = handle_pts[v1-1]
+                    v2 = handle_pts[v2-1]
+                    v3 = handle_pts[v3-1]
+                    a = np.linalg.norm(v1-v2)
+                    b = np.linalg.norm(v2-v3)
+                    c = np.linalg.norm(v3-v1)
+                    s = (a+b+c) / 2
+                    surface = np.sqrt(s*(s-a)*(s-b)*(s-c))
+                    num_points = surface * 1e6
+                    num_points = int(num_points)
+                    num_points = np.clip(num_points, 0, 5)
+                    added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
+
+                if added_points != []:
+                    added_points = np.array(added_points)
+                    handle_pts = np.concatenate((handle_pts, added_points), axis=0)
+                    
+                all_handle_pts_object_frame.append(handle_pts)
+                    
+            else:
+                handle_pts = handle_pts_obj_frame[idx]
+                
+            
             
             # transform this to the world frame using the object *base*'s position and orientation
             handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
@@ -528,5 +541,8 @@ def get_handle_pos(simulator, obj_name, return_median=True):
             else:
                 ret_handle_pt_list.append(rotated_handle_pt)
             ret_joint_idx_list.append(joint_idx)
-
+            
+    if return_info:
+        return ret_handle_pt_list, ret_joint_idx_list, all_handle_pts_object_frame, mobility_info
+    
     return ret_handle_pt_list, ret_joint_idx_list
