@@ -16,7 +16,8 @@ class RobogenDataset(BaseDataset):
             pad_before=0,
             pad_after=0,
             seed=42,
-            val_ratio=0.0,
+            val_ratio=0.1,
+            train_ratio=0.9,
             max_train_episodes=None,
             task_name=None,
             ):
@@ -24,15 +25,21 @@ class RobogenDataset(BaseDataset):
         self.task_name = task_name
         self.replay_buffer = ReplayBuffer.copy_from_path(
             zarr_path, keys=['state', 'action', 'point_cloud'])
-        val_mask = get_val_mask(
-            n_episodes=self.replay_buffer.n_episodes, 
-            val_ratio=val_ratio,
-            seed=seed)
-        train_mask = ~val_mask
-        train_mask = downsample_mask(
-            mask=train_mask, 
-            max_n=max_train_episodes, 
-            seed=seed)
+        # val_mask = get_val_mask(
+        #     n_episodes=self.replay_buffer.n_episodes, 
+        #     val_ratio=val_ratio,
+        #     seed=seed)
+        # train_mask = ~val_mask
+        self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+        self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+        
+
+        train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+        train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
+        # train_mask = downsample_mask(
+        #     mask=train_mask, 
+        #     max_n=max_train_episodes, 
+        #     seed=seed)
 
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer, 
@@ -40,6 +47,7 @@ class RobogenDataset(BaseDataset):
             pad_before=pad_before, 
             pad_after=pad_after,
             episode_mask=train_mask)
+        
         self.train_mask = train_mask
         self.horizon = horizon
         self.pad_before = pad_before
@@ -52,9 +60,9 @@ class RobogenDataset(BaseDataset):
             sequence_length=self.horizon,
             pad_before=self.pad_before, 
             pad_after=self.pad_after,
-            episode_mask=~self.train_mask
+            episode_mask=self.val_mask
             )
-        val_set.train_mask = ~self.train_mask
+        val_set.train_mask = self.val_mask
         return val_set
     
 

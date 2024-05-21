@@ -82,7 +82,6 @@ def parallel_eval(args):
     episode_reward = 0
     horizon = 150
     for _ in range(horizon):
-        # print("running idx {}: {}/{}".format(idx, _, horizon))
         np_obs_dict = dict(obs)
         beg = time.time()
         obs_dict = dict_apply(np_obs_dict,
@@ -208,8 +207,8 @@ def main(exp_dir, checkpoint_name):
              exp_dir, checkpoint_name, idx]
         for idx in range(len(config_files))
     ]
-    # results = pool.map(parallel_eval, args_to_run)
-    results = parallel_eval(args_to_run[6])
+    results = pool.map(parallel_eval, args_to_run)
+    # results = parallel_eval(args_to_run[6])
     
     results = sorted(results, key=lambda x: x[-1])
     res_improved_joint_angles = [res[0] for res in results]

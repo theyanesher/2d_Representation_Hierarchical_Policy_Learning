@@ -11,7 +11,7 @@ shape_meta: &shape_meta
     #     shape: *image_shape
     #     type: rgb
     point_cloud:
-      shape: [4000, 3]
+      shape: [4000, 3] # not important, will use the one saved in dataset
       type: point_cloud
     agent_pos:
       shape: [10]
@@ -21,8 +21,7 @@ shape_meta: &shape_meta
 
 env_runner:
   _target_: diffusion_policy_3d.env_runner.robogen_runner.RoboGenRunner
-  # max_steps: 400
-  max_steps: 320
+  max_steps: 135
   n_obs_steps: ${n_obs_steps}
   n_action_steps: ${n_action_steps}
   eval_episodes: 3
@@ -36,6 +35,7 @@ env_runner:
   num_point_in_pc: 4500
   use_segmask: false
   only_handle_points: false
+  num_worker: 50
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
@@ -44,5 +44,6 @@ dataset:
   pad_before: ${eval:'${n_obs_steps}-1'}
   pad_after: ${eval:'${n_action_steps}-1'}
   seed: 42
-  val_ratio: 0.02
-  max_train_episodes: 90
+  val_ratio: 0.1
+  train_ratio: 1
+  max_train_episodes: null

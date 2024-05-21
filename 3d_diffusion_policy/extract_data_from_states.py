@@ -2,7 +2,6 @@ import numpy as np
 import pybullet as p
 import cv2
 from manipulation.lift_utils import build_up_env, set_eef_to_pose, save_numpy_as_gif, mp_to_target, grasp_the_object, mp_to_target_with_object, lift_up_the_object
-from manipulation.gpt_reward_api import get_handle_pos
 from multiprocessing import Pool
 from scipy.spatial.transform import Rotation as R
 import time

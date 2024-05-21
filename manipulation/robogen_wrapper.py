@@ -280,7 +280,13 @@ class RobogenPointCloudWrapper:
                 point_cloud = point_cloud.squeeze(0).cpu().numpy()
                 point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
             else:
-                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud, num_points, h=9)
+                # if num_points > point_cloud.shape[0]:
+                #     import pdb;pdb.set_trace()
+                    
+                cprint("point cloud shape: {}".format(point_cloud.shape), "green")
+                num_points = min(num_points, point_cloud.shape[0])
+                h = min(9, np.log2(num_points))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud, num_points, h=h)
                 point_cloud = point_cloud[kdline_fps_samples_idx]
             end = time.time()
             # cprint("point cloud sampling time {}".format(end - beg), "green")

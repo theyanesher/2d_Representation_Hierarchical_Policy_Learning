@@ -74,6 +74,7 @@ model_dict = {
     "spatial_relationship": "gpt-4",
 }
 
+USE_STEPPING_STONE = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="debug")
@@ -104,7 +105,7 @@ try_times_max = 300
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
-        object_name = "StorageFurniture"
+        object_name = "storagefurniture"
         os.system(f"python manipulation/scripts/extract_handle_mesh.py --category {object_name} --obj_id {obj_id}")
         
         # config_path, solution_path = generate_from_task_name(
@@ -163,6 +164,15 @@ for try_idx in range(try_times_min, try_times_max):
         env, _ = build_up_env(config_path, solution_path, first_step.replace(" ", "_"), None, 
                             render=False)
         env.reset()
+
+        on_table = False
+        for config_dict in base_config:
+            if 'use_table' in config_dict:
+                on_table = config_dict['use_table']
+        print("use table", on_table)
+        
+        if on_table:
+            table_bbox_min, table_bbox_max = env.table_bbox_min, env.table_bbox_max
         
         object_name = 'storagefurniture'
         all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
@@ -195,8 +205,23 @@ for try_idx in range(try_times_min, try_times_max):
             new_pos[1] = np.random.uniform(-0.1, 0.1) + init_pos[1]
             # new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(-np.pi / 6, np.pi / 6)])
             new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(0, np.pi / 6)])
-            p.resetBasePositionAndOrientation(object_id, new_pos, new_orient, physicsClientId=env.id)
-            
+            if USE_STEPPING_STONE:
+                stepping_obj_pos = [new_pos[0], new_pos[1], table_bbox_max[2]]
+                stepping_stone_id = p.loadURDF("objaverse_utils/data/obj/f9a7942ee5894152b73b72ce83ac9ee5/material.urdf", stepping_obj_pos, globalScaling=0.34313793694655315, physicsClientId=env.id)
+                min_aabb, _ = p.getAABB(stepping_stone_id, physicsClientId=env.id)
+                stepping_obj_pos[2] = stepping_obj_pos[2] + table_bbox_max[2] - min_aabb[2] + 0.001
+                p.resetBasePositionAndOrientation(stepping_stone_id, stepping_obj_pos, [0, 0, 0, 1], physicsClientId=env.id)
+
+                new_pos[2] = init_pos[2] + 0.42
+                p.removeBody(object_id, physicsClientId=env.id)
+                object_id = p.loadURDF(env.urdf_paths[object_name], basePosition=new_pos, baseOrientation=new_orient, useFixedBase=False, globalScaling=env.simulator_sizes[object_name], physicsClientId=env.id)
+                # p.resetBasePositionAndOrientation(object_id, basePosition=new_pos, baseOrientation=new_orient, physicsClientId=env.id)
+                for _ in range(10):
+                    p.stepSimulation()
+            else:
+                p.resetBasePositionAndOrientation(object_id, new_pos, new_orient, physicsClientId=env.id)
+
+
             joint_limit_low, joint_limit_high = p.getJointInfo(object_id, handle_joint_id, physicsClientId=env.id)[8:10]
             max_opened_joint = joint_limit_low + 0.2 * (joint_limit_high - joint_limit_low)
             random_joint = np.random.uniform(joint_limit_low, max_opened_joint)
@@ -209,7 +234,7 @@ for try_idx in range(try_times_min, try_times_max):
                 env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
                 for _ in range(5):
                     p.stepSimulation()
-                    
+                
                 contact_points = p.getContactPoints(env.robot.id, object_id, physicsClientId=env.id)
                 if len(contact_points) > 0:
                     print("fail due to contact")
@@ -222,19 +247,47 @@ for try_idx in range(try_times_min, try_times_max):
                 print("handle pos: ", handle_pos)
                 if distance < args.far_distance and distance > args.near_distance:
                     good_config = True
+                    new_pos = p.getBasePositionAndOrientation(object_id, physicsClientId=env.id)[0]
                     break
             
         new_config = copy.deepcopy(base_config)
+
+        
         for config_dict in new_config:
             if 'center' in config_dict:
-                new_pos = [new_pos[0], new_pos[1], 0]
+                if on_table:
+                    table_xy_range = table_bbox_max[:2] - table_bbox_min[:2]
+                    obj_x = (new_pos[0] - table_bbox_min[0]) / table_xy_range[0]
+                    obj_y = (new_pos[1] - table_bbox_min[1]) / table_xy_range[1]
+                    obj_z = 0.0 if not USE_STEPPING_STONE else new_pos[2]-init_pos[2]+0.01
+                    new_pos = [obj_x, obj_y, obj_z]
+                else:
+                    new_pos = [new_pos[0], new_pos[1], 0]
                 config_dict['center'] = str(tuple(new_pos))
                 config_dict['orientation'] = str(tuple(new_orient))
-                config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
+                # config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
             if "set_joint_angle_object_name" in config_dict:
                 config_dict['set_joint_angle_object_name'] = object_name
                 config_dict['set_joint_angle_joint_id'] = handle_joint_id
                 config_dict['set_joint_angle_joint_angle'] = random_joint
+            if 'initial_joint_angles' in config_dict:
+                config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
+
+        if USE_STEPPING_STONE:
+            stepping_stone = {}
+            stepping_stone['all_uid'] = ["f9a7942ee5894152b73b72ce83ac9ee5"]
+            stepping_stone["center"] = str(tuple([obj_x, obj_y, 0.0]))
+            stepping_stone['lang'] = "stepping stone"
+            stepping_stone['movable'] = False
+            stepping_stone['name'] = "stepping_stone"
+            stepping_stone["on_table"] = True
+            stepping_stone["path"] = "stepping_stone.obj"
+            stepping_stone["size"] = 0.7
+            stepping_stone["type"] = "mesh"
+            stepping_stone["uid"] = ["f9a7942ee5894152b73b72ce83ac9ee5"]
+            new_config.append(stepping_stone)
+
+
 
         with open(new_config_path, 'w') as f:
             yaml.dump(new_config, f, indent=4)

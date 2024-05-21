@@ -31,6 +31,7 @@ from diffusion_policy_3d.common.checkpoint_util import TopKCheckpointManager
 from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
+from multiprocessing import set_start_method
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -90,7 +91,8 @@ class TrainDP3Workspace:
             RUN_CKPT = True
             verbose = False
         
-        RUN_VALIDATION = False # reduce time cost
+        # RUN_VALIDATION = False # reduce time cost
+        RUN_VALIDATION = True # reduce time cost
         
         # resume training
         if cfg.training.resume:
@@ -261,12 +263,18 @@ class TrainDP3Workspace:
 
             # run rollout
             if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
+                # first checkpointing then running the eval
+                if cfg.checkpoint.save_last_ckpt:
+                    self.save_checkpoint()
+                if cfg.checkpoint.save_last_snapshot:
+                    self.save_snapshot()
+                
                 if self.epoch == 0 and not cfg.eval_first:
                     pass
                 else:
                     t3 = time.time()
                     # runner_log = env_runner.run(policy, dataset=dataset)
-                    runner_log = env_runner.run(policy, self.epoch)
+                    runner_log = env_runner.run(cfg, policy, self.epoch)
                     # wandb_run.log(runner_log, step=self.epoch)
                     t4 = time.time()
                     cprint(f"rollout time: {t4-t3:.3f}", "red")
@@ -277,6 +285,7 @@ class TrainDP3Workspace:
                 
             # run validation
             if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
+                print("Validation epoch {}/{}".format(self.epoch, cfg.training.num_epochs))
                 with torch.no_grad():
                     val_losses = list()
                     with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
@@ -321,10 +330,10 @@ class TrainDP3Workspace:
                     pass
                 else:
                     # checkpointing
-                    if cfg.checkpoint.save_last_ckpt:
-                        self.save_checkpoint()
-                    if cfg.checkpoint.save_last_snapshot:
-                        self.save_snapshot()
+                    # if cfg.checkpoint.save_last_ckpt:
+                    #     self.save_checkpoint()
+                    # if cfg.checkpoint.save_last_snapshot:
+                    #     self.save_snapshot()
 
                     self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score={step_log["test_mean_score"]:.3f}')
                     
@@ -344,6 +353,7 @@ class TrainDP3Workspace:
 
                     if topk_ckpt_path is not None:
                         self.save_checkpoint(path=topk_ckpt_path)
+                        
             # ========= eval end for this epoch ==========
             policy.train()
 
@@ -526,4 +536,5 @@ def main(cfg):
     workspace.run()
 
 if __name__ == "__main__":
+    # set_start_method('spawn', force=True)
     main()
