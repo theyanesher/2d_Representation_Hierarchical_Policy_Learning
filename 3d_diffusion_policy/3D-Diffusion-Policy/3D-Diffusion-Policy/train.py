@@ -281,7 +281,10 @@ class TrainDP3Workspace:
                     # log all
                     step_log.update(runner_log)
 
-            
+                # TODO: add dagger here
+                # 1. should store the final state in env_runner.run
+                # 2. judge based on the opened door angles -- if it is below a certain threshold, should rerun demonstration generation code on it
+                # 3. add the new demonstration to the dataset & dataloader. 
                 
             # run validation
             if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:

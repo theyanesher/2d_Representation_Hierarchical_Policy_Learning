@@ -29,7 +29,7 @@ class RobogenDataset(BaseDataset):
         
         keys = ['state', 'action', 'point_cloud']
         if 'act3d' in observation_mode:
-            keys += ['feature_map', 'gripper_pcd']
+            keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
         self.replay_buffer = ReplayBuffer.copy_from_path(
             zarr_path, keys=keys)
         
@@ -101,8 +101,10 @@ class RobogenDataset(BaseDataset):
         if 'act3d' in self.observation_mode:
             gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
             feature_map = sample['feature_map'][:,].astype(np.float32)
+            pcd_mask = sample['pcd_mask'][:,].astype(np.uint8)
             data['obs']['gripper_pcd'] = gripper_pcd
             data['obs']['feature_map'] = feature_map
+            data['obs']['pcd_mask'] = pcd_mask
         
         return data
     

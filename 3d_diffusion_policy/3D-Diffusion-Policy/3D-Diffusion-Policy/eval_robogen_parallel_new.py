@@ -125,6 +125,7 @@ def wrap_obs(list_of_obs):
     parallel_input_dict['agent_pos'] = np.concatenate([x['agent_pos'][None, ...] for x in list_of_obs], axis=0)
     parallel_input_dict['feature_map'] = np.concatenate([x['feature_map'][None, ...] for x in list_of_obs], axis=0)
     parallel_input_dict['gripper_pcd'] = np.concatenate([x['gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
+    parallel_input_dict['pcd_mask'] = np.concatenate([x['pcd_mask'][None, ...] for x in list_of_obs], axis=0)
     
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
@@ -142,14 +143,12 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
     all_experiments = os.listdir(experiment_path)
     all_experiments = sorted(all_experiments)
     
-    all_experiments = all_demo_path
     if cfg.task.env_runner.demo_experiment_path is not None:
         all_demo_path = os.path.join(os.environ['PROJECT_DIR'], cfg.task.env_runner.demo_experiment_path, "all_demo_path.txt")
         with open(all_demo_path, "r") as f:
             all_demo_path = f.readlines()
             all_demo_path = [x.lstrip().rstrip().split("/")[-1] for x in all_demo_path]
         all_experiments = all_demo_path
-        import pdb; pdb.set_trace()
 
     all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
     with open(all_substeps_path, "r") as f:

@@ -48,10 +48,11 @@ def parallel_render(args):
     traj_pos_ori = observation['agent_pos'].tolist()
     feature_map = observation['feature_map'].tolist()
     gripper_pcd = observation['gripper_pcd'].tolist()
+    pcd_mask = observation['pcd_mask'].tolist()
     
     simulator._env.close()
         
-    return point_cloud, traj_pos_ori, rgb, feature_map, gripper_pcd, idx
+    return point_cloud, traj_pos_ori, rgb, feature_map, gripper_pcd, pcd_mask, idx
 
 def sort_states_file_by_file_number(state_path):
     # all the file are named as state_0.pkl, state_1.pkl, ...
@@ -83,6 +84,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
     all_traj_gripper_pcds = []
     all_traj_store_label_paths = []
     all_traj_rgbs = []
+    all_traj_pcd_masks = []
     for experiment in tqdm.tqdm(all_experiments):
         if "meta" in experiment:
             continue
@@ -149,7 +151,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                 if len(data) == 3:
                     pc_list, pos_ori_list, rgb_list = data
                 else:
-                    pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list = data
+                    pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list, pcd_mask_list = data
                     
                 assert len(pc_list[0]) == args.pointcloud_num, f"point cloud length is {len(pc_list[0])}, should be {args.pointcloud_num}"
                 
@@ -213,6 +215,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     rgb_list = [x[2] for x in results]
                     feature_map_list = [x[3] for x in results]
                     gripper_pcd_list = [x[4] for x in results]
+                    pcd_mask_list = [x[5] for x in results]
     
             end = time.time()
             cprint(f"Finished extracting data from trajectory index: {str(len(all_traj_pc))} time cost {end - beg}" , "green")
@@ -222,14 +225,15 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         all_traj_rgbs.append(rgb_list)
         all_traj_feature_maps.append(feature_map_list)
         all_traj_gripper_pcds.append(gripper_pcd_list)
+        all_traj_pcd_masks.append(pcd_mask_list)
             
         if not args.after_reaching and not args.after_opening:
             # store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(args.use_joint_angle, args.use_segmask, args.only_handle_points))
             store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_{}.pkl".format(args.observation_mode))
             with open(store_pickle_path, "wb") as f:
-                pickle.dump((pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list), f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump((pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list, pcd_mask_list), f, protocol=pickle.HIGHEST_PROTOCOL)
         
-    return all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, \
+    return all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, \
         all_traj_stage_lengths, all_traj_store_label_paths
     
 def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None, in_gripper_frame=False, parallel=True, 
@@ -249,6 +253,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     all_action_list = []
     all_feature_map_list = []
     all_gripper_pcd_list = []
+    all_pcd_mask_list = []
     last_state_indices = []
     total_count = 0
     for task_path in task_paths[args.task_beg_idx:args.task_end_idx]:
@@ -264,7 +269,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             continue
 
         # all_traj_pc, all_traj_pos_ori = extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_category, in_gripper_frame=in_gripper_frame)
-        all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, \
+        all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, \
                 all_traj_stage_lengths, all_traj_store_label_paths = extract_pc_states_for_all_trajectories(
             task_config_path, solution_path, object_category, exp_name=exp_name, 
             in_gripper_frame=in_gripper_frame, parallel=parallel,
@@ -275,7 +280,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
         all_demo_paths = []
         for traj_idx in tqdm.tqdm(range(len(all_traj_pc)), total=len(all_traj_pc)):
 
-            traj_pc, traj_pos_ori, traj_feature_maps, traj_gripper_pcd = all_traj_pc[traj_idx], all_traj_pos_ori[traj_idx], all_traj_feature_maps[traj_idx], all_traj_gripper_pcds[traj_idx]
+            traj_pc, traj_pos_ori, traj_feature_maps, traj_gripper_pcd, traj_pcd_masks = all_traj_pc[traj_idx], all_traj_pos_ori[traj_idx], all_traj_feature_maps[traj_idx], all_traj_gripper_pcds[traj_idx], all_traj_pcd_masks[traj_idx]
             traj_stage_length, traj_store_label_path  = all_traj_stage_lengths[traj_idx], all_traj_store_label_paths[traj_idx]
             
             good_traj = True
@@ -303,11 +308,13 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             filtered_pos_oris = []
             filtered_feature_maps = []
             filtered_gripper_pcds = []
+            filtered_pcd_masks = []
             filtered_rgbs = []
             base_rgb = all_traj_rgbs[traj_idx][0]
             base_feature_map = traj_feature_maps[0]
             base_gripper_pcd = traj_gripper_pcd[0]
             base_pc = traj_pc[0]
+            base_pcd_mask = traj_pcd_masks[0]
             base_pos_ori = traj_pos_ori[0]
             for i in range(len(traj_pos_ori) - 1):
                 target_pos_ori = traj_pos_ori[i+1]
@@ -393,11 +400,13 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                             
                     traj_actions.append(action)
                     filtered_pcs.append(base_pc)
+                    filtered_pcd_masks.append(base_pcd_mask)
                     filtered_gripper_pcds.append(base_gripper_pcd)
                     filtered_feature_maps.append(base_feature_map)
                     filtered_pos_oris.append(base_pos_ori)
                     filtered_rgbs.append(base_rgb)
                     base_pc = traj_pc[i+1]
+                    base_pcd_mask = traj_pcd_masks[i+1]
                     base_gripper_pcd = traj_gripper_pcd[i+1]
                     base_feature_map = traj_feature_maps[i+1]
                     base_pos_ori = traj_pos_ori[i+1]
@@ -461,6 +470,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 all_state_list = all_state_list + filtered_pos_oris
                 all_feature_map_list = all_feature_map_list + filtered_feature_maps
                 all_gripper_pcd_list = all_gripper_pcd_list + filtered_gripper_pcds
+                all_pcd_mask_list = all_pcd_mask_list + filtered_pcd_masks
                 all_action_list = all_action_list + traj_actions
                 total_count += len(filtered_pcs)
                 last_state_indices.append(deepcopy(total_count))
@@ -469,9 +479,9 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
         f.write("\n".join(all_demo_paths))
     
-    return all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_action_list, last_state_indices
+    return all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_pcd_mask_list, all_action_list, last_state_indices
         
-def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, action_list, last_state_indices, save_dir):
+def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, last_state_indices, save_dir):
     zarr_root = zarr.group(save_dir)
     zarr_data = zarr_root.create_group('data')
     zarr_meta = zarr_root.create_group('meta')
@@ -482,6 +492,7 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, action_li
     if 'act3d' in args.observation_mode:
         feature_map_arrays = np.stack(feature_map_list, axis=0)
         gripper_pcd_arrays = np.stack(gripper_pcd_list, axis=0)
+        pcd_mask_list = np.stack(pcd_mask_list, axis=0)
     episode_ends_arrays = np.array(last_state_indices)
 
 
@@ -495,8 +506,10 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, action_li
     if 'act3d' in args.observation_mode:
         feature_map_chunk_size = (100, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3])
         gripper_pcd_chunk_size = (100, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
+        pcd_mask_chunk_size = (100, pcd_mask_list.shape[1])
         zarr_data.create_dataset('feature_map', data=feature_map_arrays, chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
         zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays, chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('pcd_mask', data=pcd_mask_list, chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
     zarr_meta.create_dataset('episode_ends', data=episode_ends_arrays, dtype='int64', overwrite=True, compressor=compressor)
 
     del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays, episode_ends_arrays
@@ -537,7 +550,8 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     with open(os.path.join(save_path, "meta_info.json"), "w") as f:
         json.dump(meta_info, f, indent=4)
     
-    all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_action_list, last_state_indices = extract_demos_from_a_directory(
+    all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_pcd_mask_list, \
+        all_action_list, last_state_indices = extract_demos_from_a_directory(
         folder_name, object_name,exp_name=exp_name, in_gripper_frame=in_gripper_frame, parallel=parallel, 
         gripper_num_points=gripper_num_points, add_contact=add_contact, save_path=save_path)
     
@@ -546,7 +560,8 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     # with open(os.path.join(save_path, "raw_data.pkl"), "wb") as f:
     #     pickle.dump((pc_list, state_list, action_list, last_state_indices), f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    save_data(all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_action_list, last_state_indices, save_path)
+    save_data(all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_pcd_mask_list,
+              all_action_list, last_state_indices, save_path)
     save_example_pointcloud(all_pc_list, save_path)
 
 

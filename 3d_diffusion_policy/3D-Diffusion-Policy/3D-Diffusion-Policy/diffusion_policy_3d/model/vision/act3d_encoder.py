@@ -71,6 +71,11 @@ class Act3dEncoder(nn.Module):
         rgb_obs = einops.rearrange(rgb_obs, "B h w c -> B c h w") # NOTE: our rgb comes in as B H W C
         rgb_features = nets['vision_encoder'](rgb_obs)
         rgb_features = einops.rearrange(rgb_features, "B c h w -> (h w) B c") # shape N=image_size B encoder_output_dim
+        # TODO: extract rgb features corresponding to the fpsed points
+        pcd_mask = observation['pcd_mask'] # B * (h w)
+        pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
+        rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, self.encoder_output_dim) # shape (num_points, B, encoder_output_dim)
+        
             
         point_cloud = observation[self.point_cloud_key]
         # TODO: this can be done when retrieving the point cloud
@@ -93,8 +98,8 @@ class Act3dEncoder(nn.Module):
             attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
 
         state_feat = self.state_mlp(agent_pos)  # B * 64
-        print('rgb_features ', rgb_features.shape)
-        print('agent_pos ', state_feat.shape)
+        # print('rgb_features ', rgb_features.shape)
+        # print('agent_pos ', state_feat.shape)
         
         obs_features = torch.cat([rgb_features, state_feat], dim=-1)
         return obs_features

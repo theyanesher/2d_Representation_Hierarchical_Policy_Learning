@@ -74,7 +74,8 @@ class RobogenPointCloudWrapper:
             'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
             'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
 
         for name in self._env.urdf_ids: # randomly center at an object
@@ -93,8 +94,8 @@ class RobogenPointCloudWrapper:
             # TODO: handle multiple camera for act3d observation
             # TODO: just for debug now
             self.rpy_mean_list = [[0, 0, -45]]
-            self.camera_height = 128
-            self.camera_width = 128
+            self.camera_height = 256
+            self.camera_width = 256
 
         self.view_matrices= []
         self.project_matrices = []
@@ -282,70 +283,60 @@ class RobogenPointCloudWrapper:
                 
             point_cloud = np.concatenate(pcs, axis=0)
             
-            if 'act3d' not in self.observation_mode:
-                min_bound = np.array([-5, -5, 0.1])
-                max_bound = np.array([5, 5, 5])
-                input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
-                point_cloud = point_cloud[input_pc_mask]
-                
-                if self.handle_num_points > 0 or self.gripper_num_points > 0:
-                    full_point_cloud = deepcopy(point_cloud)
-            else:
-                min_bound = np.array([-5, -5, 0.1])
-                max_bound = np.array([5, 5, 5])
-                mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
-                in_bound_pc = point_cloud[mask]
-                in_bound_max = np.max(in_bound_pc, axis=0)
-                point_cloud[~mask] = in_bound_max
-                
+            # if 'act3d' not in self.observation_mode:
+            min_bound = np.array([-5, -5, 0.1])
+            max_bound = np.array([5, 5, 5])
+            input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
+            masked_indices = np.flatnonzero(input_pc_mask)
+            point_cloud = point_cloud[input_pc_mask]
             
-            # sampled_indices = np.random.choice(point_cloud.shape[0], 1024*20, replace=False)
-            # point_cloud = point_cloud[sampled_indices]
-            
+            if self.handle_num_points > 0 or self.gripper_num_points > 0:
+                full_point_cloud = deepcopy(point_cloud)
            
-            if 'act3d' not in self.observation_mode:
-                # do downsampling of the pcd
-                num_points = self.num_points
-                if self.gripper_num_points > 0:
-                    gripper_pc = self._transfer_point_cloud_to_gripper_frame(full_point_cloud)
-                    bounding_box = np.array([[-self.gripper_bbox, -self.gripper_bbox, -self.gripper_bbox], [self.gripper_bbox, self.gripper_bbox, self.gripper_bbox]])
-                    mask = np.all(gripper_pc[:, :3] > bounding_box[0], axis=1) & np.all(gripper_pc[:, :3] < bounding_box[1], axis=1)
-                    pc_within_gripper = full_point_cloud[mask]
-                    gripper_fps_num_point = min(self.gripper_num_points, pc_within_gripper.shape[0])
-                    # import pdb; pdb.set_trace()
-                    if len(pc_within_gripper) > 2:
-                        if using_torch:
-                            pc_within_gripper = torch.from_numpy(pc_within_gripper).unsqueeze(0).cuda()
-                            fps_num_points = torch.tensor([gripper_fps_num_point]).cuda()
-                            _, sampled_indices = torch3d_ops.sample_farthest_points(points=pc_within_gripper[...,:3], K=fps_num_points)
-                            pc_within_gripper = pc_within_gripper.squeeze(0).cpu().numpy()
-                            pc_within_gripper = pc_within_gripper[sampled_indices.squeeze(0).cpu().numpy()]
-                        else:
-                            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc_within_gripper[:, :3], gripper_fps_num_point, h=1)
-                            # kdline_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, gripper_fps_num_point)
-                            pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
-                        num_points -= gripper_fps_num_point
-                    
+            # do downsampling of the pcd
+            num_points = self.num_points
+            if self.gripper_num_points > 0:
+                gripper_pc = self._transfer_point_cloud_to_gripper_frame(full_point_cloud)
+                bounding_box = np.array([[-self.gripper_bbox, -self.gripper_bbox, -self.gripper_bbox], [self.gripper_bbox, self.gripper_bbox, self.gripper_bbox]])
+                mask = np.all(gripper_pc[:, :3] > bounding_box[0], axis=1) & np.all(gripper_pc[:, :3] < bounding_box[1], axis=1)
+                pc_within_gripper = full_point_cloud[mask]
+                gripper_fps_num_point = min(self.gripper_num_points, pc_within_gripper.shape[0])
+                # import pdb; pdb.set_trace()
+                if len(pc_within_gripper) > 2:
+                    if using_torch:
+                        pc_within_gripper = torch.from_numpy(pc_within_gripper).unsqueeze(0).cuda()
+                        fps_num_points = torch.tensor([gripper_fps_num_point]).cuda()
+                        _, sampled_indices = torch3d_ops.sample_farthest_points(points=pc_within_gripper[...,:3], K=fps_num_points)
+                        pc_within_gripper = pc_within_gripper.squeeze(0).cpu().numpy()
+                        pc_within_gripper = pc_within_gripper[sampled_indices.squeeze(0).cpu().numpy()]
                     else:
-                        pc_within_gripper = np.array([])
+                        kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc_within_gripper[:, :3], gripper_fps_num_point, h=1)
+                        # kdline_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, gripper_fps_num_point)
+                        pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
+                    num_points -= gripper_fps_num_point
                 
-                beg = time.time()
-                if using_torch:
-                    point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-                    num_points = torch.tensor([num_points]).cuda()
-                    _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-                    point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                    point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
                 else:
-                    if point_cloud.shape[0] < num_points:
-                        to_add_points_num = num_points - point_cloud.shape[0]
-                        random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
-                        point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
-                    
-                    h = min(9, np.log2(num_points))
-                    kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
-                    point_cloud = point_cloud[kdline_fps_samples_idx]
-                end = time.time()
+                    pc_within_gripper = np.array([])
+            
+            beg = time.time()
+            if using_torch:
+                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([num_points]).cuda()
+                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
+            else:
+                if point_cloud.shape[0] < num_points:
+                    to_add_points_num = num_points - point_cloud.shape[0]
+                    random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
+                    point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
+                
+                h = min(9, np.log2(num_points))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+                new_input_mask = np.zeros_like(input_pc_mask)
+                new_input_mask[masked_indices[kdline_fps_samples_idx]] = 1
+                point_cloud = point_cloud[kdline_fps_samples_idx]
+            end = time.time()
                 
 
             point_cloud = point_cloud.tolist()
@@ -397,9 +388,11 @@ class RobogenPointCloudWrapper:
                 # TODO: handle multiple camera for act3d observation
                 obs_dict_input['feature_map'] = feature_maps[0].astype(np.float32)
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
+                obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
             else:
                 obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
                 obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
+                obs_dict_input['pcd_mask'] = np.zeros((1, 1, 1)).astype(np.uint8)
             
         else:
             obs_dict_input = {}
