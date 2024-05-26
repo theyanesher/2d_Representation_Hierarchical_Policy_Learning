@@ -46,7 +46,7 @@ def parallel_eval(args):
             horizon=600,
     )
     
-    object_name = "StorageFurniture"
+    object_name = "StorageFurniture".lower()
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                   gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
@@ -54,6 +54,7 @@ def parallel_eval(args):
                                                   use_joint_angle=cfg.task.env_runner.use_joint_angle, 
                                                   use_segmask=cfg.task.env_runner.use_segmask,
                                                   only_handle_points=cfg.task.env_runner.only_handle_points,
+                                                  observation_mode=cfg.task.env_runner.observation_mode,
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -85,12 +86,13 @@ def parallel_reset(args):
             task_name,
             init_state_file,
             render=False, 
+            # render=True, 
             randomize=False,
             obj_id=0,
             horizon=600,
     )
     
-    object_name = "StorageFurniture"
+    object_name = "StorageFurniture".lower()
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                   gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
@@ -98,12 +100,14 @@ def parallel_reset(args):
                                                   use_joint_angle=cfg.task.env_runner.use_joint_angle, 
                                                   use_segmask=cfg.task.env_runner.use_segmask,
                                                   only_handle_points=cfg.task.env_runner.only_handle_points,
+                                                  observation_mode=cfg.task.env_runner.observation_mode,
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
     
     obs = env.reset()
+    # import pdb; pdb.set_trace()
     state = save_env(env.env._env)
     rgb = env.env.render()
     info = env.env._env._get_info()
@@ -119,6 +123,9 @@ def wrap_obs(list_of_obs):
     parallel_input_dict = {}
     parallel_input_dict['point_cloud'] = np.concatenate([x['point_cloud'][None, ...] for x in list_of_obs], axis=0)
     parallel_input_dict['agent_pos'] = np.concatenate([x['agent_pos'][None, ...] for x in list_of_obs], axis=0)
+    parallel_input_dict['feature_map'] = np.concatenate([x['feature_map'][None, ...] for x in list_of_obs], axis=0)
+    parallel_input_dict['gripper_pcd'] = np.concatenate([x['gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
+    
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
 
@@ -134,6 +141,15 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
     experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
     all_experiments = os.listdir(experiment_path)
     all_experiments = sorted(all_experiments)
+    
+    all_experiments = all_demo_path
+    if cfg.task.env_runner.demo_experiment_path is not None:
+        all_demo_path = os.path.join(os.environ['PROJECT_DIR'], cfg.task.env_runner.demo_experiment_path, "all_demo_path.txt")
+        with open(all_demo_path, "r") as f:
+            all_demo_path = f.readlines()
+            all_demo_path = [x.lstrip().rstrip().split("/")[-1] for x in all_demo_path]
+        all_experiments = all_demo_path
+        import pdb; pdb.set_trace()
 
     all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
     with open(all_substeps_path, "r") as f:
@@ -188,8 +204,6 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                 
     after_reaching_init_state_files = after_reaching_init_state_files
     config_files = config_files
-    init_state_files = init_state_files
-
 
     opened_joint_angles = {}
     horizon = horizon
@@ -200,6 +214,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
         exp_beg_idx = int(exp_beg_ratio * len(config_files))
 
     config_files = config_files[exp_beg_idx:exp_end_idx]
+    init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
     num_iters = (len(config_files) - 1) // num_worker + 1
     for iter in range(num_iters):
         
@@ -211,6 +226,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             [config_files[idx], init_state_files[idx], cfg, idx] for idx in range(beg_idx, end_idx)
         ]
         results = pool.map(parallel_reset, args_to_run)
+        # parallel_reset(args_to_run[0])
         results = sorted(results, key=lambda x: x[-1])
         res_obs = [res[0] for res in results]
         batched_states = [res[1] for res in results]
@@ -278,7 +294,7 @@ if __name__ == "__main__":
     num_worker = 50
     pool = Pool(processes=num_worker)
     checkpoint_name = "latest.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0517-vary-obj-loc-ori-only-handle-points-correct-1/2024.05.17/19.22.57_train_dp3_robogen_open_door/"
+    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0517-vary-obj-loc-ori-only-handle-points-correct-1/2024.05.21/18.29.55_train_dp3_robogen_open_door"
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(

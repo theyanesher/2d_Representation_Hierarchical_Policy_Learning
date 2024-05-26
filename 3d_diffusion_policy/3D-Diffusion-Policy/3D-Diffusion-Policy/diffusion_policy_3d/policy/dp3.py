@@ -16,6 +16,9 @@ from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerat
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
 from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
+from diffusion_policy_3d.model.vision.act3d_encoder import Act3dEncoder
+
+from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 
 class DP3(BasePolicy):
     def __init__(self, 
@@ -40,6 +43,8 @@ class DP3(BasePolicy):
             pointnet_type="pointnet",
             pointcloud_encoder_cfg=None,
             use_state=True,
+            encoder_type='pointnet',
+            act3d_encoder_cfg=None,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -60,7 +65,9 @@ class DP3(BasePolicy):
         obs_dict = dict_apply(obs_shape_meta, lambda x: x['shape'])
 
 
-        obs_encoder = DP3Encoder(observation_space=obs_dict,
+        self.encoder_type = encoder_type
+        if self.encoder_type=="dp3":
+            obs_encoder = DP3Encoder(observation_space=obs_dict,
                                                    img_crop_shape=crop_shape,
                                                 out_channel=encoder_output_dim,
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
@@ -68,25 +75,35 @@ class DP3(BasePolicy):
                                                 pointnet_type=pointnet_type,
                                                 use_state=use_state
                                                 )
+            # create diffusion model
+            obs_feature_dim = obs_encoder.output_shape()
+            input_dim = action_dim + obs_feature_dim
+            global_cond_dim = None
+            if obs_as_global_cond:
+                input_dim = action_dim
+                if "cross_attention" in self.condition_type:
+                    global_cond_dim = obs_feature_dim
+                else:
+                    global_cond_dim = obs_feature_dim * n_obs_steps
+                    
+            self.use_pc_color = use_pc_color
+            self.pointnet_type = pointnet_type
+            cprint(f"[DiffusionUnetHybridPointcloudPolicy] use_pc_color: {self.use_pc_color}", "yellow")
+            cprint(f"[DiffusionUnetHybridPointcloudPolicy] pointnet_type: {self.pointnet_type}", "yellow")
+                    
+        elif self.encoder_type == 'act3d':
+            obs_encoder = Act3dEncoder(**act3d_encoder_cfg, encoder_output_dim=encoder_output_dim, 
+                                       observation_space=obs_dict)
 
-        # create diffusion model
-        obs_feature_dim = obs_encoder.output_shape()
-        input_dim = action_dim + obs_feature_dim
-        global_cond_dim = None
-        if obs_as_global_cond:
-            input_dim = action_dim
-            if "cross_attention" in self.condition_type:
-                global_cond_dim = obs_feature_dim
-            else:
-                global_cond_dim = obs_feature_dim * n_obs_steps
-        
-
-        self.use_pc_color = use_pc_color
-        self.pointnet_type = pointnet_type
-        cprint(f"[DiffusionUnetHybridPointcloudPolicy] use_pc_color: {self.use_pc_color}", "yellow")
-        cprint(f"[DiffusionUnetHybridPointcloudPolicy] pointnet_type: {self.pointnet_type}", "yellow")
-
-
+            obs_feature_dim = obs_encoder.output_shape()
+            input_dim = action_dim + obs_feature_dim
+            global_cond_dim = None
+            if obs_as_global_cond:
+                input_dim = action_dim
+                if "cross_attention" in self.condition_type:
+                    global_cond_dim = obs_feature_dim
+                else:
+                    global_cond_dim = obs_feature_dim * n_obs_steps
 
         model = ConditionalUnet1D(
             input_dim=input_dim,
@@ -101,11 +118,13 @@ class DP3(BasePolicy):
             use_mid_condition=use_mid_condition,
             use_up_condition=use_up_condition,
         )
+        if self.encoder_type == "act3d":
+            model = replace_bn_with_gn(model)
 
         self.obs_encoder = obs_encoder
         self.model = model
         self.noise_scheduler = noise_scheduler
-        
+         
         
         self.noise_scheduler_pc = copy.deepcopy(noise_scheduler)
         self.mask_generator = LowdimMaskGenerator(
@@ -181,7 +200,10 @@ class DP3(BasePolicy):
         result: must include "action" key
         """
         # normalize input
-        nobs = self.normalizer.normalize(obs_dict)
+        if "act3d" not in self.encoder_type:
+            nobs = self.normalizer.normalize(obs_dict)
+        else:
+            nobs = obs_dict
         # import pdb; pdb.set_trace()
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
         # if not self.use_pc_color:
@@ -205,6 +227,7 @@ class DP3(BasePolicy):
         global_cond = None
         if self.obs_as_global_cond:
             # condition through global feature
+            # reshape from Batch_size, horizon, ... to Batch_size*horizon, ...
             this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
             if "cross_attention" in self.condition_type:
@@ -261,7 +284,10 @@ class DP3(BasePolicy):
     def compute_loss(self, batch):
         # normalize input
 
-        nobs = self.normalizer.normalize(batch['obs'])
+        if 'act3d' not in self.encoder_type:
+            nobs = self.normalizer.normalize(batch['obs'])
+        else:
+            nobs = batch['obs']
         nactions = self.normalizer['action'].normalize(batch['action'])
 
         # import pdb; pdb.set_trace()

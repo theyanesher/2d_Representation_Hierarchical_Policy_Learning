@@ -2,7 +2,7 @@ import wandb
 import numpy as np
 import torch
 import tqdm 
-from manipulation.utils import build_up_env, save_numpy_as_gif, get_pc, take_round_images_around_object, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D
+from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D
 from manipulation.gpt_reward_api import get_handle_pos
 import pybullet as p
 import numpy as np
@@ -35,6 +35,10 @@ class RobogenPointCloudWrapper:
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
+                 observation_mode=None,
+                 camera_height=480,
+                 camera_width=640,
+                 elevation=30,
             ):
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
@@ -56,14 +60,21 @@ class RobogenPointCloudWrapper:
         self.use_color = use_color
         self.use_segmask = use_segmask
         self.only_handle_points = only_handle_points
+        self.observation_mode = observation_mode
+        self.elevation = elevation
+        
+        self.camera_width = camera_width
+        self.camera_height = camera_height
 
         self.action_low = np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
         self.observation_space = spaces.Dict({
-            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 6), dtype=np.float32),
-            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
 
         for name in self._env.urdf_ids: # randomly center at an object
@@ -77,6 +88,13 @@ class RobogenPointCloudWrapper:
         self.rpy_mean_list = rpy_mean_list
         if self.rpy_mean_list is None:
             self.rpy_mean_list = [[0, 0, -45], [0, 0, -135]]
+        
+        if 'act3d' in self.observation_mode:
+            # TODO: handle multiple camera for act3d observation
+            # TODO: just for debug now
+            self.rpy_mean_list = [[0, 0, -45]]
+            self.camera_height = 128
+            self.camera_width = 128
 
         self.view_matrices= []
         self.project_matrices = []
@@ -163,6 +181,15 @@ class RobogenPointCloudWrapper:
         self.time_step += 1
         return obs, reward, done, info
     
+    def get_gripper_pc(self):
+        # get the point cloud of the gripper
+        right_finger_pos, _ = self._env.robot.get_pos_orient(self._env.robot.right_gripper_indices[0])
+        left_finger_pos, _ = self._env.robot.get_pos_orient(self._env.robot.right_gripper_indices[1])
+        right_hand_pos, _ = self._env.robot.get_pos_orient(self._env.robot.right_hand)
+        eef_pos, _ = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+        gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
+        return gripper_pc
+    
     def _get_observation(self, render=True, using_torch=False):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
@@ -187,29 +214,32 @@ class RobogenPointCloudWrapper:
         if render:
             beg = time.time()
             rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
-                self.take_images_around_object(self._env, self._object_name.lower(), elevation=30,
-                                                return_camera_matrices=True, camera_height=480, camera_width=640, 
+                self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
+                                                return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
                                                 only_object=True)
             end = time.time()
             # cprint("point cloud rendering time {}".format(end - beg), "green")
             pcs = []
+            feature_maps = []
+            gripper_pcd = []
             for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
-                pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=640, height=480, mask_infinite=False)
+                pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+                # pc_in_camera = get_pc_in_camera_frame(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
                 if self.use_color:
                     rgb = rgb.reshape(-1, 3)
                     colorful_pc = np.concatenate([pc, rgb], axis=1)
                     pcs.append(colorful_pc)
-                elif self.use_segmask:
+                elif self.use_segmask or self.observation_mode == 'segmask':
                     segmask = segmask.reshape(-1, 1)
                     segmask_obj_id = segmask & ((1 << 24) - 1)
                     robot_mask = np.zeros_like(segmask).astype(np.float32)
                     robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
                     object_mask = np.zeros_like(segmask).astype(np.float32)
                     # TODO: use the real object name
-                    object_mask[segmask_obj_id == self._env.urdf_ids['storagefurniture']] = 1
+                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
                     pc_with_mask = np.concatenate([pc, robot_mask, object_mask], axis=1)
                     pcs.append(pc_with_mask)
-                elif self.only_handle_points:
+                elif self.only_handle_points or self.observation_mode == 'zoomed-in':
                     segmask = segmask.reshape(-1, 1)
                     segmask_obj_id = segmask & ((1 << 24) - 1)
                     segmask_link_id = (segmask >> 24) - 1
@@ -217,7 +247,7 @@ class RobogenPointCloudWrapper:
                     eef_mask = (segmask_link_id >= 7).flatten()
                     robot_eef_mask = robot_mask & eef_mask
                     robot_pc = pc[robot_eef_mask]
-                    object_pc = pc[(segmask_obj_id == self._env.urdf_ids['storagefurniture']).flatten()]
+                    object_pc = pc[(segmask_obj_id == self._env.urdf_ids[self._object_name]).flatten()]
                     info = self._env._get_info()
                     handle_pos = np.array(info['handle_pos'])
                     distance = np.linalg.norm(handle_pos.reshape(1, 3) - np.array(object_pc).reshape(-1, 3), axis=1)
@@ -228,71 +258,97 @@ class RobogenPointCloudWrapper:
                     one_hot_encodings[robot_pc.shape[0]:, 1] = 1
                     pc = np.concatenate([pc, one_hot_encodings], axis=1)
                     pcs.append(pc)
+                elif 'act3d' in self.observation_mode:
+                    # I need point cloud of target object
+                    # full segmentation mask + depth image, stacked together
+                    # gripper point cloud, which can be the left finger point, right finger point, and the eef point, and the grasping target point
+                    # gripper information
+                    
+                    pcs.append(pc)
+                    gripper_pc = self.get_gripper_pc()
+                    gripper_pcd.append(gripper_pc)
+                    
+                    segmask_obj_id = segmask & ((1 << 24) - 1)
+                    robot_mask = np.zeros_like(depth).astype(np.float32)
+                    robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
+                    object_mask = np.zeros_like(depth).astype(np.float32)
+                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+                    feature_map = np.dstack([depth, robot_mask, object_mask])
+                    assert feature_map.shape == (self.camera_height, self.camera_width, 3), f"Expected ({self.camera_height}, {self.camera_width}, 3), got {feature_map.shape}"
+                    feature_maps.append(feature_map)
+                    
                 else:
                     pcs.append(pc)
                 
             point_cloud = np.concatenate(pcs, axis=0)
-            min_bound = np.array([-5, -5, 0.1])
-            max_bound = np.array([5, 5, 5])
-            if min_bound is not None:
-                mask = np.all(point_cloud[:, :3] > min_bound, axis=1)
-                point_cloud = point_cloud[mask]
-            if max_bound is not None:
-                mask = np.all(point_cloud[:, :3] < max_bound, axis=1)
-                point_cloud = point_cloud[mask]
             
-            if self.handle_num_points > 0 or self.gripper_num_points > 0:
-                full_point_cloud = deepcopy(point_cloud)
+            if 'act3d' not in self.observation_mode:
+                min_bound = np.array([-5, -5, 0.1])
+                max_bound = np.array([5, 5, 5])
+                input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
+                point_cloud = point_cloud[input_pc_mask]
                 
+                if self.handle_num_points > 0 or self.gripper_num_points > 0:
+                    full_point_cloud = deepcopy(point_cloud)
+            else:
+                min_bound = np.array([-5, -5, 0.1])
+                max_bound = np.array([5, 5, 5])
+                mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
+                in_bound_pc = point_cloud[mask]
+                in_bound_max = np.max(in_bound_pc, axis=0)
+                point_cloud[~mask] = in_bound_max
+                
+            
             # sampled_indices = np.random.choice(point_cloud.shape[0], 1024*20, replace=False)
             # point_cloud = point_cloud[sampled_indices]
             
            
-            num_points = self.num_points
-            if self.gripper_num_points > 0:
-                gripper_pc = self._transfer_point_cloud_to_gripper_frame(full_point_cloud)
-                bounding_box = np.array([[-self.gripper_bbox, -self.gripper_bbox, -self.gripper_bbox], [self.gripper_bbox, self.gripper_bbox, self.gripper_bbox]])
-                mask = np.all(gripper_pc[:, :3] > bounding_box[0], axis=1) & np.all(gripper_pc[:, :3] < bounding_box[1], axis=1)
-                pc_within_gripper = full_point_cloud[mask]
-                gripper_fps_num_point = min(self.gripper_num_points, pc_within_gripper.shape[0])
-                # import pdb; pdb.set_trace()
-                if len(pc_within_gripper) > 2:
-                    if using_torch:
-                        pc_within_gripper = torch.from_numpy(pc_within_gripper).unsqueeze(0).cuda()
-                        fps_num_points = torch.tensor([gripper_fps_num_point]).cuda()
-                        _, sampled_indices = torch3d_ops.sample_farthest_points(points=pc_within_gripper[...,:3], K=fps_num_points)
-                        pc_within_gripper = pc_within_gripper.squeeze(0).cpu().numpy()
-                        pc_within_gripper = pc_within_gripper[sampled_indices.squeeze(0).cpu().numpy()]
-                    else:
-                        kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc_within_gripper, gripper_fps_num_point, h=1)
-                        # kdline_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, gripper_fps_num_point)
-                        pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
-                    num_points -= gripper_fps_num_point
-                
-                else:
-                    pc_within_gripper = np.array([])
-            
-            beg = time.time()
-            if using_torch:
-                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-                num_points = torch.tensor([num_points]).cuda()
-                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-                point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
-            else:
-                # if num_points > point_cloud.shape[0]:
-                #     import pdb;pdb.set_trace()
+            if 'act3d' not in self.observation_mode:
+                # do downsampling of the pcd
+                num_points = self.num_points
+                if self.gripper_num_points > 0:
+                    gripper_pc = self._transfer_point_cloud_to_gripper_frame(full_point_cloud)
+                    bounding_box = np.array([[-self.gripper_bbox, -self.gripper_bbox, -self.gripper_bbox], [self.gripper_bbox, self.gripper_bbox, self.gripper_bbox]])
+                    mask = np.all(gripper_pc[:, :3] > bounding_box[0], axis=1) & np.all(gripper_pc[:, :3] < bounding_box[1], axis=1)
+                    pc_within_gripper = full_point_cloud[mask]
+                    gripper_fps_num_point = min(self.gripper_num_points, pc_within_gripper.shape[0])
+                    # import pdb; pdb.set_trace()
+                    if len(pc_within_gripper) > 2:
+                        if using_torch:
+                            pc_within_gripper = torch.from_numpy(pc_within_gripper).unsqueeze(0).cuda()
+                            fps_num_points = torch.tensor([gripper_fps_num_point]).cuda()
+                            _, sampled_indices = torch3d_ops.sample_farthest_points(points=pc_within_gripper[...,:3], K=fps_num_points)
+                            pc_within_gripper = pc_within_gripper.squeeze(0).cpu().numpy()
+                            pc_within_gripper = pc_within_gripper[sampled_indices.squeeze(0).cpu().numpy()]
+                        else:
+                            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc_within_gripper[:, :3], gripper_fps_num_point, h=1)
+                            # kdline_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, gripper_fps_num_point)
+                            pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
+                        num_points -= gripper_fps_num_point
                     
-                cprint("point cloud shape: {}".format(point_cloud.shape), "green")
-                num_points = min(num_points, point_cloud.shape[0])
-                h = min(9, np.log2(num_points))
-                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud, num_points, h=h)
-                point_cloud = point_cloud[kdline_fps_samples_idx]
-            end = time.time()
-            # cprint("point cloud sampling time {}".format(end - beg), "green")
+                    else:
+                        pc_within_gripper = np.array([])
+                
+                beg = time.time()
+                if using_torch:
+                    point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                    num_points = torch.tensor([num_points]).cuda()
+                    _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                    point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                    point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
+                else:
+                    if point_cloud.shape[0] < num_points:
+                        to_add_points_num = num_points - point_cloud.shape[0]
+                        random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
+                        point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
+                    
+                    h = min(9, np.log2(num_points))
+                    kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+                    point_cloud = point_cloud[kdline_fps_samples_idx]
+                end = time.time()
+                
 
             point_cloud = point_cloud.tolist()
-            
             
             if self.gripper_num_points > 0:
                 point_cloud = point_cloud + pc_within_gripper.tolist()
@@ -325,8 +381,8 @@ class RobogenPointCloudWrapper:
             #     o3d.visualization.draw_geometries([pcd])
             
             obs_dict_input = {}
-            obs_dict_input['point_cloud'] = np.array(point_cloud)
-            obs_dict_input['agent_pos'] = np.array(pos_ori)
+            obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
+            obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
             if self.in_gripper_frame:
                 obs_dict_input['point_cloud'] = self._transfer_point_cloud_to_gripper_frame(obs_dict_input['point_cloud'])
                 
@@ -336,13 +392,20 @@ class RobogenPointCloudWrapper:
                 contact_left = int(len(points_left_finger) > 0)
                 contact_right = int(len(points_right_finger) > 0)
                 obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], [contact_left, contact_right]])
-                
+            
+            if 'act3d' in self.observation_mode:
+                # TODO: handle multiple camera for act3d observation
+                obs_dict_input['feature_map'] = feature_maps[0].astype(np.float32)
+                obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
+            else:
+                obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
+                obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
+            
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
             obs_dict_input['agent_pos'] = np.array(pos_ori)
             
-
         return obs_dict_input
     
     def _transfer_point_cloud_to_gripper_frame(self, point_cloud):

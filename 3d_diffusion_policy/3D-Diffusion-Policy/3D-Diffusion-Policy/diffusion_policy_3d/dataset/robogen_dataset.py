@@ -20,26 +20,24 @@ class RobogenDataset(BaseDataset):
             train_ratio=0.9,
             max_train_episodes=None,
             task_name=None,
+            observation_mode='segmask',
             ):
         super().__init__()
+        
         self.task_name = task_name
+        self.observation_mode = observation_mode
+        
+        keys = ['state', 'action', 'point_cloud']
+        if 'act3d' in observation_mode:
+            keys += ['feature_map', 'gripper_pcd']
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            zarr_path, keys=['state', 'action', 'point_cloud'])
-        # val_mask = get_val_mask(
-        #     n_episodes=self.replay_buffer.n_episodes, 
-        #     val_ratio=val_ratio,
-        #     seed=seed)
-        # train_mask = ~val_mask
+            zarr_path, keys=keys)
+        
         self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
         self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
         
-
         train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
         train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-        # train_mask = downsample_mask(
-        #     mask=train_mask, 
-        #     max_n=max_train_episodes, 
-        #     seed=seed)
 
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer, 
@@ -67,23 +65,31 @@ class RobogenDataset(BaseDataset):
     
 
     def get_normalizer(self, mode='limits', **kwargs):
-        data = {
-            'action': self.replay_buffer['action'],
-            'agent_pos': self.replay_buffer['state'][...,:],
-            'point_cloud': self.replay_buffer['point_cloud'],
-        }
+        # TODO: do we need to normalize the agent_pos and point cloud?
+        # or just center point cloud to be at robot gripper?
+        if 'act3d' not in self.observation_mode:
+            data = {
+                'action': self.replay_buffer['action'],
+                'agent_pos': self.replay_buffer['state'][...,:],
+                'point_cloud': self.replay_buffer['point_cloud'],
+            }
+        else:
+            # only normalizes actions, to make sure that the relative attention makes sense
+            data = {
+                'action': self.replay_buffer['action'],
+            }
+            
         normalizer = LinearNormalizer()
         normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
-        # import pdb; pdb.set_trace()
         return normalizer
     
     def __len__(self) -> int:
         return len(self.sampler)
     
     def _sample_to_data(self, sample):
-        agent_pos = sample['state'][:,].astype(np.float32) # (agent_pos: 7)
+        agent_pos = sample['state'][:,].astype(np.float32) # (T, agent_pos: 7) T is the horizon
         point_cloud = sample['point_cloud'][:,].astype(np.float32) # (T, 1280, 6)
-
+       
         data = {
             'obs': {
                 'point_cloud': point_cloud, # T, 1280, 6
@@ -91,6 +97,13 @@ class RobogenDataset(BaseDataset):
             },
             'action': sample['action'].astype(np.float32) # T, D_action
         }
+
+        if 'act3d' in self.observation_mode:
+            gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
+            feature_map = sample['feature_map'][:,].astype(np.float32)
+            data['obs']['gripper_pcd'] = gripper_pcd
+            data['obs']['feature_map'] = feature_map
+        
         return data
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:

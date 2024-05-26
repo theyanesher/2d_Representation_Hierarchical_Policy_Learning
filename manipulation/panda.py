@@ -10,12 +10,14 @@ class Panda(Robot):
             right_arm_joint_indices = [0, 1, 2, 3, 4, 5, 6] # Controllable arm joints
             right_end_effector = 11 # Used to get the pose of the end effector
             right_gripper_indices = [9, 10] # Gripper actuated joints
+            right_hand = 8 # TODO: check this
         else:
             right_arm_joint_indices = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]
             right_end_effector = 15 # Used to get the pose of the end effector
             right_gripper_indices = [13, 14] # Gripper actuated joints
                 
         super(Panda, self).__init__(controllable_joints, right_arm_joint_indices, right_end_effector, right_gripper_indices)
+        self.right_hand = right_hand
 
     def init(self, directory, id, np_random, fixed_base=False, use_suction=True, debug=False):
         if self.slider:

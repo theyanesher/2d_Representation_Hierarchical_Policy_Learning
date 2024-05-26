@@ -69,6 +69,12 @@ policy:
     # block_channel: [128, 256, 1024, 512]
 
   use_state: true
+  
+  # act3d encoder params
+  encoder_type: act3d
+  act3d_encoder_cfg:
+    in_channels: 3
+    num_gripper_points: 4
 
 
 ema:
@@ -80,14 +86,14 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 480
+  batch_size: 100
   num_workers: 20
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 480
+  batch_size: 100
   num_workers: 20
   shuffle: False
   pin_memory: True

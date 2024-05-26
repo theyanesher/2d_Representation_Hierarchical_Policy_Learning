@@ -36,6 +36,8 @@ env_runner:
   use_segmask: false
   only_handle_points: false
   num_worker: 50
+  observation_mode: act3d
+  demo_experiment_path: null
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
@@ -47,3 +49,4 @@ dataset:
   val_ratio: 0.1
   train_ratio: 1
   max_train_episodes: null
+  observation_mode: act3d

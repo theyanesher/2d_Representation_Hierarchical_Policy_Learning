@@ -21,7 +21,7 @@ from multiprocessing import Pool
 
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact, \
-        state, object_name, num_point_in_pc, use_joint_angle, use_segmask, only_handle_points, idx = args
+        state, object_name, num_point_in_pc, use_joint_angle, use_segmask, only_handle_points, observation_mode, idx = args
     
     # cprint("Extracting data from state idx " + str(idx), "blue")
     simulator, _ = build_up_env(
@@ -37,16 +37,21 @@ def parallel_render(args):
     simulator = RobogenPointCloudWrapper(simulator, 
         object_name, rpy_mean_list=rpy, seed=0, in_gripper_frame=in_gripper_frame, 
         gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=num_point_in_pc,
-        use_joint_angle=use_joint_angle, use_segmask=use_segmask, only_handle_points=only_handle_points)
+        use_joint_angle=use_joint_angle, use_segmask=use_segmask, only_handle_points=only_handle_points, 
+        observation_mode=observation_mode)
+    
     load_env(simulator._env, load_path=state)
     observation = simulator._get_observation()
     rgb = simulator._env.render()
     
     point_cloud = observation['point_cloud'].tolist()
-    pos_ori = observation['agent_pos'].tolist()
+    traj_pos_ori = observation['agent_pos'].tolist()
+    feature_map = observation['feature_map'].tolist()
+    gripper_pcd = observation['gripper_pcd'].tolist()
+    
     simulator._env.close()
         
-    return point_cloud, pos_ori, rgb, idx
+    return point_cloud, traj_pos_ori, rgb, feature_map, gripper_pcd, idx
 
 def sort_states_file_by_file_number(state_path):
     # all the file are named as state_0.pkl, state_1.pkl, ...
@@ -69,23 +74,14 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
     all_experiments = os.listdir(experiment_folder)
     all_experiments = sorted(all_experiments)
     all_experiments = all_experiments
-    
-    # non_perturbed_experiments = [x for x in all_experiments if 'perturb' not in x]
-    # perturbed_reaching_experiments = [x for x in all_experiments if 'perturb' in x and 'reaching' in x]
-    # perturned_open_expierments = [x for x in all_experiments if 'perturb' in x and 'open' in x]
-
-    # all_experiments = non_perturbed_experiments
-    # if args.include_reaching_perturbation:
-    #     all_experiments += perturbed_reaching_experiments
-    # if args.include_open_perturbation:
-    #     all_experiments += perturned_open_expierments
-
     all_experiments = all_experiments[:args.num_experiment]
     
-    ret_pc = []
-    ret_pos_ori = []
-    stages = []
-    store_experiment_label_paths = []
+    all_traj_pc = []
+    all_traj_pos_ori = []
+    all_traj_stage_lengths = []
+    all_traj_feature_maps = []
+    all_traj_gripper_pcds = []
+    all_traj_store_label_paths = []
     all_traj_rgbs = []
     for experiment in tqdm.tqdm(all_experiments):
         if "meta" in experiment:
@@ -100,7 +96,6 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         with open(all_substeps_path, "r") as f:
             substeps = f.readlines()
             first_step = substeps[0].lstrip().rstrip()
-            second_step = substeps[1].lstrip().rstrip()
 
         all_substeps_type = os.path.join(solution_path, "substep_types.txt")
         with open(all_substeps_type, "r") as f:
@@ -108,32 +103,28 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
             first_step_type = all_substeps_type[0].lstrip().rstrip()
         first_step_folder = first_step.replace(" ", "_") + "_"  + first_step_type
         first_stage_states_path = os.path.join(experiment_path, first_step_folder, "states")
-        stage_lengths = os.path.join(experiment_path, first_step_folder, "stage_lengths.json")
         
+            
         first_stage_states = sort_states_file_by_file_number(first_stage_states_path)      
         expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
         if len(expert_states) == 0:
             print("No states found for experiment continue")
             continue
         
-        store_experiment_label_paths.append(os.path.join(experiment_path, first_step_folder))
         label_path = os.path.join(experiment_path, first_step_folder, "label.json")
         if os.path.exists(label_path):
             label = json.load(open(label_path, "r"))
             if not label["good_traj"]:
                 print("Not good traj continue")
                 continue
-            
+        
+        stage_lengths = os.path.join(experiment_path, first_step_folder, "stage_lengths.json")
         with open(stage_lengths, "r") as f:
             stage_lengths = json.load(f)
-        stages.append(stage_lengths)
-        
         if 'reach_handle' in stage_lengths.keys():
             reaching_phase = stage_lengths['reach_handle']
         else:
             reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
-      
-        
     
         opened_angle_file = os.path.join(experiment_path, first_step_folder, "opened_angle.txt")
         if os.path.exists(opened_angle_file): # for some perturbed trajectories, we did not really continue openeing the handle. 
@@ -142,23 +133,25 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
                 ratio = opened_angle / max_angle
-            if not (ratio > 0.65):
+            if not (ratio > args.opened_threshold):
                 print("not open enough, continue")
                 continue
 
-        if args.use_extracted and os.path.exists(os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(
-                args.use_joint_angle, args.use_segmask, args.only_handle_points))):
-            with open(os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(
-                args.use_joint_angle, args.use_segmask, args.only_handle_points)), "rb") as f:
+        all_traj_stage_lengths.append(stage_lengths)
+        all_traj_store_label_paths.append(os.path.join(experiment_path, first_step_folder))
+
+        # stored_pkl_path = os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(args.use_joint_angle, args.use_segmask, args.only_handle_points))   
+        stored_pkl_path = os.path.join(experiment_path, first_step_folder, "extracted_{}.pkl".format(args.observation_mode))   
+        if args.use_extracted and os.path.exists(stored_pkl_path):
+            with open(stored_pkl_path, "rb") as f:
                
                 data = pickle.load(f)
-                if len(data) == 2:
-                    pc_list, pos_ori_list = data
-                    rgb_list = None
-                else:
+                if len(data) == 3:
                     pc_list, pos_ori_list, rgb_list = data
+                else:
+                    pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list = data
                     
-                assert len(pc_list[0]) == args.pointcloud_num
+                assert len(pc_list[0]) == args.pointcloud_num, f"point cloud length is {len(pc_list[0])}, should be {args.pointcloud_num}"
                 
             if args.after_reaching:
                 pc_list = pc_list[reaching_phase:]
@@ -187,7 +180,8 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     simulator = RobogenPointCloudWrapper(simulator, 
                         object_name, rpy_mean_list=rpy, seed=0, in_gripper_frame=in_gripper_frame, 
                         gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=args.pointcloud_num,
-                        use_joint_angle=args.use_joint_angle, use_segmask=args.use_segmask, only_handle_points=args.only_handle_points)
+                        use_joint_angle=args.use_joint_angle, use_segmask=args.use_segmask, only_handle_points=args.only_handle_points,
+                        observation_mode=args.observation_mode)
                     pc_list = []
                     pos_ori_list = []
                     for state in tqdm.tqdm(expert_states):
@@ -195,10 +189,10 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                         observation = simulator._get_observation()
                         
                         point_cloud = observation['point_cloud'].tolist()
-                        pos_ori = observation['agent_pos'].tolist()
+                        traj_pos_ori = observation['agent_pos'].tolist()
 
                         pc_list.append(point_cloud)
-                        pos_ori_list.append(pos_ori)
+                        pos_ori_list.append(traj_pos_ori)
                         
                     simulator._env.close()
                 else:
@@ -210,26 +204,33 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     results = pool.map(parallel_render, 
                         [(task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact,
                         expert_states[i], object_name, args.pointcloud_num, args.use_joint_angle, args.use_segmask, args.only_handle_points, \
+                            args.observation_mode,
                             i) for i in range(len(expert_states))])
                     results = sorted(results, key=lambda x: x[-1])
                     # print([result[2] for result in results])
                     pc_list = [x[0] for x in results]        
                     pos_ori_list = [x[1] for x in results]
                     rgb_list = [x[2] for x in results]
+                    feature_map_list = [x[3] for x in results]
+                    gripper_pcd_list = [x[4] for x in results]
     
             end = time.time()
-            cprint(f"Finished extracting data from trajectory index: {str(len(ret_pc))} time cost {end - beg}" , "green")
+            cprint(f"Finished extracting data from trajectory index: {str(len(all_traj_pc))} time cost {end - beg}" , "green")
 
-        ret_pc.append(pc_list)
-        ret_pos_ori.append(pos_ori_list)
+        all_traj_pc.append(pc_list)
+        all_traj_pos_ori.append(pos_ori_list)
         all_traj_rgbs.append(rgb_list)
+        all_traj_feature_maps.append(feature_map_list)
+        all_traj_gripper_pcds.append(gripper_pcd_list)
             
         if not args.after_reaching and not args.after_opening:
-            with open(os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(
-                    args.use_joint_angle, args.use_segmask, args.only_handle_points)), "wb") as f:
-                pickle.dump((pc_list, pos_ori_list, rgb_list), f, protocol=pickle.HIGHEST_PROTOCOL)
+            # store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(args.use_joint_angle, args.use_segmask, args.only_handle_points))
+            store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_{}.pkl".format(args.observation_mode))
+            with open(store_pickle_path, "wb") as f:
+                pickle.dump((pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list), f, protocol=pickle.HIGHEST_PROTOCOL)
         
-    return ret_pc, ret_pos_ori, all_traj_rgbs, stages, store_experiment_label_paths
+    return all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, \
+        all_traj_stage_lengths, all_traj_store_label_paths
     
 def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None, in_gripper_frame=False, parallel=True, 
                                     gripper_num_points=0, add_contact=False, save_path=None):
@@ -246,6 +247,8 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     all_pc_list = []
     all_state_list = []
     all_action_list = []
+    all_feature_map_list = []
+    all_gripper_pcd_list = []
     last_state_indices = []
     total_count = 0
     for task_path in task_paths[args.task_beg_idx:args.task_end_idx]:
@@ -260,49 +263,58 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             print("No solution path or task config path found for task: ", task_path)
             continue
 
-        # ret_pc, ret_pos_ori = extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_category, in_gripper_frame=in_gripper_frame)
-        ret_pc, ret_pos_ori, all_traj_rgbs, stages, store_label_paths = extract_pc_states_for_all_trajectories(
+        # all_traj_pc, all_traj_pos_ori = extract_pc_states_for_one_trajectory(task_config_path, solution_path, object_category, in_gripper_frame=in_gripper_frame)
+        all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, \
+                all_traj_stage_lengths, all_traj_store_label_paths = extract_pc_states_for_all_trajectories(
             task_config_path, solution_path, object_category, exp_name=exp_name, 
             in_gripper_frame=in_gripper_frame, parallel=parallel,
             gripper_num_points=gripper_num_points, add_contact=add_contact)
+
+        # TODO: update this to actually used exp path        
         
-        with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
-            f.write("\n".join(store_label_paths))
-        
-        for traj_idx, (pc, pos_ori, stage_length, store_label_path) in tqdm.tqdm(enumerate(zip(ret_pc, ret_pos_ori, stages, store_label_paths))):
+        all_demo_paths = []
+        for traj_idx in tqdm.tqdm(range(len(all_traj_pc)), total=len(all_traj_pc)):
+
+            traj_pc, traj_pos_ori, traj_feature_maps, traj_gripper_pcd = all_traj_pc[traj_idx], all_traj_pos_ori[traj_idx], all_traj_feature_maps[traj_idx], all_traj_gripper_pcds[traj_idx]
+            traj_stage_length, traj_store_label_path  = all_traj_stage_lengths[traj_idx], all_traj_store_label_paths[traj_idx]
+            
             good_traj = True
 
             traj_actions = []
             quaternion_diffs = []
             if not args.use_joint_angle:
-                base_pos = pos_ori[0][:3]
-                base_ori_6d = pos_ori[0][3:9]
-                base_finger_angle = pos_ori[0][9]
+                base_pos = traj_pos_ori[0][:3]
+                base_ori_6d = traj_pos_ori[0][3:9]
+                base_finger_angle = traj_pos_ori[0][9]
             
             open_door_start_idx = 0
             # NOTE: for open_door_per_angle_new.py the keys order are different
-            if 'stage' not in stage_length.keys():
+            if 'stage' not in traj_stage_length.keys():
                 keys = ["reach_handle", "open_gripper", "reach_to_contact", "close_gripper"]
             else:
-                keys = ['open_gripper', "grasp_handle", 'close_gripper'] if "open_gripper" in stage_length['stage'] else ['grasp_handle', 'close_gripper']
+                keys = ['open_gripper', "grasp_handle", 'close_gripper'] if "open_gripper" in traj_stage_length['stage'] else ['grasp_handle', 'close_gripper']
 
             for key in keys:
-                open_door_start_idx += stage_length.get(key, 0)
+                open_door_start_idx += traj_stage_length.get(key, 0)
             
-            after_contact_step_idx = stage_length['reach_handle'] + stage_length['reach_to_contact']
+            after_contact_step_idx = traj_stage_length['reach_handle'] + traj_stage_length['reach_to_contact']
         
             filtered_pcs = []
             filtered_pos_oris = []
+            filtered_feature_maps = []
+            filtered_gripper_pcds = []
             filtered_rgbs = []
             base_rgb = all_traj_rgbs[traj_idx][0]
-            base_pc = pc[0]
-            base_pos_ori = pos_ori[0]
-            for i in range(len(pos_ori) - 1):
-                target_pos_ori = pos_ori[i+1]
+            base_feature_map = traj_feature_maps[0]
+            base_gripper_pcd = traj_gripper_pcd[0]
+            base_pc = traj_pc[0]
+            base_pos_ori = traj_pos_ori[0]
+            for i in range(len(traj_pos_ori) - 1):
+                target_pos_ori = traj_pos_ori[i+1]
 
                 if not args.use_joint_angle:                
-                    cur_pos = pos_ori[i][:3]
-                    target_pos = pos_ori[i+1][:3]
+                    cur_pos = traj_pos_ori[i][:3]
+                    target_pos = traj_pos_ori[i+1][:3]
 
                     single_step_delta_pos = np.array(target_pos) - np.array(cur_pos)
                     
@@ -314,14 +326,14 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     
                     delta_pos = np.array(target_pos) - np.array(base_pos)
 
-                    cur_ori_6d = pos_ori[i][3:9]
+                    cur_ori_6d = traj_pos_ori[i][3:9]
                     
                     # change the delta_pos into gripper frame
                     if in_gripper_frame:
                         cur_mat = rotation_transfer_6D_to_matrix(cur_ori_6d)
                         delta_pos = cur_mat.T @ delta_pos                    
 
-                    target_ori_6d = pos_ori[i+1][3:9]
+                    target_ori_6d = traj_pos_ori[i+1][3:9]
                     cur_ori_matrix = rotation_transfer_6D_to_matrix(cur_ori_6d)
                     base_ori_matrix = rotation_transfer_6D_to_matrix(base_ori_6d)
                     target_ori_matrix = rotation_transfer_6D_to_matrix(target_ori_6d)
@@ -341,23 +353,17 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                         good_traj = False
                         print("not good due to delta quaternion too large")
                         break
+                    
                     if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
                         good_traj = False
                         print("not good due to delta quaternion too large during opening door")
                         break
                     
-                    # cur_finger_angle = pos_ori[i][9]
-                    target_finger_angle = pos_ori[i+1][9]
+                    # cur_finger_angle = traj_pos_ori[i][9]
+                    target_finger_angle = traj_pos_ori[i+1][9]
 
                     # delta_finger_angle = target_finger_angle - cur_finger_angle
                     delta_finger_angle = target_finger_angle - base_finger_angle
-                    if args.fixed_finger_movement:
-                        # NOTE: the finger dimension only controls the open or close, and it will open/close by a fixed amount
-                        if i > after_contact_step_idx:
-                            # print("after contact finger movement: ", delta_finger_angle)
-                            delta_finger_angle = -0.003
-                        else:
-                            # print("before contact finger movement: ", delta_finger_angle)
                 
                 filter_action = False
                 if args.filter_small_action: 
@@ -366,7 +372,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                             filter_action = True
                     else:
                         if np.linalg.norm(delta_pos) < args.min_translation and np.linalg.norm(quat_diff) < args.min_rotation and np.abs(delta_finger_angle) < args.min_finger_angle_diff:
-                            if args.filter_after_reaching and i > stage_length["reach_handle"]:
+                            if args.filter_after_reaching and i > traj_stage_length["reach_handle"]:
                                 filter_action = True
                             if not args.filter_after_reaching:
                                 filter_action = True
@@ -377,24 +383,24 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     if not args.use_joint_angle:
                         action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
                     else:
-                        # pos_ori is the normalized joint angle. Action is the delta change in normalized joint angle
+                        # traj_pos_ori is the normalized joint angle. Action is the delta change in normalized joint angle
                         action = np.array(target_pos_ori) - np.array(base_pos_ori) 
                         action = action[:-1] # action only controls one finger; the other one is symmetric
-                        if i > after_contact_step_idx:
-                            action[-1] = -0.08
-                        #     action[-1] = traj_actions[after_contact_step_idx - 1][-1]
-                        #     print("after contact finger movement: ", action[-1])
-                        # else:
-                        #     print("before contact finger movement: ", action[-1])
+                        if i > after_contact_step_idx and args.fixed_finger_movement:
+                            action[-1] = args.close_finger_angle # TODO: double check this value
                             
                         action = action.tolist()
                             
                     traj_actions.append(action)
                     filtered_pcs.append(base_pc)
+                    filtered_gripper_pcds.append(base_gripper_pcd)
+                    filtered_feature_maps.append(base_feature_map)
                     filtered_pos_oris.append(base_pos_ori)
                     filtered_rgbs.append(base_rgb)
-                    base_pc = pc[i+1]
-                    base_pos_ori = pos_ori[i+1]
+                    base_pc = traj_pc[i+1]
+                    base_gripper_pcd = traj_gripper_pcd[i+1]
+                    base_feature_map = traj_feature_maps[i+1]
+                    base_pos_ori = traj_pos_ori[i+1]
                     base_rgb = all_traj_rgbs[traj_idx][i+1]
                     if not args.use_joint_angle:
                         base_pos = target_pos
@@ -422,7 +428,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                             
                             base = 0
                             for key in keys:
-                                base += stage_length[key]
+                                base += traj_stage_length[key]
                                 axes[idx].axvline(x=base, color='r', linestyle='--')
                                 axes[idx].text(base, 0, key, rotation=90)
                             axes[idx].set_title(titles[idx])
@@ -433,7 +439,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                         keys = ["reach_handle", "reach_to_contact", "close_gripper", "open_door"]
                         base = 0
                         for key in keys:
-                            base += stage_length[key]
+                            base += traj_stage_length[key]
                             axes.axvline(x=base, color='r', linestyle='--')
                             axes.text(base, 0, key, rotation=90)
                         axes.set_title("delta_joint_angles")
@@ -445,30 +451,27 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 except:
                     pass
 
-            path = os.path.join(store_label_path, "label.json")
+            path = os.path.join(traj_store_label_path, "label.json")
             if not os.path.exists(path):
                 with open(path, 'w') as f:
                     json.dump({"good_traj": good_traj}, f)
 
             if good_traj:
                 all_pc_list = all_pc_list + filtered_pcs
-                # change the state into gripper frame
-                if in_gripper_frame:
-                    temp_pos_ori = []
-                    for pos_ori_i in pos_ori:
-                        temp_pos_ori.append([0,0,0,1,0,0,0,1,0] + pos_ori_i[9:])
-                    all_state_list = all_state_list + temp_pos_ori
-                else:
-                    all_state_list = all_state_list + filtered_pos_oris
-
-                # traj_actions.append([0,0,0,1,0,0,0,1,0,0])            
+                all_state_list = all_state_list + filtered_pos_oris
+                all_feature_map_list = all_feature_map_list + filtered_feature_maps
+                all_gripper_pcd_list = all_gripper_pcd_list + filtered_gripper_pcds
                 all_action_list = all_action_list + traj_actions
                 total_count += len(filtered_pcs)
                 last_state_indices.append(deepcopy(total_count))
+                all_demo_paths.append(os.path.dirname(traj_store_label_path))
+                
+    with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
+        f.write("\n".join(all_demo_paths))
     
-    return all_pc_list, all_state_list, all_action_list, last_state_indices
+    return all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_action_list, last_state_indices
         
-def save_data(pc_list, state_list, action_list, last_state_indices, save_dir):
+def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, action_list, last_state_indices, save_dir):
     zarr_root = zarr.group(save_dir)
     zarr_data = zarr_root.create_group('data')
     zarr_meta = zarr_root.create_group('meta')
@@ -476,6 +479,9 @@ def save_data(pc_list, state_list, action_list, last_state_indices, save_dir):
     state_arrays = np.stack(state_list, axis=0)
     point_cloud_arrays = np.stack(pc_list, axis=0)
     action_arrays = np.stack(action_list, axis=0)
+    if 'act3d' in args.observation_mode:
+        feature_map_arrays = np.stack(feature_map_list, axis=0)
+        gripper_pcd_arrays = np.stack(gripper_pcd_list, axis=0)
     episode_ends_arrays = np.array(last_state_indices)
 
 
@@ -486,9 +492,14 @@ def save_data(pc_list, state_list, action_list, last_state_indices, save_dir):
     zarr_data.create_dataset('state', data=state_arrays, chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('point_cloud', data=point_cloud_arrays, chunks=point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('action', data=action_arrays, chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+    if 'act3d' in args.observation_mode:
+        feature_map_chunk_size = (100, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3])
+        gripper_pcd_chunk_size = (100, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
+        zarr_data.create_dataset('feature_map', data=feature_map_arrays, chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays, chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_meta.create_dataset('episode_ends', data=episode_ends_arrays, dtype='int64', overwrite=True, compressor=compressor)
 
-    del state_arrays, point_cloud_arrays, action_arrays, episode_ends_arrays
+    del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays, episode_ends_arrays
     del zarr_root, zarr_data, zarr_meta
 
 def save_example_pointcloud(pc_list, save_dir):
@@ -526,7 +537,7 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     with open(os.path.join(save_path, "meta_info.json"), "w") as f:
         json.dump(meta_info, f, indent=4)
     
-    pc_list, state_list, action_list, last_state_indices = extract_demos_from_a_directory(
+    all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_action_list, last_state_indices = extract_demos_from_a_directory(
         folder_name, object_name,exp_name=exp_name, in_gripper_frame=in_gripper_frame, parallel=parallel, 
         gripper_num_points=gripper_num_points, add_contact=add_contact, save_path=save_path)
     
@@ -535,8 +546,8 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     # with open(os.path.join(save_path, "raw_data.pkl"), "wb") as f:
     #     pickle.dump((pc_list, state_list, action_list, last_state_indices), f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    save_data(pc_list, state_list, action_list, last_state_indices, save_path)
-    save_example_pointcloud(pc_list, save_path)
+    save_data(all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_action_list, last_state_indices, save_path)
+    save_example_pointcloud(all_pc_list, save_path)
 
 
 if __name__ == "__main__":
@@ -558,6 +569,9 @@ if __name__ == "__main__":
     args.add_argument("--use_joint_angle", type=int, default=0)
     args.add_argument("--use_segmask", type=int, default=0)
     args.add_argument("--only_handle_points", type=int, default=0)
+    args.add_argument("--opened_threshold", type=float, default=0.65)
+    args.add_argument("--close_finger_angle", type=float, default=-0.08)
+    args.add_argument("--observation_mode", type=str, default='segmask')
 
     
     args.add_argument("--object_name", type=str, required=True)
