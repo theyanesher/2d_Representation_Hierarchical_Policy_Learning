@@ -32,20 +32,25 @@ def read_data(data_dirs, filter_function=None, label_function=None, read_train=F
         for eval_video_path in all_eval_video_paths:
             if (read_train and "trainset" in eval_video_path) or (not read_train and "valset" in eval_video_path):
                 results = os.path.join(video_dir, eval_video_path, "opened_joint_angles.json")
-                values = []
-                with open(results, 'r') as f:
-                    data = json.load(f)
-                for config_path in data:
-                    res = data[config_path]
-                    policy_angle = float(res[0])
-                    expert_angle = float(res[1])
-                    initial_angle = float(res[2])
-                    values.append((policy_angle - initial_angle) / (expert_angle - initial_angle))
-                mean_values = np.mean(values) 
-                all_values.append(mean_values)
+                if os.path.exists(results):
+                    values = []
+                    with open(results, 'r') as f:
+                        data = json.load(f)
+                    for config_path in data:
+                        res = data[config_path]
+                        policy_angle = float(res[0])
+                        expert_angle = float(res[1])
+                        initial_angle = float(res[2])
+                        policy_angle = min(policy_angle, expert_angle)
+                        normalized_performance = (policy_angle - initial_angle) / (expert_angle - initial_angle)
+                        binary = 1 if normalized_performance > 0.5 else 0
+                        values.append(normalized_performance)
+                        # values.append(binary)
+                    mean_values = np.mean(values) 
+                    all_values.append(mean_values)
 
-        if len(all_values) < 3:
-            continue
+        # if len(all_values) < 3:
+        #     continue
                 
         variant_path = osp.join(subdir, '.hydra', "overrides.yaml")
         if not osp.exists(variant_path):
@@ -116,6 +121,14 @@ def tolerant_mean(arrs):
     for idx, l in enumerate(arrs):
         arr[:len(l),idx] = l
     return arr.mean(axis = -1), arr.std(axis=-1)
+
+def tolerant_max(arrs):
+    lens = [len(i) for i in arrs]
+    arr = np.ma.empty((np.max(lens),len(arrs)))
+    arr.mask = True
+    for idx, l in enumerate(arrs):
+        arr[:len(l),idx] = l
+    return arr.max(axis = -1), arr.std(axis=-1)
 
 def read_json_log(path):
     filtered_data = []

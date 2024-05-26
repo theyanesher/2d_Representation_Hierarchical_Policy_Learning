@@ -18,8 +18,8 @@ def traverse(data):
     
     return cur_names
 
-name = 'Dishwasher'
-# name = 'Microwave'
+# name = 'Dishwasher'
+name = 'Microwave'
 # name = 'Safe'
 # name = 'TrashCan'
 all_objects = meta_dict[name]
@@ -37,8 +37,8 @@ for obj_id in all_objects:
     if "handle" in all_names:
         handle_num += 1
         with_handle_obj_ids.append(obj_id)
-    else:
-        show_in_bullet(obj_id)
+    # else:
+    #     show_in_bullet(obj_id)
         
 # print(f"{name} all objects num: {len(all_objects)}, number of objects with handle: {handle_num}")    
 pprint(with_handle_obj_ids)
