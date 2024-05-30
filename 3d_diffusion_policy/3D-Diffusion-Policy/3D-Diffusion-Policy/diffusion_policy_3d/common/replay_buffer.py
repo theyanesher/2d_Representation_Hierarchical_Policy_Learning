@@ -209,6 +209,65 @@ class ReplayBuffer:
         return buffer
     
     @classmethod
+    def copy_from_multiple_path(cls, path_list, store=None, keys=None, 
+            chunks: Dict[str,tuple]=dict(), 
+            compressors: Union[dict, str, numcodecs.abc.Codec]=dict(), 
+            if_exists='replace',
+            **kwargs):
+        """
+        Load to memory.
+        """
+        
+        per_episode_root = []
+        for zarr_path in path_list:
+            group = zarr.open(zarr_path, 'r')
+            src_store = group.store
+        
+            # numpy backend
+            src_root = zarr.group(src_store)
+            meta = dict()
+            
+            for key, value in src_root['meta'].items():
+                if len(value.shape) == 0:
+                    meta[key] = np.array(value)
+                else:
+                    meta[key] = value[:]
+
+            if keys is None:
+                keys = src_root['data'].keys()
+            data = dict()
+            for key in keys:
+                arr = src_root['data'][key]
+                data[key] = arr[:]
+
+            root = {
+                'episode_lengths': len(data[keys[0]]),
+                'data': data
+            }
+            
+            per_episode_root.append(root)
+        
+        root = {
+            "meta": dict(),
+            "data": dict()
+        }
+        
+        for key in keys:
+            all_episode_key_values = np.concatenate([root['data'][key] for root in per_episode_root], axis=0)
+            root['data'][key] = all_episode_key_values
+
+        all_episode_lengths = np.array([root['episode_lengths'] for root in per_episode_root])
+        accumulated_episode_lengths = np.cumsum(all_episode_lengths)
+        root['meta']['episode_ends'] = accumulated_episode_lengths
+            
+        buffer = cls(root=root)
+        for key, value in buffer.items():
+            cprint(f'Replay Buffer: {key}, shape {value.shape}, dtype {value.dtype}, range {value.min():.2f}~{value.max():.2f}', 'green')
+        cprint("--------------------------", 'green')
+        return buffer
+    
+    
+    @classmethod
     def copy_from_path(cls, zarr_path, backend=None, store=None, keys=None, 
             chunks: Dict[str,tuple]=dict(), 
             compressors: Union[dict, str, numcodecs.abc.Codec]=dict(), 

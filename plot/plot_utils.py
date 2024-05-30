@@ -7,7 +7,7 @@ from collections import defaultdict
 import json
 import yaml
 
-def read_data(data_dirs, filter_function=None, label_function=None, read_train=False):
+def read_data(data_dirs, filter_function=None, label_function=None, read_train=False, mean=True):
     
     all_subdirs = []
     for data_dir in data_dirs:
@@ -43,11 +43,14 @@ def read_data(data_dirs, filter_function=None, label_function=None, read_train=F
                         initial_angle = float(res[2])
                         policy_angle = min(policy_angle, expert_angle)
                         normalized_performance = (policy_angle - initial_angle) / (expert_angle - initial_angle)
-                        binary = 1 if normalized_performance > 0.5 else 0
-                        values.append(normalized_performance)
-                        # values.append(binary)
-                    mean_values = np.mean(values) 
-                    all_values.append(mean_values)
+                        binary = 1 if normalized_performance > 0.1 else 0
+                        # values.append(normalized_performance)
+                        values.append(binary)
+                    if mean:
+                        mean_values = np.mean(values) 
+                        all_values.append(mean_values)
+                    else:
+                        all_values.append(values)
 
         # if len(all_values) < 3:
         #     continue
@@ -104,9 +107,9 @@ def group_data(results, return_eval_freq=False):
         return all_result_dict
 
 
-def read_and_group_data(data_dirs, filter_function=None, label_function=None, return_eval_freq=False, read_train=False):
+def read_and_group_data(data_dirs, filter_function=None, label_function=None, return_eval_freq=False, read_train=False, mean=True):
 
-    results = read_data(data_dirs, filter_function, label_function, read_train=read_train)
+    results = read_data(data_dirs, filter_function, label_function, read_train=read_train, mean=mean)
     if not return_eval_freq:
         result_dict = group_data(results, return_eval_freq=False)
         return result_dict

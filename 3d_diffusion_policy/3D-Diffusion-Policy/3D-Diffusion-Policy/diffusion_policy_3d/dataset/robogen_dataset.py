@@ -2,6 +2,7 @@ from typing import Dict
 import torch
 import numpy as np
 import copy
+import os
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.replay_buffer import ReplayBuffer
 from diffusion_policy_3d.common.sampler import (
@@ -21,6 +22,7 @@ class RobogenDataset(BaseDataset):
             max_train_episodes=None,
             task_name=None,
             observation_mode='segmask',
+            enumerate=False,
             ):
         super().__init__()
         
@@ -30,14 +32,32 @@ class RobogenDataset(BaseDataset):
         keys = ['state', 'action', 'point_cloud']
         if 'act3d' in observation_mode:
             keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
-        self.replay_buffer = ReplayBuffer.copy_from_path(
-            zarr_path, keys=keys)
+            
+        if not enumerate:
+            self.replay_buffer = ReplayBuffer.copy_from_path(
+                zarr_path, keys=keys)
+            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+            
+            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
+        else:
+            all_subfolder = os.listdir(zarr_path)
+            # import pdb; pdb.set_trace()
+            for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json"]:
+                if string in all_subfolder:
+                    all_subfolder.remove(string)
+            all_subfolder = sorted(all_subfolder)
+            n_episodes = len(all_subfolder)
+            all_subfolder = all_subfolder[:int(n_episodes * train_ratio)]
+            zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
+            self.replay_buffer = ReplayBuffer.copy_from_multiple_path(zarr_paths, keys=keys)
+            
+            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+            train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
+            
         
-        self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-        self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
-        
-        train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-        train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
 
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer, 

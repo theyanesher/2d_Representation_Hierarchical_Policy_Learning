@@ -73,7 +73,7 @@ policy:
   # act3d encoder params
   encoder_type: act3d
   act3d_encoder_cfg:
-    in_channels: 3
+    in_channels: 5
     num_gripper_points: 4
 
 
@@ -86,14 +86,14 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 100
+  batch_size: 25
   num_workers: 20
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 100
+  batch_size: 25
   num_workers: 20
   shuffle: False
   pin_memory: True

@@ -50,3 +50,4 @@ dataset:
   train_ratio: 1
   max_train_episodes: null
   observation_mode: act3d
+  enumerate: false

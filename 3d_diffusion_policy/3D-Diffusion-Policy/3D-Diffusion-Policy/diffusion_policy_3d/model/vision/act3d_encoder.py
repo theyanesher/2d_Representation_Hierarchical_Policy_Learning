@@ -11,7 +11,8 @@ import einops
 
 class Act3dEncoder(nn.Module):
     def __init__(self, 
-                 in_channels=3, 
+                #  in_channels=3, 
+                 in_channels=5, 
                  encoder_output_dim=256, 
                  num_gripper_points=4, 
                  state_mlp_size=(64, 64), state_mlp_activation_fn=nn.ReLU,
@@ -68,11 +69,20 @@ class Act3dEncoder(nn.Module):
 
         # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
         rgb_obs = observation[self.feature_map_key]
-        rgb_obs = einops.rearrange(rgb_obs, "B h w c -> B c h w") # NOTE: our rgb comes in as B H W C
+        B, n_cam, h, w, c = rgb_obs.shape
+        rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
+        rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
         rgb_features = nets['vision_encoder'](rgb_obs)
-        rgb_features = einops.rearrange(rgb_features, "B c h w -> (h w) B c") # shape N=image_size B encoder_output_dim
-        # TODO: extract rgb features corresponding to the fpsed points
-        pcd_mask = observation['pcd_mask'] # B * (h w)
+        # rgb_features = einops.rearrange(rgb_features, "B c h w -> (h w) B c") # shape N=image_size B encoder_output_dim
+        rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
+
+        # rgb_features_reshape = rgb_features.reshape(B, n_cam, self.encoder_output_dim, h, w)
+        # rgb_features_reshape = einops.rearrange(rgb_features_reshape, "B n c h w -> (n h w) B c") 
+        # import pdb; pdb.set_trace()
+        
+        
+        # NOTE: extract rgb features corresponding to the fpsed points
+        pcd_mask = observation['pcd_mask'] # B * (n * h * w)
         pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
         rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, self.encoder_output_dim) # shape (num_points, B, encoder_output_dim)
         

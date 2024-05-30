@@ -72,8 +72,8 @@ python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_na
     task.shape_meta.action.shape="[${action_dim}]" \
     policy.pointcloud_encoder_cfg.in_channels="${pc_channel}" \
     task.dataset.train_ratio="${train_ratio}" \
-    load_checkpoint_path=/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0517-vary-obj-loc-ori-only-handle-points-correct-1/2024.05.17/19.22.57_train_dp3_robogen_open_door/checkpoints/latest.ckpt \
-    training.seed=43
+    load_checkpoint_path=/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0517-vary-obj-loc-ori-only-handle-points-correct-1/2024.05.21/01.13.43_train_dp3_robogen_open_door/checkpoints/latest.ckpt
+    # training.seed=43
 
 
 

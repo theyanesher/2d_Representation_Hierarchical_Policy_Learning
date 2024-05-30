@@ -92,8 +92,10 @@ class RobogenPointCloudWrapper:
         
         if 'act3d' in self.observation_mode:
             # TODO: handle multiple camera for act3d observation
-            # TODO: just for debug now
-            self.rpy_mean_list = [[0, 0, -45]]
+            # TODO: figure out the right camera distance & position
+            # self.rpy_mean_list = [[0, 0, -45]]
+            self.rpy_mean_list = [[-10, 0, -45], [-10, 0, -135]]
+            self.mean_distance = np.linalg.norm(max_aabb - min_aabb) * 0.9
             self.camera_height = 256
             self.camera_width = 256
 
@@ -219,11 +221,20 @@ class RobogenPointCloudWrapper:
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
                                                 only_object=True)
             end = time.time()
+
+            # from matplotlib import pyplot as plt
+            # plt.imshow(rgbs[0])
+            # plt.show()
+            # plt.imshow(rgbs[1])
+            # plt.show()
+            # import pdb; pdb.set_trace()
             # cprint("point cloud rendering time {}".format(end - beg), "green")
             pcs = []
             feature_maps = []
             gripper_pcd = []
+            pcd_mask_indices = []
             for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+                
                 pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
                 # pc_in_camera = get_pc_in_camera_frame(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
                 if self.use_color:
@@ -274,24 +285,43 @@ class RobogenPointCloudWrapper:
                     robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
                     object_mask = np.zeros_like(depth).astype(np.float32)
                     object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
-                    feature_map = np.dstack([depth, robot_mask, object_mask])
-                    assert feature_map.shape == (self.camera_height, self.camera_width, 3), f"Expected ({self.camera_height}, {self.camera_width}, 3), got {feature_map.shape}"
+                    feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
+                    assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
                     feature_maps.append(feature_map)
+                    
+                    object_mask_indices = np.flatnonzero(object_mask.flatten())
+                    pcd_mask_indices.append(object_mask_indices)
                     
                 else:
                     pcs.append(pc)
                 
-            point_cloud = np.concatenate(pcs, axis=0)
             
-            # if 'act3d' not in self.observation_mode:
-            min_bound = np.array([-5, -5, 0.1])
-            max_bound = np.array([5, 5, 5])
-            input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
-            masked_indices = np.flatnonzero(input_pc_mask)
-            point_cloud = point_cloud[input_pc_mask]
-            
-            if self.handle_num_points > 0 or self.gripper_num_points > 0:
-                full_point_cloud = deepcopy(point_cloud)
+            if 'act3d' not in self.observation_mode:
+                point_cloud = np.concatenate(pcs, axis=0)
+                min_bound = np.array([-5, -5, 0.1])
+                max_bound = np.array([5, 5, 5])
+                input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
+                masked_indices = np.flatnonzero(input_pc_mask)
+                point_cloud = point_cloud[input_pc_mask]
+                
+                if self.handle_num_points > 0 or self.gripper_num_points > 0:
+                    full_point_cloud = deepcopy(point_cloud)
+            else:
+                masked_pc = []
+                all_masked_indices = []
+                base_idx = 0
+                for pc, pcd_mask_indices in zip(pcs, pcd_mask_indices):
+                    mask_indices = base_idx + pcd_mask_indices
+                    all_masked_indices.append(mask_indices)
+                    masked_pc.append(pc[pcd_mask_indices])
+                    base_idx += pc.shape[0]
+                point_cloud = np.concatenate(masked_pc, axis=0)
+                all_masked_indices = np.concatenate(all_masked_indices)
+                
+                # check
+                # before_fps_pc = point_cloud.copy()
+                # all_pc = np.concatenate(pcs, axis=0)
+                # assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
            
             # do downsampling of the pcd
             num_points = self.num_points
@@ -333,9 +363,20 @@ class RobogenPointCloudWrapper:
                 
                 h = min(9, np.log2(num_points))
                 kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
-                new_input_mask = np.zeros_like(input_pc_mask)
-                new_input_mask[masked_indices[kdline_fps_samples_idx]] = 1
                 point_cloud = point_cloud[kdline_fps_samples_idx]
+
+                if 'act3d' not in self.observation_mode:
+                    new_input_mask = np.zeros_like(input_pc_mask)
+                    new_input_mask[masked_indices[kdline_fps_samples_idx]] = 1
+                else:
+                    new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
+                    new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
+                    
+                    # check
+                    # set_a = set([(x[0], x[1], x[2]) for x in point_cloud])
+                    # set_b = set([(x[0], x[1], x[2]) for x in all_pc[new_input_mask == 1]])
+                    # assert set_a == set_b, "Masked point cloud is not the same as the original point cloud"
+                    
             end = time.time()
                 
 
@@ -386,7 +427,8 @@ class RobogenPointCloudWrapper:
             
             if 'act3d' in self.observation_mode:
                 # TODO: handle multiple camera for act3d observation
-                obs_dict_input['feature_map'] = feature_maps[0].astype(np.float32)
+                obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
+                # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
                 obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
             else:
