@@ -816,18 +816,19 @@ class SimpleEnv(gym.Env):
         self.time_step = 0
         self.success = False
         object_name = object_name.lower()
+        friction = 5
         num_links = p.getNumJoints(self.urdf_ids[object_name], physicsClientId=self.id)
         for l_id in range(num_links):
-            p.changeDynamics(self.urdf_ids[object_name], l_id, lateralFriction=1, physicsClientId=self.id)
-            p.changeDynamics(self.urdf_ids[object_name], l_id, rollingFriction=1, physicsClientId=self.id)
-            p.changeDynamics(self.urdf_ids[object_name], l_id, spinningFriction=1, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, lateralFriction=friction, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, rollingFriction=friction, physicsClientId=self.id)
+            p.changeDynamics(self.urdf_ids[object_name], l_id, spinningFriction=friction, physicsClientId=self.id)
 
-        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], lateralFriction=1, physicsClientId=self.id)
-        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], lateralFriction=1, physicsClientId=self.id)
-        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], rollingFriction=1, physicsClientId=self.id)
-        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], rollingFriction=1, physicsClientId=self.id)
-        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], spinningFriction=1, physicsClientId=self.id)
-        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=1, physicsClientId=self.id)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], lateralFriction=friction, physicsClientId=self.id)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], lateralFriction=friction, physicsClientId=self.id)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], rollingFriction=friction, physicsClientId=self.id)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], rollingFriction=friction, physicsClientId=self.id)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], spinningFriction=friction, physicsClientId=self.id)
+        p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=friction, physicsClientId=self.id)
 
         return self._get_obs()
 
@@ -968,6 +969,11 @@ class SimpleEnv(gym.Env):
             it = 0
             # old way of control till reach
             # control_total = 50 # previously it was 50
+            # points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
+            # points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
+            # finger_contact = points_left_finger or points_right_finger
+            
+            
             beg = time.time()
             if ik_success:
                 control_total = 50

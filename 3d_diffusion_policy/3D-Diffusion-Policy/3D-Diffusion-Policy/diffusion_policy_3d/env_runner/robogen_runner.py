@@ -67,14 +67,14 @@ class RoboGenRunner(BaseRunner):
             os.makedirs(save_path)
         exp_beg_ratio = 1 - cfg.task.dataset.val_ratio
         exp_end_ratio = 1
-        run_eval(cfg, policy, num_worker, save_path, pool=self.pool, horizon=self.max_steps, exp_beg_ratio=exp_beg_ratio, exp_end_ratio=exp_end_ratio)
-        with open("{}/opened_joint_angles.json".format(save_path), "r") as f:
-            result = json.load(f)
-        val_all_success_rates = []
-        for key in result:
-            final_angle = result[key][0]
-            intial_angle = result[key][2]
-            val_all_success_rates.append(final_angle - intial_angle)
+        # run_eval(cfg, policy, num_worker, save_path, pool=self.pool, horizon=self.max_steps, exp_beg_ratio=exp_beg_ratio, exp_end_ratio=exp_end_ratio)
+        # with open("{}/opened_joint_angles.json".format(save_path), "r") as f:
+        #     result = json.load(f)
+        # val_all_success_rates = []
+        # for key in result:
+        #     final_angle = result[key][0]
+        #     intial_angle = result[key][2]
+        #     val_all_success_rates.append(final_angle - intial_angle)
 
         # log
         log_data = dict()
@@ -83,14 +83,14 @@ class RoboGenRunner(BaseRunner):
         # log_data['mean_n_goal_achieved'] = np.mean(all_goal_achieved)
         log_data['mean_success_rates'] = np.mean(train_all_success_rates)
         log_data['trainset_mean_success_rates'] = np.mean(train_all_success_rates)
-        log_data['valset_mean_success_rates'] = np.mean(val_all_success_rates)
+        # log_data['valset_mean_success_rates'] = np.mean(val_all_success_rates)
 
         log_data['test_mean_score'] = np.mean(train_all_success_rates)
         log_data['trainset_test_mean_score'] = np.mean(train_all_success_rates)
-        log_data['valset_test_mean_score'] = np.mean(val_all_success_rates)
+        # log_data['valset_test_mean_score'] = np.mean(val_all_success_rates)
 
         cprint(f"trainset test_mean_score: {np.mean(train_all_success_rates)}", 'green')
-        cprint(f"valset test_mean_score: {np.mean(val_all_success_rates)}", 'green')
+        # cprint(f"valset test_mean_score: {np.mean(val_all_success_rates)}", 'green')
 
         self.logger_util_test.record(np.mean(train_all_success_rates))
         self.logger_util_test10.record(np.mean(train_all_success_rates))

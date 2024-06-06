@@ -1,12 +1,31 @@
 # python manipulation/old_test_opening_primitve.py
 
-demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-save_data_name=0527-act3d-always-close
-exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
-task_beg_idx=0
-task_end_idx=1
+# demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+# save_data_name=0527-act3d-always-close
+# exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
+# task_beg_idx=0
+# task_end_idx=1
+# opened_threshold=0.65
+
+demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+save_data_name=0531-act3d-obj-45448
+exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
+task_beg_idx=2
+task_end_idx=3
+opened_threshold=0.4
+
+# demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+# save_data_name=0531-act3d-obj-46462
+# exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
+# task_beg_idx=4
+# task_end_idx=5
+# opened_threshold=2.6
+
 observation_mode=act3d
 pointcloud_num=4500
+
+# python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
+# python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-45448
 
 # python 3d_diffusion_policy/extract_data_from_states_2.py --folder_name data/temp/ --object_name storagefurniture \
 #     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
@@ -15,25 +34,41 @@ pointcloud_num=4500
 #     --use_extracted 0 \
 #     --num_experiment 1000 \
 #     --observation_mode "${observation_mode}" \
-#     --parallel 0
+#     --parallel 0 \
+#     --opened_threshold "${opened_threshold}" 
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
+save_data_name_0=0527-act3d-always-close
+save_data_name_1=0531-act3d-obj-45448
+save_data_name_2=0531-act3d-obj-46462
+
+demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+demo_name_2=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+
+exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
+exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
+exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
+
 horizon=4
 n_obs_steps=2
-train_ratio=0.22
-exp_name="0528-act3d-train-ratio-${train_ratio}"
-# exp_name="debug"
+train_ratio=0.2
+# exp_name="0528-act3d-train-ratio-${train_ratio}"
+# exp_name="0602-act3d-obj-45448-train-ratio-${train_ratio}"
+# exp_name="0604-act3d-obj-46462-train-ratio-${train_ratio}-filtered"
+# exp_name="0603-act3d-3-obj-train-ratio-${train_ratio}"
+exp_name="0606-act3d-3-obj-train-ratio-${train_ratio}"
 
 action_dim=10
 agent_pos_dim=10
 pc_channel=3
 
 python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="${PROJECT_DIR}/data/dp3_demo/${save_data_name}/" \
-    task.env_runner.demo_experiment_path="${PROJECT_DIR}/data/dp3_demo/${save_data_name}/" \
-    task.env_runner.experiment_name="${demo_name}" \
-    task.env_runner.experiment_folder="${exp_folder}" \
+    task.dataset.zarr_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_1}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_2}/]" \
+    task.env_runner.demo_experiment_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_1}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_2}/]" \
+    task.env_runner.experiment_name="[${demo_name_0}, ${demo_name_1}, ${demo_name_2}]" \
+    task.env_runner.experiment_folder="[${exp_folder_0}, ${exp_folder_1}, ${exp_folder_2}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
     task.env_runner.use_joint_angle="${use_joint_angle}" \
     task.env_runner.use_segmask="${use_segmask}" \
@@ -50,12 +85,7 @@ python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_na
     task.dataset.enumerate=True \
     training.rollout_every=200 \
     training.checkpoint_every=200 \
-    load_checkpoint_path=/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0528-act3d-train-ratio-0.22/2024.05.28/16.11.34_train_dp3_robogen_open_door/checkpoints/latest.ckpt
-
-
-
-
 
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug
-# singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3.sif
+# singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif

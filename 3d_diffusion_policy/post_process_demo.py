@@ -79,10 +79,14 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
         delta_finger_angle = target_finger_angle - base_finger_angle
         # change the finger action to be not changing after closing
         opening_start_idx = traj_stage_length['reach_handle'] + traj_stage_length["reach_to_contact"] + traj_stage_length["close_gripper"]
+        closing_start_idx = traj_stage_length['reach_handle'] + traj_stage_length["reach_to_contact"]
         
         filter_action = False
         
-        if np.linalg.norm(delta_pos) < min_translation and np.linalg.norm(quat_diff) < min_rotation and i >= opening_start_idx:
+        # if np.linalg.norm(delta_pos) < min_translation and np.linalg.norm(quat_diff) < min_rotation and i >= opening_start_idx:
+        #     print("Filtered out action at step: ", i)
+        #     filter_action = True
+        if i > closing_start_idx and i < opening_start_idx and i - closing_start_idx >= 14:
             print("Filtered out action at step: ", i)
             filter_action = True
 
@@ -109,12 +113,13 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
     # return filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions
     return np.array(filtered_pcs), np.array(filtered_pos_oris), np.array(filtered_feature_maps), np.array(filtered_gripper_pcds), np.array(filtered_pcd_masks), np.array(traj_actions)
 
-new_zarr_path = "data/dp3_demo/0528-act3d-close-during-open/"
-zarr_path = "data/dp3_demo/0527-act3d/"
-demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+new_zarr_path = "data/dp3_demo/0604-act3d-obj-46462-filter-zero-action-after-closing"
+zarr_path = "data/dp3_demo/0531-act3d-obj-46462"
+demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 all_subfolder = os.listdir(zarr_path)
-for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json"]:
-    all_subfolder.remove(string)
+for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
+    if string in all_subfolder:
+        all_subfolder.remove(string)
 all_subfolder = sorted(all_subfolder)
 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
 path_list = zarr_paths
@@ -125,7 +130,7 @@ keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
             
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]
-    stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_door_handle_primitive", 'stage_lengths.json')
+    stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_drawer_primitive", 'stage_lengths.json')
     with open(stage_lengths_json_file, 'r') as f:
         stage_lengths = json.load(f)
     
@@ -151,19 +156,18 @@ for zarr_path in tqdm(path_list, desc='Processing'):
         data[key] = arr[:]
         
 
-    # filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions = \
-    #     filter_traj(data['feature_map'], data['gripper_pcd'], data['point_cloud'], data['pcd_mask'], data['state'], stage_lengths)
+    filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions = \
+        filter_traj(data['feature_map'], data['gripper_pcd'], data['point_cloud'], data['pcd_mask'], data['state'], stage_lengths)
 
     # cprint("{} Filtered out {} actions".format(exp_name, len(data['action']) - len(traj_actions)), "red")
     
-    opening_start_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
-    for i in range(len(data['action'])):
-        if i >= opening_start_idx and data['action'][i][-1] > 0:
-            data['action'][i][-1] = 0.0
+    # opening_start_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+    # for i in range(len(data['action'])):
+    #     if i >= opening_start_idx and data['action'][i][-1] > 0:
+    #         data['action'][i][-1] = 0.0
     
     # save new data
     new_data_save_dir = os.path.join(new_zarr_path, exp_name)
     print("Saving new data to: ", new_data_save_dir)
-    # save_data(filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions, new_data_save_dir)
-    save_data(data['point_cloud'], data['state'], data['feature_map'], data['gripper_pcd'], data['pcd_mask'], data['action'], new_data_save_dir)
-    # import pdb; pdb.set_trace()
+    save_data(filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions, new_data_save_dir)
+    # save_data(data['point_cloud'], data['state'], data['feature_map'], data['gripper_pcd'], data['pcd_mask'], data['action'], new_data_save_dir)

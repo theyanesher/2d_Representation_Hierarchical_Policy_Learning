@@ -42,16 +42,26 @@ class RobogenDataset(BaseDataset):
             train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
         else:
-            all_subfolder = os.listdir(zarr_path)
             # import pdb; pdb.set_trace()
-            for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json"]:
-                if string in all_subfolder:
-                    all_subfolder.remove(string)
-            all_subfolder = sorted(all_subfolder)
-            n_episodes = len(all_subfolder)
-            all_subfolder = all_subfolder[:int(n_episodes * train_ratio)]
-            zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
-            self.replay_buffer = ReplayBuffer.copy_from_multiple_path(zarr_paths, keys=keys)
+
+            # if type(zarr_path) != list:
+            #     zarr_path = [zarr_path]
+            all_zarr_paths = copy.deepcopy(zarr_path)
+            
+            all_paths = []
+            for zarr_path in all_zarr_paths:
+                all_subfolder = os.listdir(zarr_path)
+                # import pdb; pdb.set_trace()
+                for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
+                    if string in all_subfolder:
+                        all_subfolder.remove(string)
+                all_subfolder = sorted(all_subfolder)
+                n_episodes = len(all_subfolder)
+                all_subfolder = all_subfolder[:int(n_episodes * train_ratio)]
+                zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
+                all_paths += zarr_paths
+                
+            self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys)
             
             self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True

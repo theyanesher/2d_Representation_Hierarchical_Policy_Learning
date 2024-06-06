@@ -64,6 +64,38 @@ def sort_states_file_by_file_number(state_path):
     ret_files = sorted(ret_files, key=lambda x: int(x.split("_")[1].split(".")[0]))
     return ret_files
 
+def get_first_step_folder(solution_path):
+    all_substeps_path = os.path.join(solution_path, "substeps.txt")
+    with open(all_substeps_path, "r") as f:
+        substeps = f.readlines()
+        first_step = substeps[0].lstrip().rstrip()
+
+    all_substeps_type = os.path.join(solution_path, "substep_types.txt")
+    with open(all_substeps_type, "r") as f:
+        all_substeps_type = f.readlines()
+        first_step_type = all_substeps_type[0].lstrip().rstrip()
+    first_step_folder = first_step.replace(" ", "_") + "_"  + first_step_type
+    
+    return first_step, first_step_folder
+
+def get_all_expert_angles(all_experiments, solution_path):
+    first_step, first_step_folder = get_first_step_folder(solution_path)
+    ratios = []
+    for experiment_path in all_experiments:
+        opened_angle_file = os.path.join(experiment_path, first_step_folder, "opened_angle.txt")
+        if os.path.exists(opened_angle_file): # for some perturbed trajectories, we did not really continue openeing the handle. 
+            with open(opened_angle_file, "r") as f:
+                angles = f.readlines()
+                opened_angle = float(angles[0].lstrip().rstrip())
+                max_angle = float(angles[-1].lstrip().rstrip())
+                ratio = opened_angle / max_angle
+                ratios.append(ratio)
+    
+    # plt.plot(ratios)
+    # plt.show()
+    import pdb; pdb.set_trace()
+    return ratios
+
 def extract_pc_states_for_all_trajectories(task_config_path, solution_path, object_name, exp_name=None, 
                                            in_gripper_frame=False, parallel=True,
                                            gripper_num_points=0, add_contact=False, 
@@ -87,28 +119,19 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
     all_traj_store_label_paths = []
     all_traj_rgbs = []
     all_traj_pcd_masks = []
+    
+    first_step, first_step_folder = get_first_step_folder(solution_path)
     for experiment in tqdm.tqdm(all_experiments):
         if "meta" in experiment:
             continue
         
+        cprint("Extracting data from experiment: " + experiment, "blue")
+        
         expert_states = []
         experiment_path = os.path.join(experiment_folder, experiment)
-        cprint("Extracting data from experiment: " + experiment, "blue")
         task_config_path = os.path.join(experiment_path, "task_config.yaml")
-
-        all_substeps_path = os.path.join(solution_path, "substeps.txt")
-        with open(all_substeps_path, "r") as f:
-            substeps = f.readlines()
-            first_step = substeps[0].lstrip().rstrip()
-
-        all_substeps_type = os.path.join(solution_path, "substep_types.txt")
-        with open(all_substeps_type, "r") as f:
-            all_substeps_type = f.readlines()
-            first_step_type = all_substeps_type[0].lstrip().rstrip()
-        first_step_folder = first_step.replace(" ", "_") + "_"  + first_step_type
         first_stage_states_path = os.path.join(experiment_path, first_step_folder, "states")
         
-            
         first_stage_states = sort_states_file_by_file_number(first_stage_states_path)      
         expert_states.extend([os.path.join(first_stage_states_path, x) for x in first_stage_states])
         if len(expert_states) == 0:
@@ -180,7 +203,8 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
 
                 except:
                     pickle_loaded = False
-                
+        
+        bad_experiment = False
         if not pickle_loaded:
             rpy_list = [[[0, 0, -45], [0, 0, -135]]]
             beg = time.time()
@@ -207,8 +231,14 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     feature_map_list = []
                     gripper_pcd_list = []
                     pcd_mask_list = []
+                    door_joint_angles = []
+
                     for state in tqdm.tqdm(expert_states):
                         load_env(simulator._env, load_path=state)
+                        
+                        joint_angle = simulator._get_info()['opened_joint_angle']
+                        door_joint_angles.append(joint_angle)
+                        
                         observation = simulator._get_observation()            
                         rgb = simulator._env.render()
                         point_cloud = observation['point_cloud'].tolist()
@@ -224,6 +254,15 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                         gripper_pcd_list.append(gripper_pcd)
                         pcd_mask_list.append(pcd_mask)
                         
+                    door_joint_angles = np.array(door_joint_angles)
+                    door_joint_angle_diffs = np.diff(door_joint_angles)
+                    open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+                    door_joint_angle_diffs = door_joint_angle_diffs[open_time_idx:]
+                    # if np.any(door_joint_angle_diffs > 0.8 / 100 * 3):
+                    #     print("Not good traj due to joint angle diff too large")
+                    #     cprint(experiment, "red")
+                    #     bad_experiment=True
+                    
                     simulator._env.close()
                 else:
                     # parallel version
@@ -248,20 +287,25 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
             end = time.time()
             cprint(f"Finished extracting data from trajectory index: {str(len(all_traj_pc))} time cost {end - beg}" , "green")
 
-        all_traj_pc.append(pc_list)
-        all_traj_pos_ori.append(pos_ori_list)
-        all_traj_rgbs.append(rgb_list)
-        all_traj_feature_maps.append(feature_map_list)
-        all_traj_gripper_pcds.append(gripper_pcd_list)
-        all_traj_pcd_masks.append(pcd_mask_list)
-        all_traj_stage_lengths.append(stage_lengths)
-        all_traj_store_label_paths.append(os.path.join(experiment_path, first_step_folder))
+        if not bad_experiment:
+            all_traj_pc.append(pc_list)
+            all_traj_pos_ori.append(pos_ori_list)
+            all_traj_rgbs.append(rgb_list)
+            all_traj_feature_maps.append(feature_map_list)
+            all_traj_gripper_pcds.append(gripper_pcd_list)
+            all_traj_pcd_masks.append(pcd_mask_list)
+            all_traj_stage_lengths.append(stage_lengths)
+            all_traj_store_label_paths.append(os.path.join(experiment_path, first_step_folder))
+        else:
+            label_path = os.path.join(experiment_path, first_step_folder, "label.json")
+            with open(label_path, "w") as f:
+                json.dump({"good_traj": False, "failure reason": "simulation error during door opening"}, f)        
         
-        if not args.after_reaching and not args.after_opening:
-            # store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(args.use_joint_angle, args.use_segmask, args.only_handle_points))
-            store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_{}.pkl".format(args.observation_mode))
-            with open(store_pickle_path, "wb") as f:
-                pickle.dump((pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list, pcd_mask_list), f, protocol=pickle.HIGHEST_PROTOCOL)
+        # if not args.after_reaching and not args.after_opening:
+        #     # store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(args.use_joint_angle, args.use_segmask, args.only_handle_points))
+        #     store_pickle_path = os.path.join(experiment_path, first_step_folder, "extracted_{}.pkl".format(args.observation_mode))
+        #     with open(store_pickle_path, "wb") as f:
+        #         pickle.dump((pc_list, pos_ori_list, rgb_list, feature_map_list, gripper_pcd_list, pcd_mask_list), f, protocol=pickle.HIGHEST_PROTOCOL)
         
     return all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, \
         all_traj_stage_lengths, all_traj_store_label_paths
@@ -305,6 +349,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             experiment_folder = os.path.join(solution_path, "experiment", exp_name)
         all_experiments = os.listdir(experiment_folder)
         num_experiment = len(all_experiments)
+        all_expert_opened_angles = get_all_expert_angles([os.path.join(experiment_folder, exp) for exp in all_experiments], solution_path)
         
         num_experiment = min(num_experiment, args.num_experiment)        
         batch_size = 20
@@ -329,6 +374,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 traj_stage_length, traj_store_label_path  = all_traj_stage_lengths[traj_idx], all_traj_store_label_paths[traj_idx]
                 
                 good_traj = True
+                failure_reason = "null"
 
                 traj_actions = []
                 quaternion_diffs = []
@@ -373,6 +419,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                         # if single step translation is too large, ignore this trajectory
                         if np.linalg.norm(single_step_delta_pos) > 0.02:
                             good_traj = False
+                            failure_reason = "delta movement too large"
                             print("not good traj due to delta movement too large")
                             break
                         
@@ -403,13 +450,14 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                         # if single step rotation is too large, ignore this trajectory
                         if np.abs(one_step_quaternion_diff) > 0.085:
                             good_traj = False
+                            failure_reason = "delta quaternion too large"
                             print("not good due to delta quaternion too large")
                             break
                         
-                        if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
-                            good_traj = False
-                            print("not good due to delta quaternion too large during opening door")
-                            break
+                        # if i > open_door_start_idx and np.abs(one_step_quaternion_diff) > 0.02: # open door has strange behavior
+                        #     good_traj = False
+                        #     print("not good due to delta quaternion too large during opening door")
+                        #     break
                         
                         # cur_finger_angle = traj_pos_ori[i][9]
                         target_finger_angle = traj_pos_ori[i+1][9]
@@ -442,7 +490,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                             action = np.array(target_pos_ori) - np.array(base_pos_ori) 
                             action = action[:-1] # action only controls one finger; the other one is symmetric
                             if i > after_contact_step_idx and args.fixed_finger_movement:
-                                action[-1] = args.close_finger_angle # TODO: double check this value
+                                action[-1] = args.close_finger_angle 
                                 
                             action = action.tolist()
                                 
@@ -511,7 +559,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 path = os.path.join(traj_store_label_path, "label.json")
                 if not os.path.exists(path):
                     with open(path, 'w') as f:
-                        json.dump({"good_traj": good_traj}, f)
+                        json.dump({"good_traj": good_traj, "failure reason": failure_reason}, f)
 
                 if good_traj:
                     # TODO: directly save as z array here
@@ -534,13 +582,12 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     cprint("Finished saving data to {} using time {}".format(data_save_path, end-beg), "green")
                     del filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions
             
+            save_example_pointcloud([traj_pc[0] for traj_pc in all_traj_pc], save_path)
             del all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, all_traj_stage_lengths, all_traj_store_label_paths
                 
     with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
         f.write("\n".join(all_demo_paths))
-    
-    # return all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_pcd_mask_list, all_action_list, last_state_indices
-        
+            
 def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, save_dir):
     zarr_root = zarr.group(save_dir)
     zarr_data = zarr_root.create_group('data')
@@ -593,8 +640,6 @@ def save_example_pointcloud(pc_list, save_dir):
 def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=True, parallel=True,
          gripper_num_points=0, add_contact=False):
     
-    # if os.path.exists(save_path):
-    #     shutil.rmtree(save_path)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     
@@ -610,15 +655,6 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
     extract_demos_from_a_directory(folder_name, object_name,exp_name=exp_name, in_gripper_frame=in_gripper_frame, parallel=parallel, 
         gripper_num_points=gripper_num_points, add_contact=add_contact, save_path=save_path)
     
-        
-    # import pickle
-    # with open(os.path.join(save_path, "raw_data.pkl"), "wb") as f:
-    #     pickle.dump((pc_list, state_list, action_list, last_state_indices), f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    # save_data(all_pc_list, all_state_list, all_feature_map_list, all_gripper_pcd_list, all_pcd_mask_list,
-    #           all_action_list, last_state_indices, save_path)
-    # save_example_pointcloud(all_pc_list, save_path)
-
 
 if __name__ == "__main__":
     args = ArgumentParser()
