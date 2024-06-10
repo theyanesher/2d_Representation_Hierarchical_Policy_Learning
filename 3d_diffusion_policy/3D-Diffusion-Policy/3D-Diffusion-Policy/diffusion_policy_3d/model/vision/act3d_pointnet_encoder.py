@@ -8,37 +8,35 @@ from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
 import einops
+from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2, SimpleMLP
 
-class Act3dEncoder(nn.Module):
+class Act3dPointNetEncoder(nn.Module):
     def __init__(self, 
-                #  in_channels=3, 
-                 in_channels=5, 
                  encoder_output_dim=256, 
                  num_gripper_points=4, 
                  state_mlp_size=(64, 64), state_mlp_activation_fn=nn.ReLU,
                  observation_space=None,
+                 encoder_type='act3d_pointnet',
                  **kwargs
                  ):
-        super(Act3dEncoder, self).__init__()
+        super(Act3dPointNetEncoder, self).__init__()
         
         self.state_key = 'agent_pos'
         self.point_cloud_key = 'point_cloud'
-        self.feature_map_key = 'feature_map'
         self.gripper_pcd_key = 'gripper_pcd'
         self.num_gripper_points = num_gripper_points
         self.encoder_output_dim = encoder_output_dim
         self.state_shape = observation_space[self.state_key]
         
-        vision_encoder = smp.Unet(
-            encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-            encoder_weights=None,     # use `imagenet` pre-trained weights for encoder initialization
-            in_channels=in_channels,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-            classes=encoder_output_dim,                      # model output channels (number of classes in your dataset)
-        )
+        if encoder_type == 'act3d_pointnet':
+            vision_encoder = PointNet2(num_classes=encoder_output_dim)
+            vision_encoder = replace_bn_with_gn(vision_encoder, features_per_group=4)
+        elif encoder_type == 'act3d_mlp':
+            vision_encoder = SimpleMLP(num_classes=encoder_output_dim)
+
         attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
         attn_layers = replace_bn_with_gn(attn_layers)
-        vision_encoder = replace_bn_with_gn(vision_encoder)
-
+        
         self.nets = nn.ModuleDict({
             'vision_encoder': vision_encoder,
             'relative_pe_layer': RotaryPositionEncoding3D(encoder_output_dim),
@@ -67,24 +65,12 @@ class Act3dEncoder(nn.Module):
         agent_pos = observation[self.state_key]
         B = agent_pos.shape[0] #  B = batch_size * obs_horizon
 
-        # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
-        rgb_obs = observation[self.feature_map_key]
-        B, n_cam, h, w, c = rgb_obs.shape
-        rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
-        rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
-        rgb_features = nets['vision_encoder'](rgb_obs)
-        # rgb_features = einops.rearrange(rgb_features, "B c h w -> (h w) B c") # shape N=image_size B encoder_output_dim
-        rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
-
-        # rgb_features_reshape = rgb_features.reshape(B, n_cam, self.encoder_output_dim, h, w)
-        # rgb_features_reshape = einops.rearrange(rgb_features_reshape, "B n c h w -> (n h w) B c") 
-        # import pdb; pdb.set_trace()
-        
-        
-        # NOTE: extract rgb features corresponding to the fpsed points
-        pcd_mask = observation['pcd_mask'] # B * (n * h * w)
-        pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
-        rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, self.encoder_output_dim) # shape (num_points, B, encoder_output_dim)
+        # NOTE: use PointNet++ to extract features from the point cloud
+        pc_obs = observation[self.point_cloud_key]
+        B, N, c = pc_obs.shape
+        rgb_obs = einops.rearrange(pc_obs, "B N c -> B c N") # NOTE: input to pointnet is B 3 N
+        rgb_features, _ = nets['vision_encoder'](rgb_obs) # shape B N c
+        rgb_features = einops.rearrange(rgb_features, "B N c -> N B c") # shape N B c
         
             
         point_cloud = observation[self.point_cloud_key]

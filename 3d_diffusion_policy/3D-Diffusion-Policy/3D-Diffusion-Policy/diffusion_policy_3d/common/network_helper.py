@@ -112,7 +112,7 @@ def replace_bn_with_gn(
     """
     replace_submodules(
         root_module=root_module,
-        predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+        predicate=lambda x: isinstance(x, nn.BatchNorm2d) or isinstance(x, nn.BatchNorm1d),
         func=lambda x: nn.GroupNorm(
             num_groups=x.num_features//features_per_group,
             num_channels=x.num_features)

@@ -30,8 +30,11 @@ class RobogenDataset(BaseDataset):
         self.observation_mode = observation_mode
         
         keys = ['state', 'action', 'point_cloud']
-        if 'act3d' in observation_mode:
+        if 'act3d' == observation_mode:
             keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
+        elif 'act3d_pointnet' == observation_mode:
+            keys += ['gripper_pcd']
+        
             
         if not enumerate:
             self.replay_buffer = ReplayBuffer.copy_from_path(
@@ -128,13 +131,16 @@ class RobogenDataset(BaseDataset):
             'action': sample['action'].astype(np.float32) # T, D_action
         }
 
-        if 'act3d' in self.observation_mode:
+        if 'act3d' == self.observation_mode:
             gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
             feature_map = sample['feature_map'][:,].astype(np.float32)
             pcd_mask = sample['pcd_mask'][:,].astype(np.uint8)
             data['obs']['gripper_pcd'] = gripper_pcd
             data['obs']['feature_map'] = feature_map
             data['obs']['pcd_mask'] = pcd_mask
+        elif 'act3d_pointnet' == self.observation_mode:
+            gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
+            data['obs']['gripper_pcd'] = gripper_pcd
         
         return data
     

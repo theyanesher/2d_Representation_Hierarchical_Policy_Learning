@@ -18,3 +18,6 @@ video_rl_game/
 local_exps/
 3d_diffusion_policy/dp3_data/
 local_gifs/
+*.pth
+*.pkl
+vtamp/

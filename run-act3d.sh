@@ -21,7 +21,7 @@ opened_threshold=0.4
 # task_end_idx=5
 # opened_threshold=2.6
 
-observation_mode=act3d
+observation_mode=act3d_pointnet
 pointcloud_num=4500
 
 # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
@@ -58,17 +58,21 @@ train_ratio=0.2
 # exp_name="0602-act3d-obj-45448-train-ratio-${train_ratio}"
 # exp_name="0604-act3d-obj-46462-train-ratio-${train_ratio}-filtered"
 # exp_name="0603-act3d-3-obj-train-ratio-${train_ratio}"
-exp_name="0606-act3d-3-obj-train-ratio-${train_ratio}"
+# exp_name="0606-act3d-3-obj-train-ratio-${train_ratio}"
+encoder_type=act3d_mlp
+exp_name="0608-wzy-${encoder_type}-3-obj-train-ratio-${train_ratio}"
+
 
 action_dim=10
 agent_pos_dim=10
-pc_channel=3
+pc_channel=3 
+batch_size=60
 
 python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_1}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_2}/]" \
-    task.env_runner.demo_experiment_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_1}, ${PROJECT_DIR}/data/dp3_demo/${save_data_name_2}/]" \
-    task.env_runner.experiment_name="[${demo_name_0}, ${demo_name_1}, ${demo_name_2}]" \
-    task.env_runner.experiment_folder="[${exp_folder_0}, ${exp_folder_1}, ${exp_folder_2}]" \
+    task.dataset.zarr_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}]" \
+    task.env_runner.demo_experiment_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}]" \
+    task.env_runner.experiment_name="[${demo_name_0}]" \
+    task.env_runner.experiment_folder="[${exp_folder_0}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
     task.env_runner.use_joint_angle="${use_joint_angle}" \
     task.env_runner.use_segmask="${use_segmask}" \
@@ -78,13 +82,15 @@ python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_na
     task.shape_meta.action.shape="[${action_dim}]" \
     policy.pointcloud_encoder_cfg.in_channels="${pc_channel}" \
     task.dataset.train_ratio="${train_ratio}" \
+    task.dataset.observation_mode="${observation_mode}" \
     task.env_runner.observation_mode="${observation_mode}" \
-    task.env_runner.observation_mode="${observation_mode}" \
-    policy.encoder_type=act3d \
+    policy.encoder_type="${encoder_type}" \
     policy.encoder_output_dim=60 \
     task.dataset.enumerate=True \
     training.rollout_every=200 \
     training.checkpoint_every=200 \
+    dataloader.batch_size="${batch_size}" \
+    val_dataloader.batch_size="${batch_size}" \
 
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug
