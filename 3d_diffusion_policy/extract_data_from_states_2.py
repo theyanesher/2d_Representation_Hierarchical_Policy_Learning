@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation as R
 import pickle
 from manipulation.utils import save_numpy_as_gif
 from multiprocessing import Pool
+from add_distractors_around_target import add_distractors_around_target
 
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, in_gripper_frame, gripper_num_points, add_contact, \
@@ -100,7 +101,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                                            in_gripper_frame=False, parallel=True,
                                            gripper_num_points=0, add_contact=False, 
                                            beg_idx=0, end_idx=20,
-                                           save_path=None):
+                                           save_path=None, add_distractors=False):
     
     if exp_name is None:
         experiment_folder = os.path.join(solution_path, "experiment")
@@ -168,7 +169,13 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         # already saved the data
         if os.path.exists(os.path.join(save_path, experiment)):
             continue
-            
+
+        if add_distractors:
+            new_yaml_path = os.path.join(experiment_path, "task_config_added_distractors.yaml")
+            if not os.path.exists(new_yaml_path):
+                add_distractors_around_target(task_config_path, solution_path, first_step.replace(" ", "_"), save_path=new_yaml_path)
+            task_config_path = new_yaml_path
+
 
         # stored_pkl_path = os.path.join(experiment_path, first_step_folder, "extracted_ja_{}_sm_{}_hd_{}.pkl".format(args.use_joint_angle, args.use_segmask, args.only_handle_points))   
         pickle_loaded = False
@@ -236,10 +243,13 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     for state in tqdm.tqdm(expert_states):
                         load_env(simulator._env, load_path=state)
                         
-                        joint_angle = simulator._get_info()['opened_joint_angle']
+                        joint_angle = simulator._env._get_info()['opened_joint_angle']
                         door_joint_angles.append(joint_angle)
                         
-                        observation = simulator._get_observation()            
+                        # only object is the opposite to add_distractors
+                        only_object = not add_distractors
+                        # observation = simulator._get_observation(only_object=only_object)  
+                        observation = simulator._get_diffuser_actor_observation()          
                         rgb = simulator._env.render()
                         point_cloud = observation['point_cloud'].tolist()
                         traj_pos_ori = observation['agent_pos'].tolist()
@@ -311,7 +321,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
         all_traj_stage_lengths, all_traj_store_label_paths
     
 def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None, in_gripper_frame=False, parallel=True, 
-                                    gripper_num_points=0, add_contact=False, save_path=None):
+                                    gripper_num_points=0, add_contact=False, save_path=None, add_distractors=False):
     task_paths = os.listdir(dirtory_path)
     task_paths = sorted(task_paths)
     
@@ -365,7 +375,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 in_gripper_frame=in_gripper_frame, parallel=parallel,
                 gripper_num_points=gripper_num_points, add_contact=add_contact, 
                 beg_idx=beg_idx, end_idx=end_idx,
-                save_path=save_path)
+                save_path=save_path, add_distractors=add_distractors)
 
 
             for traj_idx in tqdm.tqdm(range(len(all_traj_pc)), total=len(all_traj_pc)):
@@ -638,7 +648,7 @@ def save_example_pointcloud(pc_list, save_dir):
 
 
 def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=True, parallel=True,
-         gripper_num_points=0, add_contact=False):
+         gripper_num_points=0, add_contact=False, add_distractors=False):
     
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -653,7 +663,7 @@ def main(folder_name, object_name, save_path, exp_name=None, in_gripper_frame=Tr
         json.dump(meta_info, f, indent=4)
     
     extract_demos_from_a_directory(folder_name, object_name,exp_name=exp_name, in_gripper_frame=in_gripper_frame, parallel=parallel, 
-        gripper_num_points=gripper_num_points, add_contact=add_contact, save_path=save_path)
+        gripper_num_points=gripper_num_points, add_contact=add_contact, save_path=save_path, add_distractors=add_distractors)
     
 
 if __name__ == "__main__":
@@ -691,6 +701,7 @@ if __name__ == "__main__":
     args.add_argument("--num_experiment", type=int, default=10000)
     args.add_argument("--num_worker", type=int, default=80)
     args.add_argument("--use_extracted", type=int, default=1)
+    args.add_argument("--add_distractors", type=int, default=0)
     args = args.parse_args()
     
    
@@ -702,7 +713,7 @@ if __name__ == "__main__":
             pool = Pool(processes=num_worker)
         main(args.folder_name, args.object_name, args.save_path, exp_name=args.exp_name, 
              in_gripper_frame=args.in_gripper_frame, parallel=args.parallel, 
-             gripper_num_points=args.gripper_num_points, add_contact=args.add_contact)
+             gripper_num_points=args.gripper_num_points, add_contact=args.add_contact, add_distractors=args.add_distractors)
     else:
         # # load the data
         zarr_root = zarr.open("data/dp3_demo/0512-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first-joint-angle-action")

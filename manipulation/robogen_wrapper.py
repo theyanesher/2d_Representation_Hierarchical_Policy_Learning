@@ -39,6 +39,7 @@ class RobogenPointCloudWrapper:
                  camera_height=480,
                  camera_width=640,
                  elevation=30,
+                 only_object=False
             ):
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
@@ -118,11 +119,13 @@ class RobogenPointCloudWrapper:
 
         self.time_step = 0
 
+        self.only_object = only_object
+
 
     def reset(self, **kwargs):
         self._env.reset(**kwargs)
         self.time_step = 0
-        return self._get_observation()
+        return self._get_observation(only_object=self.only_object)
     
     def step(self, action, render=True):
         # beg = time.time()
@@ -176,7 +179,7 @@ class RobogenPointCloudWrapper:
         # cprint("compute reward & get info time {}".format(end - beg), "green")
         
         # beg = time.time()
-        obs = self._get_observation(render=render)
+        obs = self._get_observation(render=render, only_object=self.only_object)
         end = time.time()
         # cprint("get observation time {}".format(end - beg), "green")
         # cprint("step in robogen wrapper time {}".format(end - beg), "green")
@@ -193,7 +196,7 @@ class RobogenPointCloudWrapper:
         gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
         return gripper_pc
     
-    def _get_observation(self, render=True, using_torch=False):
+    def _get_observation(self, render=True, using_torch=False, only_object=True):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
         # get the 6D representation of orientation
@@ -219,7 +222,7 @@ class RobogenPointCloudWrapper:
             rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
-                                                only_object=True)
+                                                only_object=only_object)
             end = time.time()
 
             # from matplotlib import pyplot as plt
@@ -285,6 +288,35 @@ class RobogenPointCloudWrapper:
                     robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
                     object_mask = np.zeros_like(depth).astype(np.float32)
                     object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+
+                    if not only_object:
+                        ret_object_mask = np.zeros_like(depth).astype(np.float32)
+                        # get the bounding box of the object mask
+                        min_bound = np.min(np.argwhere(object_mask), axis=0)
+                        max_bound = np.max(np.argwhere(object_mask), axis=0)
+                        x_min, y_min = min_bound
+                        x_max, y_max = max_bound
+                        x_range = x_max - x_min
+                        y_range = y_max - y_min
+                        x_min_new = int(max(0, x_min - x_range * np.random.uniform(0.01, 0.05)))
+                        x_max_new = int(min(self.camera_height, x_max + x_range * np.random.uniform(0.01, 0.05)))
+                        y_min_new = int(max(0, y_min - y_range * np.random.uniform(0.01, 0.05)))
+                        y_max_new = int(min(self.camera_width, y_max + y_range * np.random.uniform(0.01, 0.05)))
+                        ret_object_mask[x_min_new:x_max_new, y_min_new:y_max_new] = 1
+                        ret_object_mask_indices = np.flatnonzero(ret_object_mask.flatten())
+                        pcd_ = pc[ret_object_mask_indices]
+                        object_mask_ = np.flatnonzero(object_mask.flatten())
+                        object_pcd_ = pc[object_mask_]
+                        mean_object_pcd = np.mean(object_pcd_, axis=0)
+                        # crop the pcd_ to be near mean_object_pcd
+                        distance = np.linalg.norm(pcd_ - mean_object_pcd, axis=1)
+                        indices = np.flatnonzero(distance < 1.0)
+                        object_mask_indices = ret_object_mask_indices[indices]
+                        object_mask = np.zeros_like(depth).astype(np.float32).flatten()
+                        object_mask[object_mask_indices] = 1
+                        object_mask = object_mask.reshape(self.camera_height, self.camera_width)
+                        
+
                     feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
                     assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
                     feature_maps.append(feature_map)
@@ -442,6 +474,50 @@ class RobogenPointCloudWrapper:
             obs_dict_input['agent_pos'] = np.array(pos_ori)
             
         return obs_dict_input
+    
+    def _get_diffuser_actor_observation(self):
+        ret_dict = {}
+        pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+        rotate_matrix = p.getMatrixFromQuaternion(orient)
+        orient = rotation_transfer_matrix_to_6D(rotate_matrix)
+        cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+        pos_ori = pos.tolist() + orient.tolist() + [cur_joint_angle[0]]
+        ret_dict['agent_pos'] = np.array(pos_ori)
+
+        rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
+                self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
+                                                return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
+                                                only_object=True)
+        pcs = []
+        for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+            pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+            pcs.append(pc)
+        point_cloud = np.concatenate(pcs, axis=0)
+        min_bound = np.array([-5, -5, -5])
+        max_bound = np.array([5, 5, 5])
+        input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
+        point_cloud = point_cloud[input_pc_mask]
+        ret_dict['point_cloud'] = np.array(point_cloud)
+
+        rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
+                self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
+                                                return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width,
+                                                only_object=False)
+        feature_maps = []
+        for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+            near = 0.01
+            far = 100
+            depth = far * near / (far - (far - near) * depth)
+            depth = depth.reshape(self.camera_height, self.camera_width, 1)
+            feature = np.concatenate([rgb, depth], axis=2)
+            feature_maps.append(feature)
+
+        ret_dict['feature_map'] = np.array(feature_maps)
+        ret_dict['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
+        ret_dict['pcd_mask'] = np.zeros((1, 1, 1)).astype(np.uint8)
+        return ret_dict
+            
+        
     
     def _transfer_point_cloud_to_gripper_frame(self, point_cloud):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)

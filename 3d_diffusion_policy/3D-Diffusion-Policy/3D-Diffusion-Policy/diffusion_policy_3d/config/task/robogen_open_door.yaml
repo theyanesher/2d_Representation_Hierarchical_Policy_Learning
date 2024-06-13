@@ -38,6 +38,7 @@ env_runner:
   num_worker: 50
   observation_mode: act3d
   demo_experiment_path: null
+  only_object: false
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset

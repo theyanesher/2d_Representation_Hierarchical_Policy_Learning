@@ -55,6 +55,7 @@ def parallel_eval(args):
                                                   use_segmask=cfg.task.env_runner.use_segmask,
                                                   only_handle_points=cfg.task.env_runner.only_handle_points,
                                                   observation_mode=cfg.task.env_runner.observation_mode,
+                                                  only_object=cfg.task.env_runner.only_object,
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -101,6 +102,7 @@ def parallel_reset(args):
                                                   use_segmask=cfg.task.env_runner.use_segmask,
                                                   only_handle_points=cfg.task.env_runner.only_handle_points,
                                                   observation_mode=cfg.task.env_runner.observation_mode,
+                                                  only_object=cfg.task.env_runner.only_object,
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -216,7 +218,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             after_reaching_init_state_files.append(after_init_state_file)
             init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
-            config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
+            config_file = os.path.join(experiment_path, experiment, "task_config_added_distractors.yaml")
             config_files.append(config_file)
                     
         after_reaching_init_state_files = after_reaching_init_state_files

@@ -4,7 +4,7 @@ from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule
 from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
 from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
-# import segmentation_models_pytorch as smp
+import segmentation_models_pytorch as smp
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
 import einops
