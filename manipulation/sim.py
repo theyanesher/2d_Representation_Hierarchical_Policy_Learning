@@ -491,8 +491,10 @@ class SimpleEnv(gym.Env):
             use_fixed_base = (type == 'urdf' and not self.is_distractor[name])
             if type == 'urdf' and moveable: # if gpt specified the object is movable, then it is movable
                 use_fixed_base = False
-            size = min(size, 1.2)
-            size = max(size, 0.075) # if the object is too small, current gripper cannot really manipulate it.
+            
+            if type == 'urdf':
+                size = min(size, 1.2)
+                size = max(size, 0.075) # if the object is too small, current gripper cannot really manipulate it.
             
             x_orient = np.pi/2 if type == 'mesh' else 0 # handle different coordinate axis by objaverse and partnet-mobility
             if self.randomize or self.is_distractor[name]:
@@ -521,6 +523,11 @@ class SimpleEnv(gym.Env):
                 p.removeBody(id, physicsClientId=self.id)
                 saved_size = self.simulator_sizes[name]
                 id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=saved_size)
+            elif size == -1:
+                id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base)
+                min_aabb, max_aabb = self.get_aabb(id)
+                actual_size = np.linalg.norm(max_aabb - min_aabb)
+                self.simulator_sizes[name] = np.sqrt(actual_size)
             else:
                 min_aabb, max_aabb = self.get_aabb(id)
                 actual_size = np.linalg.norm(max_aabb - min_aabb)

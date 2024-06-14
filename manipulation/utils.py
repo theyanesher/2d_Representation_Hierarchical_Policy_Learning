@@ -82,9 +82,11 @@ def down_load_single_object(name, uids=None, candidate_num=5, vhacd=True, debug=
                 scene, osp.join(save_path, "material.obj")
             )
         except:
+            if debug:
+                return False
             # print("cannot export obj for uid: ", uid)
             uids.remove(uid)
-            if uid in text_to_uid_dict[name]:
+            if name in text_to_uid_dict and uid in text_to_uid_dict[name]:
                 text_to_uid_dict[name].remove(uid)
             continue
 
@@ -638,7 +640,7 @@ def get_pc(proj_matrix, view_matrix, depth, width, height, mask_infinite=False):
     pixels = np.stack([x, y, z, h], axis=1)
     # filter out "infinite" depths
     if mask_infinite:
-        pixels = pixels[z < 0.99]
+        pixels = pixels[z < 0.9999]
     pixels[:, 2] = 2 * pixels[:, 2] - 1
 
     # turn pixels to world coordinates
@@ -783,10 +785,14 @@ def load_env(env, load_path=None, state=None):
         
     ### set env to stored object position and orientation
     for obj_name, obj_id in env.urdf_ids.items():
+        if obj_name not in state['object_base_position'].keys():
+            continue
         p.resetBasePositionAndOrientation(obj_id, state['object_base_position'][obj_name], state['object_base_orientation'][obj_name], physicsClientId=env.id)
 
     ### set env to stored object joint angles
     for obj_name, obj_id in env.urdf_ids.items():
+        if obj_name not in state['object_joint_angle_dicts'].keys():
+            continue
         num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
         for link_idx in range(0, num_links):
             joint_angle = state['object_joint_angle_dicts'][obj_name][link_idx]

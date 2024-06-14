@@ -17,6 +17,7 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
 from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
 from diffusion_policy_3d.model.vision.act3d_encoder import Act3dEncoder
+from diffusion_policy_3d.model.vision.act3d_pointnet_encoder import Act3dPointNetEncoder
 
 from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 
@@ -95,6 +96,20 @@ class DP3(BasePolicy):
             obs_encoder = Act3dEncoder(**act3d_encoder_cfg, encoder_output_dim=encoder_output_dim, 
                                        observation_space=obs_dict)
 
+            obs_feature_dim = obs_encoder.output_shape()
+            input_dim = action_dim + obs_feature_dim
+            global_cond_dim = None
+            if obs_as_global_cond:
+                input_dim = action_dim
+                if "cross_attention" in self.condition_type:
+                    global_cond_dim = obs_feature_dim
+                else:
+                    global_cond_dim = obs_feature_dim * n_obs_steps
+
+        elif self.encoder_type == 'act3d_pointnet' or self.encoder_type == 'act3d_mlp':
+            obs_encoder = Act3dPointNetEncoder(**act3d_encoder_cfg, encoder_output_dim=encoder_output_dim, 
+                                       observation_space=obs_dict, encoder_type=self.encoder_type)
+            
             obs_feature_dim = obs_encoder.output_shape()
             input_dim = action_dim + obs_feature_dim
             global_cond_dim = None
