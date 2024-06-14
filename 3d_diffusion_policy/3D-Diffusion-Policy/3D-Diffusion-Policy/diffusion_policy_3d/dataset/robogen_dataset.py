@@ -32,6 +32,8 @@ class RobogenDataset(BaseDataset):
         keys = ['state', 'action', 'point_cloud']
         if 'act3d' in observation_mode:
             keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
+            if 'goal' in observation_mode:
+                keys += ['goal_gripper_pcd']
             
         if not enumerate:
             self.replay_buffer = ReplayBuffer.copy_from_path(
@@ -135,6 +137,9 @@ class RobogenDataset(BaseDataset):
             data['obs']['gripper_pcd'] = gripper_pcd
             data['obs']['feature_map'] = feature_map
             data['obs']['pcd_mask'] = pcd_mask
+            # TODO: add goal key
+            if 'goal' in self.observation_mode:
+                data['obs']['goal_gripper_pcd'] = sample['goal_gripper_pcd'][:,].astype(np.float32)
         
         return data
     

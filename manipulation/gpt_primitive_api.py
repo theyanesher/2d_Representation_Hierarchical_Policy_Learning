@@ -459,9 +459,15 @@ def reach_till_contact(simulator, real_target_pos, target_orientation, return_co
                     break
             
         if collision:
+            # recover to the state where contact has not been made
+            if len(intermediate_states) >= 3:
+                simulator.reset(reset_state=intermediate_states[-3])
             break
         
-    return intermediate_states, rgbs
+    if len(intermediate_states) >= 3:
+        return intermediate_states[:-2], rgbs[:-2]
+    else:
+        return intermediate_states, rgbs
 
 def close_gripper(simulator, handle_pc):
     intermediate_states = []

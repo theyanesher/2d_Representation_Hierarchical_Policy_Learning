@@ -4,6 +4,7 @@ import torch
 import tqdm 
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D
 from manipulation.gpt_reward_api import get_handle_pos
+from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
 from copy import deepcopy
@@ -16,6 +17,9 @@ import time
 from termcolor import cprint
 from scipy.spatial.transform import Rotation as R
 import fpsample
+import os
+import json
+import pickle
 
 class RobogenPointCloudWrapper:
     def __init__(self, 
@@ -75,8 +79,10 @@ class RobogenPointCloudWrapper:
             'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
+        if 'goal' in observation_mode:
+            self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
         for name in self._env.urdf_ids: # randomly center at an object
             if name in ['robot', 'plane', 'init_table']: continue
@@ -117,11 +123,44 @@ class RobogenPointCloudWrapper:
             # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
         self.time_step = 0
+        
+        if "act3d_goal" in self.observation_mode:
+            config_path = self._env.config_path
+            task_name = self._env.task_name
+            parent_path = os.path.dirname(config_path)
+            state_path = os.path.join(parent_path, "grasp_the_door_handle_primitive", "states") # TODO: use the real substep name. 
+            stage_lengths_json_file = os.path.join(parent_path, "grasp_the_door_handle_primitive", 'stage_lengths.json')
+            with open(stage_lengths_json_file, 'r') as f:
+                stage_lengths = json.load(f)
+            open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
+            all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
+            goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
+            goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
+            
+            # NOTE: load the goal state, reset the robot to there, record the eef pose as the goal.
+            with open(goal_1_state, 'rb') as f:
+                goal_1_state = pickle.load(f)
+            with open(goal_2_state, 'rb') as f:
+                goal_2_state = pickle.load(f)
+            
+            self._env.reset(reset_state=goal_1_state)
+            grasping_eef_pc = self.get_gripper_pc()
+            
+            self._env.reset(reset_state=goal_2_state)
+            final_eef_pc = self.get_gripper_pc()
+            
+            self.grasping_goal = grasping_eef_pc
+            self.final_goal = final_eef_pc
+            
+            self.grasped_handle = False
 
 
     def reset(self, **kwargs):
         self._env.reset(**kwargs)
+        self._env._get_info()
         self.time_step = 0
+        if "act3d_goal" in self.observation_mode:
+            self.grasped_handle = False
         return self._get_observation()
     
     def step(self, action, render=True):
@@ -191,7 +230,7 @@ class RobogenPointCloudWrapper:
         right_hand_pos, _ = self._env.robot.get_pos_orient(self._env.robot.right_hand)
         eef_pos, _ = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
         gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
-        return gripper_pc
+        return gripper_pc.astype(np.float32)
     
     def _get_observation(self, render=True, using_torch=False):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
@@ -292,6 +331,16 @@ class RobogenPointCloudWrapper:
                     object_mask_indices = np.flatnonzero(object_mask.flatten())
                     pcd_mask_indices.append(object_mask_indices)
                     
+                    if 'goal' in self.observation_mode:
+                        # print("add goal as part of the observation")
+                        # add goal as part of the observation. 
+                        # needs to judge when to switch the goal -- check if the handle has been grasped.  
+                        
+                                
+                        if self._env.grasped_handle:
+                            goal_gripper_pcd = self.final_goal
+                        else:
+                            goal_gripper_pcd = self.grasping_goal
                 else:
                     pcs.append(pc)
                 
@@ -431,6 +480,9 @@ class RobogenPointCloudWrapper:
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
                 obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
+                if 'goal' in self.observation_mode:
+                    # print("store goal as part of the observation")
+                    obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
             else:
                 obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
                 obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)

@@ -20,6 +20,7 @@ from termcolor import cprint
 import time
 import scipy
 import os
+from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
@@ -135,6 +136,8 @@ class SimpleEnv(gym.Env):
         self.success = False
         self.control_rgbs = []
         self.init_joint_angle = None
+        self.ik_failure = False
+        self.grasped_handle = False
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -316,7 +319,7 @@ class SimpleEnv(gym.Env):
         ### restore to a state if provided
         if self.restore_state_file is not None:
             load_env(self, self.restore_state_file)
-            print("Restored state from: ", self.restore_state_file)
+            # print("Restored state from: ", self.restore_state_file)
 
         ### record initial joint angles and positions
         self.record_initial_joint_and_pose()
@@ -830,6 +833,9 @@ class SimpleEnv(gym.Env):
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], spinningFriction=friction, physicsClientId=self.id)
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=friction, physicsClientId=self.id)
 
+        self.ik_failure = False
+        self.grasped_handle = False
+
         return self._get_obs()
 
     def setup_camera(self, camera_eye=[0.5, -0.75, 1.5], camera_target=[-0.2, 0, 0.75], fov=60, camera_width=640, camera_height=480):
@@ -964,6 +970,8 @@ class SimpleEnv(gym.Env):
                 ik_success = min_joint_distance < 0.2
             else:
                 ik_success = False
+
+            self.ik_failure = (not ik_success) or self.ik_failure
             
             # agent_joint_angles = agent_joint_angles[ik_indices]
             it = 0
@@ -1260,21 +1268,48 @@ class SimpleEnv(gym.Env):
             self.handle_joint = link_handle_joint_id
             self.handle_pos = link_handle_median
             self.min_link_idx = min_link_idx
+            self.all_handle_points = all_handle_pos[min_link_idx]
         else:
             all_handle_pos, _ = get_handle_pos(self, object_name, return_median=False, handle_pts_obj_frame=self.handle_pts_obj_frame, mobility_info=self.mobility_info)
             handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
             self.handle_pos = handle_median_points[self.min_link_idx]
+            self.all_handle_points = all_handle_pos[self.min_link_idx]
             
         opened_joint_angle = p.getJointState(self.urdf_ids[object_name], self.handle_joint, physicsClientId=self.id)[0]
         if self.init_joint_angle is None:
             self.init_joint_angle = opened_joint_angle
             
+        cur_eef_pos, cur_eef_orient = self.robot.get_pos_orient(self.robot.right_end_effector)
+        handle_points = self.all_handle_points
+        num_handle_points_within_gripper = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_points)
+        # cprint("num_handle_points_within_gripper: {}".format(num_handle_points_within_gripper), "red")
+        if num_handle_points_within_gripper > 0:
+            # left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+            # right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+            # distance_left = np.linalg.norm(handle_points - left_finger_pos.reshape(1, 3), axis=1)
+            # distance_right = np.linalg.norm(handle_points - right_finger_pos.reshape(1, 3), axis=1)
+            points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
+            points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
+            if len(points_left_finger) > 0 and len(points_right_finger) > 0:
+                all_points = points_left_finger + points_right_finger
+                contact_points = np.array([point[6] for point in all_points])
+                distance = scipy.spatial.distance.cdist(handle_points, contact_points)
+                min_distance = np.min(distance)
+                # cprint("min_distance: {}".format(min_distance), "red")
+                # cprint("distance_left: {}".format(np.min(distance_left)), "red")
+                # cprint("distance_right: {}".format(np.min(distance_right)), "red")
+                # if np.min(distance_left) < 0.03 and np.min(distance_right) < 0.03:
+                if min_distance < 0.005:
+                    grasped_handle = True
+                    self.grasped_handle = self.grasped_handle or grasped_handle
         
         return {
             "opened_joint_angle": opened_joint_angle,
             "improved_joint_angle": opened_joint_angle - self.init_joint_angle,
             "handle_pos": self.handle_pos, 
             "initial_joint_angle": self.init_joint_angle,
+            "ik_failure": self.ik_failure,
+            "grasped_handle": self.grasped_handle,
         }
 
     def _get_obs(self):

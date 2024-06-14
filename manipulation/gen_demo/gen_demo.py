@@ -78,8 +78,8 @@ USE_STEPPING_STONE = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="debug")
-parser.add_argument("--beg_idx", type=int, default=0)
-parser.add_argument("--end_idx", type=int, default=1)
+parser.add_argument("--beg_idx", type=int, default=12)
+parser.add_argument("--end_idx", type=int, default=13)
 parser.add_argument("--near_distance", type=float, default=0.15)
 parser.add_argument("--far_distance", type=float, default=0.4)
 
@@ -96,11 +96,13 @@ reward_assets = reward_assets[beg_idx:end_idx]
 # exp_name = "0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
 # exp_name = "0505-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
 # exp_name = "0509-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo"
-args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+# args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+args.exp_name = "0613-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-120-demo-0.4-0.15-translation-first"
+args.exp_name = "debug"
 
 exp_name = args.exp_name
 try_times_min = 0
-try_times_max = 300
+try_times_max = 5
 
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
@@ -154,6 +156,8 @@ for try_idx in range(try_times_min, try_times_max):
         #         trained = True
         
         config_variant_paths = os.path.join("/".join(config_path.split("/")[:-1]), "configs")
+        if not os.path.exists(config_variant_paths):
+            os.makedirs(config_variant_paths)
         new_config_path = os.path.join(config_variant_paths, f"config_{try_idx}.yaml")
         base_config = yaml.safe_load(open(config_path, "r"))
         all_substeps_path = os.path.join(solution_path, "substeps.txt")

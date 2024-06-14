@@ -52,15 +52,18 @@ class RoboGenRunner(BaseRunner):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         exp_beg_ratio = 0
-        exp_end_ratio = cfg.task.dataset.train_ratio
+        exp_end_ratio = 0.2 # cfg.task.dataset.train_ratio
         run_eval(cfg, policy, num_worker, save_path, pool=self.pool, horizon=self.max_steps, exp_beg_ratio=exp_beg_ratio, exp_end_ratio=exp_end_ratio)
         with open("{}/opened_joint_angles.json".format(save_path), "r") as f:
             result = json.load(f)
         train_all_success_rates = []
         for key in result:
-            final_angle = result[key][0]
-            intial_angle = result[key][2]
-            train_all_success_rates.append(final_angle - intial_angle)
+            final_angle = result[key]["final_door_joint_angle"]
+            intial_angle = result[key]["initial_joint_angle"]
+            expert_angle = result[key]["expert_door_joint_angle"] if "46462" not in key else 0.27
+            performance = (final_angle - intial_angle) / (expert_angle - intial_angle)
+            performance = min(performance, 1)
+            train_all_success_rates.append(performance)
             
         save_path = os.path.join(self.save_video_dir, f'epoch_{epoch}_valset')
         if not os.path.exists(save_path):

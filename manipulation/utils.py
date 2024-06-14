@@ -154,7 +154,6 @@ def build_up_env(task_config=None, solution_path=None, task_name=None, restore_s
     save_config['gui'] = render
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
-    save_config['task_name'] = task_name
     for key, value in kwargs.items():
         save_config[key] = value
 

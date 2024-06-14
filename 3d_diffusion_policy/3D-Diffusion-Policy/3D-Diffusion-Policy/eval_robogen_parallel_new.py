@@ -121,11 +121,16 @@ def parallel_save_gif(args):
 
 def wrap_obs(list_of_obs):
     parallel_input_dict = {}
-    parallel_input_dict['point_cloud'] = np.concatenate([x['point_cloud'][None, ...] for x in list_of_obs], axis=0)
-    parallel_input_dict['agent_pos'] = np.concatenate([x['agent_pos'][None, ...] for x in list_of_obs], axis=0)
-    parallel_input_dict['feature_map'] = np.concatenate([x['feature_map'][None, ...] for x in list_of_obs], axis=0)
-    parallel_input_dict['gripper_pcd'] = np.concatenate([x['gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
-    parallel_input_dict['pcd_mask'] = np.concatenate([x['pcd_mask'][None, ...] for x in list_of_obs], axis=0)
+    # parallel_input_dict['point_cloud'] = np.concatenate([x['point_cloud'][None, ...] for x in list_of_obs], axis=0)
+    # parallel_input_dict['agent_pos'] = np.concatenate([x['agent_pos'][None, ...] for x in list_of_obs], axis=0)
+    # parallel_input_dict['feature_map'] = np.concatenate([x['feature_map'][None, ...] for x in list_of_obs], axis=0)
+    # parallel_input_dict['gripper_pcd'] = np.concatenate([x['gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
+    # parallel_input_dict['pcd_mask'] = np.concatenate([x['pcd_mask'][None, ...] for x in list_of_obs], axis=0)
+    # # TODO: add goal key
+    # if 'goal_gripper_pcd' in list_of_obs[0]:
+    #     parallel_input_dict['goal_gripper_pcd'] = np.concatenate([x['goal_gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
+    for key in list_of_obs[0]:
+        parallel_input_dict[key] = np.concatenate([x[key][None, ...] for x in list_of_obs], axis=0)
     
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
@@ -257,6 +262,10 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             
             initial_info = batched_infos
             all_rgbs = [batched_rgbs]
+            max_door_joint_angles = np.ones(len(args_to_run)) * -1
+            ik_failures = np.zeros(len(args_to_run))
+            grasped_handles = np.zeros(len(args_to_run))
+            
             for t_idx in tqdm.tqdm(range(1, horizon)):
                 args_to_run = [
                     [config_files[idx], batched_states[idx - beg_idx], np_batched_action[idx - beg_idx], cfg, idx] for idx in range(beg_idx, end_idx)
@@ -269,6 +278,13 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                 res_info = [res[2] for res in results]
                 res_states = [res[3] for res in results]
                 end = time.time()
+                door_joint_angles_step = np.array([float(info['initial_joint_angle'][-1]) for info in res_info])
+                max_door_joint_angles = np.maximum(max_door_joint_angles, door_joint_angles_step)
+                grasped_handle_step = np.array([float(info['grasped_handle'][-1]) for info in res_info])
+                grasped_handles = np.logical_or(grasped_handles, grasped_handle_step)
+                ik_failure_step = np.array([float(info['ik_failure'][-1]) for info in res_info])
+                ik_failures = np.logical_or(ik_failures, ik_failure_step)
+                
                 # cprint("step time: {}".format(end - beg), "red")
                 
                 beg = time.time()
@@ -285,9 +301,14 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
 
             for idx in range(beg_idx, end_idx):
                 opened_joint_angles[config_files[idx]] = \
-                    [float(res_info[idx - beg_idx]['initial_joint_angle'][-1]), 
-                    expert_opened_angles[idx], 
-                    float(initial_info[idx - beg_idx]['initial_joint_angle'])]
+                    {
+                        "max_door_joint_angle": max_door_joint_angles[idx - beg_idx],
+                        "final_door_joint_angle": float(res_info[idx - beg_idx]['initial_joint_angle'][-1]), 
+                        "expert_door_joint_angle": expert_opened_angles[idx], 
+                        "initial_joint_angle": float(initial_info[idx - beg_idx]['initial_joint_angle']),
+                        "ik_failure": float(ik_failures[idx - beg_idx]),
+                        'grasped_handle': float(grasped_handles[idx - beg_idx]),
+                    }
                     
                 with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
                     json.dump(opened_joint_angles, f, indent=4)
@@ -308,9 +329,9 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             
 def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
     
-    cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
-    cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
-    cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
+    # cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
+    # cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
+    # cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
     
         after_reaching_init_state_files = []
@@ -323,8 +344,8 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
         all_experiments = sorted(all_experiments)
         
         if demo_experiment_path is not None:
-            demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
-            all_subfolder = os.listdir(os.path.join(os.environ['PROJECT_DIR'], demo_experiment_path))
+            # demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
+            all_subfolder = os.listdir(demo_experiment_path)
             for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
                 if string in all_subfolder:
                     all_subfolder.remove(string)
@@ -459,11 +480,15 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             
             env.env._env.close()
             
-            opened_joint_angles[config_files[exp_idx]] = \
-                [float(info['opened_joint_angle'][-1]), 
-                expert_opened_angles[exp_idx], 
-                float(initial_info['initial_joint_angle'])]
-                
+            opened_joint_angles[config_files[idx]] = \
+            {
+                "final_door_joint_angle": float(info['initial_joint_angle'][-1]), 
+                "expert_door_joint_angle": expert_opened_angles[idx], 
+                "initial_joint_angle": float(initial_info[idx - beg_idx]['initial_joint_angle']),
+                "ik_success": float(res_info[idx - beg_idx]['ik_success']),
+                'grasped_handle': float(res_info[idx - beg_idx]['grasped_handle']),
+            }
+                    
             with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
                 json.dump(opened_joint_angles, f, indent=4)
             
@@ -480,9 +505,25 @@ if __name__ == "__main__":
     
     num_worker = 50
     pool = Pool(processes=num_worker)
-    checkpoint_name = "latest.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0602-act3d-obj-46462-train-ratio-0.2/2024.06.02/19.34.59_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-0600-1.028.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-41510-horizon-8-train-ratio-0.22/2024.06.09/23.55.13_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-0400-0.107.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-45448-horizon-8-train-ratio-0.2/2024.06.10/00.36.05_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-200-test_mean_score-0.804.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-45448-horizon-8-train-ratio-0.2/2024.06.10/00.07.00_train_dp3_robogen_open_door"
 
+    checkpoint_name = "epoch-600-test_mean_score-0.779.ckpt"
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-41510-train-ratio-0.22-remove-collision-and-half-horizon/2024.06.07/23.57.57_train_dp3_robogen_open_door"
+
+    checkpoint_name = "epoch-1800-test_mean_score-0.892.ckpt"
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45448-train-ratio-1-remove-collision-and-half-horizon/2024.06.07/14.29.51_train_dp3_robogen_open_door"
+
+    checkpoint_name = "epoch-1000-test_mean_score-0.144.ckpt"
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45462-train-ratio-0.2-remove-collision-and-half-horizon/2024.06.07/22.30.12_train_dp3_robogen_open_door"
+    
+    checkpoint_name = "epoch-800-test_mean_score-0.554.ckpt"
+    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0606-act3d-3-obj-train-ratio-0.2/2024.06.06/02.27.24_train_dp3_robogen_open_door"
+    
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
@@ -503,23 +544,20 @@ if __name__ == "__main__":
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
-    save_path = "data/debug/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
+    save_path = "data/detailed_analysis/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
     if not os.path.exists(save_path):
         os.makedirs(save_path)
         
-    # exp_beg_idx = 0
-    # exp_end_idx = num_worker + num_worker // 2
     exp_beg_ratio = 0
     exp_end_ratio = 0.2
         
     run_eval_non_parallel(cfg, policy, num_worker, save_path, 
-            #  exp_beg_idx=exp_beg_idx, 
-            #  exp_end_idx=exp_end_idx, 
              pool=pool, 
-             horizon=135,
+             horizon=70,
              exp_beg_ratio=exp_beg_ratio,
              exp_end_ratio=exp_end_ratio,
-        )
+    )
+    
     # pr.disable()
     # s = io.StringIO()
     # ps = pstats.Stats(pr, stream=s).sort_stats('cumtime')
