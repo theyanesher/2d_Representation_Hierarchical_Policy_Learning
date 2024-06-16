@@ -295,6 +295,9 @@ class DP3(BasePolicy):
     # ========= training  ============
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
+        
+    def forward(self, batch):
+        return self.compute_loss(batch)
 
     def compute_loss(self, batch):
         # normalize input

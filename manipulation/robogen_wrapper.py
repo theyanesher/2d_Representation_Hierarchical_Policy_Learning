@@ -43,7 +43,7 @@ class RobogenPointCloudWrapper:
                  camera_height=480,
                  camera_width=640,
                  elevation=30,
-                 only_object=False
+                 only_object=True,
             ):
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
