@@ -6,21 +6,63 @@ import numpy as np
 from collections import defaultdict
 import json
 import yaml
+import glob
+import os
 
-def read_data(data_dirs, filter_function=None, label_function=None, read_train=False, mean=True):
+def find_video_directories(base_directory):
+    # Use glob to find directories containing the word 'video'
+    pattern = os.path.join(base_directory, '**', '*video*')
+    directories = [d for d in glob.glob(pattern, recursive=True) if os.path.isdir(d)]
+    return directories
+
+def read_json(path, use_binary=False, return_dict=False, max_angle=None):
+    values = []
+    results = path
+    with open(results, 'r') as f:
+        data = json.load(f)
+    
+    if return_dict:
+        return data
+        
+    for idx, config_path in enumerate(data):
+        # if idx == 30:
+        #     break
+        res = data[config_path]
+        if type(res) == list:
+            policy_angle = float(res[0])
+            expert_angle = float(res[1]) if "46462" not in config_path else 0.27
+            initial_angle = float(res[2])
+            policy_angle = min(policy_angle, expert_angle)
+            normalized_performance = (policy_angle - initial_angle) / (expert_angle - initial_angle)
+            binary = 1 if normalized_performance > 0.1 else 0
+            if use_binary:
+                values.append(binary)
+            else:
+                values.append(normalized_performance)
+    return values
+
+def read_data(data_dirs, filter_function=None, label_function=None, read_train=False, mean=False, return_dict=False):
     
     all_subdirs = []
     for data_dir in data_dirs:
-        subdirs = os.listdir(data_dir)
-        for sd in subdirs:
-            all_subsubdirs = os.listdir(osp.join(data_dir, sd))
-            for ssd in all_subsubdirs:
-                all_subdirs.append(osp.join(data_dir, sd, ssd))
+        # subdirs = os.listdir(data_dir)
+        # for sd in subdirs:
+        #     all_subsubdirs = os.listdir(osp.join(data_dir, sd))
+        #     for ssd in all_subsubdirs:
+        #         all_subdirs.append(osp.join(data_dir, sd, ssd))
+        base_directory = data_dir  # Replace with your base directory
+        video_directories = find_video_directories(base_directory)
+
+        # for directory in video_directories:
+        #     print(directory)
+        
+        all_subdirs.extend(video_directories)
+        
     all_subdirs = sorted(all_subdirs)
+    print(all_subdirs)
 
     all_results = []
-    for subdir in all_subdirs:
-        video_dir = os.path.join(subdir, 'videos')
+    for video_dir in all_subdirs:
         if not os.path.exists(video_dir):
             continue
         all_eval_video_paths = os.listdir(video_dir)
@@ -33,30 +75,24 @@ def read_data(data_dirs, filter_function=None, label_function=None, read_train=F
             if (read_train and "trainset" in eval_video_path) or (not read_train and "valset" in eval_video_path):
                 results = os.path.join(video_dir, eval_video_path, "opened_joint_angles.json")
                 if os.path.exists(results):
-                    values = []
-                    with open(results, 'r') as f:
-                        data = json.load(f)
-                    for config_path in data:
-                        res = data[config_path]
-                        policy_angle = float(res[0])
-                        expert_angle = float(res[1])
-                        initial_angle = float(res[2])
-                        policy_angle = min(policy_angle, expert_angle)
-                        normalized_performance = (policy_angle - initial_angle) / (expert_angle - initial_angle)
-                        binary = 1 if normalized_performance > 0.1 else 0
-                        # values.append(normalized_performance)
-                        values.append(binary)
-                    if mean:
-                        mean_values = np.mean(values) 
-                        all_values.append(mean_values)
+                    max_angle = 0.27 if "45462" in video_dir else None
+                    values = read_json(results, return_dict=return_dict, max_angle=max_angle)
+                    # import pdb; pdb.set_trace()
+                    if not return_dict:
+                        if mean:
+                            mean_values = np.mean(values) if len(values) > 0 else 0
+                            all_values.append(mean_values)
+                        else:
+                            all_values.append(values)
                     else:
                         all_values.append(values)
 
         # if len(all_values) < 3:
         #     continue
-                
+        
+        subdir = os.path.dirname(video_dir)
         variant_path = osp.join(subdir, '.hydra', "overrides.yaml")
-        if not osp.exists(variant_path):
+        if not osp.exists(variant_path): 
             continue
         variant = yaml.safe_load(open(variant_path, 'r'))
         real_variant = {}
@@ -71,7 +107,7 @@ def read_data(data_dirs, filter_function=None, label_function=None, read_train=F
                 continue
 
         label = label_function(variant)
-        print(subdir, label)
+        # print(subdir, label)
         all_results.append((all_values, label))
 
     # result is a two level dict, first key is plot key, second key is group key
@@ -107,9 +143,9 @@ def group_data(results, return_eval_freq=False):
         return all_result_dict
 
 
-def read_and_group_data(data_dirs, filter_function=None, label_function=None, return_eval_freq=False, read_train=False, mean=True):
+def read_and_group_data(data_dirs, filter_function=None, label_function=None, return_eval_freq=False, read_train=False, mean=True, return_dict=False):
 
-    results = read_data(data_dirs, filter_function, label_function, read_train=read_train, mean=mean)
+    results = read_data(data_dirs, filter_function, label_function, read_train=read_train, mean=mean, return_dict=return_dict)
     if not return_eval_freq:
         result_dict = group_data(results, return_eval_freq=False)
         return result_dict
