@@ -81,6 +81,7 @@ class RobogenPointCloudWrapper:
             'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            # "goal_gripper_pcd": spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
         if 'goal' in observation_mode:
             self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
@@ -319,6 +320,8 @@ class RobogenPointCloudWrapper:
                     
                     pcs.append(pc)
                     gripper_pc = self.get_gripper_pc()
+                    # p.addUserDebugPoints(list(gripper_pc), [[0, 1, 0] for _ in range(len(gripper_pc))], 50, 0)
+                    # import pdb; pdb.set_trace()
                     gripper_pcd.append(gripper_pc)
                     
                     segmask_obj_id = segmask & ((1 << 24) - 1)
@@ -369,9 +372,13 @@ class RobogenPointCloudWrapper:
                         
                                 
                         if self._env.grasped_handle:
+                            print("goal is to open the door")
                             goal_gripper_pcd = self.final_goal
                         else:
+                            print("goal is to grasp the handle")
                             goal_gripper_pcd = self.grasping_goal
+                            # for point in goal_gripper_pcd:
+                                # p.addUserDebugPoints([point], [[1, 0, 0]], 10, 0)
                 else:
                     pcs.append(pc)
                 

@@ -42,11 +42,16 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 # save_data_name_0=0527-act3d-always-close
 # save_data_name_0=0527-act3d-always-close-with-goal
-save_data_name_0=0607-act3d-obj-41510-remove-reaching-collision-resize-2
+# save_data_name_0=0607-act3d-obj-41510-remove-reaching-collision-resize-2
+save_data_name_0=0616-act3d-obj-41510-remove-reaching-collision-resize-2-per-step
+
 # save_data_name_1=0531-act3d-obj-45448
-save_data_name_1=0607-act3d-obj-45448-remove-reaching-collision-resize-2-full
+# save_data_name_1=0607-act3d-obj-45448-remove-reaching-collision-resize-2-full
+save_data_name_1=0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step
+
 # save_data_name_2=0531-act3d-obj-46462
-save_data_name_2=0607-act3d-obj-46462-remove-reaching-collision-resize-2
+# save_data_name_2=0607-act3d-obj-46462-remove-reaching-collision-resize-2
+save_data_name_2=0616-act3d-obj-46462-remove-reaching-collision-resize-2-per-step
 
 demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
@@ -56,10 +61,10 @@ exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_Stora
 exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
 exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
 
-horizon=4
-# horizon=8
+# horizon=4
+horizon=8
 n_obs_steps=2
-train_ratio=0.1
+train_ratio=0.6
 # exp_name="0528-act3d-train-ratio-${train_ratio}"
 # exp_name="0602-act3d-obj-45448-train-ratio-${train_ratio}"
 # exp_name="0604-act3d-obj-46462-train-ratio-${train_ratio}-filtered"
@@ -68,7 +73,9 @@ train_ratio=0.1
 # exp_name="0608-act3d-obj-41510-goal-train-ratio-${train_ratio}"
 # exp_name="0609-act3d-obj-45448-horizon-${horizon}-train-ratio-${train_ratio}"
 # exp_name="0612-act3d-3-obj-horizon-${horizon}-train-ratio-${train_ratio}"
-exp_name="debug-ddp"
+# exp_name="debug-ddp-load-from-disk"
+# exp_name="0616-ddp-3-obj-horizon-${horizon}-train-ratio-${train_ratio}"
+exp_name="0616-per-step-load-ddp-3-obj-horizon-${horizon}-train-ratio-${train_ratio}"
 
 action_dim=10
 agent_pos_dim=10
@@ -76,10 +83,10 @@ pc_channel=3
 
 torchrun --standalone --nproc_per_node=4 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}]" \
-    task.env_runner.demo_experiment_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_0}]" \
-    task.env_runner.experiment_name="[${demo_name_0}]" \
-    task.env_runner.experiment_folder="[${exp_folder_0}]" \
+    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_0}, /scratch/yufei/dp3_demo/${save_data_name_1}, /scratch/yufei/dp3_demo/${save_data_name_2}]" \
+    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_0}, /scratch/yufei/dp3_demo/${save_data_name_1}, /scratch/yufei/dp3_demo/${save_data_name_2}]" \
+    task.env_runner.experiment_name="[${demo_name_0}, ${demo_name_1}, ${demo_name_2}]" \
+    task.env_runner.experiment_folder="[${exp_folder_0}, ${exp_folder_1}, ${exp_folder_2}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
     task.env_runner.use_joint_angle="${use_joint_angle}" \
     task.env_runner.use_segmask="${use_segmask}" \
@@ -95,9 +102,12 @@ torchrun --standalone --nproc_per_node=4 \
     policy.encoder_output_dim=60 \
     task.dataset.enumerate=True \
     training.rollout_every=2000 \
-    training.checkpoint_every=100 \
-    task.env_runner.max_steps=70 \
-    training.val_every=5 \
+    training.checkpoint_every=25 \
+    task.env_runner.max_steps=35 \
+    training.val_every=25 \
+    task.dataset.kept_in_disk=true \
+    task.dataset.load_per_step=true 
+
     # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
 
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval

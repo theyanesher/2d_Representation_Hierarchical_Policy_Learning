@@ -98,11 +98,11 @@ reward_assets = reward_assets[beg_idx:end_idx]
 # exp_name = "0509-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo"
 # args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 args.exp_name = "0613-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-120-demo-0.4-0.15-translation-first"
-args.exp_name = "debug"
+args.exp_name = "eval_45410"
 
 exp_name = args.exp_name
 try_times_min = 0
-try_times_max = 5
+try_times_max = 10
 
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
@@ -179,16 +179,19 @@ for try_idx in range(try_times_min, try_times_max):
             table_bbox_min, table_bbox_max = env.table_bbox_min, env.table_bbox_max
         
         object_name = 'storagefurniture'
-        all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
-        handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
-        link_name = "link_0"
-        link_name = link_name.lower()
-        link_pc = get_link_pc(env, object_name, link_name)
-        distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
-        min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
-        min_distance_handle_idx = np.argmin(min_distance)
-        handle_pos = handle_median_points[min_distance_handle_idx]
-        handle_joint_id = handle_joint_id[min_distance_handle_idx]
+        info = env._get_info()
+        handle_pos = info['handle_pos']
+        handle_joint_id = env.handle_joint
+        # all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
+        # handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+        # link_name = "link_0"
+        # link_name = link_name.lower()
+        # link_pc = get_link_pc(env, object_name, link_name)
+        # distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
+        # min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
+        # min_distance_handle_idx = np.argmin(min_distance)
+        # handle_pos = handle_median_points[min_distance_handle_idx]
+        # handle_joint_id = handle_joint_id[min_distance_handle_idx]
 
         initial_joint_angles = [0 for _ in range(7)]
         low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
@@ -255,6 +258,7 @@ for try_idx in range(try_times_min, try_times_max):
                     break
             
         new_config = copy.deepcopy(base_config)
+        # import pdb; pdb.set_trace()
 
         
         for config_dict in new_config:
@@ -269,7 +273,8 @@ for try_idx in range(try_times_min, try_times_max):
                     new_pos = [new_pos[0], new_pos[1], 0]
                 config_dict['center'] = str(tuple(new_pos))
                 config_dict['orientation'] = str(tuple(new_orient))
-                # config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
+                if 'initial_joint_angles' not in config_dict:
+                    config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
             if "set_joint_angle_object_name" in config_dict:
                 config_dict['set_joint_angle_object_name'] = object_name
                 config_dict['set_joint_angle_joint_id'] = handle_joint_id

@@ -35,10 +35,10 @@ env_runner:
   num_point_in_pc: 4500
   use_segmask: false
   only_handle_points: false
-  num_worker: 50
+  num_worker: 40
   observation_mode: act3d
   demo_experiment_path: null
-  only_object: false
+  only_object: true
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
@@ -52,3 +52,5 @@ dataset:
   max_train_episodes: null
   observation_mode: act3d
   enumerate: false
+  kept_in_disk: true # keep the dataset in memory / disk
+  load_per_step: true

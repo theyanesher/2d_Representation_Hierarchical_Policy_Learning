@@ -111,7 +111,7 @@ class Act3dEncoder(nn.Module):
             attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
 
         if self.goal_mode == 'cross_attention_to_goal':
-            print("Cross attention to goal")
+            # print("Cross attention to goal")
             goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation['goal_gripper_pcd']) # shape B num_gripper_points encoder_output_dim
             goal_gripper_pcd_features = nets['goal_embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
             

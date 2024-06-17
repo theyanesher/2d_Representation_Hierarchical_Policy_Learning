@@ -1,0 +1,236 @@
+from typing import Union, Dict, Optional
+import os
+import math
+import numbers
+import zarr
+import numcodecs
+import numpy as np
+from functools import cached_property
+from termcolor import cprint
+from collections import defaultdict
+
+class WelfordOnlineStatistics:
+    def __init__(self):
+        self.mean = None
+        self.variance = None
+        self.n = 0
+        self.min = None
+        self.max = None
+
+    def add(self, data):
+        """
+        data: numpy array [n, d]
+        """
+        if self.mean is None:
+            self.mean = np.mean(data, axis=0)
+            self.variance = np.var(data, axis=0)
+            self.min = np.min(data, axis=0)
+            self.max = np.max(data, axis=0)
+            self.n = data.shape[0]
+        else:
+            new_n = self.n + data.shape[0]
+            new_mean = (self.mean * self.n + np.sum(data, axis=0)) / new_n
+            # new_variance = (self.variance * self.n + np.sum((data - self.mean) ** 2, axis=0)) / new_n
+            # new_variance = (self.variance * self.n + np.sum((data - new_mean) ** 2, axis=0)) / new_n
+            new_variance = (self.variance * self.n + np.sum((data - self.mean) * (data - new_mean), axis=0)) / new_n
+            new_min = np.minimum(self.min, np.min(data, axis=0))
+            new_max = np.maximum(self.max, np.max(data, axis=0))
+            self.mean = new_mean
+            self.variance = new_variance
+            self.min = new_min
+            self.max = new_max
+            self.n = new_n
+    
+    def get_mean(self):
+        return self.mean
+    
+    def get_variance(self):
+        return self.variance
+    
+    def get_min(self):
+        return self.min
+    
+    def get_max(self):
+        return self.max
+    
+    def get_std(self):
+        return np.sqrt(self.variance)
+
+class ReplayBuffer:
+    """
+    Zarr-based temporal datastructure.
+    Every time we need data, we load from disk.
+    """
+    def __init__(self, all_path_list, episode_lengths, accumulated_episode_lengths, keys, action_welford, load_per_step):
+        self.all_path_list = all_path_list
+        self.episode_lengths = episode_lengths
+        self.accumulated_episode_lengths = accumulated_episode_lengths
+        self.keys_ = keys
+        self.action_welford = action_welford
+        self.load_per_step = load_per_step
+
+    @classmethod
+    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None):
+        """
+        restore the path_list as well as the length of every episode
+        """
+        self.all_path_list = path_list
+
+        episode_lengths = []
+
+        action_welford = WelfordOnlineStatistics()
+
+        for idx, zarr_path  in enumerate(path_list):
+            if not load_per_step:
+                group = zarr.open(zarr_path, 'r')
+                src_store = group.store
+            
+                # numpy backend
+                src_root = zarr.group(src_store)
+
+                if keys is None:
+                    keys = src_root['data'].keys()
+                    self.keys_ = list(keys)
+                else:
+                    self.keys_ = keys
+
+                # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
+                episode_lengths.append(len(src_root['data'][keys[0]][:]))
+
+                action = src_root['data']['action'][:]
+                action_welford.add(action)
+            else:
+                all_substeps = os.listdir(zarr_path)
+                all_substeps = sorted(all_substeps, key=lambda x: int(x))
+                episode_lengths.append(len(all_substeps))
+
+                for substep in all_substeps:
+                    substep_path = os.path.join(zarr_path, substep)
+                    group = zarr.open(substep_path, 'r')
+                    src_store = group.store
+                    src_root = zarr.group(src_store)
+
+                    if keys is None:
+                        keys = src_root['data'].keys()
+                        self.keys_ = list(keys)
+                    else:
+                        self.keys_ = keys
+
+                    action = src_root['data']['action'][:]
+                    action_welford.add(action)
+        
+        self.episode_lengths = np.array(episode_lengths)
+        self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
+
+        
+        # we might need the min, max, mean, std of every data
+        # TODO: add more statistics
+        self.action_welford = action_welford
+
+        return ReplayBuffer(self.all_path_list, self.episode_lengths, self.accumulated_episode_lengths, self.keys_, self.action_welford, load_per_step=load_per_step)
+
+    def get_data_disk(self, start_idx, end_idx):
+        """
+        get data from disk
+        """
+        if not self.load_per_step:
+            # find the corresponding zarr file
+            start_episode_idx = np.searchsorted(self.accumulated_episode_lengths, start_idx, side='right')
+            end_episode_idx = np.searchsorted(self.accumulated_episode_lengths, end_idx, side='right')
+            if start_episode_idx == end_episode_idx:
+                # only one zarr file
+                start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
+                end_idx = end_idx - self.accumulated_episode_lengths[start_episode_idx]
+                ret_data = self.get_data_single_zarr(self.all_path_list[start_episode_idx], start_idx, end_idx)
+            else:
+                # two zarr files
+                start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
+                ret_data = self.get_data_single_zarr(self.all_path_list[start_episode_idx], start_idx, None)
+                # end_idx = end_idx - self.accumulated_episode_lengths[end_episode_idx]
+                # ret_data_end = self.get_data_single_zarr(self.all_path_list[end_episode_idx], None, end_idx)
+                # for key in ret_data.keys():
+                #     ret_data[key] = np.concatenate([ret_data[key], ret_data_end[key]], axis=0)
+        else:
+            # find the corresponding zarr file
+            start_episode_idx = np.searchsorted(self.accumulated_episode_lengths, start_idx, side='right')
+            end_episode_idx = np.searchsorted(self.accumulated_episode_lengths, end_idx, side='right')
+            if start_episode_idx == end_episode_idx:
+                # only one zarr file
+                start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
+                end_idx = end_idx - self.accumulated_episode_lengths[start_episode_idx]
+                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, end_idx)
+            else:
+                # two zarr files
+                start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
+                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, None)
+        return ret_data
+    
+    def get_data_single_zarr_per_step(self, zarr_path, start_idx, end_idx):
+        ret_data = defaultdict(list)
+        all_steps = len(os.listdir(zarr_path))
+
+        start_idx = start_idx + all_steps if start_idx < 0 else start_idx        
+        if end_idx is None:
+            end_idx = all_steps
+        else:
+            end_idx = end_idx + all_steps if end_idx < 0 else end_idx
+        
+        for step_idx in range(start_idx, end_idx):
+            step_path = os.path.join(zarr_path, str(step_idx))
+            group = zarr.open(step_path, 'r')
+            src_store = group.store
+
+            # numpy backend
+            src_root = zarr.group(src_store)
+            for key in self.keys_:
+                ret_data[key].append(src_root['data'][key][:])
+        
+        for key in self.keys_:
+            ret_data[key] = np.concatenate(ret_data[key], axis=0)
+                
+        return ret_data
+    
+    def get_data_single_zarr(self, zarr_path, start_idx, end_idx):
+        """
+        get data from a single zarr file
+        """
+        group = zarr.open(zarr_path, 'r')
+        src_store = group.store
+
+        # numpy backend
+        src_root = zarr.group(src_store)
+        ret_data = dict()
+        for key in self.keys_:
+            if end_idx is None:
+                ret_data[key] = src_root['data'][key][:][start_idx:]
+            elif start_idx is None:
+                ret_data[key] = src_root['data'][key][:][:end_idx]
+            else:
+                ret_data[key] = src_root['data'][key][:][start_idx:end_idx]
+        return ret_data
+    
+    ## SOME APIs
+    @property
+    def episode_lengths(self):
+        return self.episode_lengths
+    
+    @property
+    def episode_ends(self):
+        return self.accumulated_episode_lengths
+    
+    def keys(self):
+        return self.keys_
+    
+    def __contains__(self, key):
+        return key in self.keys_
+    
+    @property
+    def n_steps(self):
+        if len(self.episode_ends) == 0:
+            return 0
+        return self.episode_ends[-1]
+    
+    @property
+    def n_episodes(self):
+        return len(self.episode_ends)
+    
