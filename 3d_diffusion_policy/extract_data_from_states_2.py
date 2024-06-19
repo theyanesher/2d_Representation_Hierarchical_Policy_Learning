@@ -94,7 +94,6 @@ def get_all_expert_angles(all_experiments, solution_path):
     
     # plt.plot(ratios)
     # plt.show()
-    import pdb; pdb.set_trace()
     return ratios
 
 def extract_pc_states_for_all_trajectories(task_config_path, solution_path, object_name, exp_name=None, 
@@ -248,8 +247,8 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                         
                         # only object is the opposite to add_distractors
                         only_object = not add_distractors
-                        # observation = simulator._get_observation(only_object=only_object)  
-                        observation = simulator._get_diffuser_actor_observation()          
+                        observation = simulator._get_observation(only_object=only_object)  
+                        # observation = simulator._get_diffuser_actor_observation()          
                         rgb = simulator._env.render()
                         point_cloud = observation['point_cloud'].tolist()
                         traj_pos_ori = observation['agent_pos'].tolist()

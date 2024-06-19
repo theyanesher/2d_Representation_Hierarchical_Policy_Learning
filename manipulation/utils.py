@@ -650,6 +650,32 @@ def get_pc(proj_matrix, view_matrix, depth, width, height, mask_infinite=False):
 
     return points
 
+def get_pixel_location(proj_matrix, view_matrix, point_3d, width, height):
+    # Ensure matrices are in the correct shape
+    proj_matrix = np.asarray(proj_matrix).reshape([4, 4], order="F")
+    view_matrix = np.asarray(view_matrix).reshape([4, 4], order="F")
+    
+    # Combine the projection and view matrices
+    tran_world_pix = np.matmul(proj_matrix, view_matrix)
+
+    # Add homogeneous coordinate to the 3D point
+    point_3d_h = np.append(point_3d, 1.0)
+    
+    # Transform the 3D point to pixel coordinates
+    pixel_h = np.matmul(tran_world_pix, point_3d_h)
+    
+    # Normalize by the homogeneous coordinate
+    pixel_h /= pixel_h[3]
+    
+    # Convert from normalized device coordinates to pixel coordinates
+    x_ndc, y_ndc, z_ndc = pixel_h[:3]
+    
+    # Transform normalized device coordinates to image coordinates
+    x_img = (x_ndc * 0.5 + 0.5) * width
+    y_img = (1.0 - (y_ndc * 0.5 + 0.5)) * height  # Note: y-axis is inverted
+    
+    return int(x_img), int(y_img), z_ndc
+
 def get_pc_in_camera_frame(proj_matrix, view_matrix, depth, width, height, mask_infinite=False):
     proj_matrix = np.asarray(proj_matrix).reshape([4, 4], order="F")
     view_matrix = np.asarray(view_matrix).reshape([4, 4], order="F")

@@ -501,13 +501,28 @@ class TrainDP3Workspace:
             exclude_keys = tuple()
         if include_keys is None:
             include_keys = payload['pickles'].keys()
-
+        
+        self.gpu_id = int(os.environ["LOCAL_RANK"])
+        device = torch.device(self.gpu_id)
+        
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
-                self.__dict__[key].load_state_dict(value, **kwargs)
+                print(f"loading {key}")
+                if key == 'model':
+                    self.model: DP3 = hydra.utils.instantiate(self.cfg.policy)
+                    self.model.load_state_dict(value, **kwargs)
+                    self.model.to(device)
+                else:
+                    self.__dict__[key].load_state_dict(value, **kwargs)
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
+    
+
+        # self.model = DDP(self.model, device_ids=[self.gpu_id], find_unused_parameters=True)
+        # self.model.to(device)
+        # optimizer_to(self.optimizer, device)
+        # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
             exclude_keys=None, 

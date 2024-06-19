@@ -76,6 +76,7 @@ policy:
     in_channels: 5
     num_gripper_points: 4
     goal_mode: null
+    mode: null
 
 
 ema:

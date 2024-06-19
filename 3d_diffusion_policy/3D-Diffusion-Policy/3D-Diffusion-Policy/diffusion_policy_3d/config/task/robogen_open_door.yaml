@@ -54,3 +54,4 @@ dataset:
   enumerate: false
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
+  num_load_episodes: 10

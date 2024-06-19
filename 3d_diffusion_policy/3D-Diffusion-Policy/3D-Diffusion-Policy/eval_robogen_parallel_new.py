@@ -168,6 +168,8 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             #     all_demo_path = [x.lstrip().rstrip().split("/")[-1] for x in all_demo_path]
             # all_experiments = all_demo_path
             # demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
+            # if '/scratch' in demo_experiment_path:
+            #     demo_experiment_path = demo_experiment_path.replace("/scratch/yufei", "/project_data/held/yufeiw2/RoboGen_sim2real/data")
             all_subfolder = os.listdir(demo_experiment_path)
             for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
                 if string in all_subfolder:
@@ -332,7 +334,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             
 def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
     
-    cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
+    # cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
     # cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
     # cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
@@ -437,7 +439,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                     task_name,
                     init_state_file,
                     # render=False, 
-                    render=True, 
+                    render=False, 
                     randomize=False,
                     obj_id=0,
                     horizon=600,
@@ -512,7 +514,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
         
 if __name__ == "__main__":
     
-    num_worker = 50
+    num_worker = 30
     pool = Pool(processes=num_worker)
     # checkpoint_name = "epoch-0600-1.028.ckpt"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-41510-horizon-8-train-ratio-0.22/2024.06.09/23.55.13_train_dp3_robogen_open_door"
@@ -542,14 +544,20 @@ if __name__ == "__main__":
     checkpoint_name = "epoch-600-test_mean_score=0.778.ckpt"
     exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0528-act3d-train-ratio-1.0/2024.05.31/22.21.00_train_dp3_robogen_open_door"
     
+    checkpoint_name = "epoch-400.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal/2024.06.17/22.05.56_train_dp3_robogen_open_door"
+    checkpoint_name = "epoch-400-test_mean_score-0.607.ckpt"
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0615-act3d-45448-long-horizon-8-train-ratio-0.2/2024.06.15/12.40.50_train_dp3_robogen_open_door"
+    
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
         )
     cfg = recomposed_config
-    cfg.task.env_runner.experiment_name = ["eval_45410"]
-    cfg.task.env_runner.demo_experiment_path = [None]
+    # cfg.task.env_runner.experiment_name = ["eval_45410"]
+    cfg.task.env_runner.demo_experiment_path = ["/scratch/yufei/dp3_demo/0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step"]
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -568,12 +576,12 @@ if __name__ == "__main__":
     if not os.path.exists(save_path):
         os.makedirs(save_path)
         
-    exp_beg_ratio = 0
+    exp_beg_ratio = 0.9
     exp_end_ratio = 1
         
-    run_eval_non_parallel(cfg, policy, num_worker, save_path, 
+    run_eval(cfg, policy, num_worker, save_path, 
              pool=pool, 
-             horizon=70,
+             horizon=35,
              exp_beg_ratio=exp_beg_ratio,
              exp_end_ratio=exp_end_ratio,
     )

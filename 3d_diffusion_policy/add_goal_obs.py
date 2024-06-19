@@ -120,8 +120,11 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
     # return filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions
     return np.array(filtered_pcs), np.array(filtered_pos_oris), np.array(filtered_feature_maps), np.array(filtered_gripper_pcds), np.array(filtered_pcd_masks), np.array(traj_actions)
 
-new_zarr_path = "data/dp3_demo/0527-act3d-always-close-with-goal"
-zarr_path = "data/dp3_demo/0527-act3d-always-close"
+# new_zarr_path = "data/dp3_demo/0527-act3d-always-close-with-goal"
+# zarr_path = "data/dp3_demo/0527-act3d-always-close"
+
+new_zarr_path = "data/dp3_demo/0617-act3d-obj-41510-remove-reaching-collision-resize-2-goal"
+zarr_path = "data/dp3_demo/0607-act3d-obj-41510-remove-reaching-collision-resize-2"
 demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 all_subfolder = os.listdir(zarr_path)
 for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
@@ -130,7 +133,7 @@ for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json"
 all_subfolder = sorted(all_subfolder)
 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
 path_list = zarr_paths
-path_list = path_list[:5]
+path_list = path_list
 
 per_episode_root = []
 keys = ['state', 'action', 'point_cloud']
@@ -162,12 +165,21 @@ for zarr_path in tqdm(path_list, desc='Processing'):
         arr = src_root['data'][key]
         data[key] = arr[:]
     
-    open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
+    # open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
+    open_begin_t_idx = stage_lengths['reach_handle'] // 2 + (stage_lengths["reach_to_contact"] - 2) // 2 + stage_lengths["close_gripper"] // 2
     goal_gripper_pcd_1 = data['gripper_pcd'][open_begin_t_idx]
     goal_gripper_pcd_2 = data['gripper_pcd'][-1] # NOTE: ideally this should be the last gripper pcd that is in contact with the handle
     goal_gripper_pcd = np.zeros((len(data['gripper_pcd']), 4, 3)).astype(data['gripper_pcd'].dtype)
     goal_gripper_pcd[:open_begin_t_idx] = goal_gripper_pcd_1
     goal_gripper_pcd[open_begin_t_idx:] = goal_gripper_pcd_2
+    
+    # from matplotlib import pyplot as plt
+    # ax = plt.axes(projection='3d')
+    # object_pcd = data['point_cloud'][-1]
+    # goal_pcd = goal_gripper_pcd[-1]
+    # ax.scatter3D(object_pcd[:, 0], object_pcd[:, 1], object_pcd[:, 2], c="red")
+    # ax.scatter3D(goal_pcd[:, 0], goal_pcd[:, 1], goal_pcd[:, 2], c="green")
+    # plt.show()
 
     # save new data
     new_data_save_dir = os.path.join(new_zarr_path, exp_name)

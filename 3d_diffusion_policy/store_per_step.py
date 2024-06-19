@@ -8,7 +8,7 @@ from manipulation.utils import rotation_transfer_6D_to_matrix, rotation_transfer
 from scipy.spatial.transform import Rotation as R
 from termcolor import cprint
 
-def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, save_dir):
+def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, goal_gripper_pcd, save_dir):
 
     state_arrays = np.array(state_list)
     point_cloud_arrays = np.array(pc_list)
@@ -24,6 +24,8 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_
     feature_map_chunk_size = (chunk_size, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3], feature_map_arrays.shape[4]) # there can be mutiple cameras
     gripper_pcd_chunk_size = (chunk_size, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
     pcd_mask_chunk_size = (chunk_size, pcd_mask_list.shape[1])
+    if goal_gripper_pcd is not None:
+        goal_gripper_pcd_chunk_size = (chunk_size, goal_gripper_pcd.shape[1], goal_gripper_pcd.shape[2])
     
     compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)
     
@@ -42,9 +44,13 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_
         zarr_data.create_dataset('feature_map', data=feature_map_arrays[t_idx][None, :], chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
         zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays[t_idx][None, :], chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
         zarr_data.create_dataset('pcd_mask', data=pcd_mask_list[t_idx][None, :], chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
+        if goal_gripper_pcd is not None:
+            zarr_data.create_dataset('goal_gripper_pcd', data=goal_gripper_pcd[t_idx][None, :], chunks=goal_gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
 
     del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays
     del zarr_root, zarr_data, zarr_meta
+    if goal_gripper_pcd is not None:
+        del goal_gripper_pcd
     
 def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, traj_pos_ori, traj_stage_length=None, 
                 min_translation=0.002, min_rotation=0.005, min_finger_angle_diff=0.0008):
@@ -125,13 +131,14 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
 new_zarr_path = "data/dp3_demo/0616-act3d-obj-41510-remove-reaching-collision-resize-2-per-step"
 zarr_path = "data/dp3_demo/0607-act3d-obj-41510-remove-reaching-collision-resize-2"
 
-new_zarr_path = "data/dp3_demo/0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step"
+# new_zarr_path = "data/dp3_demo/0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step"
+new_zarr_path = "/scratch/yufei/dp3_demo/0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal"
 zarr_path = "data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"
+demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
-new_zarr_path = "data/dp3_demo/0616-act3d-obj-46462-remove-reaching-collision-resize-2-per-step"
-zarr_path = "data/dp3_demo/0607-act3d-obj-46462-remove-reaching-collision-resize-2"
+# new_zarr_path = "data/dp3_demo/0616-act3d-obj-46462-remove-reaching-collision-resize-2-per-step"
+# zarr_path = "data/dp3_demo/0607-act3d-obj-46462-remove-reaching-collision-resize-2"
 
-# demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 all_subfolder = os.listdir(zarr_path)
 for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
     if string in all_subfolder:
@@ -139,18 +146,20 @@ for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json"
         
 all_subfolder = sorted(all_subfolder)
 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
-path_list = zarr_paths
+path_list = zarr_paths[:5]
 
 per_episode_root = []
 keys = ['state', 'action', 'point_cloud']
 keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
-            
+
+add_gripper_goal_obs = True
+
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]
-    # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_door_handle_primitive", 'stage_lengths.json')
-    # # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_drawer_primitive", 'stage_lengths.json')
-    # with open(stage_lengths_json_file, 'r') as f:
-    #     stage_lengths = json.load(f)
+    stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_door_handle_primitive", 'stage_lengths.json')
+    # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_drawer_primitive", 'stage_lengths.json')
+    with open(stage_lengths_json_file, 'r') as f:
+        stage_lengths = json.load(f)
     
     group = zarr.open(zarr_path, 'r')
     src_store = group.store
@@ -171,8 +180,18 @@ for zarr_path in tqdm(path_list, desc='Processing'):
     for key in keys:
         arr = src_root['data'][key]
         data[key] = arr[:]
+        
+    if add_gripper_goal_obs:
+        open_begin_t_idx = stage_lengths['reach_handle'] // 2 + (stage_lengths["reach_to_contact"] - 2) // 2 + stage_lengths["close_gripper"] // 2
+        goal_gripper_pcd_1 = data['gripper_pcd'][open_begin_t_idx]
+        goal_gripper_pcd_2 = data['gripper_pcd'][-1] # NOTE: ideally this should be the last gripper pcd that is in contact with the handle
+        goal_gripper_pcd = np.zeros((len(data['gripper_pcd']), 4, 3)).astype(data['gripper_pcd'].dtype)
+        goal_gripper_pcd[:open_begin_t_idx] = goal_gripper_pcd_1
+        goal_gripper_pcd[open_begin_t_idx:] = goal_gripper_pcd_2
+    else:
+        goal_gripper_pcd = None
     
     # save new data
     new_data_save_dir = os.path.join(new_zarr_path, exp_name)
     print("Saving new data to: ", new_data_save_dir)
-    save_data(data['point_cloud'], data['state'], data['feature_map'], data['gripper_pcd'], data['pcd_mask'], data['action'], new_data_save_dir)
+    save_data(data['point_cloud'], data['state'], data['feature_map'], data['gripper_pcd'], data['pcd_mask'], data['action'], goal_gripper_pcd, new_data_save_dir)

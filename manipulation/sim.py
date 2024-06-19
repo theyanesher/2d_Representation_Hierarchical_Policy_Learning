@@ -1298,15 +1298,13 @@ class SimpleEnv(gym.Env):
             points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
             points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
             if len(points_left_finger) > 0 and len(points_right_finger) > 0:
-                all_points = points_left_finger + points_right_finger
-                contact_points = np.array([point[6] for point in all_points])
-                distance = scipy.spatial.distance.cdist(handle_points, contact_points)
-                min_distance = np.min(distance)
-                # cprint("min_distance: {}".format(min_distance), "red")
-                # cprint("distance_left: {}".format(np.min(distance_left)), "red")
-                # cprint("distance_right: {}".format(np.min(distance_right)), "red")
-                # if np.min(distance_left) < 0.03 and np.min(distance_right) < 0.03:
-                if min_distance < 0.005:
+                contact_points_left = np.array([point[6] for point in points_left_finger])
+                contact_points_right = np.array([point[6] for point in points_right_finger])
+                left_distance = scipy.spatial.distance.cdist(handle_points, contact_points_left)
+                right_distance = scipy.spatial.distance.cdist(handle_points, contact_points_right)
+                min_distance_left = np.min(left_distance)
+                min_distance_right = np.min(right_distance)
+                if min_distance_left < 0.01 and min_distance_right < 0.01:
                     grasped_handle = True
                     self.grasped_handle = self.grasped_handle or grasped_handle
         

@@ -51,9 +51,10 @@ class RoboGenRunner(BaseRunner):
         save_path = os.path.join(self.save_video_dir, f'epoch_{epoch}_trainset')
         if not os.path.exists(save_path):
             os.makedirs(save_path, exist_ok=True)
-        exp_beg_ratio = 0
-        exp_end_ratio = 0.2 # cfg.task.dataset.train_ratio
-        run_eval(cfg, policy, num_worker, save_path, pool=self.pool, horizon=self.max_steps, exp_beg_ratio=exp_beg_ratio, exp_end_ratio=exp_end_ratio)
+        exp_beg_idx = 0
+        exp_end_idx = cfg.task.dataset.num_load_episodes # cfg.task.dataset.train_ratio
+        # run_eval(cfg, policy, num_worker, save_path, pool=self.pool, horizon=self.max_steps, exp_beg_ratio=exp_beg_ratio, exp_end_ratio=exp_end_ratio)
+        run_eval(cfg, policy, num_worker, save_path, pool=self.pool, horizon=self.max_steps, exp_beg_idx=exp_beg_idx, exp_end_idx=exp_end_idx)
         with open("{}/opened_joint_angles.json".format(save_path), "r") as f:
             result = json.load(f)
         train_all_success_rates = []

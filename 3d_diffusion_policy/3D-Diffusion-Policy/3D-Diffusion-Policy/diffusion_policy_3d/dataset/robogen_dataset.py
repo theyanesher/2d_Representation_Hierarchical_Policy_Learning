@@ -30,7 +30,7 @@ class RobogenDataset(BaseDataset):
         self.observation_mode = observation_mode
         
         keys = ['state', 'action', 'point_cloud']
-        if 'act3d' == observation_mode:
+        if 'act3d' in observation_mode:
             keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
             if 'goal' in observation_mode:
                 keys += ['goal_gripper_pcd']
@@ -73,7 +73,9 @@ class RobogenDataset(BaseDataset):
                         all_subfolder.remove(string)
                 all_subfolder = sorted(all_subfolder)
                 n_episodes = len(all_subfolder)
-                all_subfolder = all_subfolder[:int(n_episodes * train_ratio)]
+                num_load_episodes = kwargs.get('num_load_episodes', n_episodes)
+                num_load_episodes = min(num_load_episodes, n_episodes)
+                all_subfolder = all_subfolder[:num_load_episodes]
                 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
                 all_paths += zarr_paths
             
@@ -87,7 +89,8 @@ class RobogenDataset(BaseDataset):
             
             self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
-            train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
+            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
             
         
         if not self.kept_in_disk:
@@ -202,7 +205,7 @@ class RobogenDataset(BaseDataset):
             'action': sample['action'].astype(np.float32) # T, D_action
         }
 
-        if 'act3d' == self.observation_mode:
+        if 'act3d' in self.observation_mode:
             gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
             feature_map = sample['feature_map'][:,].astype(np.float32)
             pcd_mask = sample['pcd_mask'][:,].astype(np.uint8)

@@ -2,7 +2,7 @@ import wandb
 import numpy as np
 import torch
 import tqdm 
-from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D
+from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location
 from manipulation.gpt_reward_api import get_handle_pos
 from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
@@ -20,6 +20,7 @@ import fpsample
 import os
 import json
 import pickle
+import cv2
 
 class RobogenPointCloudWrapper:
     def __init__(self, 
@@ -85,6 +86,7 @@ class RobogenPointCloudWrapper:
         })
         if 'goal' in observation_mode:
             self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+
 
         for name in self._env.urdf_ids: # randomly center at an object
             if name in ['robot', 'plane', 'init_table']: continue
@@ -155,6 +157,8 @@ class RobogenPointCloudWrapper:
             self.final_goal = final_eef_pc
             
             self.grasped_handle = False
+            
+            self.goal_gripper_pcd = None
 
         self.only_object = only_object
 
@@ -357,10 +361,18 @@ class RobogenPointCloudWrapper:
                         object_mask[object_mask_indices] = 1
                         object_mask = object_mask.reshape(self.camera_height, self.camera_width)
                         
-
-                    feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
-                    assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
-                    feature_maps.append(feature_map)
+                    if "displacement_to_handle" in self.observation_mode:
+                        info = self._env._get_info()
+                        handle_pos = np.array(info['handle_pos'])
+                        delta_to_handle = handle_pos.reshape(1, 3) - pc
+                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
+                        assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
+                        feature_maps.append(feature_map)
+                        
+                    else:
+                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
+                        assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
+                        feature_maps.append(feature_map)
                     
                     object_mask_indices = np.flatnonzero(object_mask.flatten())
                     pcd_mask_indices.append(object_mask_indices)
@@ -372,13 +384,16 @@ class RobogenPointCloudWrapper:
                         
                                 
                         if self._env.grasped_handle:
-                            print("goal is to open the door")
+                            # print("goal is to open the door")
                             goal_gripper_pcd = self.final_goal
                         else:
-                            print("goal is to grasp the handle")
+                            # print("goal is to grasp the handle")
                             goal_gripper_pcd = self.grasping_goal
+                        self.goal_gripper_pcd = goal_gripper_pcd
                             # for point in goal_gripper_pcd:
                                 # p.addUserDebugPoints([point], [[1, 0, 0]], 10, 0)
+                        # for position in goal_gripper_pcd[:-1]:
+                        #     add_sphere(position)
                 else:
                     pcs.append(pc)
                 
@@ -600,7 +615,22 @@ class RobogenPointCloudWrapper:
 
     
     def render(self):
-        return self._env.render()
+        if 'goal' not in self.observation_mode:
+            return self._env.render()
+        else:
+            image = self._env.render()
+            image = np.array(image)
+            # import pdb; pdb.set_trace()
+            for point in self.goal_gripper_pcd:
+                pixel_x, pixel_y, _ = get_pixel_location(self._env.projection_matrix, self._env.view_matrix, point, self._env.camera_width, self._env.camera_height)
+                color = (0, 0, 255)  # Red color in BGR
+                thickness = 2
+                radius = 5
+                image = cv2.circle(image, (pixel_x, pixel_y), radius, color, thickness)
+            return image
+
+                
+            
     
     def take_images_around_object(self, env, object_name, elevation=30, return_camera_matrices=False, camera_height=480, camera_width=640, only_object=True):
         if only_object:
