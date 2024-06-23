@@ -95,26 +95,11 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
         delta_ori_matrix = base_ori_matrix.T @ target_ori_matrix
         delta_ori_6d = rotation_transfer_matrix_to_6D(delta_ori_matrix)
         
-        # base_ori_quat =  R.from_matrix(base_ori_matrix).as_quat()
-        # target_ori_quat = R.from_matrix(target_ori_matrix).as_quat()
-        # quat_diff = np.arccos(2 * np.dot(base_ori_quat, target_ori_quat)**2 - 1)
-        
         # if single step rotation is too large, ignore this trajectory
         target_finger_angle = traj_pos_ori[i+1][9]
         delta_finger_angle = target_finger_angle - base_finger_angle
-        # change the finger action to be not changing after closing
-        opening_start_idx = traj_stage_length['reach_handle'] + traj_stage_length["reach_to_contact"] + traj_stage_length["close_gripper"]
-        closing_start_idx = traj_stage_length['reach_handle'] + traj_stage_length["reach_to_contact"]
-        
         filter_action = False
         
-        # if np.linalg.norm(delta_pos) < min_translation and np.linalg.norm(quat_diff) < min_rotation and i >= opening_start_idx:
-        #     print("Filtered out action at step: ", i)
-        #     filter_action = True
-        # if i > closing_start_idx and i < opening_start_idx and i - closing_start_idx >= 14:
-        #     print("Filtered out action at step: ", i)
-        #     filter_action = True
-
         if filter_action:
             continue
         else:
@@ -135,21 +120,12 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
             base_ori_6d = target_ori_6d
             base_finger_angle = target_finger_angle
             
-    # return filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions
     return np.array(filtered_pcs), np.array(filtered_pos_oris), np.array(filtered_feature_maps), np.array(filtered_gripper_pcds), np.array(filtered_pcd_masks), np.array(traj_actions)
 
-new_zarr_path = "data/dp3_demo/0616-act3d-obj-41510-remove-reaching-collision-resize-2-per-step"
-zarr_path = "data/dp3_demo/0607-act3d-obj-41510-remove-reaching-collision-resize-2"
-
-# store goal gripper pcd
-new_zarr_path = "/scratch/yufei/dp3_demo/0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal"
-zarr_path = "data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"
-demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
 # store goal grippre pcd and gripper distance to closest object point
-# new_zarr_path = "/scratch/yufei/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point"
-new_zarr_path = "/scratch/yufei/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point"
-zarr_path = "data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"
+new_zarr_path = "/scratch/yufei/dp3_demo/0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point"
+zarr_path = "data/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed"
 demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
 all_subfolder = os.listdir(zarr_path)
@@ -167,6 +143,7 @@ keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
 
 add_gripper_goal_obs = True
 add_gripper_distance_to_closest_point = True
+combine_action_steps = 2
 
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]
@@ -196,7 +173,7 @@ for zarr_path in tqdm(path_list, desc='Processing'):
         data[key] = arr[:]
         
     if add_gripper_goal_obs:
-        open_begin_t_idx = stage_lengths['reach_handle'] // 2 + (stage_lengths["reach_to_contact"] - 2) // 2 + stage_lengths["close_gripper"] // 2
+        open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
         goal_gripper_pcd_1 = data['gripper_pcd'][open_begin_t_idx]
         goal_gripper_pcd_2 = data['gripper_pcd'][-1] # NOTE: ideally this should be the last gripper pcd that is in contact with the handle
         goal_gripper_pcd = np.zeros((len(data['gripper_pcd']), 4, 3)).astype(data['gripper_pcd'].dtype)
@@ -204,6 +181,34 @@ for zarr_path in tqdm(path_list, desc='Processing'):
         goal_gripper_pcd[open_begin_t_idx:] = goal_gripper_pcd_2
     else:
         goal_gripper_pcd = None
+        
+    if combine_action_steps > 1:
+        filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions = \
+            filter_traj(data['feature_map'][::combine_action_steps], 
+                        data['gripper_pcd'][::combine_action_steps], 
+                        data['point_cloud'][::combine_action_steps], 
+                        data['pcd_mask'][::combine_action_steps], 
+                        data['state'][::combine_action_steps], 
+                        stage_lengths)
+        
+        data['feature_map'] = filtered_feature_maps
+        data['gripper_pcd'] = filtered_gripper_pcds
+        data['point_cloud'] = filtered_pcs
+        data['pcd_mask'] = filtered_pcd_masks
+        data['state'] = filtered_pos_oris
+        data['action'] = traj_actions
+        if goal_gripper_pcd is not None:
+            goal_gripper_pcd = goal_gripper_pcd[::combine_action_steps]
+        
+        new_after_contact_idx = stage_lengths['reach_handle'] // combine_action_steps + stage_lengths["reach_to_contact"] // combine_action_steps
+        for i in range(len(traj_actions)):
+            # if i < new_after_contact_idx:
+            #     traj_actions[i][-1] = 0.006
+            if i >= new_after_contact_idx:
+                traj_actions[i][-1] = -0.006
+        
+        
+    
         
     if add_gripper_distance_to_closest_point:
         # compute the distance between the gripper and the closest point on the object

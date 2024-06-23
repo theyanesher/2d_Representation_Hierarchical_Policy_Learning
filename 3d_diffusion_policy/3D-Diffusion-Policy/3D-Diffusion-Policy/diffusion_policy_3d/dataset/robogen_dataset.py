@@ -34,6 +34,8 @@ class RobogenDataset(BaseDataset):
             keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
             if 'goal' in observation_mode:
                 keys += ['goal_gripper_pcd']
+            if 'displacement_gripper_to_object' in observation_mode:
+                keys += ['displacement_gripper_to_object']
         elif 'act3d_pointnet' == observation_mode:
             keys += ['gripper_pcd']
         
@@ -214,6 +216,8 @@ class RobogenDataset(BaseDataset):
             data['obs']['pcd_mask'] = pcd_mask
             if 'goal' in self.observation_mode:
                 data['obs']['goal_gripper_pcd'] = sample['goal_gripper_pcd'][:,].astype(np.float32)
+            if 'displacement_gripper_to_object' in self.observation_mode:
+                data['obs']['displacement_gripper_to_object'] = sample['displacement_gripper_to_object'][:,].astype(np.float32)
         elif 'act3d_pointnet' == self.observation_mode:
             gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
             data['obs']['gripper_pcd'] = gripper_pcd

@@ -21,6 +21,7 @@ import os
 import json
 import pickle
 import cv2
+import scipy
 
 class RobogenPointCloudWrapper:
     def __init__(self, 
@@ -82,10 +83,11 @@ class RobogenPointCloudWrapper:
             'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            # "goal_gripper_pcd": spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
         if 'goal' in observation_mode:
             self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        if 'displacement_gripper_to_object' in observation_mode:
+            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
 
         for name in self._env.urdf_ids: # randomly center at an object
@@ -361,9 +363,11 @@ class RobogenPointCloudWrapper:
                         object_mask[object_mask_indices] = 1
                         object_mask = object_mask.reshape(self.camera_height, self.camera_width)
                         
+
                     if "displacement_to_handle" in self.observation_mode:
                         info = self._env._get_info()
                         handle_pos = np.array(info['handle_pos'])
+                        # delta_to_handle = pc - handle_pos.reshape(1, 3)
                         delta_to_handle = handle_pos.reshape(1, 3) - pc
                         feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
                         assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
@@ -390,10 +394,7 @@ class RobogenPointCloudWrapper:
                             # print("goal is to grasp the handle")
                             goal_gripper_pcd = self.grasping_goal
                         self.goal_gripper_pcd = goal_gripper_pcd
-                            # for point in goal_gripper_pcd:
-                                # p.addUserDebugPoints([point], [[1, 0, 0]], 10, 0)
-                        # for position in goal_gripper_pcd[:-1]:
-                        #     add_sphere(position)
+                    
                 else:
                     pcs.append(pc)
                 
@@ -536,6 +537,15 @@ class RobogenPointCloudWrapper:
                 if 'goal' in self.observation_mode:
                     # print("store goal as part of the observation")
                     obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
+                    
+                if 'displacement_gripper_to_object' in self.observation_mode:
+                    gripper_pcd = obs_dict_input['gripper_pcd']
+                    object_pcd = obs_dict_input['point_cloud']
+                    distance = scipy.spatial.distance.cdist(gripper_pcd, object_pcd)
+                    min_distance_obj_idx = np.argmin(distance, axis=1)
+                    closest_point = object_pcd[min_distance_obj_idx]
+                    displacement = closest_point - gripper_pcd
+                    obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
             else:
                 obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
                 obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)

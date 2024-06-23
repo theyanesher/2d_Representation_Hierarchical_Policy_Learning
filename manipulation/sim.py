@@ -974,7 +974,7 @@ class SimpleEnv(gym.Env):
                 min_joint_distance = distance_to_cur_angle[min_idx]
                 best_joint_angles = all_possible_solutions[min_idx]
                 agent_joint_angles = best_joint_angles
-                ik_success = min_joint_distance < 0.2
+                ik_success = min_joint_distance < 0.3
             else:
                 ik_success = False
 
@@ -1018,6 +1018,8 @@ class SimpleEnv(gym.Env):
                     
                 
                 end = time.time()
+            else:
+                cprint("IK failed, not doing anything", "red")
             # cprint("control time: {}".format(end - beg), "red")
     
     def take_joint_action(self, action):
@@ -1290,6 +1292,7 @@ class SimpleEnv(gym.Env):
         handle_points = self.all_handle_points
         num_handle_points_within_gripper = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_points)
         # cprint("num_handle_points_within_gripper: {}".format(num_handle_points_within_gripper), "red")
+        distance_eef_to_handle = np.linalg.norm(self.handle_pos.flatten() - cur_eef_pos.flatten())
         if num_handle_points_within_gripper > 0:
             # left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
             # right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
@@ -1304,7 +1307,8 @@ class SimpleEnv(gym.Env):
                 right_distance = scipy.spatial.distance.cdist(handle_points, contact_points_right)
                 min_distance_left = np.min(left_distance)
                 min_distance_right = np.min(right_distance)
-                if min_distance_left < 0.01 and min_distance_right < 0.01:
+                # if min_distance_left < 0.015 and min_distance_right < 0.015:
+                if min_distance_left < 0.01 or min_distance_right < 0.01:
                     grasped_handle = True
                     self.grasped_handle = self.grasped_handle or grasped_handle
         
