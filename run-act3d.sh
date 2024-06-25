@@ -1,4 +1,4 @@
-# python manipulation/old_test_opening_primitve.py
+# python manipulation/gen_demo/gen_demo.py
 
 demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 # save_data_name=0527-act3d-always-close
@@ -67,7 +67,7 @@ exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_Stora
 horizon=8
 n_obs_steps=2
 train_ratio=1
-num_load_episodes=30
+num_load_episodes=10
 # exp_name="0528-act3d-train-ratio-${train_ratio}"
 # exp_name="0602-act3d-obj-45448-train-ratio-${train_ratio}"
 # exp_name="0604-act3d-obj-46462-train-ratio-${train_ratio}-filtered"
@@ -77,6 +77,7 @@ num_load_episodes=30
 # exp_name="0609-act3d-obj-45448-horizon-${horizon}-train-ratio-${train_ratio}"
 # exp_name="0612-act3d-3-obj-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
 exp_name="0618-act3d-goal-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
+exp_name="test-robo-cluster-singularity"
 
 action_dim=10
 agent_pos_dim=10

@@ -21,8 +21,10 @@ opened_threshold=0.4
 # task_end_idx=5
 # opened_threshold=2.6
 
-observation_mode=act3d
+# observation_mode=act3d
 # observation_mode=act3d_goal
+observation_mode=act3d_displacement_gripper_to_object
+# observation_mode=act3d_goal_displacement_gripper_to_object
 pointcloud_num=4500
 
 # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
@@ -47,7 +49,10 @@ save_data_name_0=0616-act3d-obj-41510-remove-reaching-collision-resize-2-per-ste
 
 # save_data_name_1=0531-act3d-obj-45448
 # save_data_name_1=0607-act3d-obj-45448-remove-reaching-collision-resize-2-full
-save_data_name_1=0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step
+# save_data_name_1=0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step
+# save_data_name_1=0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal
+# save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
+save_data_name_1=0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point
 
 # save_data_name_2=0531-act3d-obj-46462
 # save_data_name_2=0607-act3d-obj-46462-remove-reaching-collision-resize-2
@@ -65,19 +70,15 @@ exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_Stora
 horizon=8
 n_obs_steps=2
 train_ratio=0.9
-num_load_episodes=120
-# exp_name="0528-act3d-train-ratio-${train_ratio}"
-# exp_name="0602-act3d-obj-45448-train-ratio-${train_ratio}"
-# exp_name="0604-act3d-obj-46462-train-ratio-${train_ratio}-filtered"
-# exp_name="0603-act3d-3-obj-train-ratio-${train_ratio}"
-# exp_name="0606-act3d-3-obj-train-ratio-${train_ratio}"
-# exp_name="0608-act3d-obj-41510-goal-train-ratio-${train_ratio}"
-# exp_name="0609-act3d-obj-45448-horizon-${horizon}-train-ratio-${train_ratio}"
-# exp_name="0612-act3d-3-obj-horizon-${horizon}-train-ratio-${train_ratio}"
-# exp_name="debug-ddp-load-from-disk"
-# exp_name="0616-ddp-3-obj-horizon-${horizon}-train-ratio-${train_ratio}"
-exp_name="0616-per-step-load-ddp-3-obj-horizon-${horizon}-train-episodes-${num_load_episodes}"
-# exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}"
+num_load_episodes=260
+
+# exp_name="0616-per-step-load-ddp-3-obj-horizon-${horizon}-train-episodes-${num_load_episodes}"
+exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal"
+exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}"
+exp_name="0622-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal-with-gripper-displacement-to-closest-obj-point"
+# exp_name="0622-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point"
+exp_name="0623-smoothed-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal-with-gripper-displacement-to-closest-obj-point"
+exp_name="0623-smoothed-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point"
 
 action_dim=10
 agent_pos_dim=10
@@ -85,10 +86,10 @@ pc_channel=3
 
 torchrun --standalone --nproc_per_node=4 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_0}, /scratch/yufei/dp3_demo/${save_data_name_1}, /scratch/yufei/dp3_demo/${save_data_name_2}]" \
-    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_0}, /scratch/yufei/dp3_demo/${save_data_name_1}, /scratch/yufei/dp3_demo/${save_data_name_2}]" \
-    task.env_runner.experiment_name="[${demo_name_0}, ${demo_name_1}, ${demo_name_2}]" \
-    task.env_runner.experiment_folder="[${exp_folder_0}, ${exp_folder_1}, ${exp_folder_2}]" \
+    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
+    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
+    task.env_runner.experiment_name="[${demo_name_1}]" \
+    task.env_runner.experiment_folder="[${exp_folder_1}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
     task.env_runner.use_joint_angle="${use_joint_angle}" \
     task.env_runner.use_segmask="${use_segmask}" \
@@ -110,9 +111,11 @@ torchrun --standalone --nproc_per_node=4 \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    load_checkpoint_path=/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0616-per-step-load-ddp-3-obj-horizon-8-train-episodes-120/2024.06.16/23.29.57_train_dp3_robogen_open_door/checkpoints/epoch-225.ckpt
-
+    dataloader.batch_size=30 \
+    val_dataloader.batch_size=30 \
+    policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
+    # policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \
 
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug

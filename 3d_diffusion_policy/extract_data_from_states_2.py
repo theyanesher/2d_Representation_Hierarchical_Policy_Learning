@@ -239,11 +239,17 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                     pcd_mask_list = []
                     door_joint_angles = []
 
-                    for state in tqdm.tqdm(expert_states):
+                    reach_till_contact_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"]
+                    open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+
+                    for t_idx, state in enumerate(tqdm.tqdm(expert_states)):
                         load_env(simulator._env, load_path=state)
                         
-                        joint_angle = simulator._env._get_info()['opened_joint_angle']
+                        info = simulator._env._get_info()
+                        joint_angle = info['opened_joint_angle']
                         door_joint_angles.append(joint_angle)
+                        # if t_idx >= reach_till_contact_idx and t_idx < open_time_idx:
+                        #     cprint(f"finger distance: {finger_distance}", "yellow")
                         
                         # only object is the opposite to add_distractors
                         only_object = not add_distractors
@@ -262,7 +268,7 @@ def extract_pc_states_for_all_trajectories(task_config_path, solution_path, obje
                         feature_map_list.append(feature_map)
                         gripper_pcd_list.append(gripper_pcd)
                         pcd_mask_list.append(pcd_mask)
-                        
+                                        
                     door_joint_angles = np.array(door_joint_angles)
                     door_joint_angle_diffs = np.diff(door_joint_angles)
                     open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]

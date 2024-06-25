@@ -1000,6 +1000,10 @@ class SimpleEnv(gym.Env):
                     p.stepSimulation(physicsClientId=self.id) 
                     
                 while True:
+                    # cur_finger_joint_angles = np.array(agent.get_joint_angles(agent.right_gripper_indices))
+                    # if np.linalg.norm(cur_finger_joint_angles - np.array([finger_joint_angle, finger_joint_angle])) > 1e-3:
+                    #     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)  
+
                     agent.control(agent.controllable_joint_indices, agent_joint_angles)
                     cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
                     if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 1e-4:
@@ -1312,6 +1316,10 @@ class SimpleEnv(gym.Env):
                     grasped_handle = True
                     self.grasped_handle = self.grasped_handle or grasped_handle
         
+        right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+        left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+        finger_distance = np.linalg.norm(right_finger_pos - left_finger_pos)
+        
         return {
             "opened_joint_angle": opened_joint_angle,
             "improved_joint_angle": opened_joint_angle - self.init_joint_angle,
@@ -1319,6 +1327,7 @@ class SimpleEnv(gym.Env):
             "initial_joint_angle": self.init_joint_angle,
             "ik_failure": self.ik_failure,
             "grasped_handle": self.grasped_handle,
+            "finger_distance": finger_distance, 
         }
 
     def _get_obs(self):

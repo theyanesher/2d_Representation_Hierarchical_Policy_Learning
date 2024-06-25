@@ -388,8 +388,8 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                     expert_opened_angle = float(angles[0].lstrip().rstrip())
                     max_angle = float(angles[-1].lstrip().rstrip())
                     ratio = expert_opened_angle / max_angle
-                if ratio < 0.65:
-                    continue
+                # if ratio < 0.65:
+                #     continue
             expert_opened_angles.append(expert_opened_angle)
             
             first_stage_states_path = os.path.join(first_step_folder, "states")
@@ -422,6 +422,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
         config_files = config_files[exp_beg_idx:exp_end_idx]
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
         expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
+        # import pdb; pdb.set_trace()
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
                 
             with open(config_file, 'r') as f:
@@ -544,11 +545,25 @@ if __name__ == "__main__":
     checkpoint_name = "epoch-600-test_mean_score=0.778.ckpt"
     exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0528-act3d-train-ratio-1.0/2024.05.31/22.21.00_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-400.ckpt"
+    checkpoint_name = "epoch-1200.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal/2024.06.17/22.05.56_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-400-test_mean_score-0.607.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0615-act3d-45448-long-horizon-8-train-ratio-0.2/2024.06.15/12.40.50_train_dp3_robogen_open_door"
+    
+    checkpoint_name = "epoch-200.ckpt"
+
+    ### first generalization experiments 
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal/2024.06.17/22.05.56_train_dp3_robogen_open_door"
-    checkpoint_name = "epoch-400-test_mean_score-0.607.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0615-act3d-45448-long-horizon-8-train-ratio-0.2/2024.06.15/12.40.50_train_dp3_robogen_open_door"
+
+    ### add features as distance to closest object point
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.48.13_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.51.29_train_dp3_robogen_open_door"
+    
+    ### add features as distance to closest object point, with smoothed dataset
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.32.11_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.29.09_train_dp3_robogen_open_door"
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -557,7 +572,7 @@ if __name__ == "__main__":
         )
     cfg = recomposed_config
     # cfg.task.env_runner.experiment_name = ["eval_45410"]
-    cfg.task.env_runner.demo_experiment_path = ["/scratch/yufei/dp3_demo/0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step"]
+    cfg.task.env_runner.demo_experiment_path = ["/project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"]
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -572,7 +587,8 @@ if __name__ == "__main__":
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
-    save_path = "data/debug/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
+    # save_path = "data/eval_generalization_2/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
+    save_path = "data/debug-2/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
     if not os.path.exists(save_path):
         os.makedirs(save_path)
         

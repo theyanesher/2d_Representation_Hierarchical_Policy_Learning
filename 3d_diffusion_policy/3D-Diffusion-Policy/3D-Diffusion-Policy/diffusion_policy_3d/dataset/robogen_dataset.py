@@ -67,6 +67,8 @@ class RobogenDataset(BaseDataset):
             all_zarr_paths = copy.deepcopy(zarr_path)
             
             all_paths = []
+            train_masks = []
+            val_masks = []
             for zarr_path in all_zarr_paths:
                 all_subfolder = os.listdir(zarr_path)
                 # import pdb; pdb.set_trace()
@@ -80,6 +82,11 @@ class RobogenDataset(BaseDataset):
                 all_subfolder = all_subfolder[:num_load_episodes]
                 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
                 all_paths += zarr_paths
+                folder_train_mask = np.zeros(n_episodes, dtype=bool)
+                folder_train_mask[:int(n_episodes*train_ratio)] = True
+                train_masks.append(folder_train_mask)
+                folder_val_mask = np.zeros(n_episodes, dtype=bool)
+                folder_val_mask[-int(n_episodes*val_ratio):] = True
             
             if not self.kept_in_disk:
                 from diffusion_policy_3d.common.replay_buffer import ReplayBuffer
@@ -89,11 +96,13 @@ class RobogenDataset(BaseDataset):
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step)
                 self.action_welford = self.replay_buffer.action_welford
             
-            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
-            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-            
+            # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+            # train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            # train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
+            train_mask = np.concatenate(train_masks)
+            self.val_mask = np.concatenate(val_masks)
+
         
         if not self.kept_in_disk:
             from diffusion_policy_3d.common.sampler import SequenceSampler
