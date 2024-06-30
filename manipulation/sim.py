@@ -95,6 +95,7 @@ class SimpleEnv(gym.Env):
 
         self.init_state = None
         self.handle_joint = None
+        self.grasped_handle = False
         self.seed()
         self.set_scene()
         self.setup_camera_rpy()
@@ -137,7 +138,6 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
-        self.grasped_handle = False
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -821,6 +821,7 @@ class SimpleEnv(gym.Env):
                               articulated_init_joint_angles[name]['set_joint_angle_joint_angle'], physicsClientId=self.id)
 
     def reset(self, reset_state=None, object_name='StorageFurniture', open_gripper_at_reset=False):
+        self.grasped_handle = False
         self.set_scene(reset_state)
             
         self.time_step = 0
@@ -841,7 +842,6 @@ class SimpleEnv(gym.Env):
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=friction, physicsClientId=self.id)
 
         self.ik_failure = False
-        self.grasped_handle = False
 
         return self._get_obs()
 

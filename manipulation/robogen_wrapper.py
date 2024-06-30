@@ -134,8 +134,8 @@ class RobogenPointCloudWrapper:
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
-            state_path = os.path.join(parent_path, "grasp_the_door_handle_primitive", "states") # TODO: use the real substep name. 
-            stage_lengths_json_file = os.path.join(parent_path, "grasp_the_door_handle_primitive", 'stage_lengths.json')
+            state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            stage_lengths_json_file = os.path.join(parent_path, "{}_primitive".format(task_name), 'stage_lengths.json')
             with open(stage_lengths_json_file, 'r') as f:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
@@ -165,11 +165,11 @@ class RobogenPointCloudWrapper:
         self.only_object = only_object
 
     def reset(self, **kwargs):
+        if "act3d_goal" in self.observation_mode:
+            self.grasped_handle = False
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
-        if "act3d_goal" in self.observation_mode:
-            self.grasped_handle = False
         return self._get_observation(only_object=self.only_object)
     
     def step(self, action, render=True):

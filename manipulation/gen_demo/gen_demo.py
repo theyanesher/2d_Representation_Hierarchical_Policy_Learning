@@ -97,12 +97,11 @@ reward_assets = reward_assets[beg_idx:end_idx]
 # exp_name = "0505-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
 # exp_name = "0509-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo"
 # args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
-args.exp_name = "0613-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-120-demo-0.4-0.15-translation-first"
-args.exp_name = "eval_45410"
+args.exp_name = "0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
 exp_name = args.exp_name
 try_times_min = 0
-try_times_max = 10
+try_times_max = 300
 
 for try_idx in range(try_times_min, try_times_max):
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
