@@ -170,11 +170,21 @@ args = argparse.ArgumentParser()
 args.add_argument('--zarr_path', type=str, default="data/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed")
 args.add_argument('--demo_path', type=str, default="data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first")
 args.add_argument('--new_zarr_path', type=str, default="/scratch/yufei/dp3_demo/0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point")
-args.add_argument('--add_gripper_goal_obs', type=int, default=1)
-args.add_argument('--add_gripper_distance_to_closest_point', type=int, default=1)
+args.add_argument('--add_gripper_goal_obs', type=int, default=True)
+args.add_argument('--add_gripper_distance_to_closest_point', type=int, default=True)
 args.add_argument('--combine_action_steps', type=int, default=2)
-args.add_argument('--remove_collision', type=int, default=0)
-args.add_argument('--filter_close_zero_action', type=int, default=1)
+args.add_argument('--remove_collision', type=int, default=False)
+args.add_argument('--filter_close_zero_action', type=int, default=True)
+args = args.parse_args()
+
+zarr_path = args.zarr_path
+demo_path = args.demo_path
+new_zarr_path = args.new_zarr_path
+add_gripper_goal_obs = args.add_gripper_goal_obs
+add_gripper_distance_to_closest_point = args.add_gripper_distance_to_closest_point
+combine_action_steps = args.combine_action_steps
+remove_collision = args.remove_collision
+filter_close_zero_action = args.filter_close_zero_action
 
 all_subfolder = os.listdir(zarr_path)
 for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
@@ -195,11 +205,14 @@ keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
 # remove_collision = True
 # filter_close_zero_action = True
 
+
+
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]
-    # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_door_handle_primitive", 'stage_lengths.json')
-    stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_door_primitive", 'stage_lengths.json')
-    # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_drawer_primitive", 'stage_lengths.json')
+    all_subfolder = os.listdir(os.path.join(demo_path, exp_name))
+    all_subfolder = [d for d in all_subfolder if os.path.isdir(os.path.join(demo_path, exp_name, d))]
+    d = all_subfolder[0]
+    stage_lengths_json_file = os.path.join(demo_path, exp_name, d, 'stage_lengths.json')
     with open(stage_lengths_json_file, 'r') as f:
         stage_lengths = json.load(f)
     
