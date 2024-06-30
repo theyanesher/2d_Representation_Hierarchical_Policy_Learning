@@ -334,9 +334,6 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             
 def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
     
-    # cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
-    # cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
-    # cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         # import pdb; pdb.set_trace()
     
@@ -469,12 +466,6 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
-                # parallel_input_dict['point_cloud'] = parallel_input_dict['point_cloud'].unsqueeze(0)
-                # parallel_input_dict['agent_pos'] = parallel_input_dict['agent_pos'].unsqueeze(0)
-                # parallel_input_dict['feature_map'] = parallel_input_dict['feature_map'].unsqueeze(0)
-                # parallel_input_dict['gripper_pcd'] = parallel_input_dict['gripper_pcd'].unsqueeze(0)
-                # parallel_input_dict['pcd_mask'] = parallel_input_dict['pcd_mask'].unsqueeze(0)
-                # parallel_input_dict['goal_gripper_pcd'] = parallel_input_dict['pcd_mask'].unsqueeze(0)
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                 
@@ -501,7 +492,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 "exp_idx": exp_idx, 
             }
                     
-            with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
+            with open("{}/opened_joint_angles_{}.json".format(save_path, dataset_idx), "w") as f:
                 json.dump(opened_joint_angles, f, indent=4)
             
             gif_save_exp_name = experiment_folder.split("/")[-2]
@@ -517,39 +508,6 @@ if __name__ == "__main__":
     
     num_worker = 30
     pool = Pool(processes=num_worker)
-    # checkpoint_name = "epoch-0600-1.028.ckpt"
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-41510-horizon-8-train-ratio-0.22/2024.06.09/23.55.13_train_dp3_robogen_open_door"
-    # checkpoint_name = "epoch-0400-0.107.ckpt"
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-45448-horizon-8-train-ratio-0.2/2024.06.10/00.36.05_train_dp3_robogen_open_door"
-    # checkpoint_name = "epoch-200-test_mean_score-0.804.ckpt"
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-45448-horizon-8-train-ratio-0.2/2024.06.10/00.07.00_train_dp3_robogen_open_door"
-
-    checkpoint_name = "epoch-600-test_mean_score-0.779.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-41510-train-ratio-0.22-remove-collision-and-half-horizon/2024.06.07/23.57.57_train_dp3_robogen_open_door"
-
-    checkpoint_name = "epoch-1800-test_mean_score-0.892.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45448-train-ratio-1-remove-collision-and-half-horizon/2024.06.07/14.29.51_train_dp3_robogen_open_door"
-
-    checkpoint_name = "epoch-1000-test_mean_score-0.144.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45462-train-ratio-0.2-remove-collision-and-half-horizon/2024.06.07/22.30.12_train_dp3_robogen_open_door"
-    
-    checkpoint_name = "epoch-800-test_mean_score-0.554.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0606-act3d-3-obj-train-ratio-0.2/2024.06.06/02.27.24_train_dp3_robogen_open_door"
-    
-    checkpoint_name = "epoch-250.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0612-act3d-3-obj-horizon-4-train-ratio-0.6/2024.06.16/02.16.15_train_dp3_robogen_open_door"
-    
-    checkpoint_name = "epoch-800-test_mean_score-0.598.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0608-act3d-obj-41510-goal-train-ratio-1/2024.06.09/00.56.38_train_dp3_robogen_open_door"
-    
-    checkpoint_name = "epoch-600-test_mean_score=0.778.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0528-act3d-train-ratio-1.0/2024.05.31/22.21.00_train_dp3_robogen_open_door"
-    
-    checkpoint_name = "epoch-1200.ckpt"
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal/2024.06.17/22.05.56_train_dp3_robogen_open_door"
-    # checkpoint_name = "epoch-400-test_mean_score-0.607.ckpt"
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0615-act3d-45448-long-horizon-8-train-ratio-0.2/2024.06.15/12.40.50_train_dp3_robogen_open_door"
     
     checkpoint_name = "epoch-200.ckpt"
 
@@ -559,11 +517,31 @@ if __name__ == "__main__":
 
     ### add features as distance to closest object point
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.48.13_train_dp3_robogen_open_door"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.51.29_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.51.29_train_dp3_robogen_open_door"
     
     ### add features as distance to closest object point, with smoothed dataset
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.32.11_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.29.09_train_dp3_robogen_open_door"
+    
+    ### goal conditioning, alternating attention + self attention
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
+    
+    ### no goal conditioning + self attention
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point-self-attention/2024.06.25/00.47.11_train_dp3_robogen_open_door"
+    
+    ### goal conditioning trained on 2 objects
+    checkpoint_name = 'epoch-150.ckpt'
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0625-ddp-obj-45448-46462-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.25/13.53.54_train_dp3_robogen_open_door"
+    
+    ### goal conditioning trained on 3 objects
+    checkpoint_name = 'epoch-175.ckpt'
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0627-ddp-obj-45448-46462-41510-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.27/00.42.24_train_dp3_robogen_open_door"
+    
+    ### no goal conditioning trained on 3 objects
+    ### goal conditioning trained on 3 objects
+    checkpoint_name = 'epoch-175.ckpt'
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
+    
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -571,8 +549,6 @@ if __name__ == "__main__":
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
         )
     cfg = recomposed_config
-    # cfg.task.env_runner.experiment_name = ["eval_45410"]
-    cfg.task.env_runner.demo_experiment_path = ["/project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"]
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -587,20 +563,28 @@ if __name__ == "__main__":
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
-    # save_path = "data/eval_generalization_2/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
-    save_path = "data/debug-2/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-        
-    exp_beg_ratio = 0.9
-    exp_end_ratio = 1
-        
-    run_eval(cfg, policy, num_worker, save_path, 
-             pool=pool, 
-             horizon=35,
-             exp_beg_ratio=exp_beg_ratio,
-             exp_end_ratio=exp_end_ratio,
-    )
+    
+    for run_idx in range(3):
+        save_path = "data/eval_generalization_mulitple_object_multiple_runs_non_parallel/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+            
+        exp_beg_ratio = 0.9
+        exp_end_ratio = 1
+            
+        run_eval_non_parallel(cfg, policy, num_worker, save_path, 
+                pool=pool, 
+                horizon=35,
+                exp_beg_ratio=exp_beg_ratio,
+                exp_end_ratio=exp_end_ratio,
+        )
+    
+        # run_eval(cfg, policy, num_worker, save_path, 
+        #          pool=pool, 
+        #          horizon=35,
+        #          exp_beg_ratio=exp_beg_ratio,
+        #          exp_end_ratio=exp_end_ratio,
+        # )
     
     # pr.disable()
     # s = io.StringIO()
