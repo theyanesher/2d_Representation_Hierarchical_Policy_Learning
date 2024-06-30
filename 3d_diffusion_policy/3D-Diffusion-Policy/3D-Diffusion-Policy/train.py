@@ -339,7 +339,7 @@ class TrainDP3Workspace:
                     #     self.save_snapshot()
 
                     if 'test_mean_score' in step_log:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
+                        # self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
                         # sanitize metric names
                         metric_dict = dict()
                         for key, value in step_log.items() :

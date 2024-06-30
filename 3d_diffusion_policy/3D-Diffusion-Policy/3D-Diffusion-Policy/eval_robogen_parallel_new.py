@@ -564,7 +564,9 @@ if __name__ == "__main__":
     ### add features as distance to closest object point, with smoothed dataset
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.32.11_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.29.09_train_dp3_robogen_open_door"
-    
+    checkpoint_name = "latest.ckpt"
+    exp_dir = "/home/bowenj/Desktop/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-goal-horizon-8-num_load_episodes-52/2024.06.25/21.44.14_train_dp3_robogen_open_door"
+
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
@@ -573,6 +575,7 @@ if __name__ == "__main__":
     cfg = recomposed_config
     # cfg.task.env_runner.experiment_name = ["eval_45410"]
     cfg.task.env_runner.demo_experiment_path = ["/project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"]
+    cfg.task.env_runner.demo_experiment_path = ["/home/bowenj/Desktop/RoboGen-sim2real/data/dp3_demo/0624-act3d-obj-45448-remove-reaching-collision-resize-2-full-goal_pcd_cond"]
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -598,8 +601,9 @@ if __name__ == "__main__":
     run_eval(cfg, policy, num_worker, save_path, 
              pool=pool, 
              horizon=35,
-             exp_beg_ratio=exp_beg_ratio,
-             exp_end_ratio=exp_end_ratio,
+            #  exp_beg_ratio=exp_beg_ratio,
+            #  exp_end_ratio=exp_end_ratio,
+            exp_beg_idx=0, exp_end_idx=52
     )
     
     # pr.disable()

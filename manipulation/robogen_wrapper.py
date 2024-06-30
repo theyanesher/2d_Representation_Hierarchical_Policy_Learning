@@ -80,12 +80,12 @@ class RobogenPointCloudWrapper:
         self.observation_space = spaces.Dict({
             'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
             'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            # 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            # 'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            # 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
-        if 'goal' in observation_mode:
-            self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        # if 'goal' in observation_mode:
+        #     self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         if 'displacement_gripper_to_object' in observation_mode:
             self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
@@ -111,7 +111,7 @@ class RobogenPointCloudWrapper:
             self.camera_height = 256
             self.camera_width = 256
 
-        self.view_matrices= []
+        self.view_matrices = []
         self.project_matrices = []
 
         for rpy_mean in self.rpy_mean_list:
@@ -128,9 +128,10 @@ class RobogenPointCloudWrapper:
             self.project_matrices.append(project_matrix)
             # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
+
         self.time_step = 0
         
-        if "act3d_goal" in self.observation_mode:
+        if "act3d_goal" in self.observation_mode or 'dp3_goal_gripper' in self.observation_mode:
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
@@ -394,10 +395,93 @@ class RobogenPointCloudWrapper:
                             # print("goal is to grasp the handle")
                             goal_gripper_pcd = self.grasping_goal
                         self.goal_gripper_pcd = goal_gripper_pcd
+
+                # [Chialiang]
+                elif 'dp3_goal_gripper_whole' == self.observation_mode:
+                    # add goal as part of the observation. 
+                    # needs to judge when to switch the goal -- check if the handle has been grasped.  
                     
+                            
+                    if self._env.grasped_handle:
+                        # print("goal is to open the door")
+                        goal_gripper_pcd = self.final_goal
+                    else:
+                        # print("goal is to grasp the handle")
+                        goal_gripper_pcd = self.grasping_goal
+                    self.goal_gripper_pcd = goal_gripper_pcd
+
+                    new_pcd = [pc]
+                    for goal_i in self.goal_gripper_pcd:
+                        new_pcd_i = goal_i - pc
+                        new_pcd.append(new_pcd_i)
+                    
+                    new_pcd = np.concatenate(new_pcd, axis=-1)
+                    pcs.append(new_pcd)
+
+                # [Chialiang]
+                elif 'dp3_goal_gripper_part' == self.observation_mode:
+
+                    # extract segmentation ids of the gripper part
+                    segmask_joint_id = (segmask - 1) >> 24
+                    robot_id = None
+                    for obj_name, obj_id in self._env.urdf_ids.items():
+                        if obj_name == 'robot':
+                            robot_id = obj_id
+                    assert robot_id is not None
+
+                    num_joints = p.getNumJoints(robot_id)
+                    joint_indexes = []
+                    for joint_index in range(num_joints):
+                        info = p.getJointInfo(robot_id, joint_index)
+                        if info[12].decode('utf-8') == 'panda_hand':
+                            joint_indexes.append(joint_index)
+                        if info[12].decode('utf-8') == 'panda_leftfinger':
+                            joint_indexes.append(joint_index)
+                        if info[12].decode('utf-8') == 'panda_rightfinger':
+                            joint_indexes.append(joint_index)
+                        if info[12].decode('utf-8') == 'panda_grasptarget':
+                            joint_indexes.append(joint_index)
+                    
+                    segmask_joint_id = segmask_joint_id.reshape(-1)
+                    ee_mask = np.zeros(segmask_joint_id.shape).astype(bool)
+                    for joint_index in joint_indexes:
+                        ee_mask[np.where(segmask_joint_id == joint_index)] = True
+
+                    if self._env.grasped_handle:
+                        # print("goal is to open the door")
+                        goal_gripper_pcd = self.final_goal
+                    else:
+                        # print("goal is to grasp the handle")
+                        goal_gripper_pcd = self.grasping_goal
+
+                    self.goal_gripper_pcd = goal_gripper_pcd
+
+                    new_pcd = [pc]
+                    for goal_i in self.goal_gripper_pcd:
+                        new_pcd_i = np.zeros(pc.shape)
+                        new_pcd_i[ee_mask] = goal_i - pc[ee_mask]
+                        new_pcd.append(new_pcd_i)
+                    new_pcd = np.concatenate(new_pcd, axis=-1)
+                    
+                    # segmask_obj_id = segmask & ((1 << 24) - 1)
+                    # robot_mask = np.zeros_like(depth).astype(np.float32)
+                    # robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
+                    # object_mask = np.zeros_like(depth).astype(np.float32)
+                    # object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+                    # robot_mask = robot_mask.reshape((-1, 1))
+                    # object_mask = object_mask.reshape((-1, 1))
+                    # pcd_cond = np.where((robot_mask > 0.5) | (object_mask > 0.5))[0]
+
+                    # o3d_pc = o3d.geometry.PointCloud()
+                    # o3d_pc.points = o3d.utility.Vector3dVector(new_pcd[pcd_cond][:,:3])
+                    # o3d.visualization.draw_geometries([o3d_pc])
+                    # o3d_pc.points = o3d.utility.Vector3dVector(new_pcd[pcd_cond][:,:3] + new_pcd[pcd_cond][:,3:6])
+                    # o3d.visualization.draw_geometries([o3d_pc])
+
+                    pcs.append(new_pcd)
                 else:
                     pcs.append(pc)
-                
+
             
             if 'act3d' not in self.observation_mode:
                 point_cloud = np.concatenate(pcs, axis=0)
@@ -481,7 +565,6 @@ class RobogenPointCloudWrapper:
                     # assert set_a == set_b, "Masked point cloud is not the same as the original point cloud"
                     
             end = time.time()
-                
 
             point_cloud = point_cloud.tolist()
             
@@ -531,6 +614,18 @@ class RobogenPointCloudWrapper:
             if 'act3d' in self.observation_mode:
                 # TODO: handle multiple camera for act3d observation
                 obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
+
+                # [Chialiang]
+                if 'mlp' in self.observation_mode:
+
+
+                    flattened_feature_maps = obs_dict_input['feature_map'].reshape(-1, obs_dict_input['feature_map'].shape[-1])
+                    obs_dict_input['feature_map'] = flattened_feature_maps[new_input_mask.astype(bool)]
+
+                    print(obs_dict_input['feature_map'].shape)
+                    print(obs_dict_input['feature_map'][:,:3] - obs_dict_input['point_cloud'])
+                    exit(0)
+
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
                 obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
@@ -682,6 +777,5 @@ class RobogenPointCloudWrapper:
                     for link_idx in range(-1, num_links):
                         p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=env.id)
                         cnt += 1
-
 
         return rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices

@@ -21,3 +21,7 @@ local_gifs/
 *.pth
 *.pkl
 vtamp/
+castxml-linux.tar.gz
+dataset.zip
+ompl-1.5.2/
+rq.txt
