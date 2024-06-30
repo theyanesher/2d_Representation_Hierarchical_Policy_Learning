@@ -618,13 +618,8 @@ class RobogenPointCloudWrapper:
                 # [Chialiang]
                 if 'mlp' in self.observation_mode:
 
-
                     flattened_feature_maps = obs_dict_input['feature_map'].reshape(-1, obs_dict_input['feature_map'].shape[-1])
                     obs_dict_input['feature_map'] = flattened_feature_maps[new_input_mask.astype(bool)]
-
-                    print(obs_dict_input['feature_map'].shape)
-                    print(obs_dict_input['feature_map'][:,:3] - obs_dict_input['point_cloud'])
-                    exit(0)
 
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
