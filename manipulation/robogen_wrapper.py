@@ -422,9 +422,9 @@ class RobogenPointCloudWrapper:
                 all_masked_indices = np.concatenate(all_masked_indices)
                 
                 # check
-                # before_fps_pc = point_cloud.copy()
-                # all_pc = np.concatenate(pcs, axis=0)
-                # assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
+                before_fps_pc = point_cloud.copy()
+                all_pc = np.concatenate(pcs, axis=0)
+                assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
            
             # do downsampling of the pcd
             num_points = self.num_points
@@ -456,8 +456,10 @@ class RobogenPointCloudWrapper:
                 point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
                 num_points = torch.tensor([num_points]).cuda()
                 _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+                sampled_indices = np.array(sorted(sampled_indices))
                 point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
+                point_cloud = point_cloud[sampled_indices]
             else:
                 if point_cloud.shape[0] < num_points:
                     to_add_points_num = num_points - point_cloud.shape[0]
@@ -466,6 +468,7 @@ class RobogenPointCloudWrapper:
                 
                 h = min(9, np.log2(num_points))
                 kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
                 point_cloud = point_cloud[kdline_fps_samples_idx]
 
                 if 'act3d' not in self.observation_mode:
@@ -476,9 +479,7 @@ class RobogenPointCloudWrapper:
                     new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
                     
                     # check
-                    # set_a = set([(x[0], x[1], x[2]) for x in point_cloud])
-                    # set_b = set([(x[0], x[1], x[2]) for x in all_pc[new_input_mask == 1]])
-                    # assert set_a == set_b, "Masked point cloud is not the same as the original point cloud"
+                    assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
                     
             end = time.time()
                 
@@ -531,12 +532,15 @@ class RobogenPointCloudWrapper:
             if 'act3d' in self.observation_mode:
                 # TODO: handle multiple camera for act3d observation
                 obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
-                # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
                 obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
                 if 'goal' in self.observation_mode:
-                    # print("store goal as part of the observation")
                     obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
+
+
+                pointcloud = obs_dict_input['point_cloud']
+                pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
+                assert np.all(pointcloud == pointcloud_rgb)
                     
                 if 'displacement_gripper_to_object' in self.observation_mode:
                     gripper_pcd = obs_dict_input['gripper_pcd']
