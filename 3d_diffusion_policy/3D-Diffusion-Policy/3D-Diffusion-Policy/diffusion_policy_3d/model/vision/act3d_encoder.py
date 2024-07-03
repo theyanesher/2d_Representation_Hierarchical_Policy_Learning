@@ -151,8 +151,14 @@ class Act3dEncoder(nn.Module):
             obj_pcd_position_embedding = einops.rearrange(obj_pcd_position_embedding, "(B N) encoder_output_dim -> N B encoder_output_dim", B=B, N=n_obj)
             rgb_features = torch.cat([rgb_features, obj_pcd_position_embedding], dim=-1)
         
-            
-        point_cloud = observation[self.point_cloud_key]
+        
+        # BUG: before 2024/7/1, the order of the point cloud stored in observation['point_cloud'] does not match the order of the point cloud stored in osbervation['feature_map'] and then sampled using "pcd_mask".
+        # for consistentcy should just use the positiones from feature map and then downsampled using pcd_mask.
+        # point_cloud = observation[self.point_cloud_key] 
+        all_point_positions = observation[self.feature_map_key][:, :, :, :, 2:5]
+        all_point_positions = einops.rearrange(all_point_positions, "B n h w c -> B (n h w) c")
+        object_point_positions = all_point_positions[observation['pcd_mask'] == 1] # shape B num_points 3
+        point_cloud = object_point_positions.reshape(B, -1, 3) # shape (B, num_points, 3)
         point_cloud_rel_pos_embedding = nets['relative_pe_layer'](point_cloud) # shape B N encoder_output_dim
                        
         num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3

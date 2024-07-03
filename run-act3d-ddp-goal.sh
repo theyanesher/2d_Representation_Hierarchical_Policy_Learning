@@ -37,20 +37,21 @@ exp_folder_8=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_Stora
 exp_folder_9=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47578_2024-03-27-14-56-07/task_open_the_door_of_the_storagefurniture_by_its_handle
 exp_folder_10=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle
 
-# horizon=4
-horizon=8
+horizon=4
 n_obs_steps=2
+n_action_steps=2
 train_ratio=0.9
 num_load_episodes=260
 
 # observation_mode=act3d
 # observation_mode=act3d_goal
-observation_mode=act3d_displacement_gripper_to_object
-# observation_mode=act3d_goal_displacement_gripper_to_object
+# observation_mode=act3d_displacement_gripper_to_object
+observation_mode=act3d_goal_displacement_gripper_to_object
 pointcloud_num=4500
 action_dim=10
 agent_pos_dim=10
 pc_channel=3
+prediction_target=goal_gripper_pcd
 
 # exp_name="0616-per-step-load-ddp-3-obj-horizon-${horizon}-train-episodes-${num_load_episodes}"
 exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal"
@@ -69,9 +70,10 @@ exp_name="0630-ddp-11-obj-hor-${horizon}-train-ep-${num_load_episodes}-gripper-g
 
 exp_name="0701-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
 exp_name="0701-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
+exp_name="0701-obj-45448-pred-goal-gripper-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
 
 
-torchrun --standalone --nproc_per_node=4 \
+torchrun --standalone --nproc_per_node=2 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
     task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
@@ -102,7 +104,7 @@ torchrun --standalone --nproc_per_node=4 \
     val_dataloader.batch_size=30 \
     policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     policy.act3d_encoder_cfg.self_attention=true \
-    load_checkpoint_path=/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/22.32.34_train_dp3_robogen_open_door/checkpoints/epoch-75.ckpt
+    policy.prediction_target="${prediction_target}" 
     # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
     # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal_not_concat_and_self_attention \
     # policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \

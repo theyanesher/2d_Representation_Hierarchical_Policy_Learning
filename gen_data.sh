@@ -43,7 +43,8 @@
 # task_end_idx=12
 
 demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-save_data_name=0628-act3d-obj-48700
+# save_data_name=0628-act3d-obj-48700
+save_data_name=debug
 exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle
 task_beg_idx=12
 task_end_idx=13
@@ -51,14 +52,16 @@ task_end_idx=13
 observation_mode=act3d
 pointcloud_num=4500
 
-# python 3d_diffusion_policy/extract_data_from_states_2.py \
-#     --folder_name data/temp/ --object_name storagefurniture \
-#     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
-#     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
-#     --pointcloud_num "${pointcloud_num}" \
-#     --num_experiment 1000 \
-#     --observation_mode "${observation_mode}" \
-#     --parallel 1 \
+python 3d_diffusion_policy/extract_data_from_states_2.py \
+    --folder_name data/temp/ --object_name storagefurniture \
+    --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
+    --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
+    --pointcloud_num "${pointcloud_num}" \
+    --num_experiment 1000 \
+    --observation_mode "${observation_mode}" \
+    --parallel 0 \
+
+exit
 
 
 demo_path="${exp_folder}/experiment/${demo_name}"

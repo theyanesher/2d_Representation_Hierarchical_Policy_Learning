@@ -82,11 +82,11 @@ class RobogenDataset(BaseDataset):
                 all_subfolder = all_subfolder[:num_load_episodes]
                 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
                 all_paths += zarr_paths
-                folder_train_mask = np.zeros(n_episodes, dtype=bool)
-                folder_train_mask[:int(n_episodes*train_ratio)] = True
+                folder_train_mask = np.zeros(num_load_episodes, dtype=bool)
+                folder_train_mask[:int(num_load_episodes*train_ratio)] = True
                 train_masks.append(folder_train_mask)
-                folder_val_mask = np.zeros(n_episodes, dtype=bool)
-                folder_val_mask[-int(n_episodes*val_ratio):] = True
+                folder_val_mask = np.zeros(num_load_episodes, dtype=bool)
+                folder_val_mask[-int(num_load_episodes*val_ratio):] = True
                 val_masks.append(folder_val_mask)
             
             if not self.kept_in_disk:

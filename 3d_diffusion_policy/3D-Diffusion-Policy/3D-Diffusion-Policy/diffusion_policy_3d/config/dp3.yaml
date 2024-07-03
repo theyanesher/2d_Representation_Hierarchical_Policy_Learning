@@ -79,6 +79,8 @@ policy:
     mode: null
     self_attention: false
 
+  prediction_target: action
+
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
@@ -90,14 +92,14 @@ ema:
 
 dataloader:
   batch_size: 30
-  num_workers: 20
+  num_workers: 15
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
   batch_size: 30
-  num_workers: 20
+  num_workers: 15
   shuffle: False
   pin_memory: True
   persistent_workers: False
