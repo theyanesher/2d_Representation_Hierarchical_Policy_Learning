@@ -23,7 +23,7 @@ opened_threshold=0.4
 
 # observation_mode=act3d
 # observation_mode=act3d_goal
-observation_mode=act3d_displacement_gripper_to_object
+observation_mode=act3d_mlp_displacement_gripper_to_object
 # observation_mode=act3d_goal_displacement_gripper_to_object
 pointcloud_num=4500
 
@@ -52,7 +52,7 @@ save_data_name_0=0616-act3d-obj-41510-remove-reaching-collision-resize-2-per-ste
 # save_data_name_1=0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step
 # save_data_name_1=0616-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal
 # save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
-save_data_name_1=0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point
+save_data_name_1=0630-dp3-goal-whole-per-step
 
 # save_data_name_2=0531-act3d-obj-46462
 # save_data_name_2=0607-act3d-obj-46462-remove-reaching-collision-resize-2
@@ -72,6 +72,8 @@ n_obs_steps=2
 train_ratio=0.9
 num_load_episodes=260
 
+time_stamp=$(date +%m%d%H%M)
+
 # exp_name="0616-per-step-load-ddp-3-obj-horizon-${horizon}-train-episodes-${num_load_episodes}"
 exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal"
 exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}"
@@ -79,15 +81,21 @@ exp_name="0622-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${n
 # exp_name="0622-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point"
 exp_name="0623-smoothed-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal-with-gripper-displacement-to-closest-obj-point"
 exp_name="0623-smoothed-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point"
+exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
 
 action_dim=10
 agent_pos_dim=10
 pc_channel=3
+batch_size=96
+use_mlp=1
 
-torchrun --standalone --nproc_per_node=4 \
+# observation_mode=act3d_displacement_gripper_to_object
+observation_mode=act3d_goal_displacement_gripper_to_object
+
+torchrun --standalone --nproc_per_node=2 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
-    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
+    task.dataset.zarr_path="[/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_1}]" \
+    task.env_runner.demo_experiment_path="[/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_1}]" \
     task.env_runner.experiment_name="[${demo_name_1}]" \
     task.env_runner.experiment_folder="[${exp_folder_1}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
@@ -102,19 +110,21 @@ torchrun --standalone --nproc_per_node=4 \
     task.dataset.observation_mode="${observation_mode}" \
     policy.encoder_type=act3d \
     policy.encoder_output_dim=60 \
+    policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
+    policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
+    policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
     task.dataset.enumerate=True \
-    training.rollout_every=2000 \
-    training.checkpoint_every=25 \
+    training.num_epochs=210 \
+    training.rollout_every=10 \
+    training.checkpoint_every=10 \
     task.env_runner.max_steps=35 \
-    training.val_every=25 \
+    training.val_every=10 \
+    task.dataset.train_ratio="${train_ratio}" \
+    task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.kept_in_disk=true \
     task.dataset.load_per_step=true \
-    task.dataset.num_load_episodes="${num_load_episodes}" \
-    task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=30 \
-    val_dataloader.batch_size=30 \
-    policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
-    # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
+    dataloader.batch_size="${batch_size}" \
+    val_dataloader.batch_size="${batch_size}" \
     # policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \
 
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval

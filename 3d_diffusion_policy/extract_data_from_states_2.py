@@ -631,7 +631,9 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_
         zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays, chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
         zarr_data.create_dataset('pcd_mask', data=pcd_mask_list, chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
 
-    del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays
+    if 'act3d' in args.observation_mode:
+        del feature_map_arrays, gripper_pcd_arrays
+    del state_arrays, point_cloud_arrays, action_arrays
     del zarr_root, zarr_data, zarr_meta
 
 def save_example_pointcloud(pc_list, save_dir):

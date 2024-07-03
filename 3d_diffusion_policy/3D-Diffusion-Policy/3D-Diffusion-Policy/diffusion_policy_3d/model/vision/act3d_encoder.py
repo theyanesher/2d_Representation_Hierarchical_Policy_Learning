@@ -46,13 +46,13 @@ class Act3dEncoder(nn.Module):
         # [Chialiang]
         vision_encoder = None
         if self.use_mlp:
-            hidden_layer_dim = vision_output_dim
+            hidden_layer_dim = encoder_output_dim
             vision_encoder = nn.Sequential(
                 nn.Linear(in_channels, hidden_layer_dim),
                 nn.ReLU(),
                 nn.Linear(hidden_layer_dim, hidden_layer_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_layer_dim, vision_output_dim)
+                nn.Linear(hidden_layer_dim, encoder_output_dim)
             )
         else :
             vision_encoder = smp.Unet(
@@ -128,9 +128,9 @@ class Act3dEncoder(nn.Module):
 
     def forward(self, observation: Dict) -> torch.Tensor:
         # TODO: the things passed in is already flattend from B, T, ... -> B*T, ...
-        
+
         nets = self.nets
-        
+
         # TODO: check the input shape
         agent_pos = observation[self.state_key]
         B = agent_pos.shape[0] #  B = batch_size * obs_horizon
@@ -164,16 +164,22 @@ class Act3dEncoder(nn.Module):
 
         # [Chialiang]
         if self.use_mlp:
-            rgb_obs = observation[self.feature_map_key]
 
-            if len(rgb_obs.shape) == 3: # (B N C)
+            rgb_obs_feat = observation[self.point_cloud_key]
+            B, N, C = rgb_obs_feat.shape
+            rgb_obs_flatten = rgb_obs_feat.reshape(-1, C)
+            rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten)
+            rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
+            rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
+
+            # if len(rgb_obs.shape) == 3: # (B N C)
             
-                B, N, C = rgb_obs.shape
-                rgb_obs_flatten = rgb_obs.reshape(-1, C)
+            #     B, N, C = rgb_obs.shape
+            #     rgb_obs_flatten = rgb_obs.reshape(-1, C)
 
-                rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten) # shape BxN encoder_output_dim
-                rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
-                rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
+            #     rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten) # shape BxN encoder_output_dim
+            #     rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
+            #     rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
             
             # elif len(rgb_obs.shape) == 5: # (B n_cam h w C)
 
@@ -182,7 +188,7 @@ class Act3dEncoder(nn.Module):
             #     pcd_mask = observation['pcd_mask'] # B * (n * h * w)
                 
             #     B, n_cam, h, w, C = rgb_obs.shape
-            #     rgb_obs = einops.rearrange(rgb_obs, "B n_cam c h w -> B (n_cam h w) c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
+            #     rgb_obs = einops.rearrange(rgb_obs, "B n_cam h w c -> B (n_cam h w) c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
             #     rgb_obs_flatten = rgb_obs[pcd_mask == 1]
             #     rgb_obs_flatten = rgb_obs_flatten.reshape(-1, C)
 
@@ -190,9 +196,8 @@ class Act3dEncoder(nn.Module):
             #     rgb_features = rgb_features_flatten.reshape(B, -1, rgb_features_flatten.shape[-1]) # shape B N encoder_output_dim
             #     rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
             
-
-            else:
-                raise ValueError(f"Expected rgb_obs to have shape (B N C) or (B n_cam h w C), got {rgb_obs.shape}")
+            # else:
+            #     raise ValueError(f"Expected rgb_obs to have shape (B N C) or (B n_cam h w C), got {rgb_obs.shape}")
             
         else :
 

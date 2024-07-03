@@ -69,7 +69,7 @@ class RobogenPointCloudWrapper:
         self.only_handle_points = only_handle_points
         self.observation_mode = observation_mode
         self.elevation = elevation
-        
+
         self.camera_width = camera_width
         self.camera_height = camera_height
 
@@ -77,17 +77,32 @@ class RobogenPointCloudWrapper:
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
-        self.observation_space = spaces.Dict({
-            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
-            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            # 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            # 'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            # 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-        })
-        # if 'goal' in observation_mode:
-        #     self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-        if 'displacement_gripper_to_object' in observation_mode:
-            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+
+        if 'dp3' in observation_mode:
+            self.observation_space = spaces.Dict({
+                'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+                'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            })
+        elif 'act3d_goal_mlp' in observation_mode:
+            self.observation_space = spaces.Dict({
+                'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+                'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            })
+        else:
+            self.observation_space = spaces.Dict({
+                'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+                'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            })
+
+        if 'act3d' in observation_mode: 
+            if 'goal' in observation_mode:
+                self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            if 'displacement_gripper_to_object' in observation_mode:
+                self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
 
         for name in self._env.urdf_ids: # randomly center at an object
@@ -387,7 +402,6 @@ class RobogenPointCloudWrapper:
                         # add goal as part of the observation. 
                         # needs to judge when to switch the goal -- check if the handle has been grasped.  
                         
-                                
                         if self._env.grasped_handle:
                             # print("goal is to open the door")
                             goal_gripper_pcd = self.final_goal
@@ -401,7 +415,6 @@ class RobogenPointCloudWrapper:
                     # add goal as part of the observation. 
                     # needs to judge when to switch the goal -- check if the handle has been grasped.  
                     
-                            
                     if self._env.grasped_handle:
                         # print("goal is to open the door")
                         goal_gripper_pcd = self.final_goal
@@ -462,7 +475,7 @@ class RobogenPointCloudWrapper:
                         new_pcd_i[ee_mask] = goal_i - pc[ee_mask]
                         new_pcd.append(new_pcd_i)
                     new_pcd = np.concatenate(new_pcd, axis=-1)
-                    
+
                     # segmask_obj_id = segmask & ((1 << 24) - 1)
                     # robot_mask = np.zeros_like(depth).astype(np.float32)
                     # robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
@@ -610,20 +623,49 @@ class RobogenPointCloudWrapper:
                 contact_left = int(len(points_left_finger) > 0)
                 contact_right = int(len(points_right_finger) > 0)
                 obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], [contact_left, contact_right]])
+
+            if self.observation_mode == 'dp3_goal_gripper_on_agent':
+
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+
+                gripper_pc = self.get_gripper_pc()
+                diff = goal_gripper_pcd - gripper_pc
+                diff_flat = diff.reshape(-1)
+
+                pos_ori = np.array(pos_ori).astype(np.float32)
+
+                obs_dict_input['agent_pos'] = np.concatenate((pos_ori, diff_flat), axis=0)
+            
+            if self.observation_mode == 'dp3_goal_gripper_on_agent_abs':
+
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+
+                pos_ori = np.array(pos_ori).astype(np.float32)
+                obs_dict_input['agent_pos'] = np.concatenate((pos_ori, goal_gripper_pcd.reshape(-1)), axis=0)
             
             if 'act3d' in self.observation_mode:
                 # TODO: handle multiple camera for act3d observation
-                obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
+                if 'mlp' not in self.observation_mode:
+                    obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
+                    obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
 
-                # [Chialiang]
-                if 'mlp' in self.observation_mode:
-
-                    flattened_feature_maps = obs_dict_input['feature_map'].reshape(-1, obs_dict_input['feature_map'].shape[-1])
-                    obs_dict_input['feature_map'] = flattened_feature_maps[new_input_mask.astype(bool)]
+                # # [Chialiang]
+                # if 'mlp' in self.observation_mode:
+                #     flattened_feature_maps = obs_dict_input['feature_map'].reshape(-1, obs_dict_input['feature_map'].shape[-1])
+                #     obs_dict_input['feature_map'] = flattened_feature_maps[new_input_mask.astype(bool)]
 
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
-                obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
                 if 'goal' in self.observation_mode:
                     # print("store goal as part of the observation")
                     obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
@@ -645,7 +687,7 @@ class RobogenPointCloudWrapper:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
             obs_dict_input['agent_pos'] = np.array(pos_ori)
-            
+        
         return obs_dict_input
     
     def _get_diffuser_actor_observation(self):
@@ -676,6 +718,8 @@ class RobogenPointCloudWrapper:
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width,
                                                 only_object=False)
+        
+        # [TODO] Chialiang: It may need to be changed
         feature_maps = []
         for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
             near = 0.01
@@ -715,7 +759,7 @@ class RobogenPointCloudWrapper:
 
     
     def render(self):
-        if 'goal' not in self.observation_mode:
+        if 'goal' not in self.observation_mode or 'dp3' in self.observation_mode:
             return self._env.render()
         else:
             image = self._env.render()
@@ -729,8 +773,6 @@ class RobogenPointCloudWrapper:
                 image = cv2.circle(image, (pixel_x, pixel_y), radius, color, thickness)
             return image
 
-                
-            
     
     def take_images_around_object(self, env, object_name, elevation=30, return_camera_matrices=False, camera_height=480, camera_width=640, only_object=True):
         if only_object:

@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation as R
 from termcolor import cprint
 
 def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, save_dir):
+    
     zarr_root = zarr.group(save_dir)
     zarr_data = zarr_root.create_group('data')
     zarr_meta = zarr_root.create_group('meta')
@@ -28,11 +29,15 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_
     zarr_data.create_dataset('point_cloud', data=point_cloud_arrays, chunks=point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('action', data=action_arrays, chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     feature_map_chunk_size = (100, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3], feature_map_arrays.shape[4]) # there can be mutiple cameras
-    gripper_pcd_chunk_size = (100, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
+    goal_gripper_pcd_chunk_size = (100, goal_gripper_pcd.shape[1], goal_gripper_pcd.shape[2])
     pcd_mask_chunk_size = (100, pcd_mask_list.shape[1])
     zarr_data.create_dataset('feature_map', data=feature_map_arrays, chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays, chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('pcd_mask', data=pcd_mask_list, chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
+    if goal_gripper_pcd is not None:
+        zarr_data.create_dataset('goal_gripper_pcd', data=goal_gripper_pcd, chunks=goal_gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+    if displacement_gripper_to_object is not None:
+        zarr_data.create_dataset('displacement_gripper_to_object', data=displacement_gripper_to_object, chunks=goal_gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
 
     del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays
     del zarr_root, zarr_data, zarr_meta
@@ -113,11 +118,20 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
     # return filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions
     return np.array(filtered_pcs), np.array(filtered_pos_oris), np.array(filtered_feature_maps), np.array(filtered_gripper_pcds), np.array(filtered_pcd_masks), np.array(traj_actions)
 
-new_zarr_path = "data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"
-zarr_path = "data/dp3_demo/0531-act3d-obj-45448"
 # demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
-demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 # demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+
+new_zarr_path = "/project_data/held/chialiak/RoboGen-sim2realdata/dp3_demo/0630-dp3-goal-whole"
+zarr_path = "/project_data/held/chialiak/RoboGen-sim2realdata/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed"
+demo_path = "/project_data/held/chialiak/RoboGen-sim2realdata/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+
+# 1
+new_zarr_path = "/project_data/held/chialiak/RoboGen-sim2realdata/dp3_demo/0630-dp3-goal-whole"
+zarr_path = "/project_data/held/chialiak/RoboGen-sim2realdata/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed"
+demo_path = "/project_data/held/chialiak/RoboGen-sim2realdata/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+
+
+
 all_subfolder = os.listdir(zarr_path)
 for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
     if string in all_subfolder:

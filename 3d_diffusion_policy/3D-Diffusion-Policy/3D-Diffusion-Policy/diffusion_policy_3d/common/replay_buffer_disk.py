@@ -8,6 +8,7 @@ import numpy as np
 from functools import cached_property
 from termcolor import cprint
 from collections import defaultdict
+from tqdm import tqdm
 
 class WelfordOnlineStatistics:
     def __init__(self):
@@ -80,7 +81,7 @@ class ReplayBuffer:
 
         action_welford = WelfordOnlineStatistics()
 
-        for idx, zarr_path  in enumerate(path_list):
+        for idx, zarr_path  in enumerate(tqdm(path_list)):
             if not load_per_step:
                 group = zarr.open(zarr_path, 'r')
                 src_store = group.store
