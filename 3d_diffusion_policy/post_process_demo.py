@@ -130,6 +130,13 @@ new_zarr_path = "/project_data/held/chialiak/RoboGen-sim2realdata/dp3_demo/0630-
 zarr_path = "/project_data/held/chialiak/RoboGen-sim2realdata/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed"
 demo_path = "/project_data/held/chialiak/RoboGen-sim2realdata/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
+zarr_path = "/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0701-act3d-obj-45448-remove-reaching-collision-resize-2-full-dp3_goal_gripper_whole"
+demo_path = "/project_data/held/chialiak/RoboGen-sim2real/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+new_zarr_path = "/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0703-dp3-goal-whole"
+
+# zarr_path = "/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0701-act3d-obj-45448-remove-reaching-collision-resize-2-full-dp3_goal_gripper_part"
+# demo_path = "/project_data/held/chialiak/RoboGen-sim2real/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+# new_zarr_path = "/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0703-dp3-goal-part"
 
 
 all_subfolder = os.listdir(zarr_path)
@@ -142,7 +149,7 @@ path_list = zarr_paths
 
 per_episode_root = []
 keys = ['state', 'action', 'point_cloud']
-keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
+# keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
             
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]

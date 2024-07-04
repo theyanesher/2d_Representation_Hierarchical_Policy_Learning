@@ -2,7 +2,7 @@ import wandb
 import numpy as np
 import torch
 import tqdm 
-from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location
+from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location, get_matrix_from_pos_rot
 from manipulation.gpt_reward_api import get_handle_pos
 from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
@@ -146,12 +146,15 @@ class RobogenPointCloudWrapper:
 
         self.time_step = 0
         
+        # [Chialiang]
         if "act3d_goal" in self.observation_mode or 'dp3_goal_gripper' in self.observation_mode:
+
+            # [Chialiang]
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
-            state_path = os.path.join(parent_path, "grasp_the_door_handle_primitive", "states") # TODO: use the real substep name. 
-            stage_lengths_json_file = os.path.join(parent_path, "grasp_the_door_handle_primitive", 'stage_lengths.json')
+            state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            stage_lengths_json_file = os.path.join(parent_path, "{}_primitive".format(task_name), 'stage_lengths.json')
             with open(stage_lengths_json_file, 'r') as f:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
@@ -167,10 +170,18 @@ class RobogenPointCloudWrapper:
             
             self._env.reset(reset_state=goal_1_state)
             grasping_eef_pc = self.get_gripper_pc()
+
+            # Chialiang for dense goal pcd
+            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
             self._env.reset(reset_state=goal_2_state)
             final_eef_pc = self.get_gripper_pc()
             
+            # Chialiang for dense goal pcd
+            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
             
@@ -492,6 +503,62 @@ class RobogenPointCloudWrapper:
                     # o3d.visualization.draw_geometries([o3d_pc])
 
                     pcs.append(new_pcd)
+
+                # [Chialiang]
+                elif 'dp3_goal_gripper_dense' == self.observation_mode:
+
+                    # extract segmentation ids of the gripper part
+                    segmask_joint_id = (segmask - 1) >> 24
+                    robot_id = None
+                    for obj_name, obj_id in self._env.urdf_ids.items():
+                        if obj_name == 'robot':
+                            robot_id = obj_id
+                    assert robot_id is not None
+
+                    num_joints = p.getNumJoints(robot_id)
+                    joint_indexes = []
+                    for joint_index in range(num_joints):
+                        info = p.getJointInfo(robot_id, joint_index)
+                        if info[12].decode('utf-8') == 'panda_hand':
+                            joint_indexes.append(joint_index)
+                        if info[12].decode('utf-8') == 'panda_leftfinger':
+                            joint_indexes.append(joint_index)
+                        if info[12].decode('utf-8') == 'panda_rightfinger':
+                            joint_indexes.append(joint_index)
+                        if info[12].decode('utf-8') == 'panda_grasptarget':
+                            joint_indexes.append(joint_index)
+                    
+                    segmask_joint_id = segmask_joint_id.reshape(-1)
+                    ee_mask = np.zeros(segmask_joint_id.shape).astype(bool)
+                    for joint_index in joint_indexes:
+                        ee_mask[np.where(segmask_joint_id == joint_index)] = True
+
+                    if self._env.grasped_handle:
+                        # print("goal is to open the door")
+                        goal_gripper_pcd = self.final_goal
+                        goal_gripper_mat = self.final_goal_pose
+                    else:
+                        # print("goal is to grasp the handle")
+                        goal_gripper_pcd = self.grasping_goal
+                        goal_gripper_mat = self.grasping_goal_pose
+
+                    self.goal_gripper_pcd = goal_gripper_pcd
+
+                    eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+                    self.current_gripper_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+
+                    relative_pose = goal_gripper_mat @ np.linalg.inv(self.current_gripper_pose) 
+
+                    pc_homo = np.ones((len(pc), 4))
+                    pc_homo[:,:3] = pc
+                    pc_transform = (pc_homo @ relative_pose.T)[:,:3]
+
+                    new_pcd = np.zeros((len(pc), 6))
+                    new_pcd[:,:3] = pc 
+                    new_pcd[ee_mask,3:] = pc_transform[ee_mask] - pc[ee_mask]
+
+                    pcs.append(new_pcd)
+
                 else:
                     pcs.append(pc)
 
@@ -623,7 +690,8 @@ class RobogenPointCloudWrapper:
                 contact_left = int(len(points_left_finger) > 0)
                 contact_right = int(len(points_right_finger) > 0)
                 obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], [contact_left, contact_right]])
-
+            
+            # [Chialiang]
             if self.observation_mode == 'dp3_goal_gripper_on_agent':
 
                 if self._env.grasped_handle:
@@ -641,6 +709,7 @@ class RobogenPointCloudWrapper:
 
                 obs_dict_input['agent_pos'] = np.concatenate((pos_ori, diff_flat), axis=0)
             
+            # [Chialiang]
             if self.observation_mode == 'dp3_goal_gripper_on_agent_abs':
 
                 if self._env.grasped_handle:
@@ -655,14 +724,11 @@ class RobogenPointCloudWrapper:
             
             if 'act3d' in self.observation_mode:
                 # TODO: handle multiple camera for act3d observation
+                
+                # [Chialiang]
                 if 'mlp' not in self.observation_mode:
                     obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
                     obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
-
-                # # [Chialiang]
-                # if 'mlp' in self.observation_mode:
-                #     flattened_feature_maps = obs_dict_input['feature_map'].reshape(-1, obs_dict_input['feature_map'].shape[-1])
-                #     obs_dict_input['feature_map'] = flattened_feature_maps[new_input_mask.astype(bool)]
 
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)

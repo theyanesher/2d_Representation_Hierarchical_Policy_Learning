@@ -137,7 +137,7 @@ def wrap_obs(list_of_obs):
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
 
-def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
+def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix=''):
     # if type(cfg.task.env_runner.experiment_folder) != list:
     #     cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
     # if type(cfg.task.env_runner.experiment_name) != list:
@@ -314,8 +314,9 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                         "ik_failure": float(ik_failures[idx - beg_idx]),
                         'grasped_handle': float(grasped_handles[idx - beg_idx]),
                     }
-                    
-                with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
+                
+                # [Chialiang]   
+                with open("{}/opened_joint_angles-{}{}.json".format(save_path, dataset_idx, post_fix), "w") as f:
                     json.dump(opened_joint_angles, f, indent=4)
             
             gif_save_exp_name = experiment_folder.split("/")[-2]
@@ -506,7 +507,8 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 "exp_idx": exp_idx, 
             }
                     
-            with open("{}/opened_joint_angles{}.json".format(save_path, post_fix), "w") as f:
+            # [Chialiang]   
+            with open("{}/opened_joint_angles-{}{}.json".format(save_path, exp_idx, post_fix), "w") as f:
                 json.dump(opened_joint_angles, f, indent=4)
             
             gif_save_exp_name = experiment_folder.split("/")[-2]
@@ -516,7 +518,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
                     float(info["improved_joint_angle"][-1]))
             
-            save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+            # save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
         
 if __name__ == "__main__":
     
@@ -529,34 +531,34 @@ if __name__ == "__main__":
     # checkpoint_name = "epoch-200-test_mean_score-0.804.ckpt"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0609-act3d-obj-45448-horizon-8-train-ratio-0.2/2024.06.10/00.07.00_train_dp3_robogen_open_door"
 
-    checkpoint_name = "epoch-600-test_mean_score-0.779.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-41510-train-ratio-0.22-remove-collision-and-half-horizon/2024.06.07/23.57.57_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-600-test_mean_score-0.779.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-41510-train-ratio-0.22-remove-collision-and-half-horizon/2024.06.07/23.57.57_train_dp3_robogen_open_door"
 
-    checkpoint_name = "epoch-1800-test_mean_score-0.892.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45448-train-ratio-1-remove-collision-and-half-horizon/2024.06.07/14.29.51_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-1800-test_mean_score-0.892.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45448-train-ratio-1-remove-collision-and-half-horizon/2024.06.07/14.29.51_train_dp3_robogen_open_door"
 
-    checkpoint_name = "epoch-1000-test_mean_score-0.144.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45462-train-ratio-0.2-remove-collision-and-half-horizon/2024.06.07/22.30.12_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-1000-test_mean_score-0.144.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0607-act3d-obj-45462-train-ratio-0.2-remove-collision-and-half-horizon/2024.06.07/22.30.12_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-800-test_mean_score-0.554.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0606-act3d-3-obj-train-ratio-0.2/2024.06.06/02.27.24_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-800-test_mean_score-0.554.ckpt"
+    # exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0606-act3d-3-obj-train-ratio-0.2/2024.06.06/02.27.24_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-250.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0612-act3d-3-obj-horizon-4-train-ratio-0.6/2024.06.16/02.16.15_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-250.ckpt"
+    # exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0612-act3d-3-obj-horizon-4-train-ratio-0.6/2024.06.16/02.16.15_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-800-test_mean_score-0.598.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0608-act3d-obj-41510-goal-train-ratio-1/2024.06.09/00.56.38_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-800-test_mean_score-0.598.ckpt"
+    # exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0608-act3d-obj-41510-goal-train-ratio-1/2024.06.09/00.56.38_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-600-test_mean_score=0.778.ckpt"
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0528-act3d-train-ratio-1.0/2024.05.31/22.21.00_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-600-test_mean_score=0.778.ckpt"
+    # exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0528-act3d-train-ratio-1.0/2024.05.31/22.21.00_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-1200.ckpt"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
+    # checkpoint_name = "epoch-1200.ckpt"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal/2024.06.17/22.05.56_train_dp3_robogen_open_door"
     # checkpoint_name = "epoch-400-test_mean_score-0.607.ckpt"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0615-act3d-45448-long-horizon-8-train-ratio-0.2/2024.06.15/12.40.50_train_dp3_robogen_open_door"
     
-    checkpoint_name = "epoch-200.ckpt"
+    # checkpoint_name = "epoch-200.ckpt"
 
     ### first generalization experiments 
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
@@ -564,13 +566,13 @@ if __name__ == "__main__":
 
     ### add features as distance to closest object point
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.48.13_train_dp3_robogen_open_door"
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/06301910-dp3_goal_gripper_whole-horizon-8-num_load_episodes-260/2024.06.30/19.10.41_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/06301910-dp3_goal_gripper_whole-horizon-8-num_load_episodes-260/2024.06.30/19.10.41_train_dp3_robogen_open_door"
     
     ### add features as distance to closest object point, with smoothed dataset
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.32.11_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.29.09_train_dp3_robogen_open_door"
-    checkpoint_name = "latest.ckpt"
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07010740-dp3_goal_gripper_part-horizon-8-num_load_episodes-52/2024.07.01/07.40.15_train_dp3_robogen_open_door"
+    # checkpoint_name = "latest.ckpt"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07010740-dp3_goal_gripper_part-horizon-8-num_load_episodes-52/2024.07.01/07.40.15_train_dp3_robogen_open_door"
     # checkpoint_name = "latest.ckpt"
    
 
@@ -583,8 +585,10 @@ if __name__ == "__main__":
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07012321-dp3_goal_gripper_part-horizon-8-num_load_episodes-260/2024.07.01/23.21.58_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07020049-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-260/2024.07.02/00.49.27_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07021653-dp3_goal_gripper_on_agent_abs-horizon-8-num_load_episodes-260/2024.07.02/16.53.16_train_dp3_robogen_open_door"
-    
     exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07021957-dp3-horizon-8-num_load_episodes-260/2024.07.02/19.57.22_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07021705-act3d_goal_mlp-horizon-8-num_load_episodes-100/2024.07.02/17.05.07_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07040935-dp3_goal_gripper_dense-horizon-8-num_load_episodes-260/2024.07.04/09.35.49_train_dp3_robogen_open_door"
     
     checkpoint_name = "latest.ckpt"
 
@@ -611,8 +615,9 @@ if __name__ == "__main__":
     # cfg.task.env_runner.demo_experiment_path = ["/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0701-act3d-obj-45448-remove-reaching-collision-resize-2-full-dp3_goal_gripper_part"]
     # cfg.task.env_runner.demo_experiment_path = ["/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0702-dp3-goal_gripper_on_agent"]
     # cfg.task.env_runner.demo_experiment_path = ["/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0702-dp3-goal_gripper_on_agent_abs"]
+    # cfg.task.env_runner.demo_experiment_path = ["/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"]
     
-    cfg.task.env_runner.demo_experiment_path = ["/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"]
+    # cfg.task.env_runner.demo_experiment_path = ["/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0607-act3d-obj-45448-remove-reaching-collision-resize-2-full"]
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -635,22 +640,24 @@ if __name__ == "__main__":
     exp_beg_ratio = 0.9
     exp_end_ratio = 1
     
-    for i in range(0, 3):
-        run_eval_non_parallel(cfg, policy, num_worker, save_path, 
+    # [Chialiang]   
+    for i in range(0, 1):
+        # run_eval_non_parallel(cfg, policy, num_worker, save_path, 
+        #         pool=pool, 
+        #         horizon=35,
+        #         exp_beg_ratio=exp_beg_ratio,
+        #         exp_end_ratio=exp_end_ratio,
+        #         # exp_beg_idx=0, exp_end_idx=30
+        #         post_fix=f'-{i}'
+        # )
+        run_eval(cfg, policy, num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
-                exp_beg_ratio=exp_beg_ratio,
-                exp_end_ratio=exp_end_ratio,
-                # exp_beg_idx=0, exp_end_idx=30
+                 exp_beg_ratio=exp_beg_ratio,
+                 exp_end_ratio=exp_end_ratio,
+                # exp_beg_idx=0, exp_end_idx=30,
                 post_fix=f'-{i}'
         )
-    # run_eval(cfg, policy, num_worker, save_path, 
-    #          pool=pool, 
-    #          horizon=35,
-    #         #  exp_beg_ratio=exp_beg_ratio,
-    #         #  exp_end_ratio=exp_end_ratio,
-    #         exp_beg_idx=0, exp_end_idx=30
-    # )
     
     # pr.disable()
     # s = io.StringIO()

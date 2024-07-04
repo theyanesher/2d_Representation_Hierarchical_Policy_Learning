@@ -89,11 +89,11 @@ class RobogenDataset(BaseDataset):
                 all_subfolder = all_subfolder[:num_load_episodes]
                 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
                 all_paths += zarr_paths
-                folder_train_mask = np.zeros(n_episodes, dtype=bool)
-                folder_train_mask[:int(n_episodes*train_ratio)] = True
+                folder_train_mask = np.zeros(num_load_episodes, dtype=bool)
+                folder_train_mask[:int(num_load_episodes*train_ratio)] = True
                 train_masks.append(folder_train_mask)
-                folder_val_mask = np.zeros(n_episodes, dtype=bool)
-                folder_val_mask[-int(n_episodes*val_ratio):] = True
+                folder_val_mask = np.zeros(num_load_episodes, dtype=bool)
+                folder_val_mask[-int(num_load_episodes*val_ratio):] = True
             
             if not self.kept_in_disk:
                 from diffusion_policy_3d.common.replay_buffer import ReplayBuffer
@@ -134,7 +134,8 @@ class RobogenDataset(BaseDataset):
         self.pad_before = pad_before
         self.pad_after = pad_after 
 
-        print('dataset has been loaded')
+        # [Chialiang]   
+        cprint('dataset has been loaded', 'green')
             
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -247,8 +248,7 @@ class RobogenDataset(BaseDataset):
         elif 'act3d_pointnet' == self.observation_mode:
             gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
             data['obs']['gripper_pcd'] = gripper_pcd
-
-
+            
         return data
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:

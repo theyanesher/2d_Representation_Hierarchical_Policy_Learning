@@ -267,7 +267,6 @@ class TrainDP3Workspace:
             # run rollout
             if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
 
-
                 # first checkpointing then running the eval
                 if cfg.checkpoint.save_last_ckpt:
                     self.save_checkpoint()
@@ -276,15 +275,15 @@ class TrainDP3Workspace:
                 
                 if self.epoch == 0 and not cfg.eval_first:
                     pass
-                # else:
-                #     t3 = time.time()
-                #     # runner_log = env_runner.run(policy, dataset=dataset)
-                #     runner_log = env_runner.run(cfg, policy, self.epoch)
-                #     # wandb_run.log(runner_log, step=self.epoch)
-                #     t4 = time.time()
-                #     cprint(f"rollout time: {t4-t3:.3f}", "red")
-                #     # log all
-                #     step_log.update(runner_log)
+                else:
+                    t3 = time.time()
+                    # runner_log = env_runner.run(policy, dataset=dataset)
+                    runner_log = env_runner.run(cfg, policy, self.epoch)
+                    # wandb_run.log(runner_log, step=self.epoch)
+                    t4 = time.time()
+                    cprint(f"rollout time: {t4-t3:.3f}", "red")
+                    # log all
+                    step_log.update(runner_log)
 
                 # TODO: add dagger here
                 # 1. should store the final state in env_runner.run

@@ -107,10 +107,21 @@ import numpy as np
 # json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07021653-dp3_goal_gripper_on_agent_abs-horizon-8-num_load_episodes-260_2024.07.02_16.53.16_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-2.json"
 
 # act + mlp abs
-json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07021957-dp3-horizon-8-num_load_episodes-260_2024.07.02_19.57.22_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07021957-dp3-horizon-8-num_load_episodes-260_2024.07.02_19.57.22_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-0.json"
 # json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07021957-dp3-horizon-8-num_load_episodes-260_2024.07.02_19.57.22_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-1.json"
 # json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07021957-dp3-horizon-8-num_load_episodes-260_2024.07.02_19.57.22_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-2.json"
 
+# [Chialiang]   
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-0-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-1-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-2-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-3-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-4-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-5-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-6-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-7-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-8-0.json"
+# json_results = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles-9-0.json"
 
 with open(json_results) as f:
     data = json.load(f)

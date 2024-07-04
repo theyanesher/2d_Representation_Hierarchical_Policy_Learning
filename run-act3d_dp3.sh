@@ -8,6 +8,9 @@ if [ $# -lt 1 ]; then
     exit
 fi
 
+# /mnt/ch/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-00/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/
+# /mnt/ch/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+
 # demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 # # save_data_name=0527-act3d-always-close
 # save_data_name=0626-act3d-obj-41510-displacement-to-handle
@@ -19,11 +22,11 @@ fi
 # post_fix='dp3_goal_gripper_whole'
 # post_fix='dp3_goal_gripper_part'
 
-post_fix='act3d_goal_mlp'
+post_fix='dp3_goal_gripper_dense'
 # post_fix='act3d_goal_mlp_displacement_gripper_to_object'
 demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 # save_data_name=0531-act3d-obj-45448
-save_data_name="0630-act3d-obj-45448-remove-reaching-collision-resize-2-full-${post_fix}"
+save_data_name="0703-act3d-obj-45448-remove-reaching-collision-resize-2-full-${post_fix}"
 # save_data_name='debug'
 exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
 task_beg_idx=0
@@ -65,26 +68,30 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=2
 
 if [ $func = 'train' ]; then 
 
     # observation_mode="dp3_goal_gripper_whole"
     # observation_mode="dp3_goal_gripper_part"
+    observation_mode='dp3_goal_gripper_dense'
     # observation_mode="dp3_goal_gripper_on_agent"
-    observation_mode="dp3"
+    # observation_mode="dp3"
     # observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
     # observation_mode="act3d_goal"
     # observation_mode='act3d_goal_displacement_gripper_to_object'
-    save_data_name_0=0617-act3d-obj-41510-remove-reaching-collision-resize-2-goal
+    # save_data_name_0=0617-act3d-obj-41510-remove-reaching-collision-resize-2-goal
     # save_data_name_1=0624-act3d-obj-45448-remove-reaching-collision-resize-2-full-goal_pcd_cond
     # save_data_name_1="0627-act3d-obj-45448-remove-reaching-collision-resize-2-full-${observation_mode}"
     # save_data_name_1=0701-act3d-obj-45448-remove-reaching-collision-resize-2-full-dp3_goal_gripper_whole
     # save_data_name_1=0701-act3d-obj-45448-remove-reaching-collision-resize-2-full-dp3_goal_gripper_part
     # save_data_name_1=0702-dp3-goal_gripper_on_agent
     # save_data_name_1=0702-dp3-goal_gripper_on_agent
-    save_data_name_1=0607-act3d-obj-45448-remove-reaching-collision-resize-2-full
+    # save_data_name_1=0607-act3d-obj-45448-remove-reaching-collision-resize-2-full
+    # save_data_name_1=0703-dp3-goal-whole
+    # save_data_name_1=0703-dp3-goal-part
+    save_data_name_1=0703-dp3-goal-dense
     save_data_name_2=0607-act3d-obj-46462-remove-reaching-collision-resize-2
 
     demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
@@ -105,8 +112,8 @@ if [ $func = 'train' ]; then
     ##########
     train_ratio=0.9 # for generalization
     num_load_episodes=260 # for generalization
-    pc_channel=3 # we should modify this
-    batch_size=256
+    pc_channel=6 # we should modify this
+    batch_size=192
     encoder_type=dp3
     ##########
 
@@ -127,8 +134,8 @@ if [ $func = 'train' ]; then
         # task.dataset.zarr_path="['/scratch/yufei/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']" \
         # task.env_runner.demo_experiment_path="['/scratch/yufei/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']" \
     python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-        task.dataset.zarr_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_1}]" \
-        task.env_runner.demo_experiment_path="[${PROJECT_DIR}/data/dp3_demo/${save_data_name_1}]" \
+        task.dataset.zarr_path="[${PROJECT_DIR}/dp3_demo/${save_data_name_1}]" \
+        task.env_runner.demo_experiment_path="[${PROJECT_DIR}/dp3_demo/${save_data_name_1}]" \
         task.env_runner.experiment_name="[${demo_name_1}]" \
         task.env_runner.experiment_folder="[${exp_folder_1}]" \
         task.env_runner.num_point_in_pc="${pointcloud_num}" \
