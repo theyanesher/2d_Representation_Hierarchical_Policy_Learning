@@ -6,7 +6,7 @@ from omegaconf import OmegaConf
 import pathlib
 from train import TrainDP3Workspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
-from manipulation.utils import build_up_env, save_numpy_as_gif, save_env
+from manipulation.utils import build_up_env, save_numpy_as_gif, save_env, load_env
 import pybullet as p
 import numpy as np
 from copy import deepcopy
@@ -85,13 +85,14 @@ def parallel_reset(args):
             config_path,
             solution_path,
             task_name,
-            init_state_file,
+            None,
             render=False, 
             # render=True, 
             randomize=False,
             obj_id=0,
             horizon=600,
     )
+    load_env(env, load_path=init_state_file)
     
     object_name = "StorageFurniture".lower()
     env.reset()

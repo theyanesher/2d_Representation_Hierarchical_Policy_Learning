@@ -426,8 +426,10 @@ class SimpleEnv(gym.Env):
                     urdf_path = urdf_path[start_idx:]
                     urdf_path = os.path.join(os.environ["PROJECT_DIR"], urdf_path)
                     self.urdf_paths[urdf_name] = urdf_path
-                    
-                urdf_paths = [self.urdf_paths[name] for name in urdf_names]
+                urdf_paths = []
+                for name in urdf_names:
+                    if name in self.urdf_paths:
+                        urdf_paths.append(self.urdf_paths[name])
             if "object_sizes" in restore_state:
                 self.simulator_sizes = restore_state['object_sizes']
                 urdf_sizes = [self.simulator_sizes[name] for name in urdf_names]
@@ -487,10 +489,15 @@ class SimpleEnv(gym.Env):
             # print("Loading object: {} path {}".format(name, path))
             
             name = name.lower()
+            if name == "inside_distractor":
+                continue
             # by default, all objects movable, except the urdf files
             use_fixed_base = (type == 'urdf' and not self.is_distractor[name])
             if type == 'urdf' and moveable: # if gpt specified the object is movable, then it is movable
                 use_fixed_base = False
+            
+            if not moveable:
+                use_fixed_base = True
             
             if type == 'urdf':
                 size = min(size, 1.2)
@@ -516,7 +523,11 @@ class SimpleEnv(gym.Env):
                 obj_y = self.table_bbox_min[1] + pos[1] * table_xy_range[1]
                 obj_z = self.table_height + pos[2]
                 load_pos = [obj_x, obj_y, obj_z]
-            id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
+            try:
+                id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
+            except:
+                path = osp.join(os.environ["PROJECT_DIR"], path)
+                id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
 
             # scale size 
             if name in self.simulator_sizes:

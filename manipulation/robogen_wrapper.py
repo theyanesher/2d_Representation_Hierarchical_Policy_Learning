@@ -40,7 +40,7 @@ class RobogenPointCloudWrapper:
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
-                 observation_mode=None,
+                 observation_mode='dp3',
                  camera_height=480,
                  camera_width=640,
                  elevation=30,
@@ -128,7 +128,7 @@ class RobogenPointCloudWrapper:
 
         self.time_step = 0
         
-        if "act3d_goal" in self.observation_mode:
+        if "goal" in self.observation_mode:
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
@@ -166,7 +166,7 @@ class RobogenPointCloudWrapper:
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
-        if "act3d_goal" in self.observation_mode:
+        if "goal" in self.observation_mode:
             self.grasped_handle = False
         return self._get_observation(only_object=self.only_object)
     
@@ -324,8 +324,6 @@ class RobogenPointCloudWrapper:
                     
                     pcs.append(pc)
                     gripper_pc = self.get_gripper_pc()
-                    # p.addUserDebugPoints(list(gripper_pc), [[0, 1, 0] for _ in range(len(gripper_pc))], 50, 0)
-                    # import pdb; pdb.set_trace()
                     gripper_pcd.append(gripper_pc)
                     
                     segmask_obj_id = segmask & ((1 << 24) - 1)
@@ -334,7 +332,7 @@ class RobogenPointCloudWrapper:
                     object_mask = np.zeros_like(depth).astype(np.float32)
                     object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
 
-                    if not only_object:
+                    if not only_object and object_mask.sum() > 0:
                         ret_object_mask = np.zeros_like(depth).astype(np.float32)
                         # get the bounding box of the object mask
                         min_bound = np.min(np.argwhere(object_mask), axis=0)
@@ -377,26 +375,24 @@ class RobogenPointCloudWrapper:
                     object_mask_indices = np.flatnonzero(object_mask.flatten())
                     pcd_mask_indices.append(object_mask_indices)
                     
-                    if 'goal' in self.observation_mode:
-                        # print("add goal as part of the observation")
-                        # add goal as part of the observation. 
-                        # needs to judge when to switch the goal -- check if the handle has been grasped.  
-                        
-                                
-                        if self._env.grasped_handle:
-                            # print("goal is to open the door")
-                            goal_gripper_pcd = self.final_goal
-                        else:
-                            # print("goal is to grasp the handle")
-                            goal_gripper_pcd = self.grasping_goal
-                        self.goal_gripper_pcd = goal_gripper_pcd
-                            # for point in goal_gripper_pcd:
-                                # p.addUserDebugPoints([point], [[1, 0, 0]], 10, 0)
-                        # for position in goal_gripper_pcd[:-1]:
-                        #     add_sphere(position)
                 else:
                     pcs.append(pc)
                 
+            if 'goal' in self.observation_mode:
+                # print("add goal as part of the observation")
+                # add goal as part of the observation. 
+                # needs to judge when to switch the goal -- check if the handle has been grasped.  
+                
+                        
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+                self.goal_gripper_pcd = goal_gripper_pcd
+                # for position in goal_gripper_pcd[:-1]:
+                #     add_sphere(position)
             
             if 'act3d' not in self.observation_mode:
                 point_cloud = np.concatenate(pcs, axis=0)
@@ -415,6 +411,8 @@ class RobogenPointCloudWrapper:
                 for pc, pcd_mask_indices in zip(pcs, pcd_mask_indices):
                     mask_indices = base_idx + pcd_mask_indices
                     all_masked_indices.append(mask_indices)
+                    if pcd_mask_indices.shape[0] == 0:
+                        continue
                     masked_pc.append(pc[pcd_mask_indices])
                     base_idx += pc.shape[0]
                 point_cloud = np.concatenate(masked_pc, axis=0)
@@ -533,14 +531,25 @@ class RobogenPointCloudWrapper:
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
                 obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
-                if 'goal' in self.observation_mode:
-                    # print("store goal as part of the observation")
-                    obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
-            else:
-                obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
-                obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
-                obs_dict_input['pcd_mask'] = np.zeros((1, 1, 1)).astype(np.uint8)
             
+            else:
+                obs_dict_input['feature_map'] = np.zeros((1, 1, 1, 1)).astype(np.float32)
+                obs_dict_input['gripper_pcd'] = np.zeros((1, 1)).astype(np.float32)
+                obs_dict_input['pcd_mask'] = np.zeros((1,)).astype(np.uint8)
+            if 'goal' in self.observation_mode:
+                # print("store goal as part of the observation")
+                obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
+
+            if 'dp3_goal' in self.observation_mode:
+                ggp = goal_gripper_pcd[3, :]
+                gripper_displacement = ggp - obs_dict_input['agent_pos'][:3]
+                obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], gripper_displacement])
+                obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], goal_gripper_pcd.flatten()])
+                pc_displacement = ggp - obs_dict_input['point_cloud'][:, :3]
+                obs_dict_input['point_cloud'] = np.concatenate([obs_dict_input['point_cloud'], pc_displacement], axis=1)
+                # print("agent_pos shape: ", obs_dict_input['agent_pos'].shape)
+                # print("point_cloud shape: ", obs_dict_input['point_cloud'].shape)
+                
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
