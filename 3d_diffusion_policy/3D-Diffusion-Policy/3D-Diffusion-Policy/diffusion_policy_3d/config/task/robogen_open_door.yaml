@@ -14,7 +14,8 @@ shape_meta: &shape_meta
       shape: [4000, 3] # not important, will use the one saved in dataset
       type: point_cloud
     agent_pos:
-      shape: [10]
+      # shape: [10]
+      shape: [22]
       type: low_dim
   action:
     shape: [10]

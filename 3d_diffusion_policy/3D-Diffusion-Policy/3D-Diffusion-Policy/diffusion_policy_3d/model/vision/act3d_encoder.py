@@ -20,6 +20,7 @@ class Act3dEncoder(nn.Module):
                  observation_space=None,
                  goal_mode=None,
                  mode=None,
+                 use_mlp=False,
                  self_attention=False,
                  **kwargs
                  ):
@@ -33,6 +34,10 @@ class Act3dEncoder(nn.Module):
         self.encoder_output_dim = encoder_output_dim
         self.state_shape = observation_space[self.state_key]
         self.goal_mode = goal_mode
+
+        # [Chialiang]
+        self.use_mlp = use_mlp
+        
         self.self_attention = self_attention
         self.mode = mode
         if self.mode in ['keep_position_feature_in_attention_feature']:
@@ -40,12 +45,25 @@ class Act3dEncoder(nn.Module):
         else:
             vision_output_dim = encoder_output_dim
         
-        vision_encoder = smp.Unet(
-            encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-            encoder_weights=None,     # use `imagenet` pre-trained weights for encoder initialization
-            in_channels=in_channels,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-            classes=vision_output_dim,                      # model output channels (number of classes in your dataset)
-        )
+        # [Chialiang]
+        vision_encoder = None
+        if self.use_mlp:
+            hidden_layer_dim = encoder_output_dim
+            vision_encoder = nn.Sequential(
+                nn.Linear(in_channels, hidden_layer_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_layer_dim, hidden_layer_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_layer_dim, encoder_output_dim)
+            )
+        else :
+            vision_encoder = smp.Unet(
+                encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+                encoder_weights=None,     # use `imagenet` pre-trained weights for encoder initialization
+                in_channels=in_channels,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
+                classes=vision_output_dim,                      # model output channels (number of classes in your dataset)
+            )
+        
         attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
         attn_layers = replace_bn_with_gn(attn_layers)
         vision_encoder = replace_bn_with_gn(vision_encoder)
@@ -129,36 +147,44 @@ class Act3dEncoder(nn.Module):
         agent_pos = observation[self.state_key]
         B = agent_pos.shape[0] #  B = batch_size * obs_horizon
 
-        # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
-        rgb_obs = observation[self.feature_map_key]
-        B, n_cam, h, w, c = rgb_obs.shape
-        rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
-        rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
-        rgb_features = nets['vision_encoder'](rgb_obs)
-        rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
+        if self.use_mlp:
+            rgb_obs_feat = observation[self.point_cloud_key]
+            B, N, C = rgb_obs_feat.shape
+            rgb_obs_flatten = rgb_obs_feat.reshape(-1, C)
+            rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten)
+            rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
+            rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
+            point_cloud = observation[self.point_cloud_key]
+        else:
+            # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
+            rgb_obs = observation[self.feature_map_key]
+            B, n_cam, h, w, c = rgb_obs.shape
+            rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
+            rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
+            rgb_features = nets['vision_encoder'](rgb_obs)
+            rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
+        
+            # NOTE: extract rgb features corresponding to the fpsed points
+            pcd_mask = observation['pcd_mask'] # B * (n * h * w)
+            pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
+            vision_output_dim = rgb_features.shape[-1]
+            rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, vision_output_dim) # shape (num_points, B, encoder_output_dim)
+            if self.mode in ['keep_position_feature_in_attention_feature']:
+                obj_pcd = observation[self.point_cloud_key]
+                _, n_obj, _ = obj_pcd.shape
+                obj_pcd = einops.rearrange(obj_pcd, "B N c -> (B N) c", B=B, N=n_obj)
+                obj_pcd_position_embedding = nets['object_pcd_position_embedding_mlp'](obj_pcd) # shape B*N encoder_output_dim // 3
+                obj_pcd_position_embedding = einops.rearrange(obj_pcd_position_embedding, "(B N) encoder_output_dim -> N B encoder_output_dim", B=B, N=n_obj)
+                rgb_features = torch.cat([rgb_features, obj_pcd_position_embedding], dim=-1)
+        
+            # BUG: before 2024/7/1, the order of the point cloud stored in observation['point_cloud'] does not match the order of the point cloud stored in osbervation['feature_map'] and then sampled using "pcd_mask".
+            # for consistentcy should just use the positiones from feature map and then downsampled using pcd_mask.
+            # point_cloud = observation[self.point_cloud_key] 
+            all_point_positions = observation[self.feature_map_key][:, :, :, :, 2:5]
+            all_point_positions = einops.rearrange(all_point_positions, "B n h w c -> B (n h w) c")
+            object_point_positions = all_point_positions[observation['pcd_mask'] == 1] # shape B num_points 3
+            point_cloud = object_point_positions.reshape(B, -1, 3) # shape (B, num_points, 3)
 
-        
-        # NOTE: extract rgb features corresponding to the fpsed points
-        pcd_mask = observation['pcd_mask'] # B * (n * h * w)
-        pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
-        vision_output_dim = rgb_features.shape[-1]
-        rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, vision_output_dim) # shape (num_points, B, encoder_output_dim)
-        if self.mode in ['keep_position_feature_in_attention_feature']:
-            obj_pcd = observation[self.point_cloud_key]
-            _, n_obj, _ = obj_pcd.shape
-            obj_pcd = einops.rearrange(obj_pcd, "B N c -> (B N) c", B=B, N=n_obj)
-            obj_pcd_position_embedding = nets['object_pcd_position_embedding_mlp'](obj_pcd) # shape B*N encoder_output_dim // 3
-            obj_pcd_position_embedding = einops.rearrange(obj_pcd_position_embedding, "(B N) encoder_output_dim -> N B encoder_output_dim", B=B, N=n_obj)
-            rgb_features = torch.cat([rgb_features, obj_pcd_position_embedding], dim=-1)
-        
-        
-        # BUG: before 2024/7/1, the order of the point cloud stored in observation['point_cloud'] does not match the order of the point cloud stored in osbervation['feature_map'] and then sampled using "pcd_mask".
-        # for consistentcy should just use the positiones from feature map and then downsampled using pcd_mask.
-        # point_cloud = observation[self.point_cloud_key] 
-        all_point_positions = observation[self.feature_map_key][:, :, :, :, 2:5]
-        all_point_positions = einops.rearrange(all_point_positions, "B n h w c -> B (n h w) c")
-        object_point_positions = all_point_positions[observation['pcd_mask'] == 1] # shape B num_points 3
-        point_cloud = object_point_positions.reshape(B, -1, 3) # shape (B, num_points, 3)
         point_cloud_rel_pos_embedding = nets['relative_pe_layer'](point_cloud) # shape B N encoder_output_dim
                        
         num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3

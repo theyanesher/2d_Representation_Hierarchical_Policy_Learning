@@ -43,38 +43,22 @@ n_obs_steps=2
 train_ratio=0.9
 num_load_episodes=260
 
-# observation_mode=act3d
-# observation_mode=act3d_goal
+time_stamp=$(date +%m%d%H%M)
 observation_mode=act3d_displacement_gripper_to_object
-# observation_mode=act3d_goal_displacement_gripper_to_object
 pointcloud_num=4500
 action_dim=10
 agent_pos_dim=10
 pc_channel=3
+batch_size=96
+use_mlp=1
 
-# exp_name="0616-per-step-load-ddp-3-obj-horizon-${horizon}-train-episodes-${num_load_episodes}"
-exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal"
-exp_name="0617-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}"
-exp_name="0622-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal-with-gripper-displacement-to-closest-obj-point"
-# exp_name="0622-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point"
-exp_name="0623-smoothed-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-gripper-goal-with-gripper-displacement-to-closest-obj-point"
-exp_name="0623-smoothed-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point"
-exp_name="0624-per-step-load-ddp-obj-45448-horizon-${horizon}-train-episodes-${num_load_episodes}-with-gripper-displacement-to-closest-obj-point-self-attention"
-exp_name="0624-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention"
-exp_name="0625-ddp-obj-45448-46462-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint"
-exp_name="0627-ddp-obj-45448-46462-41510-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint-no-self-attention"
-exp_name="0629-ddp-obj-45448-46462-41510-hor-${horizon}-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint"
-exp_name="0630-ddp-11-obj-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint"
-exp_name="0630-ddp-11-obj-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint"
-
-exp_name="0701-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
-exp_name="0701-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
+exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
 
 
-torchrun --standalone --nproc_per_node=4 \
+torchrun --standalone --nproc_per_node=2 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
-    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
+    task.dataset.zarr_path="[/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_1}]" \
+    task.env_runner.demo_experiment_path="[/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_1}]" \
     task.env_runner.experiment_name="[${demo_name_1}]" \
     task.env_runner.experiment_folder="[${exp_folder_1}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
@@ -89,22 +73,22 @@ torchrun --standalone --nproc_per_node=4 \
     task.dataset.observation_mode="${observation_mode}" \
     policy.encoder_type=act3d \
     policy.encoder_output_dim=60 \
+    policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
+    policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
+    policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
     task.dataset.enumerate=True \
-    training.rollout_every=2000 \
-    training.checkpoint_every=25 \
+    training.num_epochs=210 \
+    training.rollout_every=10 \
+    training.checkpoint_every=10 \
     task.env_runner.max_steps=35 \
-    training.val_every=25 \
+    training.val_every=10 \
+    task.dataset.train_ratio="${train_ratio}" \
+    task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.kept_in_disk=true \
     task.dataset.load_per_step=true \
-    task.dataset.num_load_episodes="${num_load_episodes}" \
-    task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=30 \
-    val_dataloader.batch_size=30 \
-    policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
+    dataloader.batch_size="${batch_size}" \
+    val_dataloader.batch_size="${batch_size}" \
     policy.act3d_encoder_cfg.self_attention=true \
-    load_checkpoint_path=/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/22.32.34_train_dp3_robogen_open_door/checkpoints/epoch-75.ckpt
-    # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
-    # policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal_not_concat_and_self_attention \
     # policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \
 
 # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval

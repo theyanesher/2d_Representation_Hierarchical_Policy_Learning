@@ -137,14 +137,14 @@ def wrap_obs(list_of_obs):
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
 
-def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
+def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix=''):
     # if type(cfg.task.env_runner.experiment_folder) != list:
     #     cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
     # if type(cfg.task.env_runner.experiment_name) != list:
     #     cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
     # if type(cfg.task.env_runner.demo_experiment_path) != list:
     #     cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
-    
+
     # import pdb; pdb.set_trace()
     opened_joint_angles = {}
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
@@ -314,8 +314,9 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                         "ik_failure": float(ik_failures[idx - beg_idx]),
                         'grasped_handle': float(grasped_handles[idx - beg_idx]),
                     }
-                    
-                with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
+                
+                # [Chialiang]   
+                with open("{}/opened_joint_angles-{}{}.json".format(save_path, dataset_idx, post_fix), "w") as f:
                     json.dump(opened_joint_angles, f, indent=4)
             
             gif_save_exp_name = experiment_folder.split("/")[-2]
@@ -332,11 +333,10 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             pool.map(parallel_save_gif, args_to_run)
             
             
-def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
+def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix=''):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         # import pdb; pdb.set_trace()
-    
         after_reaching_init_state_files = []
         init_state_files = []
         config_files = []
@@ -345,7 +345,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
         experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
         all_experiments = os.listdir(experiment_path)
         all_experiments = sorted(all_experiments)
-        
+
         if demo_experiment_path is not None:
             # demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
             all_subfolder = os.listdir(demo_experiment_path)
@@ -372,7 +372,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
                     label = json.load(f)
                 if not label['good_traj']: continue
-                
+            
             first_stage_states_path = os.path.join(first_step_folder, "states")
             expert_states = os.listdir(first_stage_states_path)
             if len(expert_states) == 0:
@@ -492,7 +492,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 "exp_idx": exp_idx, 
             }
                     
-            with open("{}/opened_joint_angles_{}.json".format(save_path, dataset_idx), "w") as f:
+            with open("{}/opened_joint_angles_{}{}.json".format(save_path, dataset_idx, post_fix), "w") as f:
                 json.dump(opened_joint_angles, f, indent=4)
             
             gif_save_exp_name = experiment_folder.split("/")[-2]
@@ -502,14 +502,14 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
                     float(info["improved_joint_angle"][-1]))
             
-            save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+            # save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
         
 if __name__ == "__main__":
     
     num_worker = 30
     pool = Pool(processes=num_worker)
     
-    checkpoint_name = "epoch-200.ckpt"
+    # checkpoint_name = "epoch-200.ckpt"
 
     ### first generalization experiments 
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0617-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260/2024.06.18/11.34.47_train_dp3_robogen_open_door"
@@ -517,12 +517,33 @@ if __name__ == "__main__":
 
     ### add features as distance to closest object point
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.48.13_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/06301910-dp3_goal_gripper_whole-horizon-8-num_load_episodes-260/2024.06.30/19.10.41_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.22/01.51.29_train_dp3_robogen_open_door"
     
     ### add features as distance to closest object point, with smoothed dataset
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.32.11_train_dp3_robogen_open_door"
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0623-smoothed-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point/2024.06.23/14.29.09_train_dp3_robogen_open_door"
+    # checkpoint_name = "latest.ckpt"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07010740-dp3_goal_gripper_part-horizon-8-num_load_episodes-52/2024.07.01/07.40.15_train_dp3_robogen_open_door"
+    # checkpoint_name = "latest.ckpt"
+   
+
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07010750-act3d_goal-horizon-8-num_load_episodes-52/2024.07.01/07.51.00_train_dp3_robogen_open_door"
+    # act 3d mlp
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07011815-act3d_goal_mlp-horizon-8-num_load_episodes-260/2024.07.01/18.15.27_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07011806-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-260/2024.07.01/18.06.53_train_dp3_robogen_open_door"
+    # dp3 + pcd flow
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07012323-dp3_goal_gripper_whole-horizon-8-num_load_episodes-260/2024.07.01/23.23.26_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07012321-dp3_goal_gripper_part-horizon-8-num_load_episodes-260/2024.07.01/23.21.58_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07020049-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-260/2024.07.02/00.49.27_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07021653-dp3_goal_gripper_on_agent_abs-horizon-8-num_load_episodes-260/2024.07.02/16.53.16_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07021957-dp3-horizon-8-num_load_episodes-260/2024.07.02/19.57.22_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07021705-act3d_goal_mlp-horizon-8-num_load_episodes-100/2024.07.02/17.05.07_train_dp3_robogen_open_door"
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07040935-dp3_goal_gripper_dense-horizon-8-num_load_episodes-260/2024.07.04/09.35.49_train_dp3_robogen_open_door"
     
+    checkpoint_name = "latest.ckpt"
+
     ### goal conditioning, alternating attention + self attention
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
     

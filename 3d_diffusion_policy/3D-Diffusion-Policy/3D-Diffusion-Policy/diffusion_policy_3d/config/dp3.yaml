@@ -77,6 +77,7 @@ policy:
     num_gripper_points: 4
     goal_mode: null
     mode: null
+    use_mlp: false
     self_attention: false
 
   prediction_target: action
