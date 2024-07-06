@@ -94,6 +94,7 @@ class RobogenDataset(BaseDataset):
                 train_masks.append(folder_train_mask)
                 folder_val_mask = np.zeros(num_load_episodes, dtype=bool)
                 folder_val_mask[-int(num_load_episodes*val_ratio):] = True
+                val_masks.append(folder_val_mask)
             
             if not self.kept_in_disk:
                 from diffusion_policy_3d.common.replay_buffer import ReplayBuffer

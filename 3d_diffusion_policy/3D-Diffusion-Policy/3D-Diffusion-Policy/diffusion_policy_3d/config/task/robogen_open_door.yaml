@@ -19,6 +19,8 @@ shape_meta: &shape_meta
       type: low_dim
   action:
     shape: [10]
+  goal_gripper_pcd:
+    shape: [12]
 
 env_runner:
   _target_: diffusion_policy_3d.env_runner.robogen_runner.RoboGenRunner

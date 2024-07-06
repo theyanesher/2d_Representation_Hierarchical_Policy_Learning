@@ -8,14 +8,6 @@ if [ $# -lt 1 ]; then
     exit
 fi
 
-# demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# # save_data_name=0527-act3d-always-close
-# save_data_name=0626-act3d-obj-41510-displacement-to-handle
-# exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
-# task_beg_idx=0
-# task_end_idx=1 # for debugging
-# opened_threshold=0.65
-
 # post_fix='dp3_goal_gripper_whole'
 # post_fix='dp3_goal_gripper_part'
 post_fix='dp3_goal_gripper_dense'
@@ -31,12 +23,13 @@ task_beg_idx=2
 task_end_idx=3
 opened_threshold=0.4
 
-# # demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# # save_data_name=0531-act3d-obj-46462
-# # exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
-# # task_beg_idx=4
-# # task_end_idx=5
-# # opened_threshold=2.6
+demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+# save_data_name=0531-act3d-obj-46462
+# save_data_name=debug
+exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
+task_beg_idx=4
+task_end_idx=5
+opened_threshold=2.6
 
 # observation_mode=act3d
 # observation_mode=act3d_goal

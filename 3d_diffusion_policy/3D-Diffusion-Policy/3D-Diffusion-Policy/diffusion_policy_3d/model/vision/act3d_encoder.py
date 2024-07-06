@@ -21,6 +21,7 @@ class Act3dEncoder(nn.Module):
                  goal_mode=None,
                  mode=None,
                  use_mlp=False,
+                 self_attention=False,
                  **kwargs
                  ):
         super(Act3dEncoder, self).__init__()
@@ -37,6 +38,7 @@ class Act3dEncoder(nn.Module):
         # [Chialiang]
         self.use_mlp = use_mlp
         
+        self.self_attention = self_attention
         self.mode = mode
         if self.mode in ['keep_position_feature_in_attention_feature']:
             vision_output_dim = encoder_output_dim // 3 * 2
@@ -62,12 +64,6 @@ class Act3dEncoder(nn.Module):
                 classes=vision_output_dim,                      # model output channels (number of classes in your dataset)
             )
         
-        # vision_encoder = smp.Unet(
-        #     encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-        #     encoder_weights=None,     # use `imagenet` pre-trained weights for encoder initialization
-        #     in_channels=in_channels,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-        #     classes=vision_output_dim,                      # model output channels (number of classes in your dataset)
-        # )
         attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
         attn_layers = replace_bn_with_gn(attn_layers)
         vision_encoder = replace_bn_with_gn(vision_encoder)
@@ -77,11 +73,14 @@ class Act3dEncoder(nn.Module):
             'attn_layers': attn_layers,
         })
         
+        if self.self_attention:
+            self.nets['self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+            self.nets['self_attn_layers'] = replace_bn_with_gn(self.nets['self_attn_layers'])
+        
         if self.mode in ['keep_position_feature_in_attention_feature', 
                          "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
-            # input_dim = 6 if self.goal_mode == 'cross_attention_to_goal' else 3
             input_dim = 3
-            if self.goal_mode == 'cross_attention_to_goal':
+            if self.goal_mode is not None:
                 input_dim += 3
             if self.mode == "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object":
                 input_dim += 3
@@ -102,7 +101,18 @@ class Act3dEncoder(nn.Module):
         else:
             self.nets['embed'] = nn.Embedding(1, encoder_output_dim)
 
-        if self.goal_mode == 'cross_attention_to_goal':
+        # NOTE: 
+        # cross attention to goal means:
+        # cross attention between current gripper and object -> vec1
+        # cross attention between current gripper and target gripper -> vec2
+        # concatenate vectors -> diffusion -> output
+        
+        # cross attention to goal not concat and self attention means:
+        # cross attention between current gripper and object
+        # cross attention between current gripper and target gripper, keep using the feature obtained from the first cross attention
+        # current gripper self-attention
+
+        if self.goal_mode in ['cross_attention_to_goal', 'cross_attention_to_goal_not_concat_and_self_attention']:
             goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
             goal_attn_layers = replace_bn_with_gn(goal_attn_layers)
             self.nets['goal_attn_layers'] = goal_attn_layers
@@ -111,6 +121,9 @@ class Act3dEncoder(nn.Module):
                 self.nets['goal_embed'] = nn.Embedding(1, encoder_output_dim // 3 * 2)
             else:
                 self.nets['goal_embed'] = nn.Embedding(1, encoder_output_dim)
+            if self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention' or self.self_attention:
+                self.nets['goal_self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+                self.nets['goal_self_attn_layers'] = replace_bn_with_gn(self.nets['goal_self_attn_layers'])
         
         if len(state_mlp_size) == 0:
             raise RuntimeError(f"State mlp size is empty")
@@ -127,98 +140,51 @@ class Act3dEncoder(nn.Module):
         self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
     def forward(self, observation: Dict) -> torch.Tensor:
-        # TODO: the things passed in is already flattend from B, T, ... -> B*T, ...
-
+        # NOTE: the things passed in is already flattend from B, T, ... -> B*T, ...
+        
         nets = self.nets
-
-        # TODO: check the input shape
+        
         agent_pos = observation[self.state_key]
         B = agent_pos.shape[0] #  B = batch_size * obs_horizon
 
-        # # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
-        # rgb_obs = observation[self.feature_map_key]
-        # B, n_cam, h, w, c = rgb_obs.shape
-        # if c == 8: # to fix a small bug for point conditioning data collection
-        #     rgb_obs[:, :, :, :, -3:] = -rgb_obs[:, :, :, :, -3:]
-        # rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
-        # rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
-        # rgb_features = nets['vision_encoder'](rgb_obs)
-        # rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
-
-        
-        # # NOTE: extract rgb features corresponding to the fpsed points
-        # pcd_mask = observation['pcd_mask'] # B * (n * h * w)
-        # pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
-        # vision_output_dim = rgb_features.shape[-1]
-        # rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, vision_output_dim) # shape (num_points, B, encoder_output_dim)
-        # if self.mode in ['keep_position_feature_in_attention_feature']:
-        #     obj_pcd = observation[self.point_cloud_key]
-        #     _, n_obj, _ = obj_pcd.shape
-        #     obj_pcd = einops.rearrange(obj_pcd, "B N c -> (B N) c", B=B, N=n_obj)
-        #     obj_pcd_position_embedding = nets['object_pcd_position_embedding_mlp'](obj_pcd) # shape B*N encoder_output_dim // 3
-        #     obj_pcd_position_embedding = einops.rearrange(obj_pcd_position_embedding, "(B N) encoder_output_dim -> N B encoder_output_dim", B=B, N=n_obj)
-        #     rgb_features = torch.cat([rgb_features, obj_pcd_position_embedding], dim=-1)
-        #########################################################################################
-
-        # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
-
-        # [Chialiang]
         if self.use_mlp:
-
             rgb_obs_feat = observation[self.point_cloud_key]
             B, N, C = rgb_obs_feat.shape
             rgb_obs_flatten = rgb_obs_feat.reshape(-1, C)
             rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten)
             rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
             rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
-
-            # if len(rgb_obs.shape) == 3: # (B N C)
-            
-            #     B, N, C = rgb_obs.shape
-            #     rgb_obs_flatten = rgb_obs.reshape(-1, C)
-
-            #     rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten) # shape BxN encoder_output_dim
-            #     rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
-            #     rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
-            
-            # elif len(rgb_obs.shape) == 5: # (B n_cam h w C)
-
-            #     assert 'pcd_mask' in observation, "Expected pcd_mask to be in observation"
-
-            #     pcd_mask = observation['pcd_mask'] # B * (n * h * w)
-                
-            #     B, n_cam, h, w, C = rgb_obs.shape
-            #     rgb_obs = einops.rearrange(rgb_obs, "B n_cam h w c -> B (n_cam h w) c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
-            #     rgb_obs_flatten = rgb_obs[pcd_mask == 1]
-            #     rgb_obs_flatten = rgb_obs_flatten.reshape(-1, C)
-
-            #     rgb_features_flatten = nets['vision_encoder'](rgb_obs_flatten) # shape BxN encoder_output_dim
-            #     rgb_features = rgb_features_flatten.reshape(B, -1, rgb_features_flatten.shape[-1]) # shape B N encoder_output_dim
-            #     rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
-            
-            # else:
-            #     raise ValueError(f"Expected rgb_obs to have shape (B N C) or (B n_cam h w C), got {rgb_obs.shape}")
-            
-        else :
-
+            point_cloud = observation[self.point_cloud_key]
+        else:
+            # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
             rgb_obs = observation[self.feature_map_key]
             B, n_cam, h, w, c = rgb_obs.shape
-            if c == 8: # to fix a small bug for point conditioning data collection
-                rgb_obs[:, :, :, :, -3:] = -rgb_obs[:, :, :, :, -3:]
             rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
             rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
             rgb_features = nets['vision_encoder'](rgb_obs)
             rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
-            
+        
             # NOTE: extract rgb features corresponding to the fpsed points
             pcd_mask = observation['pcd_mask'] # B * (n * h * w)
             pcd_mask = einops.rearrange(pcd_mask, "B N -> N B")
             vision_output_dim = rgb_features.shape[-1]
             rgb_features = rgb_features[pcd_mask == 1].reshape(-1, B, vision_output_dim) # shape (num_points, B, encoder_output_dim)
+            if self.mode in ['keep_position_feature_in_attention_feature']:
+                obj_pcd = observation[self.point_cloud_key]
+                _, n_obj, _ = obj_pcd.shape
+                obj_pcd = einops.rearrange(obj_pcd, "B N c -> (B N) c", B=B, N=n_obj)
+                obj_pcd_position_embedding = nets['object_pcd_position_embedding_mlp'](obj_pcd) # shape B*N encoder_output_dim // 3
+                obj_pcd_position_embedding = einops.rearrange(obj_pcd_position_embedding, "(B N) encoder_output_dim -> N B encoder_output_dim", B=B, N=n_obj)
+                rgb_features = torch.cat([rgb_features, obj_pcd_position_embedding], dim=-1)
+        
+            # BUG: before 2024/7/1, the order of the point cloud stored in observation['point_cloud'] does not match the order of the point cloud stored in osbervation['feature_map'] and then sampled using "pcd_mask".
+            # for consistentcy should just use the positiones from feature map and then downsampled using pcd_mask.
+            # point_cloud = observation[self.point_cloud_key] 
+            all_point_positions = observation[self.feature_map_key][:, :, :, :, 2:5]
+            all_point_positions = einops.rearrange(all_point_positions, "B n h w c -> B (n h w) c")
+            object_point_positions = all_point_positions[observation['pcd_mask'] == 1] # shape B num_points 3
+            point_cloud = object_point_positions.reshape(B, -1, 3) # shape (B, num_points, 3)
 
-        #########################################################################################
-            
-        point_cloud = observation[self.point_cloud_key]
         point_cloud_rel_pos_embedding = nets['relative_pe_layer'](point_cloud) # shape B N encoder_output_dim
                        
         num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3
@@ -227,7 +193,7 @@ class Act3dEncoder(nn.Module):
         gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](gripper_pcd) # shape B num_gripper_points encoder_output_dim
         gripper_pcd_features = nets['embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
         if self.mode in ['keep_position_feature_in_attention_feature', "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
-            if self.goal_mode == 'cross_attention_to_goal':
+            if self.goal_mode is not None:
                 displacement_to_goal = observation['goal_gripper_pcd'] - observation['gripper_pcd']
                 input_to_position_embedding = torch.cat([gripper_pcd, displacement_to_goal], dim=-1)
                 if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
@@ -252,11 +218,21 @@ class Act3dEncoder(nn.Module):
             query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
         )[-1]
         
-        rgb_features = einops.rearrange(
-            attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
+        if not self.self_attention:
+            rgb_features = einops.rearrange(
+                attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
+        else:
+            self_attn_output = nets['self_attn_layers'](
+                query=attn_output, value=attn_output,
+                query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+            )[-1]
+            rgb_features = einops.rearrange(
+                self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+            
+        state_feat = self.state_mlp(agent_pos)  # B * 64
+        obs_features = torch.cat([rgb_features, state_feat], dim=-1)
 
-        if self.goal_mode == 'cross_attention_to_goal':
-            # print("Cross attention to goal")
+        if self.goal_mode in ['cross_attention_to_goal', "cross_attention_to_goal_not_concat_and_self_attention"]:
             goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation['goal_gripper_pcd']) # shape B num_gripper_points encoder_output_dim
             goal_gripper_pcd_features = nets['goal_embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
             if self.mode in ['keep_position_feature_in_attention_feature', "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
@@ -270,19 +246,35 @@ class Act3dEncoder(nn.Module):
                 goal_gripper_pcd_position_embedding = einops.rearrange(goal_gripper_pcd_position_embedding, "(B num_gripper_points) encoder_output_dim -> num_gripper_points B encoder_output_dim", B=B, num_gripper_points=self.num_gripper_points)
                 goal_gripper_pcd_features = torch.cat([goal_gripper_pcd_features, goal_gripper_pcd_position_embedding], dim=-1)
             
-            goal_attn_output = nets['goal_attn_layers'](query=gripper_pcd_features, value=goal_gripper_pcd_features,
-                query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
-            )[-1]
+            if self.goal_mode == 'cross_attention_to_goal': # using original gripper pcd features for cross attention to goal and concat it with features from gripper object cross attention
+                goal_attn_output = nets['goal_attn_layers'](query=gripper_pcd_features, value=goal_gripper_pcd_features,
+                    query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
+                )[-1]
+                
+                if self.self_attention:
+                    goal_attn_output = nets['goal_self_attn_layers'](query=goal_attn_output, value=goal_attn_output,
+                        query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+                    )[-1]
+                
+                goal_features = einops.rearrange(
+                    goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+                obs_features = torch.cat([obs_features, goal_features], dim=-1)     
+                
+                
+            elif self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention': # using gripper features obtained from cross attention to object, and then do self attention
+                goal_attn_output = nets['goal_attn_layers'](query=attn_output, value=goal_gripper_pcd_features,
+                    query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
+                )[-1]
+                
+                gripper_self_attn_output = nets['goal_self_attn_layers'](query=goal_attn_output, value=goal_attn_output,
+                    query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+                )[-1]
+                
+                goal_features = einops.rearrange(
+                    gripper_self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
             
-            goal_features = einops.rearrange(
-                goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+                obs_features = torch.cat([goal_features, state_feat], dim=-1)
         
-        
-        state_feat = self.state_mlp(agent_pos)  # B * 64
-        
-        obs_features = torch.cat([rgb_features, state_feat], dim=-1)
-        if self.goal_mode == 'cross_attention_to_goal':
-            obs_features = torch.cat([obs_features, goal_features], dim=-1)
         return obs_features
     
     def output_shape(self):

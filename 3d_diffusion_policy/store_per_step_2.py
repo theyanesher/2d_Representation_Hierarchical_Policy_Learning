@@ -110,7 +110,6 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
         filter_action = False
         
         if i >= after_contact_idx and i < opening_start_idx:
-            # cprint("time idx {} delta finger angle: {}".format(i, delta_finger_angle), 'red')
             if np.abs(delta_finger_angle) < min_finger_angle_diff:
                 filter_action = True
         
@@ -154,13 +153,28 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
 
 
 # store goal grippre pcd and gripper distance to closest object point
-new_zarr_path = "/scratch/yufei/dp3_demo/0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point"
-zarr_path = "data/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed"
-demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+# new_zarr_path = "/scratch/yufei/dp3_demo/0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point"
+# zarr_path = "data/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed"
+# demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
-new_zarr_path = "/scratch/yufei/dp3_demo/0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
-zarr_path = "data/dp3_demo/0531-act3d-obj-46462"
-demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+# new_zarr_path = "/scratch/yufei/dp3_demo/0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
+# zarr_path = "data/dp3_demo/0531-act3d-obj-46462"
+# demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+
+# new_zarr_path = "/scratch/yufei/dp3_demo/0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
+# zarr_path = "data/dp3_demo/0527-act3d-always-close"
+# demo_path = "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+
+import argparse
+args = argparse.ArgumentParser()
+args.add_argument('--zarr_path', type=str, default="data/dp3_demo/0622-act3d-obj-45448-reach-to-contact-smoothed")
+args.add_argument('--demo_path', type=str, default="data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first")
+args.add_argument('--new_zarr_path', type=str, default="/scratch/yufei/dp3_demo/0623-act3d-obj-45448-reach-to-contact-smoothed-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point")
+args.add_argument('--add_gripper_goal_obs', type=int, default=1)
+args.add_argument('--add_gripper_distance_to_closest_point', type=int, default=1)
+args.add_argument('--combine_action_steps', type=int, default=2)
+args.add_argument('--remove_collision', type=int, default=0)
+args.add_argument('--filter_close_zero_action', type=int, default=1)
 
 all_subfolder = os.listdir(zarr_path)
 for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
@@ -175,16 +189,17 @@ per_episode_root = []
 keys = ['state', 'action', 'point_cloud']
 keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
 
-add_gripper_goal_obs = True
-add_gripper_distance_to_closest_point = True
-combine_action_steps = 2
-remove_collision = True
-filter_close_zero_action = True
+# add_gripper_goal_obs = True
+# add_gripper_distance_to_closest_point = True
+# combine_action_steps = 2
+# remove_collision = True
+# filter_close_zero_action = True
 
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]
     # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_door_handle_primitive", 'stage_lengths.json')
-    stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_drawer_primitive", 'stage_lengths.json')
+    stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_door_primitive", 'stage_lengths.json')
+    # stage_lengths_json_file = os.path.join(demo_path, exp_name, "grasp_the_handle_of_the_drawer_primitive", 'stage_lengths.json')
     with open(stage_lengths_json_file, 'r') as f:
         stage_lengths = json.load(f)
     
