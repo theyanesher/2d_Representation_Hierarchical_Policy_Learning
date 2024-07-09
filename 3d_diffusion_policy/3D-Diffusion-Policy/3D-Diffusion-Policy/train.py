@@ -103,7 +103,6 @@ class TrainDP3Workspace:
         if cfg.load_checkpoint_path is not None:
             print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
             self.load_checkpoint(path=cfg.load_checkpoint_path)
-
         # configure dataset
         print(cfg.task.dataset)
         dataset: BaseDataset
@@ -275,15 +274,15 @@ class TrainDP3Workspace:
                 
                 if self.epoch == 0 and not cfg.eval_first:
                     pass
-                else:
-                    t3 = time.time()
-                    # runner_log = env_runner.run(policy, dataset=dataset)
-                    runner_log = env_runner.run(cfg, policy, self.epoch)
-                    # wandb_run.log(runner_log, step=self.epoch)
-                    t4 = time.time()
-                    cprint(f"rollout time: {t4-t3:.3f}", "red")
-                    # log all
-                    step_log.update(runner_log)
+                # else:
+                #     t3 = time.time()
+                #     # runner_log = env_runner.run(policy, dataset=dataset)
+                #     runner_log = env_runner.run(cfg, policy, self.epoch)
+                #     # wandb_run.log(runner_log, step=self.epoch)
+                #     t4 = time.time()
+                #     cprint(f"rollout time: {t4-t3:.3f}", "red")
+                #     # log all
+                #     step_log.update(runner_log)
 
                 # TODO: add dagger here
                 # 1. should store the final state in env_runner.run

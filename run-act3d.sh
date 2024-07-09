@@ -16,21 +16,6 @@ fi
 # task_end_idx=1 # for debugging
 # opened_threshold=0.65
 
-# post_fix='dp3_goal_gripper_whole'
-# post_fix='dp3_goal_gripper_part'
-post_fix='dp3_goal_gripper_dense'
-# post_fix='act3d_goal_mlp'
-# post_fix='act3d_goal_mlp_displacement_gripper_to_object'
-demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# save_data_name=0531-act3d-obj-45448
-save_data_name="0703-act3d-obj-45448-remove-reaching-collision-resize-2-full-${post_fix}"
-# save_data_name='debug'
-exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
-task_beg_idx=2
-task_end_idx=3
-opened_threshold=0.4
-
 # # demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 # # save_data_name=0531-act3d-obj-46462
 # # exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
@@ -43,7 +28,6 @@ opened_threshold=0.4
 # observation_mode=dp3_goal_gripper
 # observation_mode=dp3_goal_gripper
 # observation_mode=act3d_goal_gripper_4
-observation_mode="${post_fix}"
 pointcloud_num=4500
 
 # # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
@@ -51,14 +35,72 @@ pointcloud_num=4500
 
 if [ $func = 'collect' ]; then 
 
+    demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+
+    save_data_name=0705-dp3-obj-41510-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-45448-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46462-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46732-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46801-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46874-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46922-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46966-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-47570-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-47578-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-48700-goal_dense_gripper_on_pcd
+
+    task_beg_idx=0
+    task_end_idx=1
+
+    task_beg_idx=2
+    task_end_idx=3
+    
+    task_beg_idx=4
+    task_end_idx=5
+    
+    task_beg_idx=5
+    task_end_idx=6
+    
+    task_beg_idx=6
+    task_end_idx=7
+    
+    task_beg_idx=7
+    task_end_idx=8
+    
+    task_beg_idx=8
+    task_end_idx=9
+    
+    task_beg_idx=9
+    task_end_idx=10
+    
+    task_beg_idx=10
+    task_end_idx=11
+    
+    task_beg_idx=11
+    task_end_idx=12
+    
+    task_beg_idx=12
+    task_end_idx=13
+
+    post_fix='dp3_goal_gripper_dense'
+    observation_mode="${post_fix}"
+
     python 3d_diffusion_policy/extract_data_from_states_2.py --folder_name data/temp/ --object_name storagefurniture \
         --save_path "dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
         --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
         --pointcloud_num "${pointcloud_num}" \
-        --use_extracted 0 \
         --observation_mode "${observation_mode}" \
-        --parallel 0 \
-        --opened_threshold "${opened_threshold}" \
+        --parallel 1 \
         --add_distractors 0 \
         --num_experiment 1000
 fi
@@ -66,15 +108,17 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=7
 
 if [ $func = 'train' ]; then 
 
     # observation_mode="dp3_goal_gripper_whole"
     # observation_mode="dp3_goal_gripper_part"
     # observation_mode="act3d_goal"
-    observation_mode="act3d_goal_mlp"
-    # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    # observation_mode="act3d_goal_mlp"
+    observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    # encoding_mode="keep_position_feature_in_attention_feature"
+    encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # saved data paths
     save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
@@ -104,10 +148,10 @@ if [ $func = 'train' ]; then
     exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_3=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-10/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_4=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46801_2024-03-27-20-37-00/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_5=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46874_2024-03-27-13-57-05/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_6=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46922_2024-03-27-19-42-49/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_3=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-00/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_4=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46801_2024-03-27-20-37-05/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_5=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46874_2024-03-27-13-57-49/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_6=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46922_2024-03-27-19-42-45/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_7=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46966_2024-03-27-16-55-33/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_8=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47570_2024-03-27-21-36-50/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_9=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47578_2024-03-27-14-56-07/task_open_the_door_of_the_storagefurniture_by_its_handle
@@ -122,7 +166,7 @@ if [ $func = 'train' ]; then
     train_ratio=0.9 # for generalization
     num_load_episodes=1000 # for generalization
     pc_channel=3 # we should modify this
-    batch_size=512 #######
+    batch_size=480 #######
     encoder_type=act3d
     use_mlp=1
     in_channels=3 ####
@@ -153,10 +197,11 @@ if [ $func = 'train' ]; then
         policy.encoder_output_dim=60 \
         policy.act3d_encoder_cfg.in_channels=${in_channels} \
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
-        policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \
+        policy.act3d_encoder_cfg.mode="${encoding_mode}" \
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
         task.dataset.enumerate=True \
-        training.num_epochs=210 \
+        load_checkpoint_path="/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07081911-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.08/19.11.50_train_dp3_robogen_open_door/checkpoints/latest.ckpt" \
+        training.num_epochs=110 \
         training.rollout_every=50 \
         training.checkpoint_every=20 \
         task.env_runner.max_steps=35 \
