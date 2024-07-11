@@ -10,22 +10,10 @@ from termcolor import cprint
 import scipy
 import fpsample
 
-
 def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, 
               goal_gripper_pcd, 
               displacement_gripper_to_object,
               save_dir):
-
-
-    if os.path.exists(save_dir):
-        # cprint(f'{save_dir} has been written', 'green')
-        # return
-        os.system('rm -rf {}'.format(save_dir))
-        cprint(f'{save_dir} has been overwritten', 'red')
-
-    zarr_root = zarr.group(save_dir)
-    zarr_data = zarr_root.create_group('data')
-    zarr_meta = zarr_root.create_group('meta')
 
     state_arrays = np.array(state_list)
     point_cloud_arrays = np.array(pc_list)
@@ -139,72 +127,40 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
     base_pc = traj_pc[0]
     base_pos_ori = traj_pos_ori[0]
     if goal_gripper_pcd is not None:
-        base_goal_gripper_pcd = goal_gripper_pcd[0]
+        goal_gripper_pcd_chunk_size = (chunk_size, goal_gripper_pcd.shape[1], goal_gripper_pcd.shape[2])
     if displacement_gripper_to_object is not None:
-        base_displacement_gripper_to_object = displacement_gripper_to_object[0]
+        displacement_gripper_to_object_chunk_size = (chunk_size, displacement_gripper_to_object.shape[1], displacement_gripper_to_object.shape[2])
     
-    filtered_pcs = []
-    filtered_pos_oris = []
-    filtered_feature_maps = []
-    filtered_gripper_pcds = []
-    filtered_pcd_masks = []
-    filtered_goal_gripper_pcds = [] if goal_gripper_pcd is not None else None
-    filtered_displacement_gripper_to_object = [] if displacement_gripper_to_object is not None else None
-    traj_actions = []
+    compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)
     
-    for i in range(len(traj_pos_ori) - 1):
-        target_pos = traj_pos_ori[i+1][:3]
-        delta_pos = np.array(target_pos) - np.array(base_pos)
+    traj_len = len(state_list)
+    for t_idx in range(traj_len):
+        step_save_dir = os.path.join(save_dir, str(t_idx))
+        if not os.path.exists(step_save_dir):
+            os.makedirs(step_save_dir)
+            
+        zarr_root = zarr.group(step_save_dir)
+        zarr_data = zarr_root.create_group('data')
+        zarr_meta = zarr_root.create_group('meta')
+        zarr_data.create_dataset('state', data=state_arrays[t_idx][None, :], chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('point_cloud', data=point_cloud_arrays[t_idx][None, :], chunks=point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('action', data=action_arrays[t_idx][None, :], chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('feature_map', data=feature_map_arrays[t_idx][None, :], chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays[t_idx][None, :], chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('pcd_mask', data=pcd_mask_list[t_idx][None, :], chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
+        if goal_gripper_pcd is not None:
+            zarr_data.create_dataset('goal_gripper_pcd', data=goal_gripper_pcd[t_idx][None, :], chunks=goal_gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        if displacement_gripper_to_object is not None:
+            zarr_data.create_dataset('displacement_gripper_to_object', data=displacement_gripper_to_object[t_idx][None, :], chunks=displacement_gripper_to_object_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
 
-        target_ori_6d = traj_pos_ori[i+1][3:9]
-        base_ori_matrix = rotation_transfer_6D_to_matrix(base_ori_6d)
-        target_ori_matrix = rotation_transfer_6D_to_matrix(target_ori_6d)
-
-        delta_ori_matrix = base_ori_matrix.T @ target_ori_matrix
-        delta_ori_6d = rotation_transfer_matrix_to_6D(delta_ori_matrix)
-        
-        target_finger_angle = traj_pos_ori[i+1][9]
-        delta_finger_angle = target_finger_angle - base_finger_angle
-        filter_action = False
-        
-        if i >= after_contact_idx and i < opening_start_idx:
-            if np.abs(delta_finger_angle) < min_finger_angle_diff:
-                filter_action = True
-        
-        if filter_action:
-            continue
-        else:
-            action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
-                    
-            traj_actions.append(action)
-            filtered_pcs.append(base_pc)
-            filtered_pos_oris.append(base_pos_ori)
-            if goal_gripper_pcd is not None:
-                filtered_goal_gripper_pcds.append(base_goal_gripper_pcd)
-            if displacement_gripper_to_object is not None:
-                filtered_displacement_gripper_to_object.append(base_displacement_gripper_to_object)
-
-            base_pc = traj_pc[i+1]
-            base_pos_ori = traj_pos_ori[i+1]
-            if goal_gripper_pcd is not None:
-                base_goal_gripper_pcd = goal_gripper_pcd[i+1]
-            if displacement_gripper_to_object is not None:
-                base_displacement_gripper_to_object = displacement_gripper_to_object[i+1]
-
-            base_pos = target_pos
-            base_ori_6d = target_ori_6d
-            base_finger_angle = target_finger_angle
-    
+    del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays
+    del zarr_root, zarr_data, zarr_meta
     if goal_gripper_pcd is not None:
-        filtered_goal_gripper_pcds = np.array(filtered_goal_gripper_pcds)
+        del goal_gripper_pcd
     if displacement_gripper_to_object is not None:
-        filtered_displacement_gripper_to_object = np.array(filtered_displacement_gripper_to_object)
-        
-    return np.array(filtered_pcs), np.array(filtered_pos_oris), np.array(traj_actions)
-    return np.array(filtered_pcs), np.array(filtered_pos_oris), np.array(filtered_feature_maps), np.array(filtered_gripper_pcds), \
-        np.array(filtered_pcd_masks), filtered_goal_gripper_pcds, filtered_displacement_gripper_to_object, np.array(traj_actions)
+        del displacement_gripper_to_object
     
-def filter_traj_for_act3d(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, traj_pos_ori, 
+def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, traj_pos_ori, 
                 goal_gripper_pcd, displacement_gripper_to_object,
                 after_contact_idx,
                 opening_start_idx, 
@@ -247,6 +203,7 @@ def filter_traj_for_act3d(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd
     filtered_goal_gripper_pcds = [] if goal_gripper_pcd is not None else None
     filtered_displacement_gripper_to_object = [] if displacement_gripper_to_object is not None else None
     traj_actions = []
+    
     
     for i in range(len(traj_pos_ori) - 1):
         target_pos = traj_pos_ori[i+1][:3]
@@ -473,6 +430,8 @@ keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
 # combine_action_steps = 2
 # remove_collision = True
 # filter_close_zero_action = True
+
+
 
 for zarr_path in tqdm(path_list, desc='Processing'):
     exp_name = zarr_path.split('/')[-1]

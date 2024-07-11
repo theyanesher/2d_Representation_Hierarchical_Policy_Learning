@@ -796,6 +796,7 @@ def save_env(env, save_path=None):
         "urdf_paths": copy.deepcopy(env.urdf_paths),
         "object_sizes": env.simulator_sizes,
         'robot_name': env.robot_name,
+        "grasped_handle": env.grasped_handle,
     }
 
     if env.use_table:
@@ -847,6 +848,9 @@ def load_env(env, load_path=None, state=None):
 
     if "table_path" in state and env.use_table:
         env.table_path = state["table_path"]
+        
+    if "grasped_handle" in state:
+        env.grasped_handle = state["grasped_handle"]
 
     return state
 

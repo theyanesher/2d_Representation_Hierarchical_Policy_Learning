@@ -46,14 +46,16 @@ class DP3(BasePolicy):
             use_state=True,
             encoder_type='pointnet',
             act3d_encoder_cfg=None,
+            prediction_target='action',
             # parameters passed to step
             **kwargs):
         super().__init__()
 
         self.condition_type = condition_type
+        self.prediction_target = prediction_target
 
         # parse shape_meta
-        action_shape = shape_meta['action']['shape']
+        action_shape = shape_meta[self.prediction_target]['shape']
         self.action_shape = action_shape
         if len(action_shape) == 1:
             action_dim = action_shape[0]
@@ -275,7 +277,10 @@ class DP3(BasePolicy):
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
-        action_pred = self.normalizer['action'].unnormalize(naction_pred)
+        if self.prediction_target == 'action':
+            action_pred = self.normalizer[self.prediction_target].unnormalize(naction_pred)
+        else:
+            action_pred = naction_pred
 
         # get action
         start = To - 1
@@ -306,7 +311,11 @@ class DP3(BasePolicy):
             nobs = self.normalizer.normalize(batch['obs'])
         else:
             nobs = batch['obs']
-        nactions = self.normalizer['action'].normalize(batch['action'])
+        
+        if self.prediction_target == 'action':
+            nactions = self.normalizer[self.prediction_target].normalize(batch[self.prediction_target])
+        else:
+            nactions = batch['obs'][self.prediction_target].flatten(start_dim=2)
 
         # import pdb; pdb.set_trace()
 
