@@ -133,27 +133,25 @@ object_ids = [
     '46732', '45132',
     '46801', '45219',
     '46874', '45243',
-    '46922', '45297',
+    '46922', #'45297',
     '46966', '45332',
     '47570', '45378',
     '47578', '45384',
-    '48700',
+    '48700', '45463' # we should use it
 ]
-
-# dp3_goal_gripper_on_agent (problematic)
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07062355-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000_2024.07.06_23.55.21_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 # dp3_goal_gripper_on_agent (fixed)
 json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07080715-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000_2024.07.08_07.16.03_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-# # dp3_goal_gripper_dense
-# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07070127-dp3_goal_gripper_dense-horizon-8-num_load_episodes-1000_2024.07.07_01.27.53_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# dp3_goal_gripper_dense
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07070127-dp3_goal_gripper_dense-horizon-8-num_load_episodes-1000_2024.07.07_01.27.53_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-# # act3d_goal_mlp
-# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# act3d_goal_mlp
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 
-json_results_list = glob.glob(f'{json_results_root}/*all-unseen*.json')
+json_results_list = glob.glob(f'{json_results_root}/*angles-unseen-0.json')
+tag = '48700-0709'
 
 if len(json_results_list) == 0:
     print(f'no files issue')
@@ -234,7 +232,10 @@ for json_results in json_results_list:
         cnt += len(obj_opened_joint_angles)
         normalized_performance = (np.array(obj_opened_joint_angles) - np.array(obj_initial_angles)) / (np.array(obj_expert_angles) - np.array(obj_initial_angles))
         normalized_performance[normalized_performance > 1.0] = 1.0
-        normalized_performance = np.mean(normalized_performance)
+        # normalized_performance[np.isnan(normalized_performance)] = 0
+        # normalized_performance[np.isinf(normalized_performance)] = 0
+        cond = ~(np.isnan(normalized_performance) | np.isinf(normalized_performance))
+        normalized_performance = np.mean(normalized_performance[cond])
 
         mean_grasped_handle = np.mean(obj_grasped_handle)
 
@@ -253,6 +254,10 @@ for json_results in json_results_list:
 
     normalized_performance = (np.array(opened_joint_angles) - np.array(initial_angles)) / (np.array(expert_angles) - np.array(initial_angles))
     normalized_performance[normalized_performance > 1] = 1
+    # normalized_performance[np.isnan(normalized_performance)] = 0
+    # normalized_performance[np.isinf(normalized_performance)] = 0
+    cond = ~(np.isnan(normalized_performance) | np.isinf(normalized_performance))
+    normalized_performance = np.mean(normalized_performance[cond])
     normalized_performance = np.mean(normalized_performance)
 
     mean_grasped_handle = np.mean(grasped_handle)
@@ -303,7 +308,7 @@ for json_results in json_results_list:
 for k, v in zip(nperf_dict.keys(), nperf_dict.values()):
     print(f'{k}, {np.round(np.mean(v),3)}')
 # Figure Size
-fig, ax = plt.subplots(figsize =(16, 9))
+fig, ax = plt.subplots(figsize =(18, 9))
 # ax.hlines(y=np.arange(-1, 1.2, 0.2), xmin=-10000, xmax=1000, colors=[0.7, 0.7, 0.7])
 
 # Horizontal Bar Plot
@@ -314,14 +319,14 @@ grasped_colors += [[17, 0, 255]]
 grasped_colors = np.asarray(grasped_colors) / 255
 grasped_mean = [np.mean(value) for value in grasped_dict.values()]
 grasped_std = [np.std(value) for value in grasped_dict.values()]
-bar1 = ax.bar(X_axis - 0.2, grasped_mean, width=0.4, yerr=grasped_std, color=grasped_colors, zorder=3, label = 'normalized performance')
+bar1 = ax.bar(X_axis - 0.2, grasped_mean, width=0.4, yerr=grasped_std, color=grasped_colors, zorder=3, label = 'grasping success rate')
 
 nperf_colors = [[83,255,126] for _ in range(len(nperf_dict.values()) - 1)]
 nperf_colors += [[29,254,0]]
 nperf_colors = np.asarray(nperf_colors) / 255
 nperf_mean = [np.mean(value) for value in nperf_dict.values()]
 nperf_std = [np.std(value) for value in nperf_dict.values()]
-bar2 = ax.bar(X_axis + 0.2, nperf_mean, width=0.4, yerr=nperf_std, color=nperf_colors, zorder=3, label = 'opened ratio')
+bar2 = ax.bar(X_axis + 0.2, nperf_mean, width=0.4, yerr=nperf_std, color=nperf_colors, zorder=3, label = 'normalized performance')
 
 plt.legend()
 plt.xticks(X_axis, nperf_dict.keys(), fontsize=14)
@@ -332,14 +337,41 @@ plt.xlabel('Object ID', fontsize=18)
 plt.yticks(fontsize=14)
 plt.ylim(0, 1)
 
+strategy = [
+    # 'left',
+    # 'left',
+    # 'back',
+    # 'right',
+    # 'right',
+    # 'right',
+    # 'down',
+    # 'left',
+    # 'right',
+    # 'back',
+    # '',
+
+
+    'right',
+    'back',
+    'back',
+    'back',
+    'right',
+    'back',
+    'right',
+    'right',
+    'right',
+    'right',
+    '',
+]
+
 # Add counts above the two bar graphs
-for rect in bar1+bar2:
+for rect, strat in zip(bar1+bar2, strategy+strategy):
     height = rect.get_height()
-    plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'{height:.04f}', ha='center', va='bottom', fontsize=14)
+    plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'{strat}\n{height:.02f}', ha='center', va='bottom', fontsize=14)
 
 plt.tight_layout()
 
-final_path = f'{parent_path}/unseen_mean_nperf_with_std.jpg'
+final_path = f'{parent_path}/{tag}_mean_nperf_with_std.jpg'
 plt.savefig('{}'.format(final_path))
 print(f'{final_path} has been written')
 

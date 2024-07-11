@@ -366,10 +366,11 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45297/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45297/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle',
         ]
         cfg.task.env_runner.experiment_name = [
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
@@ -378,6 +379,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            # '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
             '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
@@ -390,12 +392,14 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45132',
             '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45219',
             '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45243',
-            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45297',
+            # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45297',
             '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45332',
             '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45378',
             '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45384',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45463',
         ]
 
+    opened_joint_angles = {}
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         # import pdb; pdb.set_trace()
         after_reaching_init_state_files = []
@@ -470,7 +474,6 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
         after_reaching_init_state_files = after_reaching_init_state_files
         config_files = config_files
 
-        opened_joint_angles = {}
 
         if exp_end_ratio is not None:
             exp_end_idx = int(exp_end_ratio * len(config_files))
@@ -650,28 +653,27 @@ if __name__ == "__main__":
     # -------------------- #
     # -       0708       - #
     # -------------------- #
-    
-    # dp3_goal_gripper_on_agent (problematic)
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07062355-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000/2024.07.06/23.55.21_train_dp3_robogen_open_door"
-    demo_experiment_path = '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0705-dp3-obj-48700-goal_gripper_on_agent'
-    new_object = False
 
-    # dp3_goal_gripper_on_agent (fixed)
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07080715-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000/2024.07.08/07.16.03_train_dp3_robogen_open_door"
-    demo_experiment_path = '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0707-dp3-obj-48700-goal_gripper_on_agent'
-    new_object = False
+    # # dp3_goal_gripper_on_agent (fixed)
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07080715-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000/2024.07.08/07.16.03_train_dp3_robogen_open_door"
+    # demo_experiment_path = '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0707-dp3-obj-48700-goal_gripper_on_agent'
+    # new_object = False
 
-    # dp3_goal_gripper_dense
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07070127-dp3_goal_gripper_dense-horizon-8-num_load_episodes-1000/2024.07.07/01.27.53_train_dp3_robogen_open_door"
-    demo_experiment_path = '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0706-dp3-obj-48700-goal_dense_gripper_on_pcd'
-    new_object = False
+    # # dp3_goal_gripper_dense
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07070127-dp3_goal_gripper_dense-horizon-8-num_load_episodes-1000/2024.07.07/01.27.53_train_dp3_robogen_open_door"
+    # demo_experiment_path = '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0706-dp3-obj-48700-goal_dense_gripper_on_pcd'
+    # new_object = False
     
     # # act3d_goal_mlp
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
     # demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
     # new_object = False
 
-    
+    # act3d_goal_mlp displacement
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
+    demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
+    new_object = True
+
     checkpoint_name = "latest.ckpt"
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
@@ -727,10 +729,10 @@ if __name__ == "__main__":
         run_eval_non_parallel(cfg, policy, num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
-                exp_beg_ratio=exp_beg_ratio,
-                exp_end_ratio=exp_end_ratio,
-                # exp_beg_idx=0, exp_end_idx=25,
-                post_fix=f'-all-seen-{i}',
+                # exp_beg_ratio=exp_beg_ratio,
+                # exp_end_ratio=exp_end_ratio,
+                exp_beg_idx=0, exp_end_idx=25,
+                post_fix=f'-all-unseen-{i}',
                 new_object=new_object,
                 demo_experiment_path=demo_experiment_path
         )
