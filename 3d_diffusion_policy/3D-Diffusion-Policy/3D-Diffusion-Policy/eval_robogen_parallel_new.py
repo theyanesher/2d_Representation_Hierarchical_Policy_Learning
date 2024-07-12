@@ -634,28 +634,28 @@ if __name__ == "__main__":
     # act3d_goal_mlp displacement
     exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
     demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
-    new_object = True
+    new_object = False
 
     checkpoint_name = "latest.ckpt"
 
-    ### goal conditioning, alternating attention + self attention
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
+    # ### goal conditioning, alternating attention + self attention
+    # # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
     
-    ### no goal conditioning + self attention
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point-self-attention/2024.06.25/00.47.11_train_dp3_robogen_open_door"
+    # ### no goal conditioning + self attention
+    # # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point-self-attention/2024.06.25/00.47.11_train_dp3_robogen_open_door"
     
-    ### goal conditioning trained on 2 objects
-    checkpoint_name = 'epoch-150.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0625-ddp-obj-45448-46462-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.25/13.53.54_train_dp3_robogen_open_door"
+    # ### goal conditioning trained on 2 objects
+    # checkpoint_name = 'epoch-150.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0625-ddp-obj-45448-46462-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.25/13.53.54_train_dp3_robogen_open_door"
     
-    ### goal conditioning trained on 3 objects
-    checkpoint_name = 'epoch-175.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0627-ddp-obj-45448-46462-41510-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.27/00.42.24_train_dp3_robogen_open_door"
+    # ### goal conditioning trained on 3 objects
+    # checkpoint_name = 'epoch-175.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0627-ddp-obj-45448-46462-41510-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.27/00.42.24_train_dp3_robogen_open_door"
     
-    ### no goal conditioning trained on 3 objects
-    ### goal conditioning trained on 3 objects
-    checkpoint_name = 'epoch-175.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
+    # ### no goal conditioning trained on 3 objects
+    # ### goal conditioning trained on 3 objects
+    # checkpoint_name = 'epoch-175.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
     
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
@@ -681,13 +681,17 @@ if __name__ == "__main__":
     
     # [Chialiang]   
     for i in range(3):
+        save_path = "data/eval_generalization_mulitple_object_multiple_runs_non_parallel/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+            
         run_eval_non_parallel(cfg, policy, num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
-                # exp_beg_ratio=exp_beg_ratio,
-                # exp_end_ratio=exp_end_ratio,
-                exp_beg_idx=0, exp_end_idx=25,
-                post_fix=f'-all-unseen-{i}',
+                exp_beg_ratio=exp_beg_ratio,
+                exp_end_ratio=exp_end_ratio,
+                # exp_beg_idx=0, exp_end_idx=25,
+                post_fix=f'-unseen-{i}',
                 new_object=new_object,
                 demo_experiment_path=demo_experiment_path
         )

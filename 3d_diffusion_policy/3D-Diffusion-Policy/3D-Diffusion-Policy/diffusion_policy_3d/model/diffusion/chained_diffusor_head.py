@@ -17,7 +17,7 @@ class DiffusionHead(Encoder):
                  image_size=(256, 256),
                  embedding_dim=60,
                  output_dim=7,
-                 num_attn_heads=4, # 8
+                 num_attn_heads=4, # 8 [Debug]
                  num_vis_ins_attn_layers=2,
                  num_query_cross_attn_layers=6,
                  use_instruction=False,
@@ -250,6 +250,7 @@ class DiffusionHead(Encoder):
             goal_gripper_feats = goal_gripper_feats + goal_gripper_embs
 
         # Attention layers
+        # [Debug]
         n_trajectory = []
         for attn_round in range(self.attn_rounds):
             for scale in range(self.feat_scales):
@@ -268,7 +269,7 @@ class DiffusionHead(Encoder):
                     curr_gripper_feats, curr_gripper_pos,  # current gripper
                     goal_gripper_feats, goal_gripper_pos,  # goal gripper
                     time_feats, time_pos,  # time
-                    traj_feats, traj_pos, trajectory_mask,  # trajectory
+                    traj_feats, traj_pos, trajectory_mask,  # trajectory  [Debug]
                     attn_round, scale, p_inds
                 )
                 trajectory = torch.cat((
@@ -332,27 +333,27 @@ class DiffusionHead(Encoder):
         l_offset = attn_round * self.feat_scales + scale
         if self.use_instruction:
             traj_feats, _ = self.traj_lang_attention[l_offset](
-                seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,
+                seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,  # [Debug]
                 seq2=instr_feats, seq2_key_padding_mask=None,
                 seq1_pos=None, seq2_pos=None,
                 seq1_sem_pos=traj_time_pos, seq2_sem_pos=None
             )
         traj_feats, _ = self.traj_attention[l_offset](
-            seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,
+            seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,  # [Debug]
             seq2=context_feats, seq2_key_padding_mask=None,
             seq1_pos=traj_pos, seq2_pos=context_pos,
             seq1_sem_pos=traj_time_pos, seq2_sem_pos=None,
             ada_sgnl=time_feats.squeeze(1)
         )
         pos_feats, _ = self.pos_attention[l_offset](
-            seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,
+            seq1=traj_feats, seq1_key_padding_mask=trajectory_mask, # [Debug]
             seq2=context_feats, seq2_key_padding_mask=None,
             seq1_pos=traj_pos, seq2_pos=context_pos,
             seq1_sem_pos=traj_time_pos, seq2_sem_pos=None,
             ada_sgnl=time_feats.squeeze(1)
         )
         rot_feats, _ = self.rot_attention[l_offset](
-            seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,
+            seq1=traj_feats, seq1_key_padding_mask=trajectory_mask, # [Debug]
             seq2=context_feats, seq2_key_padding_mask=None,
             seq1_pos=traj_pos, seq2_pos=context_pos,
             seq1_sem_pos=traj_time_pos, seq2_sem_pos=None,

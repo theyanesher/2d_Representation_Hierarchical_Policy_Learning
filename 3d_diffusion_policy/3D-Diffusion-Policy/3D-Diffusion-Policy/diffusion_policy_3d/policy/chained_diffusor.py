@@ -30,7 +30,7 @@ class DiffusionPlanner(nn.Module):
                  feat_scales_to_use=1,
                  attn_rounds=1,
                  weight_tying=False,
-                 gripper_loc_bounds=[[-1, -1, -1], [1, 1, 1]],
+                 gripper_loc_bounds=[[-1, -1, -1], [1, 1, 1]], # [Debug]
                  rotation_parametrization='quat',
                  diffusion_timesteps=100):
         super().__init__()
