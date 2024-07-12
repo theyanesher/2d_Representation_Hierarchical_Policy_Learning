@@ -149,9 +149,12 @@ json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_p
 # act3d_goal_mlp
 json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
+# act3d_goal_mlp + closest point
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000_2024.07.10_23.27.48_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-json_results_list = glob.glob(f'{json_results_root}/*angles-unseen-0.json')
-tag = '48700-0709'
+
+json_results_list = glob.glob(f'{json_results_root}/*-unseen-*.json')
+tag = 'all_unseen'
 
 if len(json_results_list) == 0:
     print(f'no files issue')
