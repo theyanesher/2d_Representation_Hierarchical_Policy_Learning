@@ -41,7 +41,7 @@ horizon=4
 n_obs_steps=2
 n_action_steps=2
 train_ratio=0.9
-num_load_episodes=260
+num_load_episodes=300
 
 # observation_mode=act3d
 # observation_mode=act3d_goal
@@ -71,14 +71,15 @@ exp_name="0630-ddp-11-obj-hor-${horizon}-train-ep-${num_load_episodes}-gripper-g
 exp_name="0701-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
 exp_name="0701-ddp-obj-45448-hor-${horizon}-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
 exp_name="0701-obj-45448-pred-goal-gripper-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order"
+exp_name="0703-10-obj-pred-goal-gripper-train-ep-${num_load_episodes}-w-gripper-displacement-to-closest-objpoint-self-attention"
 
 
-torchrun --standalone --nproc_per_node=2 \
+torchrun --standalone --nproc_per_node=4 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
-    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_1}]" \
-    task.env_runner.experiment_name="[${demo_name_1}]" \
-    task.env_runner.experiment_folder="[${exp_folder_1}]" \
+    task.dataset.zarr_path="[/scratch/yufei/dp3_demo/${save_data_name_0}, /scratch/yufei/dp3_demo/${save_data_name_1}, /scratch/yufei/dp3_demo/${save_data_name_2}, /scratch/yufei/dp3_demo/${save_data_name_3}, /scratch/yufei/dp3_demo/${save_data_name_4}, /scratch/yufei/dp3_demo/${save_data_name_5}, /scratch/yufei/dp3_demo/${save_data_name_6}, /scratch/yufei/dp3_demo/${save_data_name_7}, /scratch/yufei/dp3_demo/${save_data_name_8}, /scratch/yufei/dp3_demo/${save_data_name_9}]" \
+    task.env_runner.demo_experiment_path="[/scratch/yufei/dp3_demo/${save_data_name_0}, /scratch/yufei/dp3_demo/${save_data_name_1}, /scratch/yufei/dp3_demo/${save_data_name_2}, /scratch/yufei/dp3_demo/${save_data_name_3}, /scratch/yufei/dp3_demo/${save_data_name_4}, /scratch/yufei/dp3_demo/${save_data_name_5}, /scratch/yufei/dp3_demo/${save_data_name_6}, /scratch/yufei/dp3_demo/${save_data_name_7}, /scratch/yufei/dp3_demo/${save_data_name_8}, /scratch/yufei/dp3_demo/${save_data_name_9}]" \
+    task.env_runner.experiment_name="[${demo_name_0}, ${demo_name_1}, ${demo_name_2}, ${demo_name_3}, ${demo_name_4}, ${demo_name_5}, ${demo_name_6}, ${demo_name_7}, ${demo_name_8}, ${demo_name_9}]" \
+    task.env_runner.experiment_folder="[${exp_folder_0}, ${exp_folder_1}, ${exp_folder_2}, ${exp_folder_3}, ${exp_folder_4}, ${exp_folder_5}, ${exp_folder_6}, ${exp_folder_7}, ${exp_folder_8}, ${exp_folder_9}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
     task.env_runner.use_joint_angle="${use_joint_angle}" \
     task.env_runner.use_segmask="${use_segmask}" \
@@ -93,9 +94,9 @@ torchrun --standalone --nproc_per_node=2 \
     policy.encoder_output_dim=60 \
     task.dataset.enumerate=True \
     training.rollout_every=2000 \
-    training.checkpoint_every=25 \
+    training.checkpoint_every=1 \
     task.env_runner.max_steps=35 \
-    training.val_every=25 \
+    training.val_every=5 \
     task.dataset.kept_in_disk=true \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \

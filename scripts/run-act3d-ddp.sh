@@ -37,22 +37,22 @@ exp_folder_8=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_Stora
 exp_folder_9=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47578_2024-03-27-14-56-07/task_open_the_door_of_the_storagefurniture_by_its_handle
 exp_folder_10=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle
 
-# horizon=4
 horizon=8
 n_obs_steps=2
 train_ratio=0.9
 num_load_episodes=260
 
 time_stamp=$(date +%m%d%H%M)
-observation_mode=act3d_displacement_gripper_to_object
+# observation_mode=act3d_displacement_gripper_to_object
+observation_mode=act3d_goal_displacement_gripper_to_object
 pointcloud_num=4500
 action_dim=10
 agent_pos_dim=10
 pc_channel=3
 batch_size=96
-use_mlp=1
+use_mlp=0
 
-exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
+exp_name="${time_stamp}-obj-45448-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
 
 
 torchrun --standalone --nproc_per_node=2 \
@@ -91,6 +91,4 @@ torchrun --standalone --nproc_per_node=2 \
     policy.act3d_encoder_cfg.self_attention=true \
     # policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \
 
-# python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
-# python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug
 # singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif

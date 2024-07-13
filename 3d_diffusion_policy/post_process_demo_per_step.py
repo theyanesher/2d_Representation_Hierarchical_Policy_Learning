@@ -110,7 +110,7 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
         filter_action = False
         
         if i >= after_contact_idx and i < opening_start_idx:
-            if np.abs(delta_finger_angle) < min_finger_angle_diff:
+            if np.abs(delta_finger_angle) < min_finger_angle_diff and filter_close_zero_action:
                 filter_action = True
         
         if filter_action:

@@ -25,15 +25,17 @@ def get_folders_from_id(id):
     solution_path = [x['solution_path'] for x in config if 'solution_path' in x][0]
     return config_path, solution_path
 
-def get_all_test_configs():
-    path = "data/temp"
-    all_tasks = os.listdir(path)
+def get_all_test_configs(root_dir='data/temp', extract_name=None):
+    all_tasks = os.listdir(root_dir)
     all_tasks = sorted(all_tasks)
     yaml_configs = []
     solution_paths = []
     reward_assets = []
+    if extract_name is not None:
+        all_tasks = [x for x in all_tasks if extract_name in x]
+        
     for task in all_tasks:
-        path = os.path.join("data/temp", task)
+        path = os.path.join(root_dir, task)
         yaml_config = [x for x in os.listdir(path) if x.endswith(".yaml")]
         yaml_config_lengths = [len(x) for x in yaml_config]
         least_length = np.argmin(yaml_config_lengths)
@@ -47,8 +49,9 @@ def get_all_test_configs():
             if 'solution_path' in obj:
                 obj['solution_path'] = obj['solution_path'].replace("data/sac_storagefurniture/", "data/temp/")
         for obj in new_config:
+            random_center = np.random.uniform(0.6, 0.7)
             if 'center' in obj:
-                obj['center'] = "[0.7, 0, 0]"
+                obj['center'] = f"[{random_center}, 0, 0]"
             
         with open(config_path, "w") as f:
             yaml.dump(new_config, f)    
@@ -78,32 +81,30 @@ USE_STEPPING_STONE = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="debug")
-parser.add_argument("--beg_idx", type=int, default=12)
-parser.add_argument("--end_idx", type=int, default=13)
+parser.add_argument("--beg_idx", type=int, default=0)
+parser.add_argument("--end_idx", type=int, default=1)
+parser.add_argument("--extract_name", type=str, default=None)
 parser.add_argument("--near_distance", type=float, default=0.15)
 parser.add_argument("--far_distance", type=float, default=0.4)
 
 args = parser.parse_args()
 
-all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
+root_dir = "data/diverse_objects_2"
+all_config_paths, all_solution_paths, reward_assets = get_all_test_configs(root_dir, args.extract_name)
 beg_idx = args.beg_idx
 end_idx = args.end_idx
 all_config_paths = all_config_paths[beg_idx:end_idx]
 all_solution_paths = all_solution_paths[beg_idx:end_idx]
 reward_assets = reward_assets[beg_idx:end_idx]
 
-# exp_name = "0502-vary-obj-init-angle-robot-init-joint-near-handle-larger"
-# exp_name = "0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
-# exp_name = "0505-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
-# exp_name = "0509-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo"
-# args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
-args.exp_name = "0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+# args.exp_name = "0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+args.exp_name = "0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 
 exp_name = args.exp_name
 try_times_min = 0
 try_times_max = 300
 
-for try_idx in range(try_times_min, try_times_max):
+for try_idx in range(try_times_min, try_times_max): 
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
         
         object_name = "storagefurniture"
