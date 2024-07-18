@@ -5,10 +5,52 @@ from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
 from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
 import segmentation_models_pytorch as smp
+from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
+from torchvision.models import mobilenet_v3_small
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
 import einops
 import copy
+
+class ModifiedMobileNetV3Small(nn.Module):
+    def __init__(self, in_channels=5, out_channels=60):
+        super(ModifiedMobileNetV3Small, self).__init__()
+        self.mobilenet_v3_small = mobilenet_v3_small(pretrained=True)
+
+        #######################################
+        # Modify the input feature dimensions #
+        #######################################
+
+        # Create a new convolutional layer with "in_channels" input channels and the same number of output channels
+        orig_conv = self.mobilenet_v3_small.features[0][0]
+        new_conv = nn.Conv2d(in_channels=in_channels, out_channels=orig_conv.out_channels,
+                            kernel_size=orig_conv.kernel_size, stride=orig_conv.stride,
+                            padding=orig_conv.padding, bias=orig_conv.bias is not None)
+
+        # Copy the weights from the original convolutional layer for the first 3 channels
+        with torch.no_grad():
+            new_conv.weight[:, :3, :, :] = orig_conv.weight
+            if new_conv.weight.size(1) > 3:
+                nn.init.kaiming_normal_(new_conv.weight[:, 3:, :, :], mode='fan_out', nonlinearity='relu')
+
+        # Replace the original convolutional layer with the new one
+        self.mobilenet_v3_small.features[0][0] = new_conv
+
+        ##############################################################
+        # Modify the classification head to per-pixel classification #
+        ##############################################################
+
+        self.mobilenet_v3_small.classifier = nn.Identity()  # Remove the classifier
+        # Add a new convolutional layer to adjust the number of channels if needed
+        self.conv = nn.Conv2d(576, out_channels, kernel_size=1)  # Example: 576 to output_dim channels
+        # Add an upsample layer to ensure the output is 256x256
+        self.upsample = nn.Upsample(size=(256, 256), mode='bilinear', align_corners=False)
+
+    def forward(self, x):
+        x = self.mobilenet_v3_small(x)
+        x = self.conv(x)
+        x = self.upsample(x)
+        return x
 
 class Act3dEncoder(nn.Module):
     def __init__(self, 
@@ -21,6 +63,7 @@ class Act3dEncoder(nn.Module):
                  goal_mode=None,
                  mode=None,
                  use_mlp=False,
+                 use_lightweight_unet=False,
                  self_attention=False,
                  **kwargs
                  ):
@@ -37,6 +80,7 @@ class Act3dEncoder(nn.Module):
 
         # [Chialiang]
         self.use_mlp = use_mlp
+        self.use_lightweight_unet = use_lightweight_unet
         
         self.self_attention = self_attention
         self.mode = mode
@@ -56,17 +100,50 @@ class Act3dEncoder(nn.Module):
                 nn.ReLU(),
                 nn.Linear(hidden_layer_dim, encoder_output_dim)
             )
+        elif self.use_lightweight_unet:
+
+            cprint('lightweight UNet', 'green')
+
+            vision_encoder = ModifiedMobileNetV3Small(in_channels=in_channels, out_channels=vision_output_dim)
+            cprint(vision_encoder, 'green')
+
+            # ###################################################################################################################
+
+            # vision_encoder = deeplabv3_mobilenet_v3_large(
+            #     progress=True, # (bool, optional) – If True, displays a progress bar of the download to stderr. Default is True.
+            #     num_classes=vision_output_dim, # (int, optional) – number of output classes of the model (including the background)
+            # )
+
+            # # Get the original first convolutional layer
+            # orig_conv = vision_encoder.backbone['0'][0]
+
+            # # Create a new convolutional layer with 5 input channels and the same number of output channels
+            # new_conv = nn.Conv2d(in_channels=in_channels, out_channels=orig_conv.out_channels,
+            #                     kernel_size=orig_conv.kernel_size, stride=orig_conv.stride,
+            #                     padding=orig_conv.padding, bias=orig_conv.bias is not None)
+
+            # # Copy the weights from the original convolutional layer for the first 3 channels
+            # with torch.no_grad():
+            #     new_conv.weight[:, :3, :, :] = orig_conv.weight
+            #     if new_conv.weight.size(1) > 3:
+            #         nn.init.kaiming_normal_(new_conv.weight[:, 3:, :, :], mode='fan_out', nonlinearity='relu')
+
+            # # Replace the original convolutional layer with the new one
+            # vision_encoder.backbone['0'][0] = new_conv
+            # cprint(vision_encoder, 'green')
+
         else :
+
             vision_encoder = smp.Unet(
                 encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
                 encoder_weights=None,     # use `imagenet` pre-trained weights for encoder initialization
                 in_channels=in_channels,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
                 classes=vision_output_dim,                      # model output channels (number of classes in your dataset)
             )
-        
+            vision_encoder = replace_bn_with_gn(vision_encoder)
+
         attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
         attn_layers = replace_bn_with_gn(attn_layers)
-        vision_encoder = replace_bn_with_gn(vision_encoder)
         self.nets = nn.ModuleDict({
             'vision_encoder': vision_encoder,
             'relative_pe_layer': RotaryPositionEncoding3D(encoder_output_dim),
@@ -162,6 +239,12 @@ class Act3dEncoder(nn.Module):
             rgb_obs = einops.rearrange(rgb_obs, "B n h w c -> B n c h w") # NOTE: our rgb comes in as B n_camera H W C
             rgb_obs = einops.rearrange(rgb_obs, "B n c h w -> (B n) c h w") # NOTE: our rgb comes in as B n_camera H W C
             rgb_features = nets['vision_encoder'](rgb_obs)
+
+            # if self.use_lightweight_unet:
+            #     rgb_features = rgb_features['out']
+
+            cprint(rgb_features.shape, 'green')
+
             rgb_features = einops.rearrange(rgb_features, "(B n_cam) c h w -> (n_cam h w) B c", n_cam=n_cam) # shape N=image_size B encoder_output_dim
         
             # NOTE: extract rgb features corresponding to the fpsed points

@@ -89,6 +89,7 @@ class RobogenPointCloudWrapper:
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
+            cprint(f'act3d_goal_mlp_displacement_gripper_to_object', 'green')
         else:
             self.observation_space = spaces.Dict({
                 'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
@@ -730,6 +731,9 @@ class RobogenPointCloudWrapper:
                 if 'mlp' not in self.observation_mode:
                     obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
                     obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
+                    pointcloud = obs_dict_input['point_cloud']
+                    pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
+                    assert np.all(pointcloud == pointcloud_rgb)
 
                 # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
@@ -737,9 +741,6 @@ class RobogenPointCloudWrapper:
                     obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
 
 
-                pointcloud = obs_dict_input['point_cloud']
-                pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
-                assert np.all(pointcloud == pointcloud_rgb)
                     
                 if 'displacement_gripper_to_object' in self.observation_mode:
                     gripper_pcd = obs_dict_input['gripper_pcd']

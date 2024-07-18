@@ -165,7 +165,6 @@ class DP3(BasePolicy):
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
 
-
         print_params(self)
         
     # ========= inference  ============

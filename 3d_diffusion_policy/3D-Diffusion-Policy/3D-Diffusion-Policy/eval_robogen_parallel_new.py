@@ -678,12 +678,18 @@ if __name__ == "__main__":
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
+    save_path = "data/debug-2/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+        
+    exp_beg_ratio = 0.9
+    exp_end_ratio = 1
     
     # [Chialiang]   
     for i in range(3):
-        save_path = "data/eval_generalization_mulitple_object_multiple_runs_non_parallel/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        # save_path = "data/eval_generalization_mulitple_object_multiple_runs_non_parallel/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        # if not os.path.exists(save_path):
+        #     os.makedirs(save_path)
             
         run_eval_non_parallel(cfg, policy, num_worker, save_path, 
                 pool=pool, 
@@ -691,7 +697,7 @@ if __name__ == "__main__":
                 exp_beg_ratio=exp_beg_ratio,
                 exp_end_ratio=exp_end_ratio,
                 # exp_beg_idx=0, exp_end_idx=25,
-                post_fix=f'-unseen-{i}',
+                post_fix=f'-seen-{i}',
                 new_object=new_object,
                 demo_experiment_path=demo_experiment_path
         )
