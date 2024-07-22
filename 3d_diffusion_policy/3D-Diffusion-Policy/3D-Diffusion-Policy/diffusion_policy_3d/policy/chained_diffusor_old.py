@@ -13,9 +13,6 @@ from diffusion_policy_3d.common.chained_diffusor_utils import (
 import diffusion_policy_3d.model.common.pytorch3d_transforms as pytorch3d_transforms
 # [Debug]
 from diffusion_policy_3d.model.diffusion.chained_diffusor_head import DiffusionHead
-# [Debug]
-from typing import Dict
-
 
 
 class DiffusionPlanner(nn.Module):
@@ -37,17 +34,6 @@ class DiffusionPlanner(nn.Module):
                  rotation_parametrization='quat',
                  diffusion_timesteps=100):
         super().__init__()
-        
-        # [Debug] used keys
-        self.used_keys = [
-            'trajectory',
-            'trajectory_mask',
-            'visible_rgb',
-            'visible_pcd',
-            'curr_gripper',
-            'goal_gripper'
-        ]
-
         self._use_goal = use_goal
         self._use_goal_at_test = use_goal_at_test
         self._rotation_parametrization = rotation_parametrization
@@ -84,6 +70,7 @@ class DiffusionPlanner(nn.Module):
             trajectory_mask,
             rgb_obs,
             pcd_obs,
+            instruction,
             curr_gripper,
             goal_gripper
         ) = fixed_inputs
@@ -96,6 +83,7 @@ class DiffusionPlanner(nn.Module):
             visible_pcd=pcd_obs,
             curr_gripper=curr_gripper,
             goal_gripper=goal_gripper,
+            instruction=instruction
         )
 
     def conditional_sample(self, condition_data, condition_mask, fixed_inputs):
@@ -243,36 +231,28 @@ class DiffusionPlanner(nn.Module):
             if res is not None:
                 signal = torch.cat((signal, res), -1)
         return signal
-    
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        trajectory_mask = obs_dict['trajectory_mask']
-        rgb_obs = obs_dict['visible_rgb']
-        pcd_obs = obs_dict['pcd']
-        pcd_mask = obs_dict['pcd_mask']
-        curr_gripper = obs_dict['curr_gripper']
-        goal_gripper = obs_dict['goal_gripper']
 
-        return self.compute_trajectory(
+    def forward(
+        self,
+        gt_trajectory,
+        trajectory_mask,
+        rgb_obs,
+        pcd_obs,
+        instruction,
+        curr_gripper,
+        goal_gripper,
+        run_inference=False
+    ):
+        # gt_trajectory is expected to be in the quaternion format
+        if run_inference:
+            return self.compute_trajectory(
                 trajectory_mask,
                 rgb_obs,
                 pcd_obs,
+                instruction,
                 curr_gripper,
                 goal_gripper
             )
-
-    def forward(self, batch):
-
-        for key in self.used_keys:
-            assert key in batch, f"Key {key} not in batch"
-
-        gt_trajectory = batch['trajectory'] # [TODO] may be changed to self.prediction_target
-        trajectory_mask = batch['trajectory_mask']
-        rgb_obs = batch['visible_rgb']
-        pcd_obs = batch['visible_pcd']
-        pcd_mask = batch['pcd_mask'] # [TODO] acutally not been used
-        curr_gripper = batch['curr_gripper']
-        goal_gripper = batch['goal_gripper']
-
         # Normalize all pos
         gt_trajectory = gt_trajectory.clone()
         pcd_obs = pcd_obs.clone()
@@ -295,6 +275,7 @@ class DiffusionPlanner(nn.Module):
             trajectory_mask,
             rgb_obs,
             pcd_obs,
+            instruction,
             curr_gripper,
             goal_gripper
         )
@@ -327,7 +308,6 @@ class DiffusionPlanner(nn.Module):
         noisy_trajectory[cond_mask] = cond_data[cond_mask]  # condition
 
         # Predict the noise residual
-        # [Debug] [Here]
         pred = self.policy_forward_pass(
             noisy_trajectory, timesteps,
             fixed_inputs

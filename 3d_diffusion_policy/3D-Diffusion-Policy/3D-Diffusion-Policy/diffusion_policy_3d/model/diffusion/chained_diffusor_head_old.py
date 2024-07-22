@@ -21,7 +21,7 @@ class DiffusionHead(Encoder):
                  num_vis_ins_attn_layers=2,
                  num_query_cross_attn_layers=6,
                  use_instruction=False,
-                 use_goal=True, # [Denug ]use_goal=False
+                 use_goal=False,
                  use_sigma=False,
                  feat_scales_to_use=1,
                  attn_rounds=1,
@@ -202,7 +202,7 @@ class DiffusionHead(Encoder):
 
     def forward(self, trajectory, trajectory_mask, timestep,
                 visible_rgb, visible_pcd, curr_gripper, goal_gripper,
-                ):
+                instruction):
         """
         Arguments:
             trajectory: (B, trajectory_length, 3+6+X)
@@ -212,6 +212,7 @@ class DiffusionHead(Encoder):
             visible_pcd: (B, num_cameras, 3, H, W) in world coordinates
             curr_gripper: (B, output_dim)
             goal_gripper: (B, output_dim)
+            instruction: (B, max_instruction_length, 512)
         """
         # Trajectory features
         traj_feats = self.traj_encoder(trajectory)  # (B, L, F)
@@ -221,16 +222,14 @@ class DiffusionHead(Encoder):
         time_feats, time_pos = self.encode_denoising_timestep(timestep)
 
         # Compute visual features/positional embeddings at different scales
-
-        # [Debug] [Here] the feature map should be modified
         rgb_feats_pyramid, pcd_pyramid = self.encode_images(
             visible_rgb, visible_pcd
         )
 
-        # # Encode instruction (B, 53, F)
-        # instr_feats, instr_pos = None, None
-        # if self.use_instruction:
-        #     instr_feats, instr_pos = self.encode_instruction(instruction)
+        # Encode instruction (B, 53, F)
+        instr_feats, instr_pos = None, None
+        if self.use_instruction:
+            instr_feats, instr_pos = self.encode_instruction(instruction)
 
         # Encode current gripper (B, 1, F)
         curr_gripper_feats = self.curr_gripper_encoder(curr_gripper)

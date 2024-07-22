@@ -1,12 +1,13 @@
 # Adapted from https://github.com/pytorch/vision/blob/v0.11.0/torchvision/models/resnet.py
 
 import torch
+import torch.nn as nn
 from torchvision import transforms
 from typing import Type, Union, List, Any
 from torchvision.models.resnet import _resnet, BasicBlock, Bottleneck, ResNet
 
 
-def load_resnet50(pretrained: bool = False):
+def load_resnet50(pretrained: bool = False, in_channels: int = 5):
     backbone = _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained=pretrained, progress=True)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     return backbone, normalize
@@ -35,6 +36,10 @@ def _resnet(
 class ResNetFeatures(ResNet):
     def __init__(self, block, layers, **kwargs):
         super().__init__(block, layers, **kwargs)
+
+        # [Debug] make the input channel fit our input
+
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
 
     def _forward_impl(self, x: torch.Tensor):
         x = self.conv1(x)

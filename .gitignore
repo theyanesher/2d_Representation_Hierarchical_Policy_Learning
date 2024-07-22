@@ -34,3 +34,6 @@ debug/
 one_traj/
 rename.py
 run-act3d_one.sh
+imgs_copy/
+one_traj/
+trajectory.gif

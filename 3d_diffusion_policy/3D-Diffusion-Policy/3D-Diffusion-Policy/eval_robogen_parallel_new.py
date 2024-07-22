@@ -631,12 +631,17 @@ if __name__ == "__main__":
     # demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
     # new_object = False
 
-    # act3d_goal_mlp displacement
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
-    demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
-    new_object = False
+    # # act3d_goal_mlp displacement
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
+    # demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
+    # new_object = False
 
-    checkpoint_name = "latest.ckpt"
+    # # 0719
+    # # act3d_goal_mlp displacement
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
+    # new_object = False
+
+    # checkpoint_name = "latest.ckpt"
 
     # ### goal conditioning, alternating attention + self attention
     # # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
@@ -685,6 +690,9 @@ if __name__ == "__main__":
     exp_beg_ratio = 0.9
     exp_end_ratio = 1
     
+    exp_beg_ratio = 0.9
+    exp_end_ratio = 1.0
+
     # [Chialiang]   
     for i in range(3):
         # save_path = "data/eval_generalization_mulitple_object_multiple_runs_non_parallel/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)

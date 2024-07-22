@@ -8,8 +8,10 @@ from torchvision.ops import FeaturePyramidNetwork
 from .position_encodings import RotaryPositionEncoding3D, SinusoidalPosEmb
 # [Debug]
 from .chained_diffusor_resnet import load_resnet50
-# [Debug]
-from .chained_diffusor_clip import load_clip
+# # [Debug]
+# from .chained_diffusor_clip import load_clip
+
+# [Debug] custom backbone and normalizer
 
 
 class Encoder(nn.Module):
@@ -19,7 +21,9 @@ class Encoder(nn.Module):
                  image_size=(256, 256),
                  embedding_dim=60,
                  num_sampling_level=3,
-                 use_sigma=False):
+                 use_sigma=False,
+                 in_channels=3 # debug: add in_channels
+                 ): 
         super().__init__()
         assert backbone in ["resnet", "clip"]
         assert image_size in [(128, 128), (256, 256)]
@@ -29,10 +33,12 @@ class Encoder(nn.Module):
         self.num_sampling_level = num_sampling_level
 
         # Frozen backbone
+        # [Debug] change the backbone to smp
+        self.in_channels = in_channels
         if backbone == "resnet":
-            self.backbone, self.normalize = load_resnet50()
-        elif backbone == "clip":
-            self.backbone, self.normalize = load_clip()
+            self.backbone, self.normalize = load_resnet50() # [Debug] Image shape should be changed to in_channels x H x W
+        # elif backbone == "clip":
+        #     self.backbone, self.normalize = load_clip()
         for p in self.backbone.parameters():
             p.requires_grad = False
 
@@ -130,8 +136,9 @@ class Encoder(nn.Module):
         num_cameras = rgb.shape[1]
 
         # Pass each view independently through backbone
+        # [Debug] Rearrange the input tensor to match the expected shape
         rgb = einops.rearrange(rgb, "bt ncam c h w -> (bt ncam) c h w")
-        rgb = self.normalize(rgb)
+        # rgb = self.normalize(rgb) # [Debug] This is not pixel value, so skip this part
         rgb_features = self.backbone(rgb)
 
         # Pass visual features through feature pyramid network
