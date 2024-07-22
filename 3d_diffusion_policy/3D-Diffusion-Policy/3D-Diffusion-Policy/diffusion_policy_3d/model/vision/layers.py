@@ -71,14 +71,17 @@ class FeedforwardLayer(nn.Module):
 
 
 class RelativeCrossAttentionModule(nn.Module):
-    def __init__(self, embedding_dim, num_attn_heads, num_layers):
+    def __init__(self, embedding_dim, num_attn_heads, num_layers, hidden_dim=None):
         super().__init__()
+
+        if hidden_dim is None:
+            hidden_dim = embedding_dim
 
         self.attn_layers = nn.ModuleList()
         self.ffw_layers = nn.ModuleList()
         for _ in range(num_layers):
             self.attn_layers.append(RelativeCrossAttentionLayer(embedding_dim, num_attn_heads))
-            self.ffw_layers.append(FeedforwardLayer(embedding_dim, embedding_dim))
+            self.ffw_layers.append(FeedforwardLayer(embedding_dim, hidden_dim))
 
     def forward(self, query, value, query_pos=None, value_pos=None):
         output = []

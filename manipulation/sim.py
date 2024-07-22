@@ -95,6 +95,7 @@ class SimpleEnv(gym.Env):
 
         self.init_state = None
         self.handle_joint = None
+        self.grasped_handle = False
         self.seed()
         self.set_scene()
         self.setup_camera_rpy()
@@ -137,7 +138,6 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
-        self.grasped_handle = False
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -832,6 +832,7 @@ class SimpleEnv(gym.Env):
                               articulated_init_joint_angles[name]['set_joint_angle_joint_angle'], physicsClientId=self.id)
 
     def reset(self, reset_state=None, object_name='StorageFurniture', open_gripper_at_reset=False):
+        self.grasped_handle = False
         self.set_scene(reset_state)
             
         self.time_step = 0
@@ -852,7 +853,6 @@ class SimpleEnv(gym.Env):
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=friction, physicsClientId=self.id)
 
         self.ik_failure = False
-        self.grasped_handle = False
 
         return self._get_obs()
 
@@ -985,7 +985,7 @@ class SimpleEnv(gym.Env):
                 min_joint_distance = distance_to_cur_angle[min_idx]
                 best_joint_angles = all_possible_solutions[min_idx]
                 agent_joint_angles = best_joint_angles
-                ik_success = min_joint_distance < 0.2
+                ik_success = min_joint_distance < 0.3
             else:
                 ik_success = False
 
@@ -1011,6 +1011,10 @@ class SimpleEnv(gym.Env):
                     p.stepSimulation(physicsClientId=self.id) 
                     
                 while True:
+                    # cur_finger_joint_angles = np.array(agent.get_joint_angles(agent.right_gripper_indices))
+                    # if np.linalg.norm(cur_finger_joint_angles - np.array([finger_joint_angle, finger_joint_angle])) > 1e-3:
+                    #     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)  
+
                     agent.control(agent.controllable_joint_indices, agent_joint_angles)
                     cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
                     if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 1e-4:
@@ -1029,6 +1033,8 @@ class SimpleEnv(gym.Env):
                     
                 
                 end = time.time()
+            else:
+                cprint("IK failed, not doing anything", "red")
             # cprint("control time: {}".format(end - beg), "red")
     
     def take_joint_action(self, action):
@@ -1301,6 +1307,7 @@ class SimpleEnv(gym.Env):
         handle_points = self.all_handle_points
         num_handle_points_within_gripper = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_points)
         # cprint("num_handle_points_within_gripper: {}".format(num_handle_points_within_gripper), "red")
+        distance_eef_to_handle = np.linalg.norm(self.handle_pos.flatten() - cur_eef_pos.flatten())
         if num_handle_points_within_gripper > 0:
             # left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
             # right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
@@ -1315,9 +1322,14 @@ class SimpleEnv(gym.Env):
                 right_distance = scipy.spatial.distance.cdist(handle_points, contact_points_right)
                 min_distance_left = np.min(left_distance)
                 min_distance_right = np.min(right_distance)
-                if min_distance_left < 0.01 and min_distance_right < 0.01:
+                # if min_distance_left < 0.015 and min_distance_right < 0.015:
+                if min_distance_left < 0.01 or min_distance_right < 0.01:
                     grasped_handle = True
                     self.grasped_handle = self.grasped_handle or grasped_handle
+        
+        right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+        left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+        finger_distance = np.linalg.norm(right_finger_pos - left_finger_pos)
         
         return {
             "opened_joint_angle": opened_joint_angle,
@@ -1326,6 +1338,7 @@ class SimpleEnv(gym.Env):
             "initial_joint_angle": self.init_joint_angle,
             "ik_failure": self.ik_failure,
             "grasped_handle": self.grasped_handle,
+            "finger_distance": finger_distance, 
         }
 
     def _get_obs(self):

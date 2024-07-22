@@ -22,6 +22,7 @@ class RobogenDataset(BaseDataset):
             task_name=None,
             observation_mode='segmask',
             enumerate=False,
+            dataset_keys=None,
             **kwargs
             ):
         super().__init__()
@@ -29,13 +30,21 @@ class RobogenDataset(BaseDataset):
         self.task_name = task_name
         self.observation_mode = observation_mode
         
-        keys = ['state', 'action', 'point_cloud']
-        if 'act3d' in observation_mode:
-            keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
-            if 'goal' in observation_mode:
-                keys += ['goal_gripper_pcd']
-        elif 'act3d_pointnet' == observation_mode:
-            keys += ['gripper_pcd']
+        if dataset_keys is None:
+            keys = ['state', 'action', 'point_cloud']
+            if 'act3d' in observation_mode:
+                keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
+                if 'goal' in observation_mode:
+                    keys += ['goal_gripper_pcd']
+                if 'displacement_gripper_to_object' in observation_mode:
+                    keys += ['displacement_gripper_to_object']
+            elif 'act3d_pointnet' == observation_mode:
+                keys += ['gripper_pcd']
+        else:
+            cprint(f"specifying dataset_keys: {dataset_keys}", "red")
+            keys = dataset_keys
+
+        self.keys_ = keys
         
         # try to get kept_in_disk from kwargs, if not, set it to False
         if 'kept_in_disk' in kwargs:
@@ -65,6 +74,8 @@ class RobogenDataset(BaseDataset):
             all_zarr_paths = copy.deepcopy(zarr_path)
             
             all_paths = []
+            train_masks = []
+            val_masks = []
             for zarr_path in all_zarr_paths:
                 all_subfolder = os.listdir(zarr_path)
                 # import pdb; pdb.set_trace()
@@ -78,6 +89,12 @@ class RobogenDataset(BaseDataset):
                 all_subfolder = all_subfolder[:num_load_episodes]
                 zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
                 all_paths += zarr_paths
+                folder_train_mask = np.zeros(num_load_episodes, dtype=bool)
+                folder_train_mask[:int(num_load_episodes*train_ratio)] = True
+                train_masks.append(folder_train_mask)
+                folder_val_mask = np.zeros(num_load_episodes, dtype=bool)
+                folder_val_mask[-int(num_load_episodes*val_ratio):] = True
+                val_masks.append(folder_val_mask)
             
             if not self.kept_in_disk:
                 from diffusion_policy_3d.common.replay_buffer import ReplayBuffer
@@ -87,11 +104,13 @@ class RobogenDataset(BaseDataset):
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step)
                 self.action_welford = self.replay_buffer.action_welford
             
-            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
-            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-            
+            # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+            # train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            # train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
+            train_mask = np.concatenate(train_masks)
+            self.val_mask = np.concatenate(val_masks)
+
         
         if not self.kept_in_disk:
             from diffusion_policy_3d.common.sampler import SequenceSampler
@@ -206,14 +225,20 @@ class RobogenDataset(BaseDataset):
         }
 
         if 'act3d' in self.observation_mode:
-            gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
-            feature_map = sample['feature_map'][:,].astype(np.float32)
-            pcd_mask = sample['pcd_mask'][:,].astype(np.uint8)
-            data['obs']['gripper_pcd'] = gripper_pcd
-            data['obs']['feature_map'] = feature_map
-            data['obs']['pcd_mask'] = pcd_mask
-            if 'goal' in self.observation_mode:
-                data['obs']['goal_gripper_pcd'] = sample['goal_gripper_pcd'][:,].astype(np.float32)
+            # gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
+            # feature_map = sample['feature_map'][:,].astype(np.float32)
+            # pcd_mask = sample['pcd_mask'][:,].astype(np.uint8)
+            # data['obs']['gripper_pcd'] = gripper_pcd
+            # data['obs']['feature_map'] = feature_map
+            # data['obs']['pcd_mask'] = pcd_mask
+            # if 'goal' in self.observation_mode:
+            #     data['obs']['goal_gripper_pcd'] = sample['goal_gripper_pcd'][:,].astype(np.float32)
+            # if 'displacement_gripper_to_object' in self.observation_mode:
+            #     data['obs']['displacement_gripper_to_object'] = sample['displacement_gripper_to_object'][:,].astype(np.float32)
+            for key in self.keys_:
+                if key in ['action']:
+                    continue
+                data['obs'][key] = sample[key][:,].astype(np.float32)
         elif 'act3d_pointnet' == self.observation_mode:
             gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
             data['obs']['gripper_pcd'] = gripper_pcd

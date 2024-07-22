@@ -75,8 +75,11 @@ import numpy as np
 
 # json_results = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_results/0502-vary-obj-init-angle-robot-init-joint-near-handle-larger_2024.05.03_01.50.11_train_dp3_robogen_open_door_checkpoints_epoch-2700-test_mean_score=0.767.ckpt/opened_joint_angles_pregrasped_False.json"
 # json_results = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_results/0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first_2024.05.11_14.45.04_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles.json"
-json_results = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_results/0514-vary-obj-loc-ori-only-handle-points_2024.05.14_02.50.18_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles.json"
+json_results = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug/0602-act3d-obj-46462-train-ratio-0.2_2024.06.02_19.34.59_train_dp3_robogen_open_door_checkpoints_epoch600.ckpt/opened_joint_angles.json"
 # json_results = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_results/0513-vary-obj-loc-ori-init-segmask_2024.05.13_19.01.52_train_dp3_robogen_open_door_checkpoints_latest.ckpt/opened_joint_angles.json"
+
+json_results = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/0622-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-gripper-goal-with-gripper-displacement-to-closest-obj-point_2024.06.22_01.51.29_train_dp3_robogen_open_door_checkpoints_epoch-200.ckpt/opened_joint_angles.json"
+
 with open(json_results) as f:
     data = json.load(f)
     
@@ -84,13 +87,19 @@ opened_joint_angles = []
 expert_angles = []
 initial_angles = []
 for key in data:
-    opened_joint_angles.append(data[key][0])
-    expert_angles.append(data[key][1])
-    initial_angles.append(data[key][2])
+    opened_joint_angles.append(data[key]["final_door_joint_angle"])
+    # expert_angles.append(data[key][1])
+    expert_angles.append(data[key]["expert_door_joint_angle"] if "46462" not in key else 0.27)
+    initial_angles.append(data[key]['initial_joint_angle'])
 
 fig, axes = plt.subplots(1, 2, figsize=(15, 5))
 axes = axes.flatten()
-expert_angles = np.array(expert_angles) - np.array(initial_angles)
+# expert_angles = np.array(expert_angles) - np.array(initial_angles)
+
+normalized_performance = (np.array(opened_joint_angles) - np.array(initial_angles)) / (np.array(expert_angles) - np.array(initial_angles))
+normalized_performance[normalized_performance > 1] = 1
+normalized_performance = np.mean(normalized_performance)
+print(normalized_performance)
 
 ax = axes[0]
 ax.bar(0, np.mean(expert_angles), width=0.25, yerr=np.std(expert_angles), label="Expert", color='black')

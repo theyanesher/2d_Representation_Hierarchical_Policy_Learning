@@ -8,7 +8,7 @@ from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
 from copy import deepcopy
-import pytorch3d.ops as torch3d_ops
+# import pytorch3d.ops as torch3d_ops
 import gym
 from gym import spaces
 import open3d as o3d
@@ -21,6 +21,7 @@ import os
 import json
 import pickle
 import cv2
+import scipy
 
 class RobogenPointCloudWrapper:
     def __init__(self, 
@@ -82,10 +83,11 @@ class RobogenPointCloudWrapper:
             'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            # "goal_gripper_pcd": spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
         if 'goal' in observation_mode:
             self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        if 'displacement_gripper_to_object' in observation_mode:
+            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
 
         for name in self._env.urdf_ids: # randomly center at an object
@@ -132,8 +134,8 @@ class RobogenPointCloudWrapper:
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
-            state_path = os.path.join(parent_path, "grasp_the_door_handle_primitive", "states") # TODO: use the real substep name. 
-            stage_lengths_json_file = os.path.join(parent_path, "grasp_the_door_handle_primitive", 'stage_lengths.json')
+            state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            stage_lengths_json_file = os.path.join(parent_path, "{}_primitive".format(task_name), 'stage_lengths.json')
             with open(stage_lengths_json_file, 'r') as f:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
@@ -163,6 +165,8 @@ class RobogenPointCloudWrapper:
         self.only_object = only_object
 
     def reset(self, **kwargs):
+        if "act3d_goal" in self.observation_mode:
+            self.grasped_handle = False
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
@@ -359,9 +363,11 @@ class RobogenPointCloudWrapper:
                         object_mask[object_mask_indices] = 1
                         object_mask = object_mask.reshape(self.camera_height, self.camera_width)
                         
+
                     if "displacement_to_handle" in self.observation_mode:
                         info = self._env._get_info()
                         handle_pos = np.array(info['handle_pos'])
+                        # delta_to_handle = pc - handle_pos.reshape(1, 3)
                         delta_to_handle = handle_pos.reshape(1, 3) - pc
                         feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
                         assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
@@ -374,6 +380,20 @@ class RobogenPointCloudWrapper:
                     
                     object_mask_indices = np.flatnonzero(object_mask.flatten())
                     pcd_mask_indices.append(object_mask_indices)
+                    
+                    if 'goal' in self.observation_mode:
+                        # print("add goal as part of the observation")
+                        # add goal as part of the observation. 
+                        # needs to judge when to switch the goal -- check if the handle has been grasped.  
+                        
+                                
+                        if self._env.grasped_handle:
+                            # print("goal is to open the door")
+                            goal_gripper_pcd = self.final_goal
+                        else:
+                            # print("goal is to grasp the handle")
+                            goal_gripper_pcd = self.grasping_goal
+                        self.goal_gripper_pcd = goal_gripper_pcd
                     
                 else:
                     pcs.append(pc)
@@ -419,9 +439,9 @@ class RobogenPointCloudWrapper:
                 all_masked_indices = np.concatenate(all_masked_indices)
                 
                 # check
-                # before_fps_pc = point_cloud.copy()
-                # all_pc = np.concatenate(pcs, axis=0)
-                # assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
+                before_fps_pc = point_cloud.copy()
+                all_pc = np.concatenate(pcs, axis=0)
+                assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
            
             # do downsampling of the pcd
             num_points = self.num_points
@@ -453,8 +473,10 @@ class RobogenPointCloudWrapper:
                 point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
                 num_points = torch.tensor([num_points]).cuda()
                 _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+                sampled_indices = np.array(sorted(sampled_indices))
                 point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
+                point_cloud = point_cloud[sampled_indices]
             else:
                 if point_cloud.shape[0] < num_points:
                     to_add_points_num = num_points - point_cloud.shape[0]
@@ -463,6 +485,7 @@ class RobogenPointCloudWrapper:
                 
                 h = min(9, np.log2(num_points))
                 kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
                 point_cloud = point_cloud[kdline_fps_samples_idx]
 
                 if 'act3d' not in self.observation_mode:
@@ -473,9 +496,7 @@ class RobogenPointCloudWrapper:
                     new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
                     
                     # check
-                    # set_a = set([(x[0], x[1], x[2]) for x in point_cloud])
-                    # set_b = set([(x[0], x[1], x[2]) for x in all_pc[new_input_mask == 1]])
-                    # assert set_a == set_b, "Masked point cloud is not the same as the original point cloud"
+                    assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
                     
             end = time.time()
                 
@@ -528,9 +549,24 @@ class RobogenPointCloudWrapper:
             if 'act3d' in self.observation_mode:
                 # TODO: handle multiple camera for act3d observation
                 obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
-                # import pdb; pdb.set_trace()
                 obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
                 obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
+                if 'goal' in self.observation_mode:
+                    obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
+
+
+                pointcloud = obs_dict_input['point_cloud']
+                pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
+                assert np.all(pointcloud == pointcloud_rgb)
+                    
+                if 'displacement_gripper_to_object' in self.observation_mode:
+                    gripper_pcd = obs_dict_input['gripper_pcd']
+                    object_pcd = obs_dict_input['point_cloud']
+                    distance = scipy.spatial.distance.cdist(gripper_pcd, object_pcd)
+                    min_distance_obj_idx = np.argmin(distance, axis=1)
+                    closest_point = object_pcd[min_distance_obj_idx]
+                    displacement = closest_point - gripper_pcd
+                    obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
             
             else:
                 obs_dict_input['feature_map'] = np.zeros((1, 1, 1, 1)).astype(np.float32)

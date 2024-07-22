@@ -2,6 +2,7 @@ name: robogen_open_door
 
 task_name: robogen_open_door
 in_gripper_frame: false
+run_eval_rollout: true
 
 image_shape: &image_shape [3, 640, 480]
 shape_meta: &shape_meta
@@ -18,6 +19,8 @@ shape_meta: &shape_meta
       type: low_dim
   action:
     shape: [10]
+  goal_gripper_pcd:
+    shape: [12]
 
 env_runner:
   _target_: diffusion_policy_3d.env_runner.robogen_runner.RoboGenRunner
@@ -55,3 +58,4 @@ dataset:
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10
+  dataset_keys: None

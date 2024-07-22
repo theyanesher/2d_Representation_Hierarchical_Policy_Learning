@@ -147,13 +147,16 @@ class TrainDP3Workspace:
                 model=self.ema_model)
 
         # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
+        if cfg.task.run_eval_rollout:
+            env_runner: BaseRunner
+            env_runner = hydra.utils.instantiate(
+                cfg.task.env_runner,
+                output_dir=self.output_dir)
 
-        if env_runner is not None:
-            assert isinstance(env_runner, BaseRunner)
+            if env_runner is not None:
+                assert isinstance(env_runner, BaseRunner)
+        else:
+            env_runner = None
         
         cfg.logging.name = str(cfg.logging.name)
         cprint("-----------------------------", "yellow")
@@ -279,7 +282,7 @@ class TrainDP3Workspace:
             policy.eval()
 
             # run rollout
-            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None and os.environ['LOCAL_RANK'] == '0':
+            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and os.environ['LOCAL_RANK'] == '0':
                 # first checkpointing then running the eval
                 if cfg.checkpoint.save_last_ckpt:
                     self.save_checkpoint()
@@ -287,6 +290,8 @@ class TrainDP3Workspace:
                     self.save_snapshot()
                 
                 if self.epoch == 0 and not cfg.eval_first:
+                    pass
+                elif env_runner is None:
                     pass
                 else:
                     t3 = time.time()
@@ -328,7 +333,10 @@ class TrainDP3Workspace:
                     # sample trajectory from training set, and evaluate difference
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
-                    gt_action = batch['action']
+                    if self.cfg.policy.prediction_target == 'action':
+                        gt_action = batch['action']
+                    else:
+                        gt_action = batch['obs'][self.cfg.policy.prediction_target].flatten(start_dim=2)
                     
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']

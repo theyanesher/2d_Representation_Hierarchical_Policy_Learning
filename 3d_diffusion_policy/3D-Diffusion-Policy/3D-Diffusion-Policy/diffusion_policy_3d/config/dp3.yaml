@@ -77,6 +77,15 @@ policy:
     num_gripper_points: 4
     goal_mode: null
     mode: null
+    use_mlp: false
+    self_attention: false
+    use_attn_for_point_features: false
+    pointcloud_backbone: unet # unet, mlp, pointnet2
+
+  prediction_target: action
+
+  noise_model_type: unet # unet, transformer
+  diffusion_attn_embed_dim: 120
 
 
 ema:
@@ -89,14 +98,14 @@ ema:
 
 dataloader:
   batch_size: 30
-  num_workers: 20
+  num_workers: 15
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
   batch_size: 30
-  num_workers: 20
+  num_workers: 15
   shuffle: False
   pin_memory: True
   persistent_workers: False
