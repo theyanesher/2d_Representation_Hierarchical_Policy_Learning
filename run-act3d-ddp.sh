@@ -108,6 +108,7 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
+# export CUDA_VISIBLE_DEVICES=0
 export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
@@ -115,10 +116,10 @@ if [ $func = 'train' ]; then
     # observation_mode="dp3_goal_gripper_whole"
     # observation_mode="dp3_goal_gripper_part"
     # observation_mode="act3d_goal"
-    # observation_mode="act3d_goal_mlp"
-    observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
-    # encoding_mode="keep_position_feature_in_attention_feature"
-    encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
+    observation_mode="act3d_goal_mlp"
+    # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    encoding_mode="keep_position_feature_in_attention_feature"
+    # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # # saved data paths
     # save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
@@ -539,7 +540,7 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
         policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         task.dataset.enumerate=True \
-        training.num_epochs=200 \
+        training.num_epochs=206 \
         training.rollout_every=50 \
         training.checkpoint_every=5 \
         task.env_runner.max_steps=35 \
@@ -548,7 +549,8 @@ if [ $func = 'train' ]; then
         task.dataset.kept_in_disk=true \
         task.dataset.load_per_step=true \
         dataloader.batch_size="${batch_size}" \
-        val_dataloader.batch_size="${batch_size}" \
+        val_dataloader.batch_size="${batch_size}"
+        # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07172356-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.17/23.56.35_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
 
 fi 
 

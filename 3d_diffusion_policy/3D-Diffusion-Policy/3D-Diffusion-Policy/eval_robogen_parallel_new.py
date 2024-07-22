@@ -635,13 +635,20 @@ if __name__ == "__main__":
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
     # demo_experiment_path = '/scratch/chialiang/dp3_demo/0703-act3d-mlp-obj-48700-goal'
     # new_object = False
+    
+    # -------------------- #
+    # -       0719       - #
+    # -------------------- #
 
-    # # 0719
-    # # act3d_goal_mlp displacement
-    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.10/23.27.48_train_dp3_robogen_open_door"
-    # new_object = False
+    # act3d_goal_mlp displacement
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07191257-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.19/12.57.05_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
 
-    # checkpoint_name = "latest.ckpt"
+    # act3d_goal_mlp displacement
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    new_object = False
+    checkpoint_name = "latest.ckpt"
 
     # ### goal conditioning, alternating attention + self attention
     # # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
@@ -707,7 +714,6 @@ if __name__ == "__main__":
                 # exp_beg_idx=0, exp_end_idx=25,
                 post_fix=f'-seen-{i}',
                 new_object=new_object,
-                demo_experiment_path=demo_experiment_path
         )
         # run_eval(cfg, policy, num_worker, save_path, 
         #         pool=pool, 

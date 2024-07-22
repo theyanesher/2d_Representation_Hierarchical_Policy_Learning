@@ -137,21 +137,68 @@ object_ids = [
     '46966', '45332',
     '47570', '45378',
     '47578', '45384',
-    '48700', '45463' # we should use it
+    '48700', '45463', # we should use it
+    '45526',
+    '45661',
+    '45694',
+    '45780',
+    '45910',
+    '45961',
+    '46408',
+    '46417',
+    '46440',
+    '46490',
+    '46762',
+    '46825',
+    '46893',
+    '47235',
+    '47281',
+    '47315',
+    '47529',
+    '47669',
+    '47944',
+    '48063',
+    '48177',
+    '48356',
+    '48623',
+    '48876',
+    '49025',
+    '49062',
+    '49132',
+    '49133',
+    '40417',
+    '41085',
+    '41452',
+    '45162',
+    '45176',
+    '45194',
+    '45203',
+    '45248',
+    '45271',
+    '45290',
+    '45305',
 ]
 
-# dp3_goal_gripper_on_agent (fixed)
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07080715-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000_2024.07.08_07.16.03_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# # dp3_goal_gripper_on_agent (fixed)
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07080715-dp3_goal_gripper_on_agent-horizon-8-num_load_episodes-1000_2024.07.08_07.16.03_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-# dp3_goal_gripper_dense
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07070127-dp3_goal_gripper_dense-horizon-8-num_load_episodes-1000_2024.07.07_01.27.53_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# # dp3_goal_gripper_dense
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07070127-dp3_goal_gripper_dense-horizon-8-num_load_episodes-1000_2024.07.07_01.27.53_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# # act3d_goal_mlp
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# # act3d_goal_mlp + closest point
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000_2024.07.10_23.27.48_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# ==== #
+# 0720 #
+# ==== #
+# act3d_goal_mlp + closest point
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07191257-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000_2024.07.19_12.57.05_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 # act3d_goal_mlp
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.03_19.08.43_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
-
-# act3d_goal_mlp + closest point
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07102327-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000_2024.07.10_23.27.48_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
-
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.20_15.26.54_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 json_results_list = glob.glob(f'{json_results_root}/*-unseen-*.json')
 tag = 'all_unseen'
@@ -168,6 +215,8 @@ nperf_dict = {}
 grasped_dict = {}
 plot_object_ids = []
 plot_nperf = []
+
+debug = 0
 
 for json_results in json_results_list: 
 
@@ -238,6 +287,9 @@ for json_results in json_results_list:
         # normalized_performance[np.isnan(normalized_performance)] = 0
         # normalized_performance[np.isinf(normalized_performance)] = 0
         cond = ~(np.isnan(normalized_performance) | np.isinf(normalized_performance))
+
+        # Debug
+        debug += np.mean(normalized_performance[cond]) * len(normalized_performance[cond])
         normalized_performance = np.mean(normalized_performance[cond])
 
         mean_grasped_handle = np.mean(obj_grasped_handle)
@@ -257,11 +309,11 @@ for json_results in json_results_list:
 
     normalized_performance = (np.array(opened_joint_angles) - np.array(initial_angles)) / (np.array(expert_angles) - np.array(initial_angles))
     normalized_performance[normalized_performance > 1] = 1
-    # normalized_performance[np.isnan(normalized_performance)] = 0
-    # normalized_performance[np.isinf(normalized_performance)] = 0
     cond = ~(np.isnan(normalized_performance) | np.isinf(normalized_performance))
+
+    # Debug
+    debug = debug / len(normalized_performance[cond])
     normalized_performance = np.mean(normalized_performance[cond])
-    normalized_performance = np.mean(normalized_performance)
 
     mean_grasped_handle = np.mean(grasped_handle)
     
@@ -310,6 +362,7 @@ for json_results in json_results_list:
 
 for k, v in zip(nperf_dict.keys(), nperf_dict.values()):
     print(f'{k}, {np.round(np.mean(v),3)}')
+exit(0)
 # Figure Size
 fig, ax = plt.subplots(figsize =(18, 9))
 # ax.hlines(y=np.arange(-1, 1.2, 0.2), xmin=-10000, xmax=1000, colors=[0.7, 0.7, 0.7])
