@@ -8,7 +8,7 @@ from torchvision.models.resnet import _resnet, BasicBlock, Bottleneck, ResNet
 
 
 def load_resnet50(pretrained: bool = False, in_channels: int = 5):
-    backbone = _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained=pretrained, progress=True)
+    backbone = _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained=pretrained, progress=True, in_channels=in_channels)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     return backbone, normalize
 
@@ -19,9 +19,10 @@ def _resnet(
     layers: List[int],
     pretrained: bool,
     progress: bool,
+    in_channels: int = 5,
     **kwargs: Any
 ) -> ResNet:
-    model = ResNetFeatures(block, layers, **kwargs)
+    model = ResNetFeatures(block, layers, in_channels, **kwargs)
     if pretrained:
         if int(torch.__version__[0]) <= 1:
             from torch.hub import load_state_dict_from_url
@@ -34,12 +35,12 @@ def _resnet(
 
 
 class ResNetFeatures(ResNet):
-    def __init__(self, block, layers, **kwargs):
+    def __init__(self, block, layers, in_channels, **kwargs):
         super().__init__(block, layers, **kwargs)
 
         # [Debug] make the input channel fit our input
-
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.in_channels = in_channels
+        self.conv1 = nn.Conv2d(self.in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
     def _forward_impl(self, x: torch.Tensor):
         x = self.conv1(x)

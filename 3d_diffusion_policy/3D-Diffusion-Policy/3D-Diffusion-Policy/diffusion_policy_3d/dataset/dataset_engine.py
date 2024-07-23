@@ -35,7 +35,7 @@ class ChainedDiffusorDataset(Dataset):
         point_cloud_rotate_yaw_range=0.0,
         # for trajectories
         interpolation_length=50,
-        action_dim=8,  # elements of action trajectory to regress
+        action_dim=7,  # elements of action trajectory to regress
         # for chialiang
         val_ratio=0.1,
         train_ratio=0.9,
@@ -121,40 +121,44 @@ class ChainedDiffusorDataset(Dataset):
 
         # one trajectory
         data_group = group['data']
-        print(list(data_group.keys()))
+        # print(list(data_group.keys()))
 
-        pcd = torch.from_numpy(np.asarray(data_group['point_cloud'])).squeeze()
+        # pcd = torch.from_numpy(np.asarray(data_group['point_cloud'])).squeeze()
         current_gripper = torch.from_numpy(np.asarray(data_group['init_pose'])).squeeze()
         target_gripper = torch.from_numpy(np.asarray(data_group['target_pose'])).squeeze()
         feature_map = torch.from_numpy(np.asarray(data_group['feature_map'])).squeeze()
-        feature_map = einops.rearrange(feature_map, 'n_am h w c -> n_am c h w')
+        pcd = feature_map[...,2:]
+        visible_rgb = einops.rearrange(feature_map, 'n_am h w c -> n_am c h w')
+        visible_pcd = einops.rearrange(pcd, 'n_am h w c -> n_am c h w')
+
         pcd_mask = torch.from_numpy(np.asarray(data_group['pcd_mask'])).squeeze()
         trajectory = torch.from_numpy(np.asarray(data_group['trajectory'])).squeeze()
 
         trajectory = self._interpolate_traj(trajectory) 
         trajectory_mask = torch.zeros(trajectory.shape[0], dtype=torch.uint8)
-        # trajectory_mask[0] = 1 # first
+        trajectory_mask[0] = 1 # first
         trajectory_mask[:-1] = 1 # last
 
-        print(f'pcd: {pcd.shape}')
-        print(f'current_gripper: {current_gripper.shape}')
-        print(f'target_gripper: {target_gripper.shape}')
-        print(f'feature_map: {feature_map.shape}')
-        print(f'pcd_mask: {pcd_mask.shape}')
-        print(f'trajectory: {trajectory.shape}')
-        print(f'trajectory_mask: {trajectory_mask.shape}')
-        print()
+        # print(f'pcd: {pcd.shape}')
+        # print(f'current_gripper: {current_gripper.shape}')
+        # print(f'target_gripper: {target_gripper.shape}')
+        # print(f'feature_map: {feature_map.shape}')
+        # print(f'pcd_mask: {pcd_mask.shape}')
+        # print(f'trajectory: {trajectory.shape}')
+        # print(f'trajectory_mask: {trajectory_mask.shape}')
+        # print()
+        # exit(0)
 
         data = {
             'obs': {
-                "trajectory": trajectory.to(torch.float32), 
+                "trajectory": trajectory[:,:self._action_dim].to(torch.float32), 
                 "trajectory_mask": trajectory_mask.bool(), 
-                "visible_rgb": feature_map,  
-                "visible_pcd": feature_map[..., 2:5],  
+                "visible_rgb": visible_rgb,  
+                "visible_pcd": visible_pcd,  
                 # "visible_pcd": pcd,  
                 "pcd_mask": pcd_mask,  # [TODO] actually not been used 
-                "curr_gripper": current_gripper,
-                "goal_gripper": target_gripper, 
+                "curr_gripper": current_gripper[:self._action_dim],
+                "goal_gripper": target_gripper[:self._action_dim], 
             },
             'action': trajectory.to(torch.float32)
         }

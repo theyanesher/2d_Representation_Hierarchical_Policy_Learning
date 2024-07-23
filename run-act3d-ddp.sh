@@ -108,8 +108,8 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
-# export CUDA_VISIBLE_DEVICES=0
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1
+# export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
 
@@ -297,13 +297,14 @@ if [ $func = 'train' ]; then
 
     ##########
     train_ratio=0.9 # for generalization
-    num_load_episodes=1000 # for generalization
+    num_load_episodes=10 # for generalization
     pc_channel=3 # we should modify this
-    batch_size=1024 #######
+    batch_size=256 #1024 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
+    self_attention=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
@@ -539,6 +540,7 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
         policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
+        policy.act3d_encoder_cfg.self_attention="${self_attention}" \
         task.dataset.enumerate=True \
         training.num_epochs=206 \
         training.rollout_every=50 \

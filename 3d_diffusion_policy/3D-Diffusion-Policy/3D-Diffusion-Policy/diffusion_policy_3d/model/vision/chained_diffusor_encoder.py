@@ -17,7 +17,7 @@ from .chained_diffusor_resnet import load_resnet50
 class Encoder(nn.Module):
 
     def __init__(self,
-                 backbone="clip",
+                 backbone="resnet",
                  image_size=(256, 256),
                  embedding_dim=60,
                  num_sampling_level=3,

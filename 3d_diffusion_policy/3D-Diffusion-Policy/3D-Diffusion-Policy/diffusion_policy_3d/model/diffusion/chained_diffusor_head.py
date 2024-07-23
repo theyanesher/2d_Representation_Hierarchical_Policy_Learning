@@ -13,20 +13,21 @@ from diffusion_policy_3d.common.chained_diffusor_utils import find_traj_nn
 class DiffusionHead(Encoder):
 
     def __init__(self,
-                 backbone="clip",
+                 backbone="resnet",
                  image_size=(256, 256),
                  embedding_dim=60,
                  output_dim=7,
                  num_attn_heads=4, # 8 [Debug]
                  num_vis_ins_attn_layers=2,
                  num_query_cross_attn_layers=6,
-                 use_instruction=False,
+                #  use_instruction=False,
                  use_goal=True, # [Denug ]use_goal=False
                  use_sigma=False,
                  feat_scales_to_use=1,
                  attn_rounds=1,
                  weight_tying=False,
                  rotation_parametrization='quat'):
+        
         super().__init__(
             backbone=backbone,
             image_size=image_size,
@@ -34,7 +35,7 @@ class DiffusionHead(Encoder):
             num_sampling_level=feat_scales_to_use,
             use_sigma=use_sigma
         )
-        self.use_instruction = use_instruction
+        # self.use_instruction = use_instruction
         self.use_goal = use_goal
         self.attn_rounds = attn_rounds
         self.feat_scales = feat_scales_to_use
@@ -44,7 +45,7 @@ class DiffusionHead(Encoder):
 
         # Encoders
         self.traj_encoder = nn.Sequential(
-            nn.Linear(9, embedding_dim),
+            nn.Linear(output_dim, embedding_dim),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(embedding_dim, embedding_dim)
@@ -53,30 +54,30 @@ class DiffusionHead(Encoder):
         if use_goal:
             self.goal_gripper_encoder = nn.Linear(output_dim, embedding_dim)
 
-        # Attention from vision to language
-        if use_instruction and weight_tying:
-            layer = ParallelAttention(
-                num_layers=num_vis_ins_attn_layers,
-                d_model=embedding_dim, n_heads=num_attn_heads,
-                self_attention1=False, self_attention2=False,
-                cross_attention1=True, cross_attention2=False
-            )
-            self.vl_attention = nn.ModuleList([
-                layer
-                for _ in range(self.attn_rounds)
-                for _ in range(self.feat_scales)
-            ])
-        elif use_instruction:
-            self.vl_attention = nn.ModuleList([
-                ParallelAttention(
-                    num_layers=num_vis_ins_attn_layers,
-                    d_model=embedding_dim, n_heads=num_attn_heads,
-                    self_attention1=False, self_attention2=False,
-                    cross_attention1=True, cross_attention2=False
-                )
-                for _ in range(self.attn_rounds)
-                for _ in range(self.feat_scales)
-            ])
+        # # Attention from vision to language
+        # if use_instruction and weight_tying:
+        #     layer = ParallelAttention(
+        #         num_layers=num_vis_ins_attn_layers,
+        #         d_model=embedding_dim, n_heads=num_attn_heads,
+        #         self_attention1=False, self_attention2=False,
+        #         cross_attention1=True, cross_attention2=False
+        #     )
+        #     self.vl_attention = nn.ModuleList([
+        #         layer
+        #         for _ in range(self.attn_rounds)
+        #         for _ in range(self.feat_scales)
+        #     ])
+        # elif use_instruction:
+        #     self.vl_attention = nn.ModuleList([
+        #         ParallelAttention(
+        #             num_layers=num_vis_ins_attn_layers,
+        #             d_model=embedding_dim, n_heads=num_attn_heads,
+        #             self_attention1=False, self_attention2=False,
+        #             cross_attention1=True, cross_attention2=False
+        #         )
+        #         for _ in range(self.attn_rounds)
+        #         for _ in range(self.feat_scales)
+        #     ])
 
         # Attention from trajectory queries to language
         if weight_tying:
@@ -222,12 +223,13 @@ class DiffusionHead(Encoder):
 
         # Compute visual features/positional embeddings at different scales
 
-        # [Debug] [Here] the feature map should be modified
+        # [Debug] the feature map should be modified
         rgb_feats_pyramid, pcd_pyramid = self.encode_images(
             visible_rgb, visible_pcd
         )
 
         # # Encode instruction (B, 53, F)
+        # [Debug] we don't have instructions
         # instr_feats, instr_pos = None, None
         # if self.use_instruction:
         #     instr_feats, instr_pos = self.encode_instruction(instruction)
@@ -266,7 +268,7 @@ class DiffusionHead(Encoder):
                 # One attention iteration
                 update = self._one_attention_round(
                     rgb_feats_pyramid, pcd_pyramid,  # visual
-                    instr_feats, instr_pos,  # language
+                    # instr_feats, instr_pos,  # language # [Debug] We don't have instructions
                     curr_gripper_feats, curr_gripper_pos,  # current gripper
                     goal_gripper_feats, goal_gripper_pos,  # goal gripper
                     time_feats, time_pos,  # time
@@ -284,7 +286,7 @@ class DiffusionHead(Encoder):
     def _one_attention_round(
         self,
         rgb_feats_pyramid, pcd_pyramid,  # visual
-        instr_feats, instr_pos,  # language
+        # instr_feats, instr_pos,  # language  # [Debug] We don't have instructions
         curr_gripper_feats, curr_gripper_pos,  # current gripper
         goal_gripper_feats, goal_gripper_pos,  # goal gripper
         time_feats, time_pos,  # time
@@ -307,16 +309,16 @@ class DiffusionHead(Encoder):
             ])
         context_pos = self.relative_pe_layer(context_pos)
 
-        # Language context
-        if self.use_instruction:
-            # Attention from vision to language
-            l_offset = attn_round * self.feat_scales + scale
-            context_feats, _ = self.vl_attention[l_offset](
-                seq1=context_feats, seq1_key_padding_mask=None,
-                seq2=instr_feats, seq2_key_padding_mask=None,
-                seq1_pos=None, seq2_pos=None,
-                seq1_sem_pos=None, seq2_sem_pos=None
-            )
+        # # Language context
+        # if self.use_instruction:
+        #     # Attention from vision to language
+        #     l_offset = attn_round * self.feat_scales + scale
+        #     context_feats, _ = self.vl_attention[l_offset](
+        #         seq1=context_feats, seq1_key_padding_mask=None,
+        #         seq2=instr_feats, seq2_key_padding_mask=None,
+        #         seq1_pos=None, seq2_pos=None,
+        #         seq1_sem_pos=None, seq2_sem_pos=None
+        #     )
 
         # Concatenate rest of context (gripper)
         context_feats = torch.cat([context_feats, curr_gripper_feats], dim=1)
@@ -332,13 +334,13 @@ class DiffusionHead(Encoder):
             torch.arange(0, traj_feats.size(1), device=traj_feats.device)
         )[None].repeat(len(traj_feats), 1, 1)
         l_offset = attn_round * self.feat_scales + scale
-        if self.use_instruction:
-            traj_feats, _ = self.traj_lang_attention[l_offset](
-                seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,  # [Debug]
-                seq2=instr_feats, seq2_key_padding_mask=None,
-                seq1_pos=None, seq2_pos=None,
-                seq1_sem_pos=traj_time_pos, seq2_sem_pos=None
-            )
+        # if self.use_instruction:
+        #     traj_feats, _ = self.traj_lang_attention[l_offset](
+        #         seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,  # [Debug]
+        #         seq2=instr_feats, seq2_key_padding_mask=None,
+        #         seq1_pos=None, seq2_pos=None,
+        #         seq1_sem_pos=traj_time_pos, seq2_sem_pos=None
+        #     )
         traj_feats, _ = self.traj_attention[l_offset](
             seq1=traj_feats, seq1_key_padding_mask=trajectory_mask,  # [Debug]
             seq2=context_feats, seq2_key_padding_mask=None,

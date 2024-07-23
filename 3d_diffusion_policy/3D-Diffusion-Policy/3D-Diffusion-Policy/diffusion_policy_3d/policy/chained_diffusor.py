@@ -21,14 +21,13 @@ from typing import Dict
 class DiffusionPlanner(nn.Module):
 
     def __init__(self,
-                 backbone="clip",
+                 backbone="resnet",
                  image_size=(256, 256),
                  embedding_dim=60,
                  output_dim=7,
                  num_vis_ins_attn_layers=2,
                  num_query_cross_attn_layers=8,
-                 use_instruction=False,
-                 use_goal=False,
+                 use_goal=True,
                  use_goal_at_test=True,
                  feat_scales_to_use=1,
                  attn_rounds=1,
@@ -58,7 +57,6 @@ class DiffusionPlanner(nn.Module):
             output_dim=output_dim,
             num_vis_ins_attn_layers=num_vis_ins_attn_layers,
             num_query_cross_attn_layers=num_query_cross_attn_layers,
-            use_instruction=use_instruction,
             use_goal=use_goal,
             feat_scales_to_use=feat_scales_to_use,
             attn_rounds=attn_rounds,
@@ -133,6 +131,7 @@ class DiffusionPlanner(nn.Module):
 
         return trajectory
 
+    # [TODO] The input shpae should be changed
     def compute_trajectory(
         self,
         trajectory_mask,
@@ -202,12 +201,16 @@ class DiffusionPlanner(nn.Module):
     def normalize_pos(self, pos):
         pos_min = self.gripper_loc_bounds[0].float().to(pos.device)
         pos_max = self.gripper_loc_bounds[1].float().to(pos.device)
-        return (pos - pos_min) / (pos_max - pos_min) * 2.0 - 1.0
+        # [Debug] [Note] This is very hacky way to use pos[...,-3:]
+        pos[...,-3:] = (pos[...,-3:] - pos_min) / (pos_max - pos_min) * 2.0 - 1.0
+        return pos
 
     def unnormalize_pos(self, pos):
         pos_min = self.gripper_loc_bounds[0].float().to(pos.device)
         pos_max = self.gripper_loc_bounds[1].float().to(pos.device)
-        return (pos + 1.0) / 2.0 * (pos_max - pos_min) + pos_min
+        # [Debug] [Note] This is very hacky way to use pos[...,-3:]
+        pos[...,-3:] = (pos[...,-3:] + 1.0) / 2.0 * (pos_max - pos_min) + pos_min
+        return pos
 
     def convert_rot(self, signal):
         signal[..., 3:7] = normalise_quat(signal[..., 3:7])
@@ -261,17 +264,22 @@ class DiffusionPlanner(nn.Module):
             )
 
     def forward(self, batch):
+        self.compute_loss(batch)
+
+    def compute_loss(self, batch):
 
         for key in self.used_keys:
-            assert key in batch, f"Key {key} not in batch"
+            assert key in batch['obs'].keys(), f"Key {key} not in batch"
+        
+        batch_obs = batch['obs']
 
-        gt_trajectory = batch['trajectory'] # [TODO] may be changed to self.prediction_target
-        trajectory_mask = batch['trajectory_mask']
-        rgb_obs = batch['visible_rgb']
-        pcd_obs = batch['visible_pcd']
-        pcd_mask = batch['pcd_mask'] # [TODO] acutally not been used
-        curr_gripper = batch['curr_gripper']
-        goal_gripper = batch['goal_gripper']
+        gt_trajectory = batch_obs['trajectory'] # [TODO] may be changed to self.prediction_target
+        trajectory_mask = batch_obs['trajectory_mask']
+        rgb_obs = batch_obs['visible_rgb']
+        pcd_obs = batch_obs['visible_pcd']
+        pcd_mask = batch_obs['pcd_mask'] # [TODO] acutally not been used
+        curr_gripper = batch_obs['curr_gripper']
+        goal_gripper = batch_obs['goal_gripper']
 
         # Normalize all pos
         gt_trajectory = gt_trajectory.clone()
@@ -279,6 +287,11 @@ class DiffusionPlanner(nn.Module):
         curr_gripper = curr_gripper.clone()
         goal_gripper = goal_gripper.clone()
         gt_trajectory[:, :, :3] = self.normalize_pos(gt_trajectory[:, :, :3])
+
+        # [Debug] for feature map
+        rgb_obs = torch.permute(self.normalize_pos(
+            torch.permute(rgb_obs, [0, 1, 3, 4, 2])
+        ), [0, 1, 4, 2, 3])
         pcd_obs = torch.permute(self.normalize_pos(
             torch.permute(pcd_obs, [0, 1, 3, 4, 2])
         ), [0, 1, 4, 2, 3])
