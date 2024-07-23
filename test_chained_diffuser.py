@@ -76,7 +76,7 @@ if __name__=="__main__":
     dataset = ChainedDiffusorDataset()# Testing with DataLoader
     dataloader = DataLoader(
                     dataset,
-                    batch_size=256,
+                    batch_size=64,
                     num_workers=15,
                     shuffle=True,
                     pin_memory=True,
@@ -84,7 +84,7 @@ if __name__=="__main__":
                 )
 
     model = DiffusionPlanner(rotation_parametrization='quat')
-    model = DiffusionPlanner(rotation_parametrization='6D')
+    # model = DiffusionPlanner(rotation_parametrization='6D')
     model.to('cuda')
 
     ema_model = copy.deepcopy(model)
