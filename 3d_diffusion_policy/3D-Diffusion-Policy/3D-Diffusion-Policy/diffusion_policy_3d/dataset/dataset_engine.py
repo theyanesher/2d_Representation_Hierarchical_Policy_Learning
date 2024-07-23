@@ -11,7 +11,8 @@ from tqdm import tqdm
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
-from .utils import loader, Resize, Rotate, TrajectoryInterpolator
+# from .utils import loader, Resize, Rotate, TrajectoryInterpolator
+from .utils import Resize, Rotate, TrajectoryInterpolator
 
 # chialiang
 import zarr, glob, os, copy
@@ -24,7 +25,7 @@ class ChainedDiffusorDataset(Dataset):
         self,
         # required
         # root,
-        zarr_path=['/home/bowenj/Desktop/RoboGen-sim2real/one_traj/0705-obj-41510-chained-diffuser-chained-diffuser'],
+        zarr_path=['/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45448-chained-diffuser'],
         # dataset specification
         cache_size=0,
         num_iters=None,

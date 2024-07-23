@@ -1,4 +1,4 @@
-import blosc
+# import blosc
 import pickle
 
 import einops
@@ -17,28 +17,28 @@ import diffusion_policy_3d.model.common.pytorch3d_transforms as torch3d_tf
 from .torch_utils import normalise_quat
 
 
-def loader(file):
-    if str(file).endswith(".npy"):
-        try:
-            content = np.load(file, allow_pickle=True)
-            return content
-        except UnpicklingError as e:
-            print(f"Can't load {file}: {e}")
-    elif str(file).endswith(".dat"):
-        try:
-            with open(file, "rb") as f:
-                content = pickle.loads(blosc.decompress(f.read()))
-            return content
-        except UnpicklingError as e:
-            print(f"Can't load {file}: {e}")
-    elif str(file).endswith(".pkl"):
-        try:
-            with open(file, 'rb') as f:
-                content = pickle.load(f)
-            return content
-        except UnpicklingError as e:
-            print(f"Can't load {file}: {e}")
-    return None
+# def loader(file):
+#     if str(file).endswith(".npy"):
+#         try:
+#             content = np.load(file, allow_pickle=True)
+#             return content
+#         except UnpicklingError as e:
+#             print(f"Can't load {file}: {e}")
+#     elif str(file).endswith(".dat"):
+#         try:
+#             with open(file, "rb") as f:
+#                 content = pickle.loads(blosc.decompress(f.read()))
+#             return content
+#         except UnpicklingError as e:
+#             print(f"Can't load {file}: {e}")
+#     elif str(file).endswith(".pkl"):
+#         try:
+#             with open(file, 'rb') as f:
+#                 content = pickle.load(f)
+#             return content
+#         except UnpicklingError as e:
+#             print(f"Can't load {file}: {e}")
+#     return None
 
 
 class Resize:
