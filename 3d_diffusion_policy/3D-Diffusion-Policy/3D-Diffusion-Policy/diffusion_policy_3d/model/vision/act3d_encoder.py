@@ -65,6 +65,7 @@ class Act3dEncoder(nn.Module):
                  use_mlp=False,
                  use_lightweight_unet=False,
                  self_attention=False,
+                 final_attention=False,
                  **kwargs
                  ):
         super(Act3dEncoder, self).__init__()
@@ -83,6 +84,7 @@ class Act3dEncoder(nn.Module):
         self.use_lightweight_unet = use_lightweight_unet
         
         self.self_attention = self_attention
+        self.final_attention = final_attention
         self.mode = mode
         if self.mode in ['keep_position_feature_in_attention_feature']:
             vision_output_dim = encoder_output_dim // 3 * 2
@@ -142,7 +144,8 @@ class Act3dEncoder(nn.Module):
             )
             vision_encoder = replace_bn_with_gn(vision_encoder)
 
-        attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+        # attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)  # [Debug] make it deeper
+        attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 4) 
         attn_layers = replace_bn_with_gn(attn_layers)
         self.nets = nn.ModuleDict({
             'vision_encoder': vision_encoder,
@@ -151,7 +154,8 @@ class Act3dEncoder(nn.Module):
         })
         
         if self.self_attention:
-            self.nets['self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+            # self.nets['self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2) # [Debug] make it deeper
+            self.nets['self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 4) 
             self.nets['self_attn_layers'] = replace_bn_with_gn(self.nets['self_attn_layers'])
         
         if self.mode in ['keep_position_feature_in_attention_feature', 
@@ -190,7 +194,8 @@ class Act3dEncoder(nn.Module):
         # current gripper self-attention
 
         if self.goal_mode in ['cross_attention_to_goal', 'cross_attention_to_goal_not_concat_and_self_attention']:
-            goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+            # goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)  # [Debug] make it deeper
+            goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 4)  
             goal_attn_layers = replace_bn_with_gn(goal_attn_layers)
             self.nets['goal_attn_layers'] = goal_attn_layers
             if self.mode in ['keep_position_feature_in_attention_feature', "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
@@ -199,8 +204,15 @@ class Act3dEncoder(nn.Module):
             else:
                 self.nets['goal_embed'] = nn.Embedding(1, encoder_output_dim)
             if self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention' or self.self_attention:
-                self.nets['goal_self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+                # self.nets['goal_self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)   # [Debug] make it deeper
+                self.nets['goal_self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 4)
                 self.nets['goal_self_attn_layers'] = replace_bn_with_gn(self.nets['goal_self_attn_layers'])
+
+            if self.final_attention:
+                self.nets['final_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 4)
+                self.nets['final_attn_layers'] = replace_bn_with_gn(self.nets['final_attn_layers'])
+                self.nets['final_slef_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 4)
+                self.nets['final_slef_attn_layers'] = replace_bn_with_gn(self.nets['final_slef_attn_layers'])
         
         if len(state_mlp_size) == 0:
             raise RuntimeError(f"State mlp size is empty")
@@ -212,7 +224,7 @@ class Act3dEncoder(nn.Module):
 
         self.n_output_channels = encoder_output_dim * self.num_gripper_points
         self.n_output_channels += output_dim
-        if self.goal_mode == 'cross_attention_to_goal':
+        if self.goal_mode == 'cross_attention_to_goal' and not self.final_attention: # [Debug] [Chialiang] 
             self.n_output_channels += encoder_output_dim * self.num_gripper_points
         self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
@@ -300,20 +312,29 @@ class Act3dEncoder(nn.Module):
             query=gripper_pcd_features, value=rgb_features,
             query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
         )[-1]
-        
-        if not self.self_attention:
-            rgb_features = einops.rearrange(
-                attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
-        else:
-            self_attn_output = nets['self_attn_layers'](
+
+        if self.self_attention:
+            attn_output = nets['self_attn_layers'](
                 query=attn_output, value=attn_output,
                 query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
             )[-1]
-            rgb_features = einops.rearrange(
-                self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
-            
+
         state_feat = self.state_mlp(agent_pos)  # B * 64
-        obs_features = torch.cat([rgb_features, state_feat], dim=-1)
+        if not self.final_attention:
+            rgb_features = einops.rearrange(
+                attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+            obs_features = torch.cat([rgb_features, state_feat], dim=-1)
+
+        # if not self.self_attention:
+        #     rgb_features = einops.rearrange(
+        #         attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
+        # else:
+        #     self_attn_output = nets['self_attn_layers'](
+        #         query=attn_output, value=attn_output,
+        #         query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+        #     )[-1]
+        #     rgb_features = einops.rearrange(
+        #         self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
 
         if self.goal_mode in ['cross_attention_to_goal', "cross_attention_to_goal_not_concat_and_self_attention"]:
             goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation['goal_gripper_pcd']) # shape B num_gripper_points encoder_output_dim
@@ -338,25 +359,41 @@ class Act3dEncoder(nn.Module):
                     goal_attn_output = nets['goal_self_attn_layers'](query=goal_attn_output, value=goal_attn_output,
                         query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
                     )[-1]
+
+                # [Chialiang] more layers
+                if self.final_attention:
+                    final_attn_output = nets['final_attn_layers'](query=attn_output, value=goal_attn_output,
+                        query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
+                    )[-1]
+                    final_attn_output = nets['final_slef_attn_layers'](query=final_attn_output, value=final_attn_output,
+                        query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+                    )[-1]
+                    obs_features = einops.rearrange(
+                        final_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+                        
+                    obs_features = torch.cat([obs_features, state_feat], dim=-1)     
+
+                else :
+                    goal_features = einops.rearrange(
+                        goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+
+                    obs_features = torch.cat([obs_features, goal_features], dim=-1)     
+
+            # # [Chialiang] not used
+            # elif self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention': # using gripper features obtained from cross attention to object, and then do self attention
+            #     goal_attn_output = nets['goal_attn_layers'](query=attn_output, value=goal_gripper_pcd_features,
+            #         query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
+            #     )[-1]
                 
-                goal_features = einops.rearrange(
-                    goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
-                obs_features = torch.cat([obs_features, goal_features], dim=-1)     
+            #     gripper_self_attn_output = nets['goal_self_attn_layers'](query=goal_attn_output, value=goal_attn_output,
+            #         query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+            #     )[-1]
                 
-                
-            elif self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention': # using gripper features obtained from cross attention to object, and then do self attention
-                goal_attn_output = nets['goal_attn_layers'](query=attn_output, value=goal_gripper_pcd_features,
-                    query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
-                )[-1]
-                
-                gripper_self_attn_output = nets['goal_self_attn_layers'](query=goal_attn_output, value=goal_attn_output,
-                    query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
-                )[-1]
-                
-                goal_features = einops.rearrange(
-                    gripper_self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+            #     goal_features = einops.rearrange(
+            #         gripper_self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
             
-                obs_features = torch.cat([goal_features, state_feat], dim=-1)
+            #     obs_features = torch.cat([goal_features, state_feat], dim=-1)
+        
         
         return obs_features
     

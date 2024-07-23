@@ -197,11 +197,11 @@ object_ids = [
 # act3d_goal_mlp + closest point
 json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07191257-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000_2024.07.19_12.57.05_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-# act3d_goal_mlp
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.20_15.26.54_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# # act3d_goal_mlp
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.20_15.26.54_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-json_results_list = glob.glob(f'{json_results_root}/*-unseen-*.json')
-tag = 'all_unseen'
+json_results_list = glob.glob(f'{json_results_root}/*-seen-*.json')
+tag = 'all_seen'
 
 if len(json_results_list) == 0:
     print(f'no files issue')
@@ -361,7 +361,12 @@ for json_results in json_results_list:
 # dump 
 
 for k, v in zip(nperf_dict.keys(), nperf_dict.values()):
-    print(f'{k}, {np.round(np.mean(v),3)}')
+    assert len(v) == len(json_results_list), 'It seems that the validation process is still running or the data is not complete'
+    if k == 'overall':
+        print(f'{k}, {np.round(np.mean(v),3)}, {np.round(np.std(v),3)}')
+    else:
+        print(f'{k}, {np.round(np.mean(v),3)}')
+
 exit(0)
 # Figure Size
 fig, ax = plt.subplots(figsize =(18, 9))

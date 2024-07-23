@@ -80,6 +80,7 @@ policy:
     use_mlp: false
     use_lightweight_unet: false
     self_attention: false
+    final_attention: false
 
   prediction_target: action
 

@@ -121,6 +121,30 @@ if [ $func = 'train' ]; then
     encoding_mode="keep_position_feature_in_attention_feature"
     # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
+    # horizon=4
+    horizon=8
+    n_obs_steps=2
+    # num_load_episodes=10 # for debuging
+
+    ##########
+    train_ratio=0.9 # for generalization
+    num_load_episodes=1000    # for generalization
+    pc_channel=3 # we should modify this
+    batch_size=320 #######
+    encoder_type=act3d
+    use_mlp=1
+    use_lightweight_unet=0
+    in_channels=3 ####
+    self_attention=true
+    final_attention=false
+    ##########
+
+    time_stamp=$(date +%m%d%H%M)
+    exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
+
+    action_dim=10
+    agent_pos_dim=10
+
     # # saved data paths
     # save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
     # save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
@@ -289,31 +313,8 @@ if [ $func = 'train' ]; then
     demo_name_47=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-
-    # horizon=4
-    horizon=8
-    n_obs_steps=2
-    # num_load_episodes=10 # for debuging
-
-    ##########
-    train_ratio=0.9 # for generalization
-    num_load_episodes=10 # for generalization
-    pc_channel=3 # we should modify this
-    batch_size=256 #1024 #######
-    encoder_type=act3d
-    use_mlp=1
-    use_lightweight_unet=0
-    in_channels=3 ####
-    self_attention=true
-    ##########
-
-    time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
-
-    action_dim=10
-    agent_pos_dim=10
     
-    torchrun --standalone --nproc_per_node=4 \
+    torchrun --standalone --nproc_per_node=2 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             /scratch/chialiang/dp3_demo/${save_data_name_0},\
@@ -541,6 +542,7 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
         policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
+        policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
         training.num_epochs=206 \
         training.rollout_every=50 \
