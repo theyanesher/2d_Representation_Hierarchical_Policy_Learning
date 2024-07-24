@@ -89,7 +89,7 @@ parser.add_argument("--far_distance", type=float, default=0.4)
 
 args = parser.parse_args()
 
-root_dir = "data/diverse_objects_2"
+root_dir = "data/temp"
 all_config_paths, all_solution_paths, reward_assets = get_all_test_configs(root_dir, args.extract_name)
 beg_idx = args.beg_idx
 end_idx = args.end_idx
@@ -99,10 +99,12 @@ reward_assets = reward_assets[beg_idx:end_idx]
 
 # args.exp_name = "0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
 args.exp_name = "0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+args.exp_name = "debug"
 
 exp_name = args.exp_name
 try_times_min = 0
-try_times_max = 300
+try_times_max = 1
+mobile = True
 
 for try_idx in range(try_times_min, try_times_max): 
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
@@ -238,7 +240,11 @@ for try_idx in range(try_times_min, try_times_max):
                 for i in range(7):
                     initial_joint_angles[i] = np.random.uniform(low[i], high[i])
 
-                env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
+                if not mobile:
+                    env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
+                else:
+                    initial_joint_angles = [0 for _ in range(3)] + initial_joint_angles
+                    env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
                 for _ in range(5):
                     p.stepSimulation()
                 
@@ -249,9 +255,9 @@ for try_idx in range(try_times_min, try_times_max):
                 
                 robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
                 distance = np.linalg.norm(handle_pos - robot_eef_pos)
-                print("dsitance: ", distance)
-                print("eef pos: ", robot_eef_pos)
-                print("handle pos: ", handle_pos)
+                # print("dsitance: ", distance)
+                # print("eef pos: ", robot_eef_pos)
+                # print("handle pos: ", handle_pos)
                 if distance < args.far_distance and distance > args.near_distance:
                     good_config = True
                     new_pos = p.getBasePositionAndOrientation(object_id, physicsClientId=env.id)[0]

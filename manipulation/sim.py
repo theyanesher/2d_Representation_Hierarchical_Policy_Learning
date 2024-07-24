@@ -41,6 +41,7 @@ class SimpleEnv(gym.Env):
                     randomize=0, # if to randomize the scene
                     obj_id=0, # which object to choose to use from the candidates
                     mobile=False,
+                    # mobile=True,
                     task_name=None,
                     open_gripper_at_reset=True,
                 ):
@@ -219,7 +220,10 @@ class SimpleEnv(gym.Env):
             return new_pos
 
     def get_robot_base_pos(self):
-        robot_base_pos = [0, 0, 0]
+        if not self.mobile:
+            robot_base_pos = [0, 0, 0]
+        else:
+            robot_base_pos = [0, 0, 0.28]
         return robot_base_pos
     
     def get_robot_init_joint_angles(self, robot_init_joint_angles=None):
@@ -355,7 +359,19 @@ class SimpleEnv(gym.Env):
         self.robot_base_orient = robot_base_orient
         self.robot.set_base_pos_orient(robot_base_pos, robot_base_orient)
         init_joint_angles = self.get_robot_init_joint_angles(robot_initial_joint_angles)
-        self.robot.set_joint_angles(self.robot.right_arm_joint_indices, init_joint_angles)    
+        if not self.mobile:
+            self.robot.set_joint_angles(self.robot.right_arm_joint_indices, init_joint_angles)    
+        else:
+            if len(init_joint_angles) < 10: # the initial joint angles are only for the arms
+                self.robot.set_joint_angles(self.robot.right_arm_joint_indices[3:], init_joint_angles)
+                # pos, orient = self.robot.get_pos_orient(self.robot.right_end_effector)
+                # real_pos = np.array(pos) - np.array([0, 0, 0.28]) # get the real robot eef pose without the mobile base
+                # ik_indices = [i for i in range(len(self.robot.right_arm_joint_indices))]
+                # ik_joint_angles = self.robot.ik(self.robot.right_end_effector, real_pos, orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
+                # self.robot.set_joint_angles(self.robot.right_arm_joint_indices, ik_joint_angles)
+            else:
+                self.robot.set_joint_angles(self.robot.right_arm_joint_indices, init_joint_angles)
+                
         self.robot.set_gravity(0, 0, 0)
         
         return robot_base_pos        
@@ -945,7 +961,10 @@ class SimpleEnv(gym.Env):
             # agent.ik_ikpy_franka(pos, orient, ik_indices)
             # trying to use tracik
             # agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
-            tracIK_solutions = agent.ik_tracik_franka(pos, orient, ik_indices)
+            if not self.mobile:
+                tracIK_solutions = agent.ik_tracik_franka(pos, orient, ik_indices)
+            else:
+                tracIK_solutions = []
             # if not ik_success:
             #     cprint("tracIK failed, maintain current joint angle", "red")
             #     agent_joint_angles = original_joint_angles
@@ -958,10 +977,8 @@ class SimpleEnv(gym.Env):
                     new_joint_angles = original_joint_angles[ik_indices] + np.random.uniform(-0.3, 0.3, size=len(ik_indices))
                     self.robot.set_joint_angles(ik_indices, new_joint_angles)
 
-                ik_joint_angles = self.robot.ik(self.robot.right_end_effector, 
-                                                pos, orient, 
-                                                ik_indices=ik_indices, 
-                                            max_iterations=10000, residualThreshold=1e-4)
+                ik_joint_angles = self.robot.ik(self.robot.right_end_effector, pos, orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
+                
                 if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
                     bullet_solutions.append(ik_joint_angles)
 
@@ -969,7 +986,7 @@ class SimpleEnv(gym.Env):
             all_possible_solutions = tracIK_solutions + bullet_solutions
             if len(all_possible_solutions) > 0:
                 all_possible_solutions = np.array(all_possible_solutions).reshape(-1, len(ik_indices))
-                distance_to_cur_angle = np.linalg.norm(all_possible_solutions - original_joint_angles[ik_indices].reshape(1, -1), axis=1)
+                distance_to_cur_angle = np.linalg.norm(all_possible_solutions - original_joint_angles[agent.controllable_joint_indices].reshape(1, -1), axis=1)
                 min_idx = np.argmin(distance_to_cur_angle)
                 min_joint_distance = distance_to_cur_angle[min_idx]
                 best_joint_angles = all_possible_solutions[min_idx]
@@ -998,17 +1015,24 @@ class SimpleEnv(gym.Env):
                     if not self.use_suction:
                         agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
                     p.stepSimulation(physicsClientId=self.id) 
-                    
+
+                cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
+
+                old_err = 1e10
                 while True:
                     # cur_finger_joint_angles = np.array(agent.get_joint_angles(agent.right_gripper_indices))
                     # if np.linalg.norm(cur_finger_joint_angles - np.array([finger_joint_angle, finger_joint_angle])) > 1e-3:
                     #     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)  
 
+
                     agent.control(agent.controllable_joint_indices, agent_joint_angles)
                     cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
-                    if np.linalg.norm(cur_joint_angles - agent_joint_angles) < 1e-4:
+                    err = np.linalg.norm(cur_joint_angles - agent_joint_angles) 
+                    # print("err: ", err)
+                    if err < 1e-4 or (self.mobile and err > old_err):
                         break
 
+                    old_err = err
                     if save_img_interval > 0 and it % save_img_interval == 0:
                         rgb = self.render()
                         self.control_rgbs.append(rgb)
@@ -1114,6 +1138,7 @@ class SimpleEnv(gym.Env):
             agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=5000)
             for _ in range(self.control_step):
                 agent.control(agent.controllable_joint_indices, agent_joint_angles)
+                # print("error: ", np.linalg.norm(agent.get_joint_angles(agent.controllable_joint_indices) - agent_joint_angles))
 
                 # gripper
                 if not self.use_suction:
@@ -1410,26 +1435,107 @@ class SimpleEnv(gym.Env):
     
 if __name__ == "__main__":
     from manipulation.utils import build_up_env
-    env, safe_config = build_up_env(
-        # "example_tasks/Change_Lamp_Direction/Change_Lamp_Direction_The_robotic_arm_will_alter_the_lamps_light_direction_by_manipulating_the_lamps_head.yaml",
-        # "example_tasks/Change_Lamp_Direction/task_Change_Lamp_Direction",
-        # "grasp_the_lamps_head", 
-        # "data/generated_task_from_description/put_a_bottle_in_microwave/put_a_bottle_in_microwave.yaml",
-        # "data/generated_task_from_description/put_a_bottle_in_microwave/task_put_a_bottle_in_microwave",
-        # "put_a_bottle_in_the_microwave",
-        # "initial_states/bottle_lift_initialization_not_close.pkl",
-        "data/generated_task_from_description/lift_a_box/lift_a_box.yaml",
-        "data/generated_task_from_description/lift_a_box/task_lift_a_box",
-        "lift_a_box",
-        "initial_states/gold_bar_initialization_not_close.pkl",
-        # "data/generated_task_from_description/lift_a_hamburger/lift_a_hamburger.yaml",
-        # "data/generated_task_from_description/lift_a_hamburger/task_lift_a_hamburger",
-        # "lift_a_hamburger",
-        # "initial_states/hamburger_lift_initialization_not_close.pkl",
-        # None,
-        render=True, 
-        randomize=False, 
-        obj_id=0
+    env = SimpleEnv(
+        config_path="data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-05-11-00-58-12/task_config.yaml",
+        gui=True,
+        mobile=True,
+        control_step=10,
+        max_translation=0.05,
     )
-    # save_env(env, "initial_states/closer/gold_bar_lift_initialization_not_close.pkl")
-    input("Press Enter to continue...")
+    
+    env.reset()
+    
+    obj_id = env.urdf_ids['robot']
+    num_joints = p.getNumJoints(obj_id, physicsClientId=env.id)
+    for i in range(num_joints):
+        info = p.getJointInfo(obj_id, i, physicsClientId=env.id)
+        link_name = info[12].decode('utf-8')
+        joint_limits = info[8:10]
+        joint_name = info[1].decode('utf-8')
+        print("joint id: ", i)
+        print("link_name: ", link_name)
+        print("joint_name: ", joint_name)
+        print("joint_limits: ", joint_limits)
+        print("joint type: ", info[2])
+        print("joint limit: ", info[8:10])
+        print("===================")
+    
+    p.addUserDebugLine([0, 0, 0], [1, 0, 0], [1, 0, 0], 
+                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
+    p.addUserDebugLine([0, 0, 0], [0, 1, 0], [0, 1, 0], 
+                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
+    p.addUserDebugLine([0, 0, 0], [0, 0, 1], [0, 0, 1], 
+                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
+    
+    p.addUserDebugLine([0, 0, 0], [1, 0, 0], [1, 0, 0], 
+                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+    p.addUserDebugLine([0, 0, 0], [0, 1, 0], [0, 1, 0], 
+                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+    p.addUserDebugLine([0, 0, 0], [0, 0, 1], [0, 0, 1], 
+                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+    
+    p.addUserDebugLine([0, 0, 0], [0.1, 0, 0], [1, 0, 0], physicsClientId=env.id)
+    p.addUserDebugLine([0, 0, 0], [0, 0.1, 0], [0, 1, 0], physicsClientId=env.id)
+    p.addUserDebugLine([0, 0, 0], [0, 0, 0.1], [0, 0, 1], physicsClientId=env.id)
+    
+    for j_id in range(num_joints):
+        p.resetJointState(obj_id, j_id, 0, physicsClientId=env.id)
+        
+    # joint 2 is base, which is also the rotation joint
+    # joint 1 is the y translation
+    # joint 0 is the x translation
+    # joint 3 is pand_link 0
+    # import pdb; pdb.set_trace()
+    
+    # cprint("move joint 2")
+    # p.resetJointState(obj_id, 2, np.pi / 2, physicsClientId=env.id)
+    
+    # import pdb; pdb.set_trace()
+    
+    # cprint("move joint 1")
+    # p.resetJointState(obj_id, 1, 0.5, physicsClientId=env.id)
+    
+    # import pdb; pdb.set_trace()
+    
+    # cprint("move joint 0")
+    # p.resetJointState(obj_id, 0, 0.5, physicsClientId=env.id)
+    
+    # import pdb; pdb.set_trace()
+    
+    ### test the ik for the mobile base
+    cur_eef_pos, cur_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+    for idx in range(100):
+        env.step([0, 1, 0, 0, 0, 0, 0])
+    now_eef_pos, now_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+    print("cur_eef_pos: ", cur_eef_pos)
+    print("now_eef_pos: ", now_eef_pos)
+    
+    agent = env.robot
+    close_joint_angle = 0.04
+    import pdb; pdb.set_trace()
+    for _ in range(100):
+        agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
+        p.stepSimulation()
+    import pdb; pdb.set_trace()
+    
+    close_joint_angle = 0
+    for _ in range(100):
+        agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
+        p.stepSimulation()
+    import pdb; pdb.set_trace()
+
+    # cur_pos, cur_orient = env.robot.get_base_pos_orient()
+    # cur_orient = p.getEulerFromQuaternion(cur_orient)
+    # # pos: array([ 9.55000000e-02, -1.74315373e-12,  1.09100000e+00])
+    # # orient: array([ 9.23879533e-01,  3.82683432e-01, -1.87384124e-12,  4.52385294e-12])
+    # pos = np.array([ 0.02, -1.74315373e-12,  1.09100000e+00])
+    # orient = np.array([ 9.23879533e-01,  3.82683432e-01, -1.87384124e-12,  4.52385294e-12])
+    # orient = p.getEulerFromQuaternion(orient)
+    # for idx in range(100):
+    #     # new_pos = cur_pos + np.array([0.005, 0, 0])
+    #     env.take_direct_action([*pos, *orient, 0])
+    #     pos, orient = env.robot.get_base_pos_orient()
+    #     print("after step {} pos {} orient {}".format(idx, pos, orient))
+    
+    # target_pos array([ 0.81408316, -0.20561448,  0.54356222])
+    # target orientation array([ 0.70465044, -0.05751408,  0.65244973, -0.27289051])

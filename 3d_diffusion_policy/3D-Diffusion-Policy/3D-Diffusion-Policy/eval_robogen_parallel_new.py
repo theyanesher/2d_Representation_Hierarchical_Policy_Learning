@@ -333,10 +333,12 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             pool.map(parallel_save_gif, args_to_run)
             
             
-def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix=''):
+def run_eval_non_parallel(cfg, policy, num_worker, save_path, 
+        exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix='',
+        mobile=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
-        # import pdb; pdb.set_trace()
+    
         after_reaching_init_state_files = []
         init_state_files = []
         config_files = []
@@ -389,7 +391,11 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 #     continue
             expert_opened_angles.append(expert_opened_angle)
             
-            first_stage_states_path = os.path.join(first_step_folder, "states")
+            if not mobile:
+                first_stage_states_path = os.path.join(first_step_folder, "states")
+            else:
+                first_stage_states_path = os.path.join(first_step_folder, "mobile_states")
+                
             stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
@@ -403,7 +409,10 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             after_reaching_init_state_files.append(after_init_state_file)
             init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
-            config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
+            if not mobile:
+                config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
+            else:
+                config_file = os.path.join(experiment_path, experiment, "mobile_config.yaml")
             config_files.append(config_file)
                     
         after_reaching_init_state_files = after_reaching_init_state_files
@@ -436,11 +445,11 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                     solution_path,
                     task_name,
                     init_state_file,
-                    # render=False, 
                     render=False, 
                     randomize=False,
                     obj_id=0,
                     horizon=600,
+                    mobile=True,
             )
             
             object_name = "StorageFurniture".lower()
@@ -502,7 +511,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
                     float(info["improved_joint_angle"][-1]))
             
-            # save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+            save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
         
 if __name__ == "__main__":
     
@@ -551,17 +560,37 @@ if __name__ == "__main__":
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point-self-attention/2024.06.25/00.47.11_train_dp3_robogen_open_door"
     
     ### goal conditioning trained on 2 objects
-    checkpoint_name = 'epoch-150.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0625-ddp-obj-45448-46462-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.25/13.53.54_train_dp3_robogen_open_door"
+    # checkpoint_name = 'epoch-150.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0625-ddp-obj-45448-46462-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.25/13.53.54_train_dp3_robogen_open_door"
     
     ### goal conditioning trained on 3 objects
-    checkpoint_name = 'epoch-175.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0627-ddp-obj-45448-46462-41510-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.27/00.42.24_train_dp3_robogen_open_door"
+    # checkpoint_name = 'epoch-175.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0627-ddp-obj-45448-46462-41510-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint/2024.06.27/00.42.24_train_dp3_robogen_open_door"
     
     ### no goal conditioning trained on 3 objects
     ### goal conditioning trained on 3 objects
-    checkpoint_name = 'epoch-175.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
+    # checkpoint_name = 'epoch-175.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
+    
+    # ### with goal gripper, with self attention, fixed order bug in attention
+    # checkpoint_name = 'epoch-300.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/18.35.59_train_dp3_robogen_open_door"
+    
+    # ### w/o goal gripper, with self attention, fixed order bug in attention
+    # checkpoint_name = 'epoch-150.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.02/15.18.18_train_dp3_robogen_open_door"
+    
+    ### Act3d + UNet + goal, trained on 10 objects
+    checkpoint_name = 'epoch-100.ckpt'
+    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-goal-act3d_goal_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door/"
+    
+    ### Act3d + UNet no goal, trained on 10 objects
+    # checkpoint_name = 'epoch-100.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"
+    
+    ### chialiang's best low-level model
+    checkpoint_name = 'latest.ckpt'
+    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
     
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
@@ -570,6 +599,27 @@ if __name__ == "__main__":
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
         )
     cfg = recomposed_config
+    
+    # all training objects
+    cfg.task.env_runner.demo_experiment_path = [
+        "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/data/dp3_demo/0527-act3d-always-close",
+    ]
+    cfg.task.env_runner.experiment_folder = [
+        "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle"
+    ]
+    cfg.task.env_runner.experiment_name = ["0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"]
+    
+    # another 10 new objects for evaluation
+    # obj_names = [
+    #     40147, 44817, 44962, 45132, 45219, 45243, 45332, 45378, 45384, 45463
+    # ]
+    # cfg.task.env_runner.experiment_folder = [
+    #     "data/diverse_objects/open_the_door_{}/task_open_the_door_of_the_storagefurniture_by_its_handle".format(obj_name) for obj_name in obj_names
+    # ]
+    # cfg.task.env_runner.experiment_name = ["0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first" for obj_name in obj_names]
+    # cfg.task.env_runner.demo_experiment_path = [
+    #     "/project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0705-obj-{}".format(obj_name) for obj_name in obj_names
+    # ]
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -586,7 +636,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(3):
-        save_path = "data/eval_generalization_mulitple_object_multiple_runs_non_parallel/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/debug/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
             
@@ -598,20 +648,6 @@ if __name__ == "__main__":
                 horizon=35,
                 exp_beg_ratio=exp_beg_ratio,
                 exp_end_ratio=exp_end_ratio,
+                mobile=True,
         )
     
-        # run_eval(cfg, policy, num_worker, save_path, 
-        #          pool=pool, 
-        #          horizon=35,
-        #          exp_beg_ratio=exp_beg_ratio,
-        #          exp_end_ratio=exp_end_ratio,
-        # )
-    
-    # pr.disable()
-    # s = io.StringIO()
-    # ps = pstats.Stats(pr, stream=s).sort_stats('cumtime')
-    # ps.print_stats(50)
-    # print(s.getvalue())
-    # ps = pstats.Stats(pr, stream=s).sort_stats('time')
-    # ps.print_stats(50)
-    # print(s.getvalue())
