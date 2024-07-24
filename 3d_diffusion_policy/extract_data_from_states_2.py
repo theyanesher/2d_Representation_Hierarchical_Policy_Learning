@@ -20,6 +20,9 @@ from multiprocessing import Pool
 from add_distractors_around_target import add_distractors_around_target
 from collections import defaultdict
 
+# TODO: for gripper goal point: store the correct second half of the goal
+# TODO: for filter failure in demos: additionally filter cases where the opened angle is less than 0.2 of the max angle
+
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, gripper_num_points, add_contact, \
         state, object_name, num_point_in_pc, use_segmask, only_handle_points, observation_mode, idx = args
