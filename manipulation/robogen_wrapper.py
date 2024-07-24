@@ -155,7 +155,11 @@ class RobogenPointCloudWrapper:
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
-            state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            if not self._env.mobile:
+                state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            else:
+                state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "mobile_states")
+                
             stage_lengths_json_file = os.path.join(parent_path, "{}_primitive".format(task_name), 'stage_lengths.json')
             with open(stage_lengths_json_file, 'r') as f:
                 stage_lengths = json.load(f)

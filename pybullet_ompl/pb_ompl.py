@@ -30,8 +30,11 @@ class PbOMPLRobot():
     def __init__(self, id, control_joint_idx=None, object_id=None, env=None) -> None:
         # Public attributes
         self.id = id
+        self.env = env
+        self.physics_id = env.id
+        
         # prune fixed joints
-        all_joint_num = p.getNumJoints(id)
+        all_joint_num = p.getNumJoints(id, physicsClientId=env.id)
         all_joint_idx = list(range(all_joint_num))
         if control_joint_idx is None:
             joint_idx = [j for j in all_joint_idx if self._is_not_fixed(j)]
@@ -45,7 +48,6 @@ class PbOMPLRobot():
         self.get_joint_bounds()
 
         self.object_id = object_id
-        self.env = env
 
         if object_id is not None:
             object_init_pos, object_init_orn = p.getBasePositionAndOrientation(object_id, physicsClientId=self.env.id)
@@ -55,7 +57,7 @@ class PbOMPLRobot():
             self.object_in_robot_pos, self.object_in_robot_orn = object_in_robot[0], object_in_robot[1]
 
     def _is_not_fixed(self, joint_idx):
-        joint_info = p.getJointInfo(self.id, joint_idx)
+        joint_info = p.getJointInfo(self.id, joint_idx, physicsClientId=self.env.id)
         return joint_info[2] != p.JOINT_FIXED
 
     def get_joint_bounds(self):
@@ -64,19 +66,21 @@ class PbOMPLRobot():
         By default, read from pybullet
         '''
         for i, joint_id in enumerate(self.joint_idx):
-            joint_info = p.getJointInfo(self.id, joint_id)
+            joint_info = p.getJointInfo(self.id, joint_id, physicsClientId=self.env.id)
             low = joint_info[8] # low bounds
             high = joint_info[9] # high bounds
 
-            if i in self.joint_idx:
-                if i != 9 and i != 10:
-                    delta = 0.05 * (high - low)
-                    low += delta
-                    high -= delta
+            # TODO: the indicies may be different for a mobile manipulator
+            if not self.env.mobile:
+                if i in self.joint_idx:
+                    if i != 9 and i != 10:
+                        delta = 0.05 * (high - low)
+                        low += delta
+                        high -= delta
 
             if low < high:
                 self.joint_bounds.append([low, high])
-        # print("Joint bounds: {}".format(self.joint_bounds))
+                
         return self.joint_bounds
 
     def get_cur_state(self):
@@ -112,7 +116,7 @@ class PbOMPLRobot():
 
     def _set_joint_positions(self, joints, positions):
         for joint, value in zip(joints, positions):
-            p.resetJointState(self.id, joint, value, targetVelocity=0)
+            p.resetJointState(self.id, joint, value, targetVelocity=0, physicsClientId=self.env.id)
 
 class PbStateSpace(ob.RealVectorStateSpace):
     def __init__(self, num_dim) -> None:
@@ -214,12 +218,14 @@ class PbOMPL():
         # check self-collision
         self.robot.set_state(self.state_to_list(state))
         for link1, link2 in self.check_link_pairs:
-            if utils.pairwise_link_collision(self.robot_id, link1, self.robot_id, link2):
+            if utils.pairwise_link_collision(self.robot_id, link1, self.robot_id, link2, p_id=self.robot.env.id):
+                # print("collision between robot link {} and {}".format(link1, link2))
                 return False
 
         # check collision against environment
         for body1, body2 in self.check_body_pairs:
-            if utils.pairwise_collision(body1, body2):
+            if utils.pairwise_collision(body1, body2, p_id=self.robot.env.id):
+                # print("collision between body {} and {}".format(body1, body2))
                 return False
         return True
 
@@ -410,10 +416,10 @@ class PbOMPL():
         for q in path:
             if dynamics:
                 for i in range(self.robot.num_dim):
-                    p.setJointMotorControl2(self.robot.id, i, p.POSITION_CONTROL, q[i],force=5 * 240.)
+                    p.setJointMotorControl2(self.robot.id, i, p.POSITION_CONTROL, q[i],force=5 * 240., physicsClientId=self.robot.env.id)
             else:
                 self.robot.set_state(q)
-            p.stepSimulation()
+            p.stepSimulation(physicsClientId=self.robot.env.id)
             time.sleep(0.01)
 
 

@@ -20,9 +20,7 @@ class Robot(Agent):
         self.right_arm_ik_indices = self.right_arm_joint_indices 
 
     def set_gripper_open_position(self, indices, positions, set_instantly=False, force=500):
-        p.setJointMotorControlArray(self.body, jointIndices=indices, controlMode=p.POSITION_CONTROL, 
-                targetPositions=positions, 
-                # positionGains=np.array([0.05]*len(indices)), forces=[force]*len(indices), 
+        p.setJointMotorControlArray(self.body, jointIndices=indices, controlMode=p.POSITION_CONTROL, targetPositions=positions, 
                 physicsClientId=self.id)
         if set_instantly:
             self.set_joint_angles(indices, positions, use_limits=True)

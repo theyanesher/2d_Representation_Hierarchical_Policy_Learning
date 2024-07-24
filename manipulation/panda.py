@@ -15,13 +15,14 @@ class Panda(Robot):
             right_arm_joint_indices = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]
             right_end_effector = 15 # Used to get the pose of the end effector
             right_gripper_indices = [13, 14] # Gripper actuated joints
+            right_hand = 12 # TODO: check this
                 
         super(Panda, self).__init__(controllable_joints, right_arm_joint_indices, right_end_effector, right_gripper_indices)
         self.right_hand = right_hand
 
     def init(self, directory, id, np_random, fixed_base=False, use_suction=True, debug=False):
         if self.slider:
-            self.body = p.loadURDF(os.path.join(directory, 'franka_mobile', 'panda_suction_slider_mobile.urdf'), useFixedBase=fixed_base, basePosition=[-1, -1, 0.5], flags=p.URDF_USE_SELF_COLLISION, physicsClientId=id)
+            self.body = p.loadURDF(os.path.join(directory, 'panda_bullet', 'panda_slider_mobile.urdf'), useFixedBase=fixed_base, basePosition=[-1, -1, 0.5], flags=p.URDF_USE_SELF_COLLISION, physicsClientId=id)
         else:
             if not use_suction:
                 self.body = p.loadURDF(os.path.join(directory, 'panda_bullet', 'panda.urdf'), useFixedBase=fixed_base, basePosition=[-1, -1, 0.5], flags=p.URDF_USE_SELF_COLLISION, physicsClientId=id)

@@ -300,6 +300,7 @@ def approach_object_link_parallel(simulator, object_name, link_name):
         "task_name": simulator.task_name, 
         "restore_state_file": simulator.restore_state_file, 
         "render": False, 
+        # "render": True, 
         "randomize": False, 
         "obj_id": simulator.obj_id, 
     }
@@ -343,6 +344,8 @@ def approach_object_link_parallel(simulator, object_name, link_name):
     args = [[env_kwargs, object_name, real_target_poses[it], mp_target_poses[it], target_orientations[it],\
             handle_pc, handle_joint_id, save_path, ori_simulator_state, it, link_name] for it in range(len(target_orientations))]
 
+    # results = parallel_motion_planning(args[0])
+    # results = [results]
     with Pool(processes=PARALLEL_POOL_NUM) as pool:
         results = pool.map(parallel_motion_planning, args)
     # final_joint_angle, score, intermediate_states, rgbs, stage_length, path_length
@@ -481,7 +484,7 @@ def close_gripper(simulator, handle_pc):
         agent = simulator.robot
         for _ in range(2):
             agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
-        p.stepSimulation()
+        p.stepSimulation(physicsClientId=simulator.id)
         state = save_env(simulator)
         intermediate_states.append(state)
         rgb = simulator.render()
@@ -517,27 +520,27 @@ def open_door(simulator, object_name, link_name, handle_joint_id):
     # EEf in link frame remains the same as the link frame rotates
     eef_in_link = p.multiplyTransforms(world_to_link[0], world_to_link[1], eef_pos, eef_orient) 
 
-    joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id)[8:10]
-    ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
+    joint_limit = p.getJointInfo(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[8:10]
+    ori_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[0]
     eef_poses = []
     timesteps = 100
     
     ratio = 0.8
-    cur_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
+    cur_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[0]
     target = joint_limit[0] + ratio * (joint_limit[1] - joint_limit[0])
     cur_move_amount = target - cur_joint_angle
     full_move_amount = ratio * (joint_limit[1] - joint_limit[0])
     timesteps = int(timesteps * np.abs(cur_move_amount) / full_move_amount)
     for t in range(1, timesteps):
         joint_angle = cur_joint_angle + (target - cur_joint_angle) * t / timesteps
-        p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, joint_angle)
+        p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, joint_angle, physicsClientId=simulator.id)
         new_link_pos, new_link_orient = get_link_pose(simulator, object_name, link_name)
         # new_link_pos, new_link_orient is the transformation from link coordinate to world coordinate
         new_eef_pos, new_eef_orient = p.multiplyTransforms(new_link_pos, new_link_orient, eef_in_link[0], eef_in_link[1])
         eef_poses.append([new_eef_pos, new_eef_orient])
         
     
-    p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, ori_joint_angle)
+    p.resetJointState(simulator.urdf_ids[object_name], handle_joint_id, ori_joint_angle, physicsClientId=simulator.id)
     for t in range(len(eef_poses)):
         pos, orient = eef_poses[t]
         # new way of control
@@ -549,20 +552,20 @@ def open_door(simulator, object_name, link_name, handle_joint_id):
         ik_joint_angles = simulator.robot.ik(simulator.robot.right_end_effector, 
                                         pos, orient, 
                                         ik_indices=ik_indices)
-        ik_joint_angles = list(ik_joint_angles) + [0, 0]
-        ik_joints = ik_indices + list(simulator.robot.right_gripper_indices)
+        ik_joint_angles = list(ik_joint_angles)  + [0, 0]
+        ik_joints = simulator.robot.right_arm_joint_indices + list(simulator.robot.right_gripper_indices)
         
         for _ in range(2):
             p.setJointMotorControlArray(simulator.robot.body, jointIndices=ik_joints, 
                                         controlMode=p.POSITION_CONTROL, targetPositions=ik_joint_angles, physicsClientId=simulator.id)
-            p.stepSimulation()
+            p.stepSimulation(physicsClientId=simulator.id)
         
         rgb = simulator.render()
         rgbs.append(rgb)
         state = save_env(simulator)
         intermediate_states.append(state)
     
-    final_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id)[0]
+    final_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[0]
     return intermediate_states, rgbs, final_joint_angle
 
 def parallel_motion_planning(args):
@@ -571,7 +574,7 @@ def parallel_motion_planning(args):
     env_kwargs, object_name, real_target_pos, mp_target_pos, target_orientation, \
         handle_pc, handle_joint_id, save_path, ori_simulator_state, \
         it, link_name = args
-    
+        
     stage_length = {}
     object_name = object_name.lower()
     
@@ -596,7 +599,7 @@ def parallel_motion_planning(args):
     res, path, path_translation_length, path_rotation_length = motion_planning(
         simulator, mp_target_pos, target_orientation, obstacles=obstacles, allow_collision_links=allow_collision_links, save_path=save_path, 
         smooth_path=True, interpolation_num=interpolation_steps)
-            
+    
     if res:
         stage_length['reach_handle'] = len(path)
         
@@ -698,10 +701,8 @@ def get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, pc_points):
     if len(within_bbox_handle_pc) == 0:
         # print("no points are within the gripper")
         return 0
-    debug_id = p.addUserDebugPoints(within_bbox_handle_pc, [[0, 1, 0] for _ in range(len(within_bbox_handle_pc))], 10, 0)
     score = np.sum(indices) 
     # print("score is: ", score)
-    p.removeUserDebugItem(debug_id)
     return score
 
 def get_handle_orient(handle_pc):
