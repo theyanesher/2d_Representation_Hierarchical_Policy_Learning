@@ -649,6 +649,13 @@ if __name__ == "__main__":
     exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
     new_object = False
     checkpoint_name = "latest.ckpt"
+    
+    # -------------------- #
+    # -       0723       - #
+    # -------------------- #
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07221724-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.22/17.24.11_train_dp3_robogen_open_door"
+    new_object = False
+    checkpoint_name = "latest.ckpt"
 
     # ### goal conditioning, alternating attention + self attention
     # # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
