@@ -20,9 +20,6 @@ from multiprocessing import Pool
 from add_distractors_around_target import add_distractors_around_target
 from collections import defaultdict
 
-# TODO: for gripper goal point: store the correct second half of the goal
-# TODO: for filter failure in demos: additionally filter cases where the opened angle is less than 0.2 of the max angle
-
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, gripper_num_points, add_contact, \
         state, object_name, num_point_in_pc, use_segmask, only_handle_points, observation_mode, idx = args
@@ -125,7 +122,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
     
     all_traj_stage_lengths = []
     all_traj_store_label_paths = []
-    obs_keys = ['point_cloud', 'agent_pos', 'feature_map', 'gripper_pcd', 'pcd_mask', 'dp3_point_cloud', 'goal_gripper_pcd', 'displacement_gripper_to_object']
+    obs_keys = ['point_cloud', 'agent_pos', 'feature_map', 'gripper_pcd', 'pcd_mask', 'goal_gripper_pcd', 'displacement_gripper_to_object']
     all_traj_obs_dict_of_list = defaultdict(list)
     
     first_step, first_step_folder = get_first_step_folder(solution_path)
@@ -164,7 +161,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
                 ratio = opened_angle / max_angle
-            if opened_angle < angle_threshold:
+            if opened_angle < angle_threshold or ratio < args.min_opened_ratio:
                 print("not open enough, continue")
                 continue
 
@@ -197,7 +194,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
                     object_name, rpy_mean_list=rpy, seed=0,
                     gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=args.pointcloud_num,
                     use_segmask=args.use_segmask, only_handle_points=args.only_handle_points,
-                    observation_mode=args.observation_mode, record_all_observation=True)
+                    observation_mode=args.observation_mode, record_all_observation=False)
                 
                 door_joint_angles = []
                 traj_list = defaultdict(list)
@@ -223,10 +220,16 @@ def extract_pc_states_for_all_trajectories(pool_args):
                     traj_list['rgb'].append(rgb)
                     for key in obs_keys:
                         traj_list[key].append(observation[key].tolist())
+                        
+                goal_gripper_pcd_at_grasping = traj_list['gripper_pcd'][open_time_idx]
+                goal_gripper_pcd_at_end = traj_list['gripper_pcd'][-1]
+                for t in range(open_time_idx):
+                    traj_list['goal_gripper_pcd'][t] = goal_gripper_pcd_at_grasping
+                for t in range(open_time_idx, len(traj_list['gripper_pcd'])):
+                    traj_list['goal_gripper_pcd'][t] = goal_gripper_pcd_at_end
                                     
                 door_joint_angles = np.array(door_joint_angles)
                 door_joint_angle_diffs = np.diff(door_joint_angles)
-                open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
                 door_joint_angle_diffs = door_joint_angle_diffs[open_time_idx:]
                 
                 # if np.any(door_joint_angle_diffs > angle_threshold / 100 * 3):
@@ -308,7 +311,6 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
         all_expert_opened_ratios, all_expert_opened_angles = get_all_expert_angles([os.path.join(experiment_folder, exp) for exp in all_experiments], solution_path)
         angle_threshold = np.quantile(all_expert_opened_angles, 0.1)
         
-        
         num_experiment = min(num_experiment, args.num_experiment)        
         batch_size = 5
         num_batch = (num_experiment - 1) // batch_size + 1
@@ -344,7 +346,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 all_traj_pcd_masks = [x[5][0] for x in res if len(x[5]) > 0]
                 all_traj_stage_lengths = [x[6][0] for x in res if len(x[6]) > 0]
                 all_traj_store_label_paths = [x[7][0] for x in res if len(x[7]) > 0]
-                all_traj_dp3_pc = [x[8][0] for x in res if len(x[8]) > 0]
+                # all_traj_dp3_pc = [x[8][0] for x in res if len(x[8]) > 0]
 
             all_traj_pc = all_traj_obs_dict_of_list['point_cloud']
             all_traj_pos_ori = all_traj_obs_dict_of_list['agent_pos']
@@ -352,14 +354,14 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             all_traj_feature_maps = all_traj_obs_dict_of_list['feature_map']
             all_traj_gripper_pcds = all_traj_obs_dict_of_list['gripper_pcd']
             all_traj_pcd_masks = all_traj_obs_dict_of_list['pcd_mask']
-            all_traj_dp3_pc = all_traj_obs_dict_of_list['dp3_point_cloud']
+            # all_traj_dp3_pc = all_traj_obs_dict_of_list['dp3_point_cloud']
             all_traj_goal_gripper_pcd = all_traj_obs_dict_of_list['goal_gripper_pcd']
             all_traj_displacement_gripper_to_object = all_traj_obs_dict_of_list['displacement_gripper_to_object']
             for traj_idx in tqdm.tqdm(range(len(all_traj_pc)), total=len(all_traj_pc)):
 
                 traj_pc, traj_pos_ori, traj_feature_maps, traj_gripper_pcd, traj_pcd_masks = all_traj_pc[traj_idx], all_traj_pos_ori[traj_idx], all_traj_feature_maps[traj_idx], all_traj_gripper_pcds[traj_idx], all_traj_pcd_masks[traj_idx]
                 traj_stage_length, traj_store_label_path  = all_traj_stage_lengths[traj_idx], all_traj_store_label_paths[traj_idx]
-                traj_dp3_pc = all_traj_dp3_pc[traj_idx]
+                # traj_dp3_pc = all_traj_dp3_pc[traj_idx]
                 traj_goal_gripper_pcd, traj_displacement_gripper_to_object = all_traj_goal_gripper_pcd[traj_idx], all_traj_displacement_gripper_to_object[traj_idx]
                 
                 good_traj = True
@@ -379,7 +381,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 filtered_gripper_pcds = []
                 filtered_pcd_masks = []
                 filtered_rgbs = []
-                filtered_dp3_pcs = []
+                # filtered_dp3_pcs = []
                 filtered_goal_gripper_pcds = []
                 filtered_displacement_gripper_to_objects = []
                 
@@ -392,7 +394,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 base_pc = traj_pc[0]
                 base_pcd_mask = traj_pcd_masks[0]
                 base_pos_ori = traj_pos_ori[0]
-                base_dp3_pc = traj_dp3_pc[0]
+                # base_dp3_pc = traj_dp3_pc[0]
                 base_goal_gripper_pcd = traj_goal_gripper_pcd[0]
                 base_displacement_gripper_to_object = traj_displacement_gripper_to_object[0]
                 
@@ -456,7 +458,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                         filtered_feature_maps.append(base_feature_map)
                         filtered_pos_oris.append(base_pos_ori)
                         filtered_rgbs.append(base_rgb)
-                        filtered_dp3_pcs.append(base_dp3_pc)
+                        # filtered_dp3_pcs.append(base_dp3_pc)
                         filtered_goal_gripper_pcds.append(base_goal_gripper_pcd)
                         filtered_displacement_gripper_to_objects.append(base_displacement_gripper_to_object)
                         
@@ -469,7 +471,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                         base_pos = target_pos
                         base_ori_6d = target_ori_6d
                         base_finger_angle = target_finger_angle
-                        base_dp3_pc = traj_dp3_pc[i+1]
+                        # base_dp3_pc = traj_dp3_pc[i+1]
                         base_displacement_gripper_to_object = traj_displacement_gripper_to_object[i+1]
                         base_goal_gripper_pcd = traj_goal_gripper_pcd[i+1]
                         
@@ -521,15 +523,15 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     data_save_path = os.path.join(save_path, experiment_path.split("/")[-1])
                     beg = time.time()
                     save_data(filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, 
-                            filtered_pcd_masks, traj_actions, filtered_dp3_pcs, 
+                            filtered_pcd_masks, traj_actions, None, 
                             filtered_goal_gripper_pcds, filtered_displacement_gripper_to_objects, 
                             data_save_path)
                     end = time.time()
                     cprint("Finished saving data to {} using time {}".format(data_save_path, end-beg), "green")
-                    del filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions, filtered_dp3_pcs, filtered_displacement_gripper_to_objects, filtered_goal_gripper_pcds
+                    del filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions, filtered_displacement_gripper_to_objects, filtered_goal_gripper_pcds
             
             save_example_pointcloud([traj_pc[0] for traj_pc in all_traj_pc], save_path)
-            save_example_pointcloud([traj_dp3_pc[0] for traj_dp3_pc in all_traj_dp3_pc], save_path, name='example_dp3_pointcloud')
+            # save_example_pointcloud([traj_dp3_pc[0] for traj_dp3_pc in all_traj_dp3_pc], save_path, name='example_dp3_pointcloud')
             del all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, all_traj_stage_lengths, all_traj_store_label_paths
                 
     with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
@@ -692,6 +694,7 @@ if __name__ == "__main__":
     args.add_argument("--min_finger_angle_diff", type=float, default=0.001)
     args.add_argument("--close_gripper_action", type=float, default=-0.006)
     args.add_argument("--combine_action_steps", type=int, default=2)
+    args.add_argument("--min_opened_ratio", type=float, default=0.2)
 
     
     args.add_argument("--object_name", type=str, required=True)

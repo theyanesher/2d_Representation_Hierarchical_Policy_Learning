@@ -5,6 +5,8 @@ from termcolor import cprint
 import yaml
 import copy
 
+### bad objects 41086
+
 generated_obj_ids = [
     41510,
     45397,

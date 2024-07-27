@@ -23,7 +23,7 @@ import json
 MOTION_PLANNING_TRY_TIMES=100
 SAMPLE_ORIENTATION_NUM=3
 PARALLEL_POOL_NUM=40
-HANDLE_FPS_NUM_POINT=20
+HANDLE_FPS_NUM_POINT=15
 
 def get_save_path(simulator):
     state_save_path = os.path.join(simulator.primitive_save_path, "states")
@@ -162,6 +162,7 @@ def approach_object(simulator, object_name, dynamics=False):
         random_normal = object_normal[np.random.randint(0, object_normal.shape[0])]
 
         ### adjust the normal such that it points outwards the object.
+        ### TODO: make sure the normal points outwards the object.
         line = com - random_point
         if np.dot(line, random_normal) > 0:
             random_normal = -random_normal
@@ -359,9 +360,10 @@ def approach_object_link_parallel(simulator, object_name, link_name):
     all_motion_planning_path_rotation_lengths = [x[6] for x in results]
 
 
+    ratio_threshold = 0.7
     if len(door_opened_scores) > 0 and np.max(door_opened_scores) > 0.1:
         best_idx = None
-        if not np.sum(door_opened_scores > 0.8) > 0:
+        if not np.sum(door_opened_scores > ratio_threshold) > 0:
             best_idx = np.argmax(door_opened_scores)
         else:
             # TODO: optimize orientation length as well. 
@@ -371,12 +373,10 @@ def approach_object_link_parallel(simulator, object_name, link_name):
             grasping_score_rank = np.argsort(-np.array(grasp_scores))
             for idx, score in enumerate(door_opened_scores):
                 # if score > 0.8 and path_translation_length_rank[idx] + path_rotation_length_rank[idx] + grasping_score_rank[idx] < best_rank:
-                if score > 0.8 and path_translation_length_rank[idx] + grasping_score_rank[idx] < best_rank:
+                if score > ratio_threshold and path_translation_length_rank[idx] + grasping_score_rank[idx] < best_rank:
                     best_idx = idx
                     # best_rank = path_translation_length_rank[idx] + path_rotation_length_rank[idx] + grasping_score_rank[idx]
                     best_rank = path_translation_length_rank[idx] + grasping_score_rank[idx]
-            # total_rank = path_length_rank + grasping_score_rank
-            # best_idx = np.argmin(total_rank)
             
         best_opened_angle = door_opened_scores[best_idx]
         best_score = grasp_scores[best_idx]
@@ -566,6 +566,9 @@ def open_door(simulator, object_name, link_name, handle_joint_id):
         intermediate_states.append(state)
     
     final_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[0]
+    # NOTE: change to return the ratio of the door opened to the upper limit
+    joint_limit_high = joint_limit[1]
+    final_joint_angle = (final_joint_angle - joint_limit[0]) / (joint_limit_high - joint_limit[0])
     return intermediate_states, rgbs, final_joint_angle
 
 def parallel_motion_planning(args):
@@ -603,9 +606,6 @@ def parallel_motion_planning(args):
     if res:
         stage_length['reach_handle'] = len(path)
         
-        # with open(os.path.join(save_path, "motion_planning_target.pkl"), "wb") as f:
-        #     pickle.dump([mp_target_pos, target_orientation], f) 
-        
         rgbs = []
         for idx, q in enumerate(path):
             simulator.robot.set_joint_angles(simulator.robot.right_arm_joint_indices, q)
@@ -624,6 +624,10 @@ def parallel_motion_planning(args):
         # get a score for this grasping pose, which is the number of handle points between the two fingers
         cur_eef_pos, cur_eef_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
         score = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_pc)
+        
+        # if not point is being grasped we directly return a failed score
+        if score == 0:
+            return -1, -1, [], [], {}, np.inf, np.inf
 
         # # close gripper
         close_states, close_rgbs, left_collision, right_collision = close_gripper(simulator, handle_pc)
@@ -637,6 +641,7 @@ def parallel_motion_planning(args):
 
         # # pull out following the rotation axis
         open_door_states, open_door_rgbs, final_joint_angle = open_door(simulator, object_name, link_name, handle_joint_id)
+        
         intermediate_states += open_door_states
         rgbs += open_door_rgbs
         stage_length['open_door'] = len(open_door_states)
