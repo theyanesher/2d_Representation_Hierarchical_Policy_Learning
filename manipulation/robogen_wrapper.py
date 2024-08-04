@@ -38,6 +38,8 @@ class RobogenPointCloudWrapper:
                  gripper_bbox=0.1, 
                  add_contact=False,
                  use_joint_angle=False,
+                 use_absolute_waypoint=False, # [Chialiang][CDDEBUG]
+                 use_chained_diffuser=False, # [Chialiang][CDDEBUG]
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
@@ -64,6 +66,9 @@ class RobogenPointCloudWrapper:
         self.gripper_bbox = gripper_bbox
         self.add_contact = add_contact
         self.use_joint_angle = use_joint_angle
+        self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
+        self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
+        self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
         self.only_handle_points = only_handle_points
@@ -89,8 +94,13 @@ class RobogenPointCloudWrapper:
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
-            cprint(f'act3d_goal_mlp_displacement_gripper_to_object', 'green')
-        else:
+
+            if 'goal' in observation_mode:
+                self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            if 'displacement_gripper_to_object' in observation_mode:
+                self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        
+        elif 'act3d' in observation_mode:
             self.observation_space = spaces.Dict({
                 'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
@@ -99,12 +109,26 @@ class RobogenPointCloudWrapper:
                 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
 
-        if 'act3d' in observation_mode: 
             if 'goal' in observation_mode:
                 self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             if 'displacement_gripper_to_object' in observation_mode:
                 self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
+        elif 'chained_diffuser' in observation_mode:
+
+            # [Chialiang] [CDDEBUG]
+            self.observation_space = spaces.Dict({
+                'visible_rgb': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'visible_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'curr_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'goal_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'goal_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            })
+        else :
+            raise NotImplementedError
 
         for name in self._env.urdf_ids: # randomly center at an object
             if name in ['robot', 'plane', 'init_table']: continue
@@ -118,7 +142,8 @@ class RobogenPointCloudWrapper:
         if self.rpy_mean_list is None:
             self.rpy_mean_list = [[0, 0, -45], [0, 0, -135]]
         
-        if 'act3d' in self.observation_mode:
+        # [Chialiang] [CDDEBUG]
+        if 'act3d' in self.observation_mode or 'chained_diffuser' in self.observation_mode:
             # TODO: handle multiple camera for act3d observation
             # TODO: figure out the right camera distance & position
             # self.rpy_mean_list = [[0, 0, -45]]
@@ -144,11 +169,10 @@ class RobogenPointCloudWrapper:
             self.project_matrices.append(project_matrix)
             # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
-
         self.time_step = 0
         
-        # [Chialiang]
-        if "act3d_goal" in self.observation_mode or 'dp3_goal_gripper' in self.observation_mode:
+        # [Chialiang] [CDDEBUG]
+        if ("act3d_goal" in self.observation_mode) or ('chained_diffuser' in self.observation_mode) or ('dp3_goal_gripper' in self.observation_mode):
 
             # [Chialiang]
             config_path = self._env.config_path
@@ -175,6 +199,7 @@ class RobogenPointCloudWrapper:
             # Chialiang for dense goal pcd
             eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            self.grasping_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
             
             self._env.reset(reset_state=goal_2_state)
             final_eef_pc = self.get_gripper_pc()
@@ -182,6 +207,7 @@ class RobogenPointCloudWrapper:
             # Chialiang for dense goal pcd
             eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            self.final_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
@@ -198,43 +224,64 @@ class RobogenPointCloudWrapper:
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
+        self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
     
     def step(self, action, render=True):
         # beg = time.time()
+
         if not self.use_joint_angle:
-            # beg = time.time()
-            pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
+
+            # [CDDEBUG] [CDHERE] modify the output action type
+            # [CDQUESTION] how to add gripper action in this mode? currently it only uses position and rotation
+            if self.use_chained_diffuser:
+                self.chained_diffuser_step = 1 # force set to post grasping
+
+                assert len(action) == 8 or len(action) == 10
+
+                pos = action[:3] 
+                if len(action) == 8:
+                    euler = p.getEulerFromQuaternion(action[3:7])
+                else :
+                    orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
+                    euler = p.getEulerFromQuaternion(orient)
+                target_joint_angle = action[-1]
+                action = pos.tolist() + list(euler) + [target_joint_angle]
+                self._env.take_direct_action(action) # directly use the action to control the robot
             
-            # transfer the action to the gripper frame
-            if self.in_gripper_frame:
-                action[:3] = current_rotate_matrix @ np.array(action[:3])
+            else :
+                # beg = time.time()
+                pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+                current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
                 
+                # transfer the action to the gripper frame
+                if self.in_gripper_frame:
+                    action[:3] = current_rotate_matrix @ np.array(action[:3])
+                    
 
-            delta_orient = action[3:9]
+                delta_orient = action[3:9]
 
-            delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
+                delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
 
-            after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
-            
-            orient = R.from_matrix(after_rotate_matrix).as_quat()
-            euler = p.getEulerFromQuaternion(orient)
+                after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
+                
+                orient = R.from_matrix(after_rotate_matrix).as_quat()
+                euler = p.getEulerFromQuaternion(orient)
 
-            cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+                cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
 
-            pos = pos + np.array(action[:3])
-            target_joint_angle = action[9] + cur_joint_angle[0]
-            
-            action = pos.tolist() + list(euler) + [target_joint_angle]
-            # end = time.time()
-            # cprint("preprocessing time {}".format(end - beg), "green")
+                pos = pos + np.array(action[:3])
+                target_joint_angle = action[9] + cur_joint_angle[0]
+                
+                action = pos.tolist() + list(euler) + [target_joint_angle]
+                # end = time.time()
+                # cprint("preprocessing time {}".format(end - beg), "green")
 
-            # beg = time.time()
-            self._env.take_direct_action(action)
-            # beg = time.time()
-            # end = time.time()
-            # cprint("take direct action time {}".format(end - beg), "blue")
+                # beg = time.time()
+                self._env.take_direct_action(action)
+                # beg = time.time()
+                # end = time.time()
+                # cprint("take direct action time {}".format(end - beg), "blue")
         else:
             self._env.take_joint_action(action)
         
@@ -421,6 +468,70 @@ class RobogenPointCloudWrapper:
                             # print("goal is to grasp the handle")
                             goal_gripper_pcd = self.grasping_goal
                         self.goal_gripper_pcd = goal_gripper_pcd
+
+                # [Chialiang] [CDDEBUG]
+                elif 'chained_diffuser' in self.observation_mode:
+                    # I need point cloud of target object
+                    # full segmentation mask + depth image, stacked together
+                    # gripper point cloud, which can be the left finger point, right finger point, and the eef point, and the grasping target point
+                    # gripper information
+                    
+                    pcs.append(pc)
+                    gripper_pc = self.get_gripper_pc()
+                    # p.addUserDebugPoints(list(gripper_pc), [[0, 1, 0] for _ in range(len(gripper_pc))], 50, 0)
+                    # import pdb; pdb.set_trace()
+                    gripper_pcd.append(gripper_pc)
+                    
+                    segmask_obj_id = segmask & ((1 << 24) - 1)
+                    robot_mask = np.zeros_like(depth).astype(np.float32)
+                    robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
+                    object_mask = np.zeros_like(depth).astype(np.float32)
+                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+
+                    if not only_object:
+                        ret_object_mask = np.zeros_like(depth).astype(np.float32)
+                        # get the bounding box of the object mask
+                        min_bound = np.min(np.argwhere(object_mask), axis=0)
+                        max_bound = np.max(np.argwhere(object_mask), axis=0)
+                        x_min, y_min = min_bound
+                        x_max, y_max = max_bound
+                        x_range = x_max - x_min
+                        y_range = y_max - y_min
+                        x_min_new = int(max(0, x_min - x_range * np.random.uniform(0.01, 0.05)))
+                        x_max_new = int(min(self.camera_height, x_max + x_range * np.random.uniform(0.01, 0.05)))
+                        y_min_new = int(max(0, y_min - y_range * np.random.uniform(0.01, 0.05)))
+                        y_max_new = int(min(self.camera_width, y_max + y_range * np.random.uniform(0.01, 0.05)))
+                        ret_object_mask[x_min_new:x_max_new, y_min_new:y_max_new] = 1
+                        ret_object_mask_indices = np.flatnonzero(ret_object_mask.flatten())
+                        pcd_ = pc[ret_object_mask_indices]
+                        object_mask_ = np.flatnonzero(object_mask.flatten())
+                        object_pcd_ = pc[object_mask_]
+                        mean_object_pcd = np.mean(object_pcd_, axis=0)
+                        # crop the pcd_ to be near mean_object_pcd
+                        distance = np.linalg.norm(pcd_ - mean_object_pcd, axis=1)
+                        indices = np.flatnonzero(distance < 1.0)
+                        object_mask_indices = ret_object_mask_indices[indices]
+                        object_mask = np.zeros_like(depth).astype(np.float32).flatten()
+                        object_mask[object_mask_indices] = 1
+                        object_mask = object_mask.reshape(self.camera_height, self.camera_width)
+                        
+
+                    if "displacement_to_handle" in self.observation_mode:
+                        info = self._env._get_info()
+                        handle_pos = np.array(info['handle_pos'])
+                        # delta_to_handle = pc - handle_pos.reshape(1, 3)
+                        delta_to_handle = handle_pos.reshape(1, 3) - pc
+                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
+                        assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
+                        feature_maps.append(feature_map)
+                        
+                    else:
+                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
+                        assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
+                        feature_maps.append(feature_map)
+                    
+                    object_mask_indices = np.flatnonzero(object_mask.flatten())
+                    pcd_mask_indices.append(object_mask_indices)
 
                 # [Chialiang]
                 elif 'dp3_goal_gripper_whole' == self.observation_mode:
@@ -750,6 +861,44 @@ class RobogenPointCloudWrapper:
                     closest_point = object_pcd[min_distance_obj_idx]
                     displacement = closest_point - gripper_pcd
                     obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
+            
+            # [Chialiang] [CDDEBUG]
+            elif 'chained_diffuser' in self.observation_mode:
+                # TODO: handle multiple camera for act3d observation
+
+                # process current gripper and goal gripper
+                if self.chained_diffuser_step == 0:
+                    goal_gripper = self.grasping_goal_pose_7d
+                else:
+                    goal_gripper = self.final_goal_pose_7d
+
+                cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+                current_open_close =  cur_joint_angle[0]
+
+                eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+                curr_gripper = np.asarray(list(eef_pos) + list(eef_rot) + [current_open_close])
+                    
+                feature_maps = np.stack(feature_maps, axis=0).astype(np.float32)
+                obs_dict_input['visible_rgb'] = feature_maps
+                obs_dict_input['visible_pcd'] = feature_maps[...,2:5]
+                # obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
+                obs_dict_input['curr_gripper'] = curr_gripper
+                obs_dict_input['goal_gripper'] = goal_gripper
+
+                # # import pdb; pdb.set_trace()
+                # obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
+                # if 'goal' in self.observation_mode:
+                #     obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
+                    
+                # if 'displacement_gripper_to_object' in self.observation_mode:
+                #     gripper_pcd = obs_dict_input['gripper_pcd']
+                #     object_pcd = obs_dict_input['point_cloud']
+                #     distance = scipy.spatial.distance.cdist(gripper_pcd, object_pcd)
+                #     min_distance_obj_idx = np.argmin(distance, axis=1)
+                #     closest_point = object_pcd[min_distance_obj_idx]
+                #     displacement = closest_point - gripper_pcd
+                #     obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
+
             else:
                 obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
                 obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)

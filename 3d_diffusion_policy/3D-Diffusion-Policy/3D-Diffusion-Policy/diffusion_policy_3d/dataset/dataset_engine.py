@@ -140,6 +140,8 @@ class ChainedDiffusorDataset(Dataset):
         trajectory_mask[0] = 1 # first
         trajectory_mask[:-1] = 1 # last
 
+        # [CDTODO] augmentation
+
         # print(f'pcd: {pcd.shape}')
         # print(f'current_gripper: {current_gripper.shape}')
         # print(f'target_gripper: {target_gripper.shape}')
