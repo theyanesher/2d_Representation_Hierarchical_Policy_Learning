@@ -108,8 +108,10 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
-# export CUDA_VISIBLE_DEVICES=0,1
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=5
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
 
@@ -123,24 +125,33 @@ if [ $func = 'train' ]; then
 
     # horizon=4
     horizon=8
-    n_obs_steps=2
+    n_obs_steps=2 # 2 or 4
     # num_load_episodes=10 # for debuging
 
     ##########
     train_ratio=0.9 # for generalization
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
-    batch_size=320 #######
+    batch_size=256 #######
+    # batch_size=400 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
-    self_attention=true
+    self_attention=false
     final_attention=false
+    # normalize_action=true
+    # augmentation_rot=false
+    # augmentation_pcd=false
+    normalize_action=false
+    augmentation_rot=true
+    augmentation_pcd=true
+    use_absolute_waypiont=false
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
+    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_pcd_rot"
 
     action_dim=10
     agent_pos_dim=10
@@ -314,7 +325,7 @@ if [ $func = 'train' ]; then
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     
-    torchrun --standalone --nproc_per_node=2 \
+    torchrun --standalone --nproc_per_node=4 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             /scratch/chialiang/dp3_demo/${save_data_name_0},\
@@ -536,6 +547,7 @@ if [ $func = 'train' ]; then
         task.env_runner.observation_mode="${observation_mode}" \
         policy.encoder_type="${encoder_type}" \
         policy.encoder_output_dim=60 \
+        policy.normalize_action=${normalize_action} \
         policy.act3d_encoder_cfg.in_channels=${in_channels} \
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
@@ -546,15 +558,18 @@ if [ $func = 'train' ]; then
         task.dataset.enumerate=True \
         training.num_epochs=206 \
         training.rollout_every=50 \
-        training.checkpoint_every=5 \
+        training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \
         task.dataset.train_ratio="${train_ratio}" \
         task.dataset.num_load_episodes="${num_load_episodes}" \
         task.dataset.kept_in_disk=true \
         task.dataset.load_per_step=true \
+        task.dataset.augmentation_rot="${augmentation_rot}" \
+        task.dataset.augmentation_pcd="${augmentation_pcd}" \
+        task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
-        # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07172356-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.17/23.56.35_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07291027-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.07.29/10.27.57_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
 
 fi 
 

@@ -58,3 +58,6 @@ dataset:
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10
+  augmentation_pcd: false
+  augmentation_rot: false
+  use_absolute_waypiont: false
