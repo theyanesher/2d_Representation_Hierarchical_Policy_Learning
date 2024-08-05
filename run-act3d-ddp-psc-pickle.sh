@@ -115,6 +115,8 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 if [ $func = 'train' ]; then 
 
+    source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+
     # observation_mode="dp3_goal_gripper_whole"
     # observation_mode="dp3_goal_gripper_part"
     # observation_mode="act3d_goal"
@@ -125,7 +127,7 @@ if [ $func = 'train' ]; then
 
     # horizon=4
     horizon=8
-    n_obs_steps=2 # 2 or 4
+    n_obs_steps=4 # 2 or 4
     # num_load_episodes=10 # for debuging
 
     ##########
@@ -133,7 +135,7 @@ if [ $func = 'train' ]; then
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=1600 #######
+    batch_size=672 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
@@ -145,14 +147,16 @@ if [ $func = 'train' ]; then
     # augmentation_pcd=false
     normalize_action=false
     augmentation_rot=true
-    augmentation_pcd=true
+    augmentation_pcd=false
     use_absolute_waypiont=false
     # use_absolute_waypiont=true
     ##########
+    is_pickle=true
+    ##########
 
     time_stamp=$(date +%m%d%H%M)
-    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_pcd_rot"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_rot"
+    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_pcd_rot"
 
     action_dim=10
     agent_pos_dim=10
@@ -311,111 +315,111 @@ if [ $func = 'train' ]; then
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     
-    torchrun --standalone --nproc_per_node=2 \
+    torchrun --standalone --nproc_per_node=4 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
-            /local/${save_data_name_0},\
-            /local/${save_data_name_1},\
-            /local/${save_data_name_2},\
-            /local/${save_data_name_3},\
-            /local/${save_data_name_4},\
-            /local/${save_data_name_5},\
-            /local/${save_data_name_6},\
-            /local/${save_data_name_7},\
-            /local/${save_data_name_8},\
-            /local/${save_data_name_9},\
-            /local/${save_data_name_10},\
-            /local/${save_data_name_11},\
-            /local/${save_data_name_12},\
-            /local/${save_data_name_13},\
-            /local/${save_data_name_14},\
-            /local/${save_data_name_15},\
-            /local/${save_data_name_16},\
-            /local/${save_data_name_17},\
-            /local/${save_data_name_18},\
-            /local/${save_data_name_19},\
-            /local/${save_data_name_20},\
-            /local/${save_data_name_21},\
-            /local/${save_data_name_22},\
-            /local/${save_data_name_23},\
-            /local/${save_data_name_24},\
-            /local/${save_data_name_25},\
-            /local/${save_data_name_26},\
-            /local/${save_data_name_27},\
-            /local/${save_data_name_28},\
-            /local/${save_data_name_29},\
-            /local/${save_data_name_30},\
-            /local/${save_data_name_31},\
-            /local/${save_data_name_32},\
-            /local/${save_data_name_33},\
-            /local/${save_data_name_34},\
-            /local/${save_data_name_35},\
-            /local/${save_data_name_36},\
-            /local/${save_data_name_37},\
-            /local/${save_data_name_38},\
-            /local/${save_data_name_39},\
-            /local/${save_data_name_40},\
-            /local/${save_data_name_41},\
-            /local/${save_data_name_42},\
-            /local/${save_data_name_43},\
-            /local/${save_data_name_44},\
-            /local/${save_data_name_45},\
-            /local/${save_data_name_46},\
-            /local/${save_data_name_47},\
-            /local/${save_data_name_48},\
-            /local/${save_data_name_49}\
+            ${source_dir}/${save_data_name_0},\
+            ${source_dir}/${save_data_name_1},\
+            ${source_dir}/${save_data_name_2},\
+            ${source_dir}/${save_data_name_3},\
+            ${source_dir}/${save_data_name_4},\
+            ${source_dir}/${save_data_name_5},\
+            ${source_dir}/${save_data_name_6},\
+            ${source_dir}/${save_data_name_7},\
+            ${source_dir}/${save_data_name_8},\
+            ${source_dir}/${save_data_name_9},\
+            ${source_dir}/${save_data_name_10},\
+            ${source_dir}/${save_data_name_11},\
+            ${source_dir}/${save_data_name_12},\
+            ${source_dir}/${save_data_name_13},\
+            ${source_dir}/${save_data_name_14},\
+            ${source_dir}/${save_data_name_15},\
+            ${source_dir}/${save_data_name_16},\
+            ${source_dir}/${save_data_name_17},\
+            ${source_dir}/${save_data_name_18},\
+            ${source_dir}/${save_data_name_19},\
+            ${source_dir}/${save_data_name_20},\
+            ${source_dir}/${save_data_name_21},\
+            ${source_dir}/${save_data_name_22},\
+            ${source_dir}/${save_data_name_23},\
+            ${source_dir}/${save_data_name_24},\
+            ${source_dir}/${save_data_name_25},\
+            ${source_dir}/${save_data_name_26},\
+            ${source_dir}/${save_data_name_27},\
+            ${source_dir}/${save_data_name_28},\
+            ${source_dir}/${save_data_name_29},\
+            ${source_dir}/${save_data_name_30},\
+            ${source_dir}/${save_data_name_31},\
+            ${source_dir}/${save_data_name_32},\
+            ${source_dir}/${save_data_name_33},\
+            ${source_dir}/${save_data_name_34},\
+            ${source_dir}/${save_data_name_35},\
+            ${source_dir}/${save_data_name_36},\
+            ${source_dir}/${save_data_name_37},\
+            ${source_dir}/${save_data_name_38},\
+            ${source_dir}/${save_data_name_39},\
+            ${source_dir}/${save_data_name_40},\
+            ${source_dir}/${save_data_name_41},\
+            ${source_dir}/${save_data_name_42},\
+            ${source_dir}/${save_data_name_43},\
+            ${source_dir}/${save_data_name_44},\
+            ${source_dir}/${save_data_name_45},\
+            ${source_dir}/${save_data_name_46},\
+            ${source_dir}/${save_data_name_47},\
+            ${source_dir}/${save_data_name_48},\
+            ${source_dir}/${save_data_name_49}\
         ]"\
         task.env_runner.demo_experiment_path="[\
-            /local/${save_data_name_0},\
-            /local/${save_data_name_1},\
-            /local/${save_data_name_2},\
-            /local/${save_data_name_3},\
-            /local/${save_data_name_4},\
-            /local/${save_data_name_5},\
-            /local/${save_data_name_6},\
-            /local/${save_data_name_7},\
-            /local/${save_data_name_8},\
-            /local/${save_data_name_9},\
-            /local/${save_data_name_10},\
-            /local/${save_data_name_11},\
-            /local/${save_data_name_12},\
-            /local/${save_data_name_13},\
-            /local/${save_data_name_14},\
-            /local/${save_data_name_15},\
-            /local/${save_data_name_16},\
-            /local/${save_data_name_17},\
-            /local/${save_data_name_18},\
-            /local/${save_data_name_19},\
-            /local/${save_data_name_20},\
-            /local/${save_data_name_21},\
-            /local/${save_data_name_22},\
-            /local/${save_data_name_23},\
-            /local/${save_data_name_24},\
-            /local/${save_data_name_25},\
-            /local/${save_data_name_26},\
-            /local/${save_data_name_27},\
-            /local/${save_data_name_28},\
-            /local/${save_data_name_29},\
-            /local/${save_data_name_30},\
-            /local/${save_data_name_31},\
-            /local/${save_data_name_32},\
-            /local/${save_data_name_33},\
-            /local/${save_data_name_34},\
-            /local/${save_data_name_35},\
-            /local/${save_data_name_36},\
-            /local/${save_data_name_37},\
-            /local/${save_data_name_38},\
-            /local/${save_data_name_39},\
-            /local/${save_data_name_40},\
-            /local/${save_data_name_41},\
-            /local/${save_data_name_42},\
-            /local/${save_data_name_43},\
-            /local/${save_data_name_44},\
-            /local/${save_data_name_45},\
-            /local/${save_data_name_46},\
-            /local/${save_data_name_47},\
-            /local/${save_data_name_48},\
-            /local/${save_data_name_49}\
+            ${source_dir}/${save_data_name_0},\
+            ${source_dir}/${save_data_name_1},\
+            ${source_dir}/${save_data_name_2},\
+            ${source_dir}/${save_data_name_3},\
+            ${source_dir}/${save_data_name_4},\
+            ${source_dir}/${save_data_name_5},\
+            ${source_dir}/${save_data_name_6},\
+            ${source_dir}/${save_data_name_7},\
+            ${source_dir}/${save_data_name_8},\
+            ${source_dir}/${save_data_name_9},\
+            ${source_dir}/${save_data_name_10},\
+            ${source_dir}/${save_data_name_11},\
+            ${source_dir}/${save_data_name_12},\
+            ${source_dir}/${save_data_name_13},\
+            ${source_dir}/${save_data_name_14},\
+            ${source_dir}/${save_data_name_15},\
+            ${source_dir}/${save_data_name_16},\
+            ${source_dir}/${save_data_name_17},\
+            ${source_dir}/${save_data_name_18},\
+            ${source_dir}/${save_data_name_19},\
+            ${source_dir}/${save_data_name_20},\
+            ${source_dir}/${save_data_name_21},\
+            ${source_dir}/${save_data_name_22},\
+            ${source_dir}/${save_data_name_23},\
+            ${source_dir}/${save_data_name_24},\
+            ${source_dir}/${save_data_name_25},\
+            ${source_dir}/${save_data_name_26},\
+            ${source_dir}/${save_data_name_27},\
+            ${source_dir}/${save_data_name_28},\
+            ${source_dir}/${save_data_name_29},\
+            ${source_dir}/${save_data_name_30},\
+            ${source_dir}/${save_data_name_31},\
+            ${source_dir}/${save_data_name_32},\
+            ${source_dir}/${save_data_name_33},\
+            ${source_dir}/${save_data_name_34},\
+            ${source_dir}/${save_data_name_35},\
+            ${source_dir}/${save_data_name_36},\
+            ${source_dir}/${save_data_name_37},\
+            ${source_dir}/${save_data_name_38},\
+            ${source_dir}/${save_data_name_39},\
+            ${source_dir}/${save_data_name_40},\
+            ${source_dir}/${save_data_name_41},\
+            ${source_dir}/${save_data_name_42},\
+            ${source_dir}/${save_data_name_43},\
+            ${source_dir}/${save_data_name_44},\
+            ${source_dir}/${save_data_name_45},\
+            ${source_dir}/${save_data_name_46},\
+            ${source_dir}/${save_data_name_47},\
+            ${source_dir}/${save_data_name_48},\
+            ${source_dir}/${save_data_name_49}\
         ]" \
         task.env_runner.experiment_name="[\
             ${demo_name_0},\
@@ -553,6 +557,7 @@ if [ $func = 'train' ]; then
         task.dataset.augmentation_rot="${augmentation_rot}" \
         task.dataset.augmentation_pcd="${augmentation_pcd}" \
         task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
+        task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
         # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07291027-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.07.29/10.27.57_train_dp3_robogen_open_door/checkpoints/latest.ckpt'

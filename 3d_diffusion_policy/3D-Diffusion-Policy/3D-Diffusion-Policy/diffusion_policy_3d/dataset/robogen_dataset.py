@@ -31,6 +31,7 @@ class RobogenDataset(BaseDataset):
             augmentation_rot=False,
             augmentation_pcd=False,
             use_absolute_waypiont=False,
+            is_pickle=False,
             **kwargs
             ):
         super().__init__()
@@ -40,6 +41,7 @@ class RobogenDataset(BaseDataset):
         self.augmentation_rot = augmentation_rot
         self.augmentation_pcd = augmentation_pcd
         self.use_absolute_waypiont = use_absolute_waypiont
+        self.is_pickle = is_pickle
         
         keys = ['state', 'action', 'point_cloud']
         if 'act3d' in observation_mode:
@@ -113,7 +115,9 @@ class RobogenDataset(BaseDataset):
             else:
                 cprint(f'keep in disk and load per step, load_per_step:{self.load_per_step}', 'green')
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
-                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step)
+
+                # [TODO] add argument "is_pickle"
+                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, is_pickle=self.is_pickle) # [DebugPickle]
                 self.action_welford = self.replay_buffer.action_welford
             
             self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
@@ -253,7 +257,7 @@ class RobogenDataset(BaseDataset):
 
         # augmentation
         ###########################################
-        debug = True
+        debug = False
         if debug:
             np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/agent_pos_before.npy', agent_pos)
             np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/point_cloud_before.npy', point_cloud)

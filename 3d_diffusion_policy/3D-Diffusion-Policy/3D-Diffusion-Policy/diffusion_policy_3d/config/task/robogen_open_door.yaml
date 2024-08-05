@@ -61,3 +61,4 @@ dataset:
   augmentation_pcd: false
   augmentation_rot: false
   use_absolute_waypiont: false
+  is_pickle: false
