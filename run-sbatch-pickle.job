@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH -N 1 # Number of nodes
-#SBATCH -n 12
+#SBATCH -n 48
 #SBATCH -p ROBO
-#SBATCH --gpus=h100:1 #GPU specification. H100
+#SBATCH --gpus=h100:4 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name test # 50-obj-act3d-unet-low-level-with-goal
 #SBATCH -o sbatch_output/job_%j.out

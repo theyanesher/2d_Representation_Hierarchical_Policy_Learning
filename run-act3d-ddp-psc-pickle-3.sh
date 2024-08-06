@@ -315,7 +315,7 @@ if [ $func = 'train' ]; then
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     
-    torchrun --standalone --nproc_per_node=1 \
+    torchrun --standalone --nproc_per_node=4 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             ${source_dir}/${save_data_name_0},\
@@ -546,7 +546,7 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
-        training.num_epochs=101 \
+        training.num_epochs=81 \
         training.rollout_every=50 \
         training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \
@@ -559,8 +559,7 @@ if [ $func = 'train' ]; then
         task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
-        val_dataloader.batch_size="${batch_size}" \
-        load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08051658-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-no_normalize/2024.08.05/16.58.17_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        val_dataloader.batch_size="${batch_size}"
 
 fi 
 
