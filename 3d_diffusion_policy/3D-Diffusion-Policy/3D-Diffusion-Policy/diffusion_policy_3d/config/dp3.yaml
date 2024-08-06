@@ -96,14 +96,14 @@ ema:
 
 dataloader:
   batch_size: 30
-  num_workers: 30 # [AugDebug]
+  num_workers: 12 # [AugDebug]
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
   batch_size: 30
-  num_workers: 30  # [AugDebug]
+  num_workers: 12  # [AugDebug]
   shuffle: False
   pin_memory: True
   persistent_workers: False

@@ -1,0 +1,575 @@
+
+# python manipulation/old_test_opening_primitve.py
+
+func=${1}
+
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 [func]"
+    exit
+fi
+
+# demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+# # save_data_name=0527-act3d-always-close
+# save_data_name=0626-act3d-obj-41510-displacement-to-handle
+# exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
+# task_beg_idx=0
+# task_end_idx=1 # for debugging
+# opened_threshold=0.65
+
+# # demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+# # save_data_name=0531-act3d-obj-46462
+# # exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
+# # task_beg_idx=4
+# # task_end_idx=5
+# # opened_threshold=2.6
+
+# observation_mode=act3d
+# observation_mode=act3d_goal
+# observation_mode=dp3_goal_gripper
+# observation_mode=dp3_goal_gripper
+# observation_mode=act3d_goal_gripper_4
+pointcloud_num=4500
+
+# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
+# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-45448
+
+if [ $func = 'collect' ]; then 
+
+    demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+
+    save_data_name=0705-dp3-obj-41510-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-45448-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46462-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46732-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46801-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46874-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46922-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46966-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-47570-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-47578-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-48700-goal_dense_gripper_on_pcd
+
+    task_beg_idx=0
+    task_end_idx=1
+
+    task_beg_idx=2
+    task_end_idx=3
+    
+    task_beg_idx=4
+    task_end_idx=5
+    
+    task_beg_idx=5
+    task_end_idx=6
+    
+    task_beg_idx=6
+    task_end_idx=7
+    
+    task_beg_idx=7
+    task_end_idx=8
+    
+    task_beg_idx=8
+    task_end_idx=9
+    
+    task_beg_idx=9
+    task_end_idx=10
+    
+    task_beg_idx=10
+    task_end_idx=11
+    
+    task_beg_idx=11
+    task_end_idx=12
+    
+    task_beg_idx=12
+    task_end_idx=13
+
+    post_fix='dp3_goal_gripper_dense'
+    observation_mode="${post_fix}"
+
+    python 3d_diffusion_policy/extract_data_from_states_2.py --folder_name data/temp/ --object_name storagefurniture \
+        --save_path "dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
+        --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
+        --pointcloud_num "${pointcloud_num}" \
+        --observation_mode "${observation_mode}" \
+        --parallel 1 \
+        --add_distractors 0 \
+        --num_experiment 1000
+fi
+
+cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
+
+
+# export CUDA_VISIBLE_DEVICES=5
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=4,5,6,7
+
+if [ $func = 'train' ]; then 
+
+    source_dir="/local"
+
+    # observation_mode="dp3_goal_gripper_whole"
+    # observation_mode="dp3_goal_gripper_part"
+    # observation_mode="act3d_goal"
+    observation_mode="act3d_goal_mlp"
+    # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    encoding_mode="keep_position_feature_in_attention_feature"
+    # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
+
+    # horizon=4
+    horizon=8
+    n_obs_steps=2 # 2 or 4
+    # num_load_episodes=10 # for debuging
+
+    ##########
+    train_ratio=0.9 # for generalization
+    num_load_episodes=1000    # for generalization
+    pc_channel=3 # we should modify this
+    # batch_size=256 #######
+    batch_size=1400 #######
+    encoder_type=act3d
+    use_mlp=1
+    use_lightweight_unet=0
+    in_channels=3 ####
+    self_attention=false
+    final_attention=false
+    # normalize_action=true
+    # augmentation_rot=false
+    # augmentation_pcd=false
+    normalize_action=true
+    augmentation_rot=false
+    augmentation_pcd=true
+    use_absolute_waypiont=false
+    # use_absolute_waypiont=true
+    ##########
+    is_pickle=true
+    ##########
+
+    time_stamp=$(date +%m%d%H%M)
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_pcd"
+
+    action_dim=10
+    agent_pos_dim=10
+    
+    # saved data paths
+    save_data_name_0="0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point"
+    save_data_name_1="0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
+    save_data_name_2="0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
+    save_data_name_3="0628-act3d-obj-46732-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_4="0628-act3d-obj-46801-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_5="0628-act3d-obj-46874-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_6="0628-act3d-obj-46922-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_7="0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_8="0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_9="0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_10="0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"    
+    save_data_name_11="0705-obj-45526"
+    save_data_name_12="0705-obj-45661"
+    save_data_name_13="0705-obj-45694"
+    save_data_name_14="0705-obj-45780"
+    save_data_name_15="0705-obj-45910"
+    save_data_name_16="0705-obj-45961"
+    save_data_name_17="0705-obj-46408"
+    save_data_name_18="0705-obj-46417"
+    save_data_name_19="0705-obj-46440"
+    save_data_name_20="0705-obj-46490"
+    save_data_name_21="0705-obj-46762"
+    save_data_name_22="0705-obj-46825"
+    save_data_name_23="0705-obj-46893"
+    save_data_name_24="0705-obj-47235"
+    save_data_name_25="0705-obj-47281"
+    save_data_name_26="0705-obj-47315"
+    save_data_name_27="0705-obj-47529"
+    save_data_name_28="0705-obj-47669"
+    save_data_name_29="0705-obj-47944"
+    save_data_name_30="0705-obj-48063"
+    save_data_name_31="0705-obj-48177"
+    save_data_name_32="0705-obj-48356"
+    save_data_name_33="0705-obj-48623"
+    save_data_name_34="0705-obj-48876"
+    save_data_name_35="0705-obj-49025"
+    save_data_name_36="0705-obj-49062"
+    save_data_name_37="0705-obj-49132"
+    save_data_name_38="0705-obj-49133"
+    save_data_name_39="0712-obj-40417"
+    save_data_name_40="0712-obj-41085"
+    save_data_name_41="0712-obj-41452"
+    save_data_name_42="0712-obj-45162"
+    save_data_name_43="0712-obj-45176"
+    save_data_name_44="0712-obj-45194"
+    save_data_name_45="0712-obj-45203"
+    save_data_name_46="0712-obj-45248"
+    save_data_name_47="0712-obj-45271"
+    save_data_name_48="0712-obj-45290"
+    save_data_name_49="0712-obj-45305"
+
+    exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_3=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-00/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_4=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46801_2024-03-27-20-37-05/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_5=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46874_2024-03-27-13-57-49/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_6=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46922_2024-03-27-19-42-45/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_7=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46966_2024-03-27-16-55-33/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_8=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47570_2024-03-27-21-36-50/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_9=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47578_2024-03-27-14-56-07/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_10=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_11=data/diverse_objects/open_the_door_45526/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_12=data/diverse_objects/open_the_door_45661/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_13=data/diverse_objects/open_the_door_45694/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_14=data/diverse_objects/open_the_door_45780/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_15=data/diverse_objects/open_the_door_45910/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_16=data/diverse_objects/open_the_door_45961/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_17=data/diverse_objects/open_the_door_46408/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_18=data/diverse_objects/open_the_door_46417/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_19=data/diverse_objects/open_the_door_46440/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_20=data/diverse_objects/open_the_door_46490/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_21=data/diverse_objects/open_the_door_46762/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_22=data/diverse_objects/open_the_door_46825/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_23=data/diverse_objects/open_the_door_46893/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_24=data/diverse_objects/open_the_door_47235/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_25=data/diverse_objects/open_the_door_47281/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_26=data/diverse_objects/open_the_door_47315/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_27=data/diverse_objects/open_the_door_47529/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_28=data/diverse_objects/open_the_door_47669/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_29=data/diverse_objects/open_the_door_47944/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_30=data/diverse_objects/open_the_door_48063/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_31=data/diverse_objects/open_the_door_48177/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_32=data/diverse_objects/open_the_door_48356/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_33=data/diverse_objects/open_the_door_48623/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_34=data/diverse_objects/open_the_door_48876/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_35=data/diverse_objects/open_the_door_49025/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_36=data/diverse_objects/open_the_door_49062/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_37=data/diverse_objects/open_the_door_49132/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_38=data/diverse_objects/open_the_door_49133/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_39=data/diverse_objects_2/open_the_door_40417/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_40=data/diverse_objects_2/open_the_door_41085/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_41=data/diverse_objects_2/open_the_door_41452/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_42=data/diverse_objects_2/open_the_door_45162/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_43=data/diverse_objects_2/open_the_door_45176/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_44=data/diverse_objects_2/open_the_door_45194/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_45=data/diverse_objects_2/open_the_door_45203/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_46=data/diverse_objects_2/open_the_door_45248/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_47=data/diverse_objects_2/open_the_door_45271/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_48=data/diverse_objects_2/open_the_door_45290/task_open_the_door_of_the_storagefurniture_by_its_handle
+    exp_folder_49=data/diverse_objects_2/open_the_door_45305/task_open_the_door_of_the_storagefurniture_by_its_handle
+
+    demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_2=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_3=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_4=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_5=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_6=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_7=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_8=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_9=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_10=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_11=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_12=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_13=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_14=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_15=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_16=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_17=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_18=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_19=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_20=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_21=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_22=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_23=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_24=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_25=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_26=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_27=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_28=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_29=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_30=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_31=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_32=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_33=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_34=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_35=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_36=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_37=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_38=0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_39=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_40=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_41=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_42=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_43=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_44=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_45=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_46=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_47=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    
+    torchrun --standalone --nproc_per_node=1 \
+        train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
+        task.dataset.zarr_path="[\
+            ${source_dir}/${save_data_name_0},\
+            ${source_dir}/${save_data_name_1},\
+            ${source_dir}/${save_data_name_2},\
+            ${source_dir}/${save_data_name_3},\
+            ${source_dir}/${save_data_name_4},\
+            ${source_dir}/${save_data_name_5},\
+            ${source_dir}/${save_data_name_6},\
+            ${source_dir}/${save_data_name_7},\
+            ${source_dir}/${save_data_name_8},\
+            ${source_dir}/${save_data_name_9},\
+            ${source_dir}/${save_data_name_10},\
+            ${source_dir}/${save_data_name_11},\
+            ${source_dir}/${save_data_name_12},\
+            ${source_dir}/${save_data_name_13},\
+            ${source_dir}/${save_data_name_14},\
+            ${source_dir}/${save_data_name_15},\
+            ${source_dir}/${save_data_name_16},\
+            ${source_dir}/${save_data_name_17},\
+            ${source_dir}/${save_data_name_18},\
+            ${source_dir}/${save_data_name_19},\
+            ${source_dir}/${save_data_name_20},\
+            ${source_dir}/${save_data_name_21},\
+            ${source_dir}/${save_data_name_22},\
+            ${source_dir}/${save_data_name_23},\
+            ${source_dir}/${save_data_name_24},\
+            ${source_dir}/${save_data_name_25},\
+            ${source_dir}/${save_data_name_26},\
+            ${source_dir}/${save_data_name_27},\
+            ${source_dir}/${save_data_name_28},\
+            ${source_dir}/${save_data_name_29},\
+            ${source_dir}/${save_data_name_30},\
+            ${source_dir}/${save_data_name_31},\
+            ${source_dir}/${save_data_name_32},\
+            ${source_dir}/${save_data_name_33},\
+            ${source_dir}/${save_data_name_34},\
+            ${source_dir}/${save_data_name_35},\
+            ${source_dir}/${save_data_name_36},\
+            ${source_dir}/${save_data_name_37},\
+            ${source_dir}/${save_data_name_38},\
+            ${source_dir}/${save_data_name_39},\
+            ${source_dir}/${save_data_name_40},\
+            ${source_dir}/${save_data_name_41},\
+            ${source_dir}/${save_data_name_42},\
+            ${source_dir}/${save_data_name_43},\
+            ${source_dir}/${save_data_name_44},\
+            ${source_dir}/${save_data_name_45},\
+            ${source_dir}/${save_data_name_46},\
+            ${source_dir}/${save_data_name_47},\
+            ${source_dir}/${save_data_name_48},\
+            ${source_dir}/${save_data_name_49}\
+        ]"\
+        task.env_runner.demo_experiment_path="[\
+            ${source_dir}/${save_data_name_0},\
+            ${source_dir}/${save_data_name_1},\
+            ${source_dir}/${save_data_name_2},\
+            ${source_dir}/${save_data_name_3},\
+            ${source_dir}/${save_data_name_4},\
+            ${source_dir}/${save_data_name_5},\
+            ${source_dir}/${save_data_name_6},\
+            ${source_dir}/${save_data_name_7},\
+            ${source_dir}/${save_data_name_8},\
+            ${source_dir}/${save_data_name_9},\
+            ${source_dir}/${save_data_name_10},\
+            ${source_dir}/${save_data_name_11},\
+            ${source_dir}/${save_data_name_12},\
+            ${source_dir}/${save_data_name_13},\
+            ${source_dir}/${save_data_name_14},\
+            ${source_dir}/${save_data_name_15},\
+            ${source_dir}/${save_data_name_16},\
+            ${source_dir}/${save_data_name_17},\
+            ${source_dir}/${save_data_name_18},\
+            ${source_dir}/${save_data_name_19},\
+            ${source_dir}/${save_data_name_20},\
+            ${source_dir}/${save_data_name_21},\
+            ${source_dir}/${save_data_name_22},\
+            ${source_dir}/${save_data_name_23},\
+            ${source_dir}/${save_data_name_24},\
+            ${source_dir}/${save_data_name_25},\
+            ${source_dir}/${save_data_name_26},\
+            ${source_dir}/${save_data_name_27},\
+            ${source_dir}/${save_data_name_28},\
+            ${source_dir}/${save_data_name_29},\
+            ${source_dir}/${save_data_name_30},\
+            ${source_dir}/${save_data_name_31},\
+            ${source_dir}/${save_data_name_32},\
+            ${source_dir}/${save_data_name_33},\
+            ${source_dir}/${save_data_name_34},\
+            ${source_dir}/${save_data_name_35},\
+            ${source_dir}/${save_data_name_36},\
+            ${source_dir}/${save_data_name_37},\
+            ${source_dir}/${save_data_name_38},\
+            ${source_dir}/${save_data_name_39},\
+            ${source_dir}/${save_data_name_40},\
+            ${source_dir}/${save_data_name_41},\
+            ${source_dir}/${save_data_name_42},\
+            ${source_dir}/${save_data_name_43},\
+            ${source_dir}/${save_data_name_44},\
+            ${source_dir}/${save_data_name_45},\
+            ${source_dir}/${save_data_name_46},\
+            ${source_dir}/${save_data_name_47},\
+            ${source_dir}/${save_data_name_48},\
+            ${source_dir}/${save_data_name_49}\
+        ]" \
+        task.env_runner.experiment_name="[\
+            ${demo_name_0},\
+            ${demo_name_1},\
+            ${demo_name_2},\
+            ${demo_name_3},\
+            ${demo_name_4},\
+            ${demo_name_5},\
+            ${demo_name_6},\
+            ${demo_name_7},\
+            ${demo_name_8},\
+            ${demo_name_9},\
+            ${demo_name_10},\
+            ${demo_name_11},\
+            ${demo_name_12},\
+            ${demo_name_13},\
+            ${demo_name_14},\
+            ${demo_name_15},\
+            ${demo_name_16},\
+            ${demo_name_17},\
+            ${demo_name_18},\
+            ${demo_name_19},\
+            ${demo_name_20},\
+            ${demo_name_21},\
+            ${demo_name_22},\
+            ${demo_name_23},\
+            ${demo_name_24},\
+            ${demo_name_25},\
+            ${demo_name_26},\
+            ${demo_name_27},\
+            ${demo_name_28},\
+            ${demo_name_29},\
+            ${demo_name_30},\
+            ${demo_name_31},\
+            ${demo_name_32},\
+            ${demo_name_33},\
+            ${demo_name_34},\
+            ${demo_name_35},\
+            ${demo_name_36},\
+            ${demo_name_37},\
+            ${demo_name_38},\
+            ${demo_name_39},\
+            ${demo_name_40},\
+            ${demo_name_41},\
+            ${demo_name_42},\
+            ${demo_name_43},\
+            ${demo_name_44},\
+            ${demo_name_45},\
+            ${demo_name_46},\
+            ${demo_name_47},\
+            ${demo_name_48},\
+            ${demo_name_49}\
+        ]" \
+        task.env_runner.experiment_folder="[\
+            ${exp_folder_0},\
+            ${exp_folder_1},\
+            ${exp_folder_2},\
+            ${exp_folder_3},\
+            ${exp_folder_4},\
+            ${exp_folder_5},\
+            ${exp_folder_6},\
+            ${exp_folder_7},\
+            ${exp_folder_8},\
+            ${exp_folder_9},\
+            ${exp_folder_10},\
+            ${exp_folder_11},\
+            ${exp_folder_12},\
+            ${exp_folder_13},\
+            ${exp_folder_14},\
+            ${exp_folder_15},\
+            ${exp_folder_16},\
+            ${exp_folder_17},\
+            ${exp_folder_18},\
+            ${exp_folder_19},\
+            ${exp_folder_20},\
+            ${exp_folder_21},\
+            ${exp_folder_22},\
+            ${exp_folder_23},\
+            ${exp_folder_24},\
+            ${exp_folder_25},\
+            ${exp_folder_26},\
+            ${exp_folder_27},\
+            ${exp_folder_28},\
+            ${exp_folder_29},\
+            ${exp_folder_30},\
+            ${exp_folder_31},\
+            ${exp_folder_32},\
+            ${exp_folder_33},\
+            ${exp_folder_34},\
+            ${exp_folder_35},\
+            ${exp_folder_36},\
+            ${exp_folder_37},\
+            ${exp_folder_38},\
+            ${exp_folder_39},\
+            ${exp_folder_40},\
+            ${exp_folder_41},\
+            ${exp_folder_42},\
+            ${exp_folder_43},\
+            ${exp_folder_44},\
+            ${exp_folder_45},\
+            ${exp_folder_46},\
+            ${exp_folder_47},\
+            ${exp_folder_48},\
+            ${exp_folder_49}\
+        ]" \
+        task.env_runner.num_point_in_pc="${pointcloud_num}" \
+        task.env_runner.use_joint_angle="${use_joint_angle}" \
+        task.env_runner.use_segmask="${use_segmask}" \
+        task.env_runner.only_handle_points="${only_handle_points}" \
+        horizon="${horizon}" n_obs_steps="${n_obs_steps}" \
+        task.shape_meta.obs.agent_pos.shape="[${agent_pos_dim}]" \
+        task.shape_meta.action.shape="[${action_dim}]" \
+        policy.pointcloud_encoder_cfg.in_channels="${pc_channel}" \
+        task.dataset.observation_mode="${observation_mode}" \
+        task.env_runner.observation_mode="${observation_mode}" \
+        policy.encoder_type="${encoder_type}" \
+        policy.encoder_output_dim=60 \
+        policy.normalize_action=${normalize_action} \
+        policy.act3d_encoder_cfg.in_channels=${in_channels} \
+        policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
+        policy.act3d_encoder_cfg.mode="${encoding_mode}" \
+        policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
+        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
+        policy.act3d_encoder_cfg.self_attention="${self_attention}" \
+        policy.act3d_encoder_cfg.final_attention="${final_attention}" \
+        task.dataset.enumerate=True \
+        training.num_epochs=101 \
+        training.rollout_every=50 \
+        training.checkpoint_every=2 \
+        task.env_runner.max_steps=35 \
+        task.dataset.train_ratio="${train_ratio}" \
+        task.dataset.num_load_episodes="${num_load_episodes}" \
+        task.dataset.kept_in_disk=true \
+        task.dataset.load_per_step=true \
+        task.dataset.augmentation_rot="${augmentation_rot}" \
+        task.dataset.augmentation_pcd="${augmentation_pcd}" \
+        task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
+        task.dataset.is_pickle="${is_pickle}" \
+        dataloader.batch_size="${batch_size}" \
+        val_dataloader.batch_size="${batch_size}" \
+        load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08052154-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_pcd/2024.08.05/21.54.26_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        # load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08051804-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot/2024.08.05/18.04.12_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        # load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08051658-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-no_normalize/2024.08.05/16.58.17_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+
+fi 
+
+
+if [ $func = 'eval' ]; then 
+    python eval_robogen_parallel_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
+    # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
+    # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug
+    # singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif
+fi 
+
