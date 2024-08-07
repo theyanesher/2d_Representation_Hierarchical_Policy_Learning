@@ -477,48 +477,16 @@ class PointNet2_small2(nn.Module):
         x = self.conv2(x)
         # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
-        return x # x shape: B, N, num_classes
-
-class PointNet2ssg_small(nn.Module):
-    def __init__(self, num_classes):
-        super(PointNet2ssg_small, self).__init__()
-        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 3+3, [16, 16, 32], group_all=False)
-        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 32+3, [32, 32, 64], group_all=False)
-        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 64 + 3, [64, 64, 128], False)
-        self.fp3 = PointNetFeaturePropagation(192, [128, 128])
-        self.fp2 = PointNetFeaturePropagation(160, [128, 64])
-        self.fp1 = PointNetFeaturePropagation(64, [64, 64, 64])
-        self.conv1 = nn.Conv1d(64, 64, 1)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.conv2 = nn.Conv1d(64, num_classes, 1)
-        
-
-    def forward(self, xyz):
-        l0_points = xyz
-        l0_xyz = xyz[:,:3,:]
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points) # 10, 3, 1024; 10, 64, 1024
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
-        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
-
-        x = F.relu(self.bn1(self.conv1(l0_points)))
-        x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
-        x = x.permute(0, 2, 1)
-        return x
+        return x # x shape: B, N, num_classes: outputing logtis
 
 if __name__ == '__main__':
 
     from tqdm import tqdm
     # model = PointNet2(num_classes=40).cuda()
     # model = PointNet2_small(num_classes=40).cuda()
-    # model = PointNet2_small2(num_classes=40).cuda()
+    model = PointNet2_small2(num_classes=40).cuda()
     # model = PointNet2ssg(num_classes=40).cuda()
     # model = SimpleMLP(num_classes=40).cuda()
-    model = PointNet2ssg_small(num_classes=40).cuda()
     for _ in tqdm(range(1000000)):
         points = torch.randn(10, 3, 4500).cuda()
         ret = model(points)

@@ -79,13 +79,14 @@ policy:
     mode: null
     use_mlp: false
     self_attention: false
-    use_attn_for_point_features: false
-    pointcloud_backbone: unet # unet, mlp, pointnet2
+    use_attn_for_point_features: false # large_self_attention, locally_self_attention
+    pointcloud_backbone: unet # unet, mlp, pointnet2, point_transformer
+    use_lightweight_unet: false # dummy param
 
   prediction_target: action
 
   noise_model_type: unet # unet, transformer
-  diffusion_attn_embed_dim: 120
+  diffusion_attn_embed_dim: 240
 
 
 ema:

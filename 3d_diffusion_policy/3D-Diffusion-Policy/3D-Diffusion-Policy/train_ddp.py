@@ -157,6 +157,11 @@ class TrainDP3Workspace:
                 assert isinstance(env_runner, BaseRunner)
         else:
             env_runner = None
+
+        cprint("==================================", "green")
+        cprint("================ SAVE DIR ================", "green")
+        cprint(f"{self.output_dir}", "green")
+        cprint("==================================", "green")
         
         cfg.logging.name = str(cfg.logging.name)
         cprint("-----------------------------", "yellow")

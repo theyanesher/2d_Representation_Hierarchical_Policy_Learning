@@ -59,3 +59,4 @@ dataset:
   load_per_step: true
   num_load_episodes: 10
   dataset_keys: None
+  only_reach_stage: false

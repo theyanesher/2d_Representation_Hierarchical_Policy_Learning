@@ -32,8 +32,9 @@ class TransformerBlock(nn.Module):
         
     # xyz: b x n x 3, features: b x n x f
     def forward(self, xyz, features):
-        dists = square_distance(xyz, xyz)
-        knn_idx = dists.argsort()[:, :, :self.k]  # b x n x k
+        # dists = square_distance(xyz, xyz)
+        # knn_idx = dists.argsort()[:, :, :self.k]  # b x n x k
+        knn_idx = knn_query_torch_cluster(xyz, self.k)
         knn_xyz = index_points(xyz, knn_idx)
         
         pre = features
@@ -173,6 +174,36 @@ class PointTransformerSeg(nn.Module):
             
         return self.fc3(points)
 
+class TrivialLocallyTransformer(nn.Module):
+    def __init__(self, n_c, npoints=4500, nneighbor=16, d_points=3, transformer_dim=512, hidden_dim=512):
+        super().__init__()
+        self.res_trans_1 = TransformerBlock(d_points, transformer_dim, nneighbor)
+        self.fc_1 = nn.Sequential(
+            nn.Linear(d_points, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, d_points)
+        )
+        self.res_trans_2 = TransformerBlock(d_points, transformer_dim, nneighbor)
+        self.fc_2 = nn.Sequential(
+            nn.Linear(d_points, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, d_points)
+        )
+
+    def forward(self, xyz, features):
+        """
+        xyz: b n 3
+        features: b n d_points 
+        """
+        features = self.res_trans_1(xyz, features)[0]
+        features = self.fc_1(features)
+        features = self.res_trans_2(xyz, features)[0]
+        features = self.fc_2(features)
+        return features
 
 
 
@@ -182,7 +213,7 @@ class PointTransformerSeg(nn.Module):
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
-    src^T * dst = xn * xm + yn * ym + zn * zm；
+    src^T * dst = xn * xm + yn * ym + zn * zm;
     sum(src^2, dim=-1) = xn*xn + yn*yn + zn*zn;
     sum(dst^2, dim=-1) = xm*xm + ym*ym + zm*zm;
     dist = (xn - xm)^2 + (yn - ym)^2 + (zn - zm)^2
@@ -194,6 +225,17 @@ def square_distance(src, dst):
         dist: per-point square distance, [B, N, M]
     """
     return torch.sum((src[:, :, None] - dst[:, None]) ** 2, dim=-1)
+
+import torch_cluster
+def knn_query_torch_cluster(src, k=16):
+    bs, npts, _ = src.shape
+    temp_xyz = src.reshape(-1, 3)
+    batch_xyz = torch.repeat_interleave(torch.arange(bs), npts).cuda()
+    sampled_indx = torch_cluster.knn(temp_xyz, temp_xyz, k, batch_xyz, batch_xyz)[1]
+    sampled_inds = sampled_indx.reshape(bs, -1)
+    sampled_inds = sampled_inds - sampled_inds[:, 0].unsqueeze(1)
+    sampled_inds = sampled_inds.reshape(bs, npts, k)
+    return sampled_inds
 
 
 def index_points(points, idx):
@@ -481,6 +523,16 @@ if __name__ == '__main__':
         xyz = torch.randn(10, 4500, 3).cuda()
         out = model(xyz)
         print(out.shape)
+    # import torch_cluster
+    # model = TrivialLocallyTransformer(n_c=60, npoints=4500, nneighbor=16, d_points=60, transformer_dim=32, hidden_dim=128)
+    # model = model.cuda()
+    # for _ in tqdm(range(500)):
+    #     xyz = torch.randn(10, 4500, 3).cuda()
+    #     features = torch.randn(10, 4500, 60).cuda()
+    #     out = model(xyz, features)
+
+
+    
 
 
     

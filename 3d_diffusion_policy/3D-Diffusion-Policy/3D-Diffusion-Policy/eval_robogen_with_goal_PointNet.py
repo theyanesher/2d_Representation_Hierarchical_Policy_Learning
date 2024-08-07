@@ -22,8 +22,7 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
-from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location
-import cv2
+from test_PointNet2.model import PointNet2_small2
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
     env, _ = build_up_env(
@@ -168,212 +167,18 @@ def wrap_obs(list_of_obs):
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
 
-def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
-    # if type(cfg.task.env_runner.experiment_folder) != list:
-    #     cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
-    # if type(cfg.task.env_runner.experiment_name) != list:
-    #     cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
-    # if type(cfg.task.env_runner.demo_experiment_path) != list:
-    #     cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
-    
-    # import pdb; pdb.set_trace()
-    opened_joint_angles = {}
-    for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
-        # experiment_folder = cfg.task.env_runner.experiment_folder
-        # experiment_name = cfg.task.env_runner.experiment_name
-        # import pdb; pdb.set_trace()
-    
-        after_reaching_init_state_files = []
-        init_state_files = []
-        config_files = []
-        experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
-        experiment_name = experiment_name
-        experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
-        all_experiments = os.listdir(experiment_path)
-        all_experiments = sorted(all_experiments)
-        
-        if  demo_experiment_path is not None:
-            # all_demo_path = os.path.join(os.environ['PROJECT_DIR'], cfg.task.env_runner.demo_experiment_path, "all_demo_path.txt")
-            # with open(all_demo_path, "r") as f:
-            #     all_demo_path = f.readlines()
-            #     all_demo_path = [x.lstrip().rstrip().split("/")[-1] for x in all_demo_path]
-            # all_experiments = all_demo_path
-            # demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
-            # if '/scratch' in demo_experiment_path:
-            #     demo_experiment_path = demo_experiment_path.replace("/scratch/yufei", "/project_data/held/yufeiw2/RoboGen_sim2real/data")
-            all_subfolder = os.listdir(demo_experiment_path)
-            for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
-                if string in all_subfolder:
-                    all_subfolder.remove(string)
-            all_subfolder = sorted(all_subfolder)
-            all_experiments = all_subfolder
-            
-        all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
-        with open(all_substeps_path, "r") as f:
-            substeps = f.readlines()
-            first_step = substeps[0].lstrip().rstrip()
-        
 
-        expert_opened_angles = []
-        for experiment in all_experiments:
-            if "meta" in experiment:
-                continue
             
-            first_step_folder = first_step.replace(" ", "_") + "_primitive"
-            first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
-            # if os.path.exists(os.path.join(first_step_folder, "label.json")):
-            #     with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
-            #         label = json.load(f)
-            #     if not label['good_traj']: continue
-                
-            first_stage_states_path = os.path.join(first_step_folder, "states")
-            expert_states = os.listdir(first_stage_states_path)
-            if len(expert_states) == 0:
-                continue
-                
-            expert_opened_angle_file = os.path.join(experiment_path, experiment, first_step_folder, "opened_angle.txt")
-            if os.path.exists(expert_opened_angle_file):
-                with open(expert_opened_angle_file, "r") as f:
-                    angles = f.readlines()
-                    expert_opened_angle = float(angles[0].lstrip().rstrip())
-                    max_angle = float(angles[-1].lstrip().rstrip())
-                    ratio = expert_opened_angle / max_angle
-                # if ratio < 0.65:
-                #     continue
-            expert_opened_angles.append(expert_opened_angle)
-            
-            first_stage_states_path = os.path.join(first_step_folder, "states")
-            stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
-            with open(stage_lengths, "r") as f:
-                stage_lengths = json.load(f)
-            
-            if 'stage' in stage_lengths:
-                reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
-            else:
-                reaching_phase = stage_lengths['reach_handle']
-                
-            after_init_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
-            after_reaching_init_state_files.append(after_init_state_file)
-            init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
-            init_state_files.append(init_state_file)
-            # config_file = os.path.join(experiment_path, experiment, "task_config_added_distractors.yaml")
-            config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
-            config_files.append(config_file)
-                    
-        after_reaching_init_state_files = after_reaching_init_state_files
-        config_files = config_files
-
-        horizon = horizon
-
-        if exp_end_ratio is not None:
-            exp_end_idx = int(exp_end_ratio * len(config_files))
-        if exp_beg_ratio is not None:
-            exp_beg_idx = int(exp_beg_ratio * len(config_files))
-
-        config_files = config_files[exp_beg_idx:exp_end_idx]
-        init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
-        expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
-        num_iters = (len(config_files) - 1) // num_worker + 1
-        for iter in range(num_iters):
-            
-            beg_idx = iter * num_worker
-            end_idx = min((iter + 1) * num_worker, len(config_files))
-
-            # first do reset of all envs
-            args_to_run = [
-                [config_files[idx], init_state_files[idx], cfg, idx] for idx in range(beg_idx, end_idx)
-            ]
-            results = pool.map(parallel_reset, args_to_run)
-            # parallel_reset(args_to_run[0])
-            results = sorted(results, key=lambda x: x[-1])
-            res_obs = [res[0] for res in results]
-            batched_states = [res[1] for res in results]
-            batched_rgbs = [res[2] for res in results]
-            batched_infos = [res[3] for res in results]
-            batched_obs = wrap_obs(res_obs)
-            with torch.no_grad():
-                batched_action = policy.predict_action(batched_obs)
-            np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
-            np_batched_action = np_batched_action['action']
-            
-            initial_info = batched_infos
-            all_rgbs = [batched_rgbs]
-            max_door_joint_angles = np.ones(len(args_to_run)) * -1
-            ik_failures = np.zeros(len(args_to_run))
-            grasped_handles = np.zeros(len(args_to_run))
-            
-            for t_idx in tqdm.tqdm(range(1, horizon)):
-                args_to_run = [
-                    [config_files[idx], batched_states[idx - beg_idx], np_batched_action[idx - beg_idx], cfg, idx] for idx in range(beg_idx, end_idx)
-                ]    
-                beg = time.time()
-                results = pool.map(parallel_eval, args_to_run)
-                results = sorted(results, key=lambda x: x[-1])
-                res_obs = [res[0] for res in results]
-                res_rgb = [res[1] for res in results]
-                res_info = [res[2] for res in results]
-                res_states = [res[3] for res in results]
-                end = time.time()
-                door_joint_angles_step = np.array([float(info['initial_joint_angle'][-1]) for info in res_info])
-                max_door_joint_angles = np.maximum(max_door_joint_angles, door_joint_angles_step)
-                grasped_handle_step = np.array([float(info['grasped_handle'][-1]) for info in res_info])
-                grasped_handles = np.logical_or(grasped_handles, grasped_handle_step)
-                ik_failure_step = np.array([float(info['ik_failure'][-1]) for info in res_info])
-                ik_failures = np.logical_or(ik_failures, ik_failure_step)
-                
-                # cprint("step time: {}".format(end - beg), "red")
-                
-                beg = time.time()
-                batched_states = res_states
-                batched_obs = wrap_obs(res_obs)
-                with torch.no_grad():
-                    batched_action = policy.predict_action(batched_obs)
-                np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
-                np_batched_action = np_batched_action['action']
-                end = time.time()
-                # cprint("predict time: {}".format(end - beg), "red")
-                
-                all_rgbs.append(res_rgb)
-
-            for idx in range(beg_idx, end_idx):
-                opened_joint_angles[config_files[idx]] = \
-                    {
-                        "max_door_joint_angle": max_door_joint_angles[idx - beg_idx],
-                        "final_door_joint_angle": float(res_info[idx - beg_idx]['initial_joint_angle'][-1]), 
-                        "expert_door_joint_angle": expert_opened_angles[idx], 
-                        "initial_joint_angle": float(initial_info[idx - beg_idx]['initial_joint_angle']),
-                        "ik_failure": float(ik_failures[idx - beg_idx]),
-                        'grasped_handle': float(grasped_handles[idx - beg_idx]),
-                    }
-                    
-                with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
-                    json.dump(opened_joint_angles, f, indent=4)
-            
-            gif_save_exp_name = experiment_folder.split("/")[-2]
-            gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)
-            if not os.path.exists(gif_save_folder):
-                os.makedirs(gif_save_folder, exist_ok=True)
-
-            args_to_run = [
-                [
-                    [per_step_rgbs[idx] for per_step_rgbs in all_rgbs], 
-                    "{}/{}_{}.gif".format(gif_save_folder, idx + beg_idx, float(res_info[idx]['initial_joint_angle'][-1]) - float(initial_info[idx]['initial_joint_angle']))
-                ] for idx in range(end_idx - beg_idx)
-            ]
-            pool.map(parallel_save_gif, args_to_run)
-            
-            
-def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy, 
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, 
                           num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
     
-    if calculate_distance_from_gt:
-        all_obj_distances = []
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
         if dataset_index is not None:
             dataset_idx = dataset_index
 
-        
+        if calculate_distance_from_gt:
+            all_obj_distances = []
 
         # if dataset_idx == 0:
         #     continue
@@ -492,11 +297,26 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                 
                 with torch.no_grad():
-                    predicted_goal = goal_policy.predict_action(parallel_input_dict)
-                np_predicted_goal = dict_apply(predicted_goal, lambda x: x.detach().to('cpu').numpy())
-                np_predicted_goal = np_predicted_goal['action']
+                    pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
+                    gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                    inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
+                    inputs = inputs.to('cuda')
+                    inputs_ = inputs.permute(0, 2, 1)
+                    outputs = goal_prediction_model(inputs_)
+                    weights = outputs[:, :, -1] # B, N
+                    outputs = outputs[:, :, :-1] # B, N, 12
+                    B, N, _ = outputs.shape
+                    outputs = outputs.view(B, N, 4, 3)
+                    outputs = outputs + inputs.unsqueeze(2)
+                    weights = torch.nn.functional.softmax(weights, dim=1)
+                    outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                    outputs = outputs.sum(dim=1)
+                    outputs = outputs.unsqueeze(1)
+                np_predicted_goal = outputs.detach().to('cpu').numpy()
                 
-                parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
+                predicted_goal = outputs.repeat(1, 2, 1, 1)
+
+                parallel_input_dict['goal_gripper_pcd'] = predicted_goal
 
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
@@ -507,23 +327,12 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 
                 obs, reward, done, info = env.step(np_batched_action.squeeze(0))
                 if calculate_distance_from_gt:
-                    predicted_goal = np_predicted_goal.squeeze(0)[1].reshape(4, 3)
+                    predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
                     gt_goal = env.env.goal_gripper_pcd
                     distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
                     all_distances.append(distance)
                     grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
                     all_grasp_distances.append(grasp_distance)
-                    rgb = env.env.render()
-                    for point in predicted_goal:
-                        pixel_x, pixel_y, _ = get_pixel_location(env.env._env.projection_matrix, env.env._env.view_matrix, point, env.env._env.camera_width, env.env._env.camera_height)
-                        color = (255, 0, 0)
-                        thickness = 2
-                        radius = 3
-                        image = cv2.circle(rgb, (pixel_x, pixel_y), radius, color, thickness)
-                        # save image
-                        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                        # cv2.imwrite(f'data/debug/{dataset_idx}_{exp_idx}.png', image)
-
                     break
                 env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
                 rgb = env.env.render()
@@ -532,7 +341,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
             env.env._env.close()
 
             if calculate_distance_from_gt:
-                continue
+                break
             
             opened_joint_angles[config_file] = \
             {
@@ -559,7 +368,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
         if calculate_distance_from_gt:
             print("average distance: {}".format(np.mean(all_distances)))
             print("average grasp distance: {}".format(np.mean(all_grasp_distances)))
-            all_obj_distances.append(np.mean(all_distances))
+            all_obj_distances.append(all_distances)
 
     if calculate_distance_from_gt:
         print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
@@ -569,15 +378,6 @@ if __name__ == "__main__":
     num_worker = 30
     # pool = Pool(processes=num_worker)
     pool=None
-    
-    # load the low-level reaching policy
-    ### with goal gripper, with self attention, fixed order bug in attention
-    # checkpoint_name = 'epoch-300.ckpt'
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/18.35.59_train_dp3_robogen_open_door"
-    
-    # 10 objects
-    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
-    # checkpoint_name = 'latest.ckpt'
 
     # 50 objects
     exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
@@ -614,73 +414,25 @@ if __name__ == "__main__":
         'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
         ]
-    # import pdb; pdb.set_trace()
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    # load the high-level goal prediction policy
-    # goal_checkpoint_name = 'epoch-100.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0716-10-obj-pred-goal-gripper-PoinNet2-backbone-wzy/2024.07.16/16.53.21_train_dp3_robogen_open_door"
-    # goal_checkpoint_name="epoch-120.ckpt"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0715-10-obj-pred-goal-gripper-MLP-large-self-attention-process-point-features/2024.07.18/11.31.40_train_dp3_robogen_open_door"
-    # goal_checkpoint_name="epoch-100.ckpt"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0713-10-obj-pred-goal-gripper-conditional-transformer-train-ep-260/2024.07.13/16.33.36_train_dp3_robogen_open_door"
-    # goal_checkpoint_name = 'epoch-150.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0723-10-obj-pred-goal-gripper-MLP-locally-self-attention-process-point-features/2024.07.23/13.46.41_train_dp3_robogen_open_door"
-
-    # goal_checkpoint_name = 'epoch-90.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0717-10-obj-pred-goal-gripper-Point-Transformer-backbone-wzy/2024.07.22/11.42.52_train_dp3_robogen_open_door"
-
-    # goal_checkpoint_name = 'epoch-4.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0726-50-obj-pred-goal-only-reach-stage-gripper-pointnet-backbone-unet-diffusion/2024.07.27/17.36.00_train_dp3_robogen_open_door"
-    # goal_checkpoint_name = 'epoch-6.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0721-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion/2024.07.21/19.18.00_train_dp3_robogen_open_door"
-    # goal_checkpoint_name = 'epoch-16.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0719-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion/2024.07.19/21.27.30_train_dp3_robogen_open_door"
-
-    goal_checkpoint_name = 'epoch-30.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0724-50-obj-pred-goal-gripper-pointnet-solved-softmax-backbone-unet-diffusion/2024.07.24/17.58.04_train_dp3_robogen_open_door"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0725-50-obj-pred-goal-gripper-pointnetssg-backbone-unet-diffusion/2024.07.25/09.47.40_train_dp3_robogen_open_door"
-    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0721-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion/2024.07.21/19.18.00_train_dp3_robogen_open_door"
-
-    goal_checkpoint_name = 'epoch-10.ckpt'
-    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0801-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion-epsilon/2024.08.01/18.03.27_train_dp3_robogen_open_door"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0801-50-obj-pred-goal-gripper-mlp-self-attn-backbone-transformer-diffusion-epsilon/2024.08.01/18.04.46_train_dp3_robogen_open_door"
-
-    # goal_checkpoint_name = 'epoch-24.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0730-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon/2024.07.30/17.31.40_train_dp3_robogen_open_door"
-
-
-    with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
-        recomposed_config = hydra.compose(
-            config_name="dp3.yaml",  # same config_name as used by @hydra.main
-            overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
-        )
-    goal_cfg = recomposed_config
-    goal_cfg.policy.act3d_encoder_cfg.use_attn_for_point_features = "large_self_attention"
     
-    goal_workspace = TrainDP3Workspace(goal_cfg)
-    goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
-    goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
-
-    goal_policy = deepcopy(goal_workspace.model)
-    if goal_workspace.cfg.training.use_ema:
-        goal_policy = deepcopy(goal_workspace.ema_model)
-    goal_policy.eval()
-    goal_policy.reset()
-    goal_policy = goal_policy.to('cuda')
-    
+    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/displacement_weighted_gripper_all/model_18.pth"
+    pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
+    pointnet2_model.load_state_dict(torch.load(load_model_path))
+    pointnet2_model.eval()
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/eval_50_mlp_self_attn_attn_backbone_unet_diffusion_epsilon_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_50_obj_pointnet_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
         cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
         cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
         run_eval_non_parallel(
-                cfg, policy, goal_cfg, goal_policy, 
+                cfg, policy, pointnet2_model,
                 num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
@@ -691,10 +443,3 @@ if __name__ == "__main__":
                 # exp_end_ratio=1,
                 # calculate_distance_from_gt=True,
         )
-    
-        # run_eval(cfg, policy, num_worker, save_path, 
-        #          pool=pool, 
-        #          horizon=35,
-        #          exp_beg_ratio=exp_beg_ratio,
-        #          exp_end_ratio=exp_end_ratio,
-        # )

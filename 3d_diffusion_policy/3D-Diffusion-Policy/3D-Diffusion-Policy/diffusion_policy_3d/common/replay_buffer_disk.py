@@ -70,10 +70,14 @@ class ReplayBuffer:
         self.load_per_step = load_per_step
 
     @classmethod
-    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None):
+    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None, only_reach_stage=False):
         """
         restore the path_list as well as the length of every episode
         """
+        if only_reach_stage:
+            cprint("loading the data before reaching the goal, no goal switching!!", 'red')
+        else:
+            cprint("loading the full episode data", 'red')
         self.all_path_list = path_list
 
         episode_lengths = []
@@ -102,9 +106,11 @@ class ReplayBuffer:
             else:
                 all_substeps = os.listdir(zarr_path)
                 all_substeps = sorted(all_substeps, key=lambda x: int(x))
-                episode_lengths.append(len(all_substeps))
+                # episode_lengths.append(len(all_substeps))
 
-                for substep in all_substeps:
+                first_goal = None
+
+                for i, substep in enumerate(all_substeps):
                     substep_path = os.path.join(zarr_path, substep)
                     group = zarr.open(substep_path, 'r')
                     src_store = group.store
@@ -117,7 +123,18 @@ class ReplayBuffer:
                         self.keys_ = keys
 
                     action = src_root['data']['action'][:]
+
+                    current_goal = src_root['data']['goal_gripper_pcd'][:]
+                    if first_goal is None:
+                        first_goal = current_goal
+                    elif not np.allclose(first_goal, current_goal) and only_reach_stage:
+                        episode_lengths.append(i)
+                        break
+
                     action_welford.add(action)
+
+                if not only_reach_stage:
+                    episode_lengths.append(len(all_substeps))
         
         self.episode_lengths = np.array(episode_lengths)
         self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
@@ -158,16 +175,19 @@ class ReplayBuffer:
                 # only one zarr file
                 start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
                 end_idx = end_idx - self.accumulated_episode_lengths[start_episode_idx]
-                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, end_idx)
+                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, end_idx, start_episode_idx)
             else:
                 # two zarr files
                 start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
-                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, None)
+                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, None, start_episode_idx)
         return ret_data
     
-    def get_data_single_zarr_per_step(self, zarr_path, start_idx, end_idx):
+    def get_data_single_zarr_per_step(self, zarr_path, start_idx, end_idx, zarr_idx=None):
         ret_data = defaultdict(list)
-        all_steps = len(os.listdir(zarr_path))
+        if zarr_idx is None:
+            all_steps = len(os.listdir(zarr_path))
+        else:
+            all_steps = self.episode_lengths[zarr_idx]
 
         start_idx = start_idx + all_steps if start_idx < 0 else start_idx        
         if end_idx is None:

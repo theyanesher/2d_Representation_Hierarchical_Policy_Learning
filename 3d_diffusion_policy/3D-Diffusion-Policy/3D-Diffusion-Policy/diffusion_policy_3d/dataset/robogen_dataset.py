@@ -54,6 +54,8 @@ class RobogenDataset(BaseDataset):
             
         self.load_per_step = kwargs.get('load_per_step', False)
 
+        self.only_reach_stage = kwargs.get('only_reach_stage', False)
+
         if self.kept_in_disk:
             cprint("loading dataset in disk, need a lot of I/O", "red")
             
@@ -101,7 +103,7 @@ class RobogenDataset(BaseDataset):
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys)
             else:
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
-                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step)
+                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage)
                 self.action_welford = self.replay_buffer.action_welford
             
             # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
