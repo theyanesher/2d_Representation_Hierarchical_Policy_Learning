@@ -91,7 +91,19 @@ class ReplayBuffer:
                 # [DebugPickle]
                 if is_pickle: 
 
-                    raise NotImplementedError
+                    data = pickle.load(open(zarr_path, 'rb'))
+
+                    if keys is None:
+                        keys = data.keys()
+                        self.keys_ = list(keys)
+                    else:
+                        self.keys_ = keys
+
+                    # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
+                    episode_lengths.append(len(data[keys[0]][:]))
+
+                    action = data['action'][:]
+                    action_welford.add(action)
 
                 else :
 
