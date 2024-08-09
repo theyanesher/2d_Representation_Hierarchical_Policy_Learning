@@ -48,6 +48,7 @@ class DP3(BasePolicy):
             act3d_encoder_cfg=None,
             prediction_target='action',
             normalize_action=True, # [Chialiang] can remove normilizer for action
+            scale_scene_by_pcd=False, # [Chialiang] can remove normilizer for action
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -55,6 +56,8 @@ class DP3(BasePolicy):
         self.condition_type = condition_type
         self.prediction_target = prediction_target
         self.normalize_action = normalize_action
+        self.scale_scene_by_pcd = scale_scene_by_pcd
+        self.act3d_encoder_cfg = act3d_encoder_cfg
 
         # parse shape_meta
         action_shape = shape_meta[self.prediction_target]['shape']
@@ -223,6 +226,24 @@ class DP3(BasePolicy):
         else:
             nobs = obs_dict
 
+        if self.scale_scene_by_pcd:
+
+            max_scale = torch.max(torch.norm(nobs['point_cloud'][...,:3], dim=-1))
+
+            nobs['point_cloud'][...,:3] /= max_scale
+            nobs['agent_pos'][...,:3] /= max_scale
+            nobs['action'][...,:3] /= max_scale
+
+            if "act3d" in self.encoder_type:
+                nobs['gripper_pcd'][...,:3] /= max_scale
+                if 'goal' in self.act3d_encoder_cfg:
+                    nobs['goal_gripper_pcd'][...,:3] /= max_scale
+                if 'displacement_gripper_to_object' in self.act3d_encoder_cfg:
+                    nobs['displacement_gripper_to_object'][...,:3] /= max_scale
+            
+            elif 'act3d_pointnet' == self.act3d_encoder_cfg:
+                nobs['gripper_pcd'][...,:3]  /= max_scale
+
         # import pdb; pdb.set_trace()
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
         # if not self.use_pc_color:
@@ -283,8 +304,21 @@ class DP3(BasePolicy):
         # [Chialiang] can remove normilizer for action
         if self.prediction_target == 'action':
             action_pred = naction_pred
+
+            # [DebugNormalize] [Chialiang]
             if self.normalize_action:
+                action_pred_backup = copy.deepcopy(action_pred)
                 action_pred = self.normalizer[self.prediction_target].unnormalize(action_pred)
+                
+                # for rotation augmentation only
+                if 'additional_params' in self.normalizer.params_dict.keys():
+                    max_norm_3d = self.normalizer.params_dict['additional_params']['max_norm_3d'][0]
+                    # for unnormalizing delta position
+                    action_pred[...,:3] = action_pred_backup[...,:3] * max_norm_3d
+                    # for delta rotation, actually no need to normalize because the original 6D representation ensure they will be in [-1, 1]
+                    action_pred[...,3:9] = action_pred_backup[...,3:9]
+                    # for delta gripper pose (unchanged, so no operation)
+
         else:
             action_pred = naction_pred
 
@@ -315,14 +349,27 @@ class DP3(BasePolicy):
 
         if 'act3d' not in self.encoder_type:
             nobs = self.normalizer.normalize(batch['obs'])
+
         else:
             nobs = batch['obs']
         
         # [Chialiang] can remove normilizer for action
         if  self.prediction_target == 'action':
             nactions = batch[self.prediction_target]
+            
             if self.normalize_action:
+                nactions_backup = copy.deepcopy(nactions)
                 nactions = self.normalizer[self.prediction_target].normalize(nactions)
+
+                # for rotation augmentation only
+                if 'additional_params' in self.normalizer.params_dict.keys():
+                    max_norm_3d = self.normalizer.params_dict['additional_params']['max_norm_3d'][0]
+                    # for unnormalizing delta position
+                    nactions[...,:3] = nactions_backup[...,:3] / max_norm_3d
+                    # for delta rotation, actually no need to normalize because the original 6D representation ensure they will be in [-1, 1]
+                    nactions[...,3:9] = nactions_backup[...,3:9]
+                    # for delta gripper pose (unchanged, so no operation)
+
         else:
             nactions = batch['obs'][self.prediction_target].flatten(start_dim=2)
 

@@ -49,13 +49,15 @@ def parallel_eval(args):
     object_name = "StorageFurniture".lower()
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
-                                                  gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
-                                                  num_points=cfg.task.env_runner.num_point_in_pc,
-                                                  use_joint_angle=cfg.task.env_runner.use_joint_angle, 
-                                                  use_segmask=cfg.task.env_runner.use_segmask,
-                                                  only_handle_points=cfg.task.env_runner.only_handle_points,
-                                                  observation_mode=cfg.task.env_runner.observation_mode,
-                                                  only_object=cfg.task.env_runner.only_object,
+                                                    gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
+                                                    num_points=cfg.task.env_runner.num_point_in_pc,
+                                                    use_joint_angle=cfg.task.env_runner.use_joint_angle, 
+                                                    use_segmask=cfg.task.env_runner.use_segmask,
+                                                    only_handle_points=cfg.task.env_runner.only_handle_points,
+                                                    observation_mode=cfg.task.env_runner.observation_mode,
+                                                    only_object=cfg.task.env_runner.only_object,
+                                                    use_absolute_waypoint=cfg.task.env_runner.use_absolute_waypoint,
+                                                    use_chained_diffuser=cfg.task.env_runner.use_chained_diffuser
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -516,6 +518,8 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                                                         use_segmask=cfg.task.env_runner.use_segmask,
                                                         only_handle_points=cfg.task.env_runner.only_handle_points,
                                                         observation_mode=cfg.task.env_runner.observation_mode,
+                                                        use_absolute_waypoint=cfg.task.env_runner.use_absolute_waypoint,
+                                                        use_chained_diffuser=cfg.task.env_runner.use_chained_diffuser,
                                                         )
                 
             env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 

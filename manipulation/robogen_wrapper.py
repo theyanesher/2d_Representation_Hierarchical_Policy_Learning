@@ -248,6 +248,17 @@ class RobogenPointCloudWrapper:
                 target_joint_angle = action[-1]
                 action = pos.tolist() + list(euler) + [target_joint_angle]
                 self._env.take_direct_action(action) # directly use the action to control the robot
+
+            # [ABSDEBUG]
+            elif self.use_absolute_waypoint:
+                
+                pos = action[:3]
+                orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
+                euler = p.getEulerFromQuaternion(orient)
+                target_joint_angle = action[9]
+                action = list(pos) + list(euler) + [target_joint_angle]
+
+                self._env.take_direct_action(action)
             
             else :
                 # beg = time.time()

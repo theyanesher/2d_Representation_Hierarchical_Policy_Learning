@@ -146,8 +146,8 @@ if [ $func = 'train' ]; then
     normalize_action=false
     augmentation_rot=true
     augmentation_pcd=true
-    # use_absolute_waypiont=false
-    use_absolute_waypiont=true
+    # use_absolute_waypoint=false
+    use_absolute_waypoint=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
@@ -567,7 +567,7 @@ if [ $func = 'train' ]; then
         task.dataset.load_per_step=true \
         task.dataset.augmentation_rot="${augmentation_rot}" \
         task.dataset.augmentation_pcd="${augmentation_pcd}" \
-        task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
+        task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
         # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07291027-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.07.29/10.27.57_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
