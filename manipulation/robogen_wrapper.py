@@ -48,6 +48,7 @@ class RobogenPointCloudWrapper:
                  camera_width=640,
                  elevation=30,
                  only_object=True,
+                 record_all_observation=False,
             ):
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
@@ -57,6 +58,7 @@ class RobogenPointCloudWrapper:
         self._env = env
         self._object_name = object_name
         self.horizon = horizon
+        self.record_all_observation = record_all_observation
         
         self.in_gripper_frame = in_gripper_frame
         self.num_points = num_points
@@ -178,7 +180,11 @@ class RobogenPointCloudWrapper:
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
-            state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            if not self._env.mobile:
+                state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+            else:
+                state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "mobile_states")
+                
             stage_lengths_json_file = os.path.join(parent_path, "{}_primitive".format(task_name), 'stage_lengths.json')
             with open(stage_lengths_json_file, 'r') as f:
                 stage_lengths = json.load(f)
@@ -327,7 +333,7 @@ class RobogenPointCloudWrapper:
         gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
         return gripper_pc.astype(np.float32)
     
-    def _get_observation(self, render=True, using_torch=False, only_object=True):
+    def _get_act3d_observation(self, rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=False, only_object=True):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
         # get the 6D representation of orientation
@@ -336,585 +342,414 @@ class RobogenPointCloudWrapper:
 
         cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
 
-        if not self.use_joint_angle:
-            pos_ori = pos.tolist() + orient.tolist() + [cur_joint_angle[0]]
-        else:
-            right_arm_indices = self._env.robot.right_arm_joint_indices
-            ik_joints = right_arm_indices + list(self._env.robot.right_gripper_indices)
-            all_joints = self._env.robot.get_joint_angles(ik_joints) # 9 dim
-            ik_lower_limit = self._env.robot.ik_lower_limits[right_arm_indices] 
-            ik_upper_limit = self._env.robot.ik_upper_limits[right_arm_indices]
-            all_joints[right_arm_indices] = (all_joints[right_arm_indices] - ik_lower_limit) / (ik_upper_limit - ik_lower_limit)
-            all_joints[-2:] = (all_joints[-2:]) / 0.04
-            pos_ori = all_joints.tolist()
+        pos_ori = pos.tolist() + orient.tolist() + [cur_joint_angle[0]]
         
+        # I need point cloud of target object
+        # full segmentation mask + depth image, stacked together
+        # gripper point cloud, which can be the left finger point, right finger point, and the eef point, and the grasping target point
+        # gripper information
+        pcs = []
+        feature_maps = []
+        gripper_pcd = []
+        pcd_mask_indices = []
+        for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+            
+            pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+                
+        
+            pcs.append(pc)
+            gripper_pc = self.get_gripper_pc()
+            gripper_pcd.append(gripper_pc)
+            
+            segmask_obj_id = segmask & ((1 << 24) - 1)
+            robot_mask = np.zeros_like(depth).astype(np.float32)
+            robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
+            object_mask = np.zeros_like(depth).astype(np.float32)
+            object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+
+            if not only_object:
+                ret_object_mask = np.zeros_like(depth).astype(np.float32)
+                # get the bounding box of the object mask
+                min_bound = np.min(np.argwhere(object_mask), axis=0)
+                max_bound = np.max(np.argwhere(object_mask), axis=0)
+                x_min, y_min = min_bound
+                x_max, y_max = max_bound
+                x_range = x_max - x_min
+                y_range = y_max - y_min
+                x_min_new = int(max(0, x_min - x_range * np.random.uniform(0.01, 0.05)))
+                x_max_new = int(min(self.camera_height, x_max + x_range * np.random.uniform(0.01, 0.05)))
+                y_min_new = int(max(0, y_min - y_range * np.random.uniform(0.01, 0.05)))
+                y_max_new = int(min(self.camera_width, y_max + y_range * np.random.uniform(0.01, 0.05)))
+                ret_object_mask[x_min_new:x_max_new, y_min_new:y_max_new] = 1
+                ret_object_mask_indices = np.flatnonzero(ret_object_mask.flatten())
+                pcd_ = pc[ret_object_mask_indices]
+                object_mask_ = np.flatnonzero(object_mask.flatten())
+                object_pcd_ = pc[object_mask_]
+                mean_object_pcd = np.mean(object_pcd_, axis=0)
+                # crop the pcd_ to be near mean_object_pcd
+                distance = np.linalg.norm(pcd_ - mean_object_pcd, axis=1)
+                indices = np.flatnonzero(distance < 1.0)
+                object_mask_indices = ret_object_mask_indices[indices]
+                object_mask = np.zeros_like(depth).astype(np.float32).flatten()
+                object_mask[object_mask_indices] = 1
+                object_mask = object_mask.reshape(self.camera_height, self.camera_width)
+                
+
+            if "displacement_to_handle" in self.observation_mode:
+                info = self._env._get_info()
+                handle_pos = np.array(info['handle_pos'])
+                delta_to_handle = handle_pos.reshape(1, 3) - pc
+                feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
+                assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
+                feature_maps.append(feature_map)
+                
+            else:
+                feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
+                assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
+                feature_maps.append(feature_map)
+            
+            object_mask_indices = np.flatnonzero(object_mask.flatten())
+            pcd_mask_indices.append(object_mask_indices)
+        
+            if 'goal' in self.observation_mode:
+                # add goal as part of the observation. 
+                # needs to judge when to switch the goal -- check if the handle has been grasped.  
+                
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+                self.goal_gripper_pcd = goal_gripper_pcd
+            
+        masked_pc = []
+        all_masked_indices = []
+        base_idx = 0
+        for pc, pcd_mask_indices in zip(pcs, pcd_mask_indices):
+            mask_indices = base_idx + pcd_mask_indices
+            all_masked_indices.append(mask_indices)
+            masked_pc.append(pc[pcd_mask_indices])
+            base_idx += pc.shape[0]
+        point_cloud = np.concatenate(masked_pc, axis=0)
+        all_masked_indices = np.concatenate(all_masked_indices)
+        
+        # check
+        before_fps_pc = point_cloud.copy()
+        all_pc = np.concatenate(pcs, axis=0)
+        assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
+        
+        num_points = self.num_points
+        if using_torch:
+            point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+            num_points = torch.tensor([num_points]).cuda()
+            _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+            sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+            sampled_indices = np.array(sorted(sampled_indices))
+            point_cloud = point_cloud.squeeze(0).cpu().numpy()
+            point_cloud = point_cloud[sampled_indices]
+        else:
+            if point_cloud.shape[0] < num_points:
+                to_add_points_num = num_points - point_cloud.shape[0]
+                random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
+                point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
+            
+            h = min(9, np.log2(num_points))
+            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+            kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+            point_cloud = point_cloud[kdline_fps_samples_idx]
+        
+        new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
+        new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
+        
+        # check
+        assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
+           
+        point_cloud = point_cloud.tolist()
+        
+        obs_dict_input = {}
+        obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
+        obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
+        
+        if 'mlp' not in self.observation_mode:
+            obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
+            obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
+            pointcloud = obs_dict_input['point_cloud']
+            pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
+            assert np.all(pointcloud == pointcloud_rgb)
+           
+        obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
+        if 'goal' in self.observation_mode:
+            obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
+  
+        if 'displacement_gripper_to_object' in self.observation_mode:
+            gripper_pcd = obs_dict_input['gripper_pcd']
+            object_pcd = obs_dict_input['point_cloud']
+            distance = scipy.spatial.distance.cdist(gripper_pcd, object_pcd)
+            min_distance_obj_idx = np.argmin(distance, axis=1)
+            closest_point = object_pcd[min_distance_obj_idx]
+            displacement = closest_point - gripper_pcd
+            obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
+                
+        return obs_dict_input
+    
+    def _get_dp3_observation(self, rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=False, only_object=True):
+        pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+
+        # get the 6D representation of orientation
+        rotate_matrix = p.getMatrixFromQuaternion(orient)
+        orient = rotation_transfer_matrix_to_6D(rotate_matrix)
+
+        cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+
+        pos_ori = pos.tolist() + orient.tolist() + [cur_joint_angle[0]]
+        
+        pcs = []
+        feature_maps = []
+        gripper_pcd = []
+        pcd_mask_indices = []
+        for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+            
+            pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+            
+            # [Chialiang]
+            if 'dp3_goal_gripper_whole' == self.observation_mode:
+                # add goal as part of the observation. 
+                # needs to judge when to switch the goal -- check if the handle has been grasped.  
+                
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+                self.goal_gripper_pcd = goal_gripper_pcd
+
+                new_pcd = [pc]
+                for goal_i in self.goal_gripper_pcd:
+                    new_pcd_i = goal_i - pc
+                    new_pcd.append(new_pcd_i)
+                
+                new_pcd = np.concatenate(new_pcd, axis=-1)
+                pcs.append(new_pcd)
+
+            # [Chialiang]
+            elif 'dp3_goal_gripper_part' == self.observation_mode:
+
+                # extract segmentation ids of the gripper part
+                segmask_joint_id = (segmask - 1) >> 24
+                robot_id = None
+                for obj_name, obj_id in self._env.urdf_ids.items():
+                    if obj_name == 'robot':
+                        robot_id = obj_id
+                assert robot_id is not None
+
+                num_joints = p.getNumJoints(robot_id)
+                joint_indexes = []
+                for joint_index in range(num_joints):
+                    info = p.getJointInfo(robot_id, joint_index)
+                    if info[12].decode('utf-8') == 'panda_hand':
+                        joint_indexes.append(joint_index)
+                    if info[12].decode('utf-8') == 'panda_leftfinger':
+                        joint_indexes.append(joint_index)
+                    if info[12].decode('utf-8') == 'panda_rightfinger':
+                        joint_indexes.append(joint_index)
+                    if info[12].decode('utf-8') == 'panda_grasptarget':
+                        joint_indexes.append(joint_index)
+                
+                segmask_joint_id = segmask_joint_id.reshape(-1)
+                ee_mask = np.zeros(segmask_joint_id.shape).astype(bool)
+                for joint_index in joint_indexes:
+                    ee_mask[np.where(segmask_joint_id == joint_index)] = True
+
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+
+                self.goal_gripper_pcd = goal_gripper_pcd
+
+                new_pcd = [pc]
+                for goal_i in self.goal_gripper_pcd:
+                    new_pcd_i = np.zeros(pc.shape)
+                    new_pcd_i[ee_mask] = goal_i - pc[ee_mask]
+                    new_pcd.append(new_pcd_i)
+                new_pcd = np.concatenate(new_pcd, axis=-1)
+
+                # segmask_obj_id = segmask & ((1 << 24) - 1)
+                # robot_mask = np.zeros_like(depth).astype(np.float32)
+                # robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
+                # object_mask = np.zeros_like(depth).astype(np.float32)
+                # object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+                # robot_mask = robot_mask.reshape((-1, 1))
+                # object_mask = object_mask.reshape((-1, 1))
+                # pcd_cond = np.where((robot_mask > 0.5) | (object_mask > 0.5))[0]
+
+                # o3d_pc = o3d.geometry.PointCloud()
+                # o3d_pc.points = o3d.utility.Vector3dVector(new_pcd[pcd_cond][:,:3])
+                # o3d.visualization.draw_geometries([o3d_pc])
+                # o3d_pc.points = o3d.utility.Vector3dVector(new_pcd[pcd_cond][:,:3] + new_pcd[pcd_cond][:,3:6])
+                # o3d.visualization.draw_geometries([o3d_pc])
+
+                pcs.append(new_pcd)
+
+            # [Chialiang]
+            elif 'dp3_goal_gripper_dense' == self.observation_mode:
+
+                # extract segmentation ids of the gripper part
+                segmask_joint_id = (segmask - 1) >> 24
+                robot_id = None
+                for obj_name, obj_id in self._env.urdf_ids.items():
+                    if obj_name == 'robot':
+                        robot_id = obj_id
+                assert robot_id is not None
+
+                num_joints = p.getNumJoints(robot_id)
+                joint_indexes = []
+                for joint_index in range(num_joints):
+                    info = p.getJointInfo(robot_id, joint_index)
+                    if info[12].decode('utf-8') == 'panda_hand':
+                        joint_indexes.append(joint_index)
+                    if info[12].decode('utf-8') == 'panda_leftfinger':
+                        joint_indexes.append(joint_index)
+                    if info[12].decode('utf-8') == 'panda_rightfinger':
+                        joint_indexes.append(joint_index)
+                    if info[12].decode('utf-8') == 'panda_grasptarget':
+                        joint_indexes.append(joint_index)
+                
+                segmask_joint_id = segmask_joint_id.reshape(-1)
+                ee_mask = np.zeros(segmask_joint_id.shape).astype(bool)
+                for joint_index in joint_indexes:
+                    ee_mask[np.where(segmask_joint_id == joint_index)] = True
+
+                if self._env.grasped_handle:
+                    # print("goal is to open the door")
+                    goal_gripper_pcd = self.final_goal
+                    goal_gripper_mat = self.final_goal_pose
+                else:
+                    # print("goal is to grasp the handle")
+                    goal_gripper_pcd = self.grasping_goal
+                    goal_gripper_mat = self.grasping_goal_pose
+
+                self.goal_gripper_pcd = goal_gripper_pcd
+
+                eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+                self.current_gripper_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+
+                relative_pose = goal_gripper_mat @ np.linalg.inv(self.current_gripper_pose) 
+
+                pc_homo = np.ones((len(pc), 4))
+                pc_homo[:,:3] = pc
+                pc_transform = (pc_homo @ relative_pose.T)[:,:3]
+
+                new_pcd = np.zeros((len(pc), 6))
+                new_pcd[:,:3] = pc 
+                new_pcd[ee_mask,3:] = pc_transform[ee_mask] - pc[ee_mask]
+
+                pcs.append(new_pcd)
+        
+        point_cloud = np.concatenate(pcs, axis=0)
+        min_bound = np.array([-5, -5, 0.1])
+        max_bound = np.array([5, 5, 5])
+        input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
+        masked_indices = np.flatnonzero(input_pc_mask)
+        point_cloud = point_cloud[input_pc_mask]
+        
+        if self.handle_num_points > 0 or self.gripper_num_points > 0:
+            full_point_cloud = deepcopy(point_cloud)
+                
+        # do downsampling of the pcd
+        num_points = self.num_points
+        if using_torch:
+            point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+            num_points = torch.tensor([num_points]).cuda()
+            _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+            sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+            sampled_indices = np.array(sorted(sampled_indices))
+            point_cloud = point_cloud.squeeze(0).cpu().numpy()
+            point_cloud = point_cloud[sampled_indices]
+        else:
+            if point_cloud.shape[0] < num_points:
+                to_add_points_num = num_points - point_cloud.shape[0]
+                random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
+                point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
+            
+            h = min(9, np.log2(num_points))
+            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+            kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+            point_cloud = point_cloud[kdline_fps_samples_idx]
+
+        point_cloud = point_cloud.tolist()
+
+        obs_dict_input = {}
+        obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
+        obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
+            
+        # [Chialiang]
+        if self.observation_mode == 'dp3_goal_gripper_on_agent':
+
+            if self._env.grasped_handle:
+                # print("goal is to open the door")
+                goal_gripper_pcd = self.final_goal
+            else:
+                # print("goal is to grasp the handle")
+                goal_gripper_pcd = self.grasping_goal
+
+            gripper_pc = self.get_gripper_pc()
+            diff = goal_gripper_pcd - gripper_pc
+            diff_flat = diff.reshape(-1)
+
+            pos_ori = np.array(pos_ori).astype(np.float32)
+
+            obs_dict_input['agent_pos'] = np.concatenate((pos_ori, diff_flat), axis=0)
+        
+        # [Chialiang]
+        if self.observation_mode == 'dp3_goal_gripper_on_agent_abs':
+
+            if self._env.grasped_handle:
+                # print("goal is to open the door")
+                goal_gripper_pcd = self.final_goal
+            else:
+                # print("goal is to grasp the handle")
+                goal_gripper_pcd = self.grasping_goal
+
+            pos_ori = np.array(pos_ori).astype(np.float32)
+            obs_dict_input['agent_pos'] = np.concatenate((pos_ori, goal_gripper_pcd.reshape(-1)), axis=0)
+            
+        return obs_dict_input
+            
+    def _get_observation(self, render=True, using_torch=False, only_object=True):
         if render:
-            beg = time.time()
             rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
                                                 only_object=only_object)
-            end = time.time()
-
-            # from matplotlib import pyplot as plt
-            # plt.imshow(rgbs[0])
-            # plt.show()
-            # plt.imshow(rgbs[1])
-            # plt.show()
-            # import pdb; pdb.set_trace()
-            # cprint("point cloud rendering time {}".format(end - beg), "green")
-            pcs = []
-            feature_maps = []
-            gripper_pcd = []
-            pcd_mask_indices = []
-            for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
-                
-                pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
-                # pc_in_camera = get_pc_in_camera_frame(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
-                if self.use_color:
-                    rgb = rgb.reshape(-1, 3)
-                    colorful_pc = np.concatenate([pc, rgb], axis=1)
-                    pcs.append(colorful_pc)
-                elif self.use_segmask or self.observation_mode == 'segmask':
-                    segmask = segmask.reshape(-1, 1)
-                    segmask_obj_id = segmask & ((1 << 24) - 1)
-                    robot_mask = np.zeros_like(segmask).astype(np.float32)
-                    robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
-                    object_mask = np.zeros_like(segmask).astype(np.float32)
-                    # TODO: use the real object name
-                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
-                    pc_with_mask = np.concatenate([pc, robot_mask, object_mask], axis=1)
-                    pcs.append(pc_with_mask)
-                elif self.only_handle_points or self.observation_mode == 'zoomed-in':
-                    segmask = segmask.reshape(-1, 1)
-                    segmask_obj_id = segmask & ((1 << 24) - 1)
-                    segmask_link_id = (segmask >> 24) - 1
-                    robot_mask = (segmask_obj_id == self._env.urdf_ids['robot']).flatten()
-                    eef_mask = (segmask_link_id >= 7).flatten()
-                    robot_eef_mask = robot_mask & eef_mask
-                    robot_pc = pc[robot_eef_mask]
-                    object_pc = pc[(segmask_obj_id == self._env.urdf_ids[self._object_name]).flatten()]
-                    info = self._env._get_info()
-                    handle_pos = np.array(info['handle_pos'])
-                    distance = np.linalg.norm(handle_pos.reshape(1, 3) - np.array(object_pc).reshape(-1, 3), axis=1)
-                    near_handle_object_pc = object_pc[distance < 0.1]
-                    pc = np.concatenate([robot_pc, near_handle_object_pc], axis=0)
-                    one_hot_encodings = np.zeros((pc.shape[0], 2))
-                    one_hot_encodings[:robot_pc.shape[0], 0] = 1
-                    one_hot_encodings[robot_pc.shape[0]:, 1] = 1
-                    pc = np.concatenate([pc, one_hot_encodings], axis=1)
-                    pcs.append(pc)
-                elif 'act3d' in self.observation_mode:
-                    # I need point cloud of target object
-                    # full segmentation mask + depth image, stacked together
-                    # gripper point cloud, which can be the left finger point, right finger point, and the eef point, and the grasping target point
-                    # gripper information
-                    
-                    pcs.append(pc)
-                    gripper_pc = self.get_gripper_pc()
-                    # p.addUserDebugPoints(list(gripper_pc), [[0, 1, 0] for _ in range(len(gripper_pc))], 50, 0)
-                    # import pdb; pdb.set_trace()
-                    gripper_pcd.append(gripper_pc)
-                    
-                    segmask_obj_id = segmask & ((1 << 24) - 1)
-                    robot_mask = np.zeros_like(depth).astype(np.float32)
-                    robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
-                    object_mask = np.zeros_like(depth).astype(np.float32)
-                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
-
-                    if not only_object:
-                        ret_object_mask = np.zeros_like(depth).astype(np.float32)
-                        # get the bounding box of the object mask
-                        min_bound = np.min(np.argwhere(object_mask), axis=0)
-                        max_bound = np.max(np.argwhere(object_mask), axis=0)
-                        x_min, y_min = min_bound
-                        x_max, y_max = max_bound
-                        x_range = x_max - x_min
-                        y_range = y_max - y_min
-                        x_min_new = int(max(0, x_min - x_range * np.random.uniform(0.01, 0.05)))
-                        x_max_new = int(min(self.camera_height, x_max + x_range * np.random.uniform(0.01, 0.05)))
-                        y_min_new = int(max(0, y_min - y_range * np.random.uniform(0.01, 0.05)))
-                        y_max_new = int(min(self.camera_width, y_max + y_range * np.random.uniform(0.01, 0.05)))
-                        ret_object_mask[x_min_new:x_max_new, y_min_new:y_max_new] = 1
-                        ret_object_mask_indices = np.flatnonzero(ret_object_mask.flatten())
-                        pcd_ = pc[ret_object_mask_indices]
-                        object_mask_ = np.flatnonzero(object_mask.flatten())
-                        object_pcd_ = pc[object_mask_]
-                        mean_object_pcd = np.mean(object_pcd_, axis=0)
-                        # crop the pcd_ to be near mean_object_pcd
-                        distance = np.linalg.norm(pcd_ - mean_object_pcd, axis=1)
-                        indices = np.flatnonzero(distance < 1.0)
-                        object_mask_indices = ret_object_mask_indices[indices]
-                        object_mask = np.zeros_like(depth).astype(np.float32).flatten()
-                        object_mask[object_mask_indices] = 1
-                        object_mask = object_mask.reshape(self.camera_height, self.camera_width)
-                        
-
-                    if "displacement_to_handle" in self.observation_mode:
-                        info = self._env._get_info()
-                        handle_pos = np.array(info['handle_pos'])
-                        # delta_to_handle = pc - handle_pos.reshape(1, 3)
-                        delta_to_handle = handle_pos.reshape(1, 3) - pc
-                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
-                        assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
-                        feature_maps.append(feature_map)
-                        
-                    else:
-                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
-                        assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
-                        feature_maps.append(feature_map)
-                    
-                    object_mask_indices = np.flatnonzero(object_mask.flatten())
-                    pcd_mask_indices.append(object_mask_indices)
-                    
-                    if 'goal' in self.observation_mode:
-                        # print("add goal as part of the observation")
-                        # add goal as part of the observation. 
-                        # needs to judge when to switch the goal -- check if the handle has been grasped.  
-                        
-                        if self._env.grasped_handle:
-                            # print("goal is to open the door")
-                            goal_gripper_pcd = self.final_goal
-                        else:
-                            # print("goal is to grasp the handle")
-                            goal_gripper_pcd = self.grasping_goal
-                        self.goal_gripper_pcd = goal_gripper_pcd
-
-                # [Chialiang] [CDDEBUG]
-                elif 'chained_diffuser' in self.observation_mode:
-                    # I need point cloud of target object
-                    # full segmentation mask + depth image, stacked together
-                    # gripper point cloud, which can be the left finger point, right finger point, and the eef point, and the grasping target point
-                    # gripper information
-                    
-                    pcs.append(pc)
-                    gripper_pc = self.get_gripper_pc()
-                    # p.addUserDebugPoints(list(gripper_pc), [[0, 1, 0] for _ in range(len(gripper_pc))], 50, 0)
-                    # import pdb; pdb.set_trace()
-                    gripper_pcd.append(gripper_pc)
-                    
-                    segmask_obj_id = segmask & ((1 << 24) - 1)
-                    robot_mask = np.zeros_like(depth).astype(np.float32)
-                    robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
-                    object_mask = np.zeros_like(depth).astype(np.float32)
-                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
-
-                    if not only_object:
-                        ret_object_mask = np.zeros_like(depth).astype(np.float32)
-                        # get the bounding box of the object mask
-                        min_bound = np.min(np.argwhere(object_mask), axis=0)
-                        max_bound = np.max(np.argwhere(object_mask), axis=0)
-                        x_min, y_min = min_bound
-                        x_max, y_max = max_bound
-                        x_range = x_max - x_min
-                        y_range = y_max - y_min
-                        x_min_new = int(max(0, x_min - x_range * np.random.uniform(0.01, 0.05)))
-                        x_max_new = int(min(self.camera_height, x_max + x_range * np.random.uniform(0.01, 0.05)))
-                        y_min_new = int(max(0, y_min - y_range * np.random.uniform(0.01, 0.05)))
-                        y_max_new = int(min(self.camera_width, y_max + y_range * np.random.uniform(0.01, 0.05)))
-                        ret_object_mask[x_min_new:x_max_new, y_min_new:y_max_new] = 1
-                        ret_object_mask_indices = np.flatnonzero(ret_object_mask.flatten())
-                        pcd_ = pc[ret_object_mask_indices]
-                        object_mask_ = np.flatnonzero(object_mask.flatten())
-                        object_pcd_ = pc[object_mask_]
-                        mean_object_pcd = np.mean(object_pcd_, axis=0)
-                        # crop the pcd_ to be near mean_object_pcd
-                        distance = np.linalg.norm(pcd_ - mean_object_pcd, axis=1)
-                        indices = np.flatnonzero(distance < 1.0)
-                        object_mask_indices = ret_object_mask_indices[indices]
-                        object_mask = np.zeros_like(depth).astype(np.float32).flatten()
-                        object_mask[object_mask_indices] = 1
-                        object_mask = object_mask.reshape(self.camera_height, self.camera_width)
-                        
-
-                    if "displacement_to_handle" in self.observation_mode:
-                        info = self._env._get_info()
-                        handle_pos = np.array(info['handle_pos'])
-                        # delta_to_handle = pc - handle_pos.reshape(1, 3)
-                        delta_to_handle = handle_pos.reshape(1, 3) - pc
-                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
-                        assert feature_map.shape == (self.camera_height, self.camera_width, 8), f"Expected ({self.camera_height}, {self.camera_width}, 8), got {feature_map.shape}"
-                        feature_maps.append(feature_map)
-                        
-                    else:
-                        feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3)])
-                        assert feature_map.shape == (self.camera_height, self.camera_width, 5), f"Expected ({self.camera_height}, {self.camera_width}, 5), got {feature_map.shape}"
-                        feature_maps.append(feature_map)
-                    
-                    object_mask_indices = np.flatnonzero(object_mask.flatten())
-                    pcd_mask_indices.append(object_mask_indices)
-
-                # [Chialiang]
-                elif 'dp3_goal_gripper_whole' == self.observation_mode:
-                    # add goal as part of the observation. 
-                    # needs to judge when to switch the goal -- check if the handle has been grasped.  
-                    
-                    if self._env.grasped_handle:
-                        # print("goal is to open the door")
-                        goal_gripper_pcd = self.final_goal
-                    else:
-                        # print("goal is to grasp the handle")
-                        goal_gripper_pcd = self.grasping_goal
-                    self.goal_gripper_pcd = goal_gripper_pcd
-
-                    new_pcd = [pc]
-                    for goal_i in self.goal_gripper_pcd:
-                        new_pcd_i = goal_i - pc
-                        new_pcd.append(new_pcd_i)
-                    
-                    new_pcd = np.concatenate(new_pcd, axis=-1)
-                    pcs.append(new_pcd)
-
-                # [Chialiang]
-                elif 'dp3_goal_gripper_part' == self.observation_mode:
-
-                    # extract segmentation ids of the gripper part
-                    segmask_joint_id = (segmask - 1) >> 24
-                    robot_id = None
-                    for obj_name, obj_id in self._env.urdf_ids.items():
-                        if obj_name == 'robot':
-                            robot_id = obj_id
-                    assert robot_id is not None
-
-                    num_joints = p.getNumJoints(robot_id)
-                    joint_indexes = []
-                    for joint_index in range(num_joints):
-                        info = p.getJointInfo(robot_id, joint_index)
-                        if info[12].decode('utf-8') == 'panda_hand':
-                            joint_indexes.append(joint_index)
-                        if info[12].decode('utf-8') == 'panda_leftfinger':
-                            joint_indexes.append(joint_index)
-                        if info[12].decode('utf-8') == 'panda_rightfinger':
-                            joint_indexes.append(joint_index)
-                        if info[12].decode('utf-8') == 'panda_grasptarget':
-                            joint_indexes.append(joint_index)
-                    
-                    segmask_joint_id = segmask_joint_id.reshape(-1)
-                    ee_mask = np.zeros(segmask_joint_id.shape).astype(bool)
-                    for joint_index in joint_indexes:
-                        ee_mask[np.where(segmask_joint_id == joint_index)] = True
-
-                    if self._env.grasped_handle:
-                        # print("goal is to open the door")
-                        goal_gripper_pcd = self.final_goal
-                    else:
-                        # print("goal is to grasp the handle")
-                        goal_gripper_pcd = self.grasping_goal
-
-                    self.goal_gripper_pcd = goal_gripper_pcd
-
-                    new_pcd = [pc]
-                    for goal_i in self.goal_gripper_pcd:
-                        new_pcd_i = np.zeros(pc.shape)
-                        new_pcd_i[ee_mask] = goal_i - pc[ee_mask]
-                        new_pcd.append(new_pcd_i)
-                    new_pcd = np.concatenate(new_pcd, axis=-1)
-
-                    # segmask_obj_id = segmask & ((1 << 24) - 1)
-                    # robot_mask = np.zeros_like(depth).astype(np.float32)
-                    # robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
-                    # object_mask = np.zeros_like(depth).astype(np.float32)
-                    # object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
-                    # robot_mask = robot_mask.reshape((-1, 1))
-                    # object_mask = object_mask.reshape((-1, 1))
-                    # pcd_cond = np.where((robot_mask > 0.5) | (object_mask > 0.5))[0]
-
-                    # o3d_pc = o3d.geometry.PointCloud()
-                    # o3d_pc.points = o3d.utility.Vector3dVector(new_pcd[pcd_cond][:,:3])
-                    # o3d.visualization.draw_geometries([o3d_pc])
-                    # o3d_pc.points = o3d.utility.Vector3dVector(new_pcd[pcd_cond][:,:3] + new_pcd[pcd_cond][:,3:6])
-                    # o3d.visualization.draw_geometries([o3d_pc])
-
-                    pcs.append(new_pcd)
-
-                # [Chialiang]
-                elif 'dp3_goal_gripper_dense' == self.observation_mode:
-
-                    # extract segmentation ids of the gripper part
-                    segmask_joint_id = (segmask - 1) >> 24
-                    robot_id = None
-                    for obj_name, obj_id in self._env.urdf_ids.items():
-                        if obj_name == 'robot':
-                            robot_id = obj_id
-                    assert robot_id is not None
-
-                    num_joints = p.getNumJoints(robot_id)
-                    joint_indexes = []
-                    for joint_index in range(num_joints):
-                        info = p.getJointInfo(robot_id, joint_index)
-                        if info[12].decode('utf-8') == 'panda_hand':
-                            joint_indexes.append(joint_index)
-                        if info[12].decode('utf-8') == 'panda_leftfinger':
-                            joint_indexes.append(joint_index)
-                        if info[12].decode('utf-8') == 'panda_rightfinger':
-                            joint_indexes.append(joint_index)
-                        if info[12].decode('utf-8') == 'panda_grasptarget':
-                            joint_indexes.append(joint_index)
-                    
-                    segmask_joint_id = segmask_joint_id.reshape(-1)
-                    ee_mask = np.zeros(segmask_joint_id.shape).astype(bool)
-                    for joint_index in joint_indexes:
-                        ee_mask[np.where(segmask_joint_id == joint_index)] = True
-
-                    if self._env.grasped_handle:
-                        # print("goal is to open the door")
-                        goal_gripper_pcd = self.final_goal
-                        goal_gripper_mat = self.final_goal_pose
-                    else:
-                        # print("goal is to grasp the handle")
-                        goal_gripper_pcd = self.grasping_goal
-                        goal_gripper_mat = self.grasping_goal_pose
-
-                    self.goal_gripper_pcd = goal_gripper_pcd
-
-                    eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-                    self.current_gripper_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
-
-                    relative_pose = goal_gripper_mat @ np.linalg.inv(self.current_gripper_pose) 
-
-                    pc_homo = np.ones((len(pc), 4))
-                    pc_homo[:,:3] = pc
-                    pc_transform = (pc_homo @ relative_pose.T)[:,:3]
-
-                    new_pcd = np.zeros((len(pc), 6))
-                    new_pcd[:,:3] = pc 
-                    new_pcd[ee_mask,3:] = pc_transform[ee_mask] - pc[ee_mask]
-
-                    pcs.append(new_pcd)
-
-                else:
-                    pcs.append(pc)
 
             
-            if 'act3d' not in self.observation_mode:
-                point_cloud = np.concatenate(pcs, axis=0)
-                min_bound = np.array([-5, -5, 0.1])
-                max_bound = np.array([5, 5, 5])
-                input_pc_mask = np.all(point_cloud[:, :3] > min_bound, axis=1) & np.all(point_cloud[:, :3] < max_bound, axis=1)
-                masked_indices = np.flatnonzero(input_pc_mask)
-                point_cloud = point_cloud[input_pc_mask]
-                
-                if self.handle_num_points > 0 or self.gripper_num_points > 0:
-                    full_point_cloud = deepcopy(point_cloud)
+            if not self.record_all_observation:
+                if 'act3d' in self.observation_mode:
+                    act3d_obs_dict = self._get_act3d_observation(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=using_torch, only_object=only_object)
+                    obs_dict_input = act3d_obs_dict
+                elif 'dp3' in self.observation_mode:
+                    dp3_obs_dict = self._get_dp3_observation(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=using_torch, only_object=only_object)
+                    obs_dict_input = dp3_obs_dict
             else:
-                masked_pc = []
-                all_masked_indices = []
-                base_idx = 0
-                for pc, pcd_mask_indices in zip(pcs, pcd_mask_indices):
-                    mask_indices = base_idx + pcd_mask_indices
-                    all_masked_indices.append(mask_indices)
-                    masked_pc.append(pc[pcd_mask_indices])
-                    base_idx += pc.shape[0]
-                point_cloud = np.concatenate(masked_pc, axis=0)
-                all_masked_indices = np.concatenate(all_masked_indices)
+                self.observation_mode = 'act3d_goal_displacement_gripper_to_object' # this contains the most information
+                act3d_obs_dict = self._get_act3d_observation(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=using_torch, only_object=only_object)
+                self.observation_mode = 'dp3_goal_gripper_dense' # this contains the most information
+                dp3_obs_dict = self._get_dp3_observation(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=using_torch, only_object=only_object)
+                ### All other observations should be able to be reconstructed from the combination of the two above
+                # e.g., for dp3_goal_gripper_on_agent, the point cloud observation should be obs_dict_input['dp3_point_cloud'][:, :3]
+                # the agent_pos can be combined from using obs_dict_input['dp3_agent_pos'] and obs_dict_input['goal_gripper_pcd']
+                # another NOTE: point_cloud in act3d only contains the object point cloud. while dp3_point_cloud contains the point cloud of the whole scene. 
                 
-                # check
-                before_fps_pc = point_cloud.copy()
-                all_pc = np.concatenate(pcs, axis=0)
-                assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
-           
-            # do downsampling of the pcd
-            num_points = self.num_points
-            if self.gripper_num_points > 0:
-                gripper_pc = self._transfer_point_cloud_to_gripper_frame(full_point_cloud)
-                bounding_box = np.array([[-self.gripper_bbox, -self.gripper_bbox, -self.gripper_bbox], [self.gripper_bbox, self.gripper_bbox, self.gripper_bbox]])
-                mask = np.all(gripper_pc[:, :3] > bounding_box[0], axis=1) & np.all(gripper_pc[:, :3] < bounding_box[1], axis=1)
-                pc_within_gripper = full_point_cloud[mask]
-                gripper_fps_num_point = min(self.gripper_num_points, pc_within_gripper.shape[0])
-                # import pdb; pdb.set_trace()
-                if len(pc_within_gripper) > 2:
-                    if using_torch:
-                        pc_within_gripper = torch.from_numpy(pc_within_gripper).unsqueeze(0).cuda()
-                        fps_num_points = torch.tensor([gripper_fps_num_point]).cuda()
-                        _, sampled_indices = torch3d_ops.sample_farthest_points(points=pc_within_gripper[...,:3], K=fps_num_points)
-                        pc_within_gripper = pc_within_gripper.squeeze(0).cpu().numpy()
-                        pc_within_gripper = pc_within_gripper[sampled_indices.squeeze(0).cpu().numpy()]
-                    else:
-                        kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc_within_gripper[:, :3], gripper_fps_num_point, h=1)
-                        # kdline_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, gripper_fps_num_point)
-                        pc_within_gripper = pc_within_gripper[kdline_fps_samples_idx]
-                    num_points -= gripper_fps_num_point
-                
-                else:
-                    pc_within_gripper = np.array([])
-            
-            beg = time.time()
-            if using_torch:
-                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-                num_points = torch.tensor([num_points]).cuda()
-                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-                sampled_indices = np.array(sorted(sampled_indices))
-                point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                point_cloud = point_cloud[sampled_indices]
-            else:
-                if point_cloud.shape[0] < num_points:
-                    to_add_points_num = num_points - point_cloud.shape[0]
-                    random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
-                    point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
-                
-                h = min(9, np.log2(num_points))
-                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
-                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
-                point_cloud = point_cloud[kdline_fps_samples_idx]
-
-                if 'act3d' not in self.observation_mode:
-                    new_input_mask = np.zeros_like(input_pc_mask)
-                    new_input_mask[masked_indices[kdline_fps_samples_idx]] = 1
-                else:
-                    new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
-                    new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
-                    
-                    # check
-                    assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
-                    
-            end = time.time()
-
-            point_cloud = point_cloud.tolist()
-            
-            if self.gripper_num_points > 0:
-                point_cloud = point_cloud + pc_within_gripper.tolist()
-                
-            if self.handle_num_points > 0:
-                all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name.lower(), return_median=False)
-                masks = []
-                for handle_pos in all_handle_pos:
-                    # compute the bounding box of this handle
-                    min_bound = np.min(handle_pos, axis=0) - 0.003
-                    max_bound = np.max(handle_pos, axis=0) + 0.003
-                    mask = np.all(full_point_cloud[:, :3] > min_bound, axis=1) & np.all(full_point_cloud[:, :3] < max_bound, axis=1)
-                    masks.append(mask)
-                mask = np.any(masks, axis=0)
-                handle_point_cloud = full_point_cloud[mask]
-                handle_point_cloud = torch.from_numpy(handle_point_cloud).unsqueeze(0).cuda()
-                num_points = torch.tensor([self.handle_num_points]).cuda()
-                _, sampled_indices = torch3d_ops.sample_farthest_points(points=handle_point_cloud[...,:3], K=num_points)
-                handle_point_cloud = handle_point_cloud.squeeze(0).cpu().numpy()
-                handle_point_cloud = handle_point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
-                handle_point_cloud = handle_point_cloud.tolist()
-                point_cloud = point_cloud + handle_point_cloud
-
-            # # visualize point cloud
-            # if self.time_step >= 50:
-            #     pc = np.array(point_cloud)
-            #     print("visualizing point cloud with shape: ", pc.shape)
-            #     pcd = o3d.geometry.PointCloud()
-            #     pcd.points = o3d.utility.Vector3dVector(pc[:, :3])
-            #     o3d.visualization.draw_geometries([pcd])
-            
-            obs_dict_input = {}
-            obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
-            obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
-            if self.in_gripper_frame:
-                obs_dict_input['point_cloud'] = self._transfer_point_cloud_to_gripper_frame(obs_dict_input['point_cloud'])
-                
-            if self.add_contact:
-                points_left_finger = p.getContactPoints(bodyA=self._env.robot.body, linkIndexA=self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
-                points_right_finger = p.getContactPoints(bodyA=self._env.robot.body, linkIndexA=self._env.robot.right_gripper_indices[1], physicsClientId=self._env.id)
-                contact_left = int(len(points_left_finger) > 0)
-                contact_right = int(len(points_right_finger) > 0)
-                obs_dict_input['agent_pos'] = np.concatenate([obs_dict_input['agent_pos'], [contact_left, contact_right]])
-            
-            # [Chialiang]
-            if self.observation_mode == 'dp3_goal_gripper_on_agent':
-
-                if self._env.grasped_handle:
-                    # print("goal is to open the door")
-                    goal_gripper_pcd = self.final_goal
-                else:
-                    # print("goal is to grasp the handle")
-                    goal_gripper_pcd = self.grasping_goal
-
-                gripper_pc = self.get_gripper_pc()
-                diff = goal_gripper_pcd - gripper_pc
-                diff_flat = diff.reshape(-1)
-
-                pos_ori = np.array(pos_ori).astype(np.float32)
-
-                obs_dict_input['agent_pos'] = np.concatenate((pos_ori, diff_flat), axis=0)
-            
-            # [Chialiang]
-            if self.observation_mode == 'dp3_goal_gripper_on_agent_abs':
-
-                if self._env.grasped_handle:
-                    # print("goal is to open the door")
-                    goal_gripper_pcd = self.final_goal
-                else:
-                    # print("goal is to grasp the handle")
-                    goal_gripper_pcd = self.grasping_goal
-
-                pos_ori = np.array(pos_ori).astype(np.float32)
-                obs_dict_input['agent_pos'] = np.concatenate((pos_ori, goal_gripper_pcd.reshape(-1)), axis=0)
-            
-            if 'act3d' in self.observation_mode:
-                # TODO: handle multiple camera for act3d observation
-                
-                # [Chialiang]
-                if 'mlp' not in self.observation_mode:
-                    obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
-                    obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
-                    pointcloud = obs_dict_input['point_cloud']
-                    pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
-                    assert np.all(pointcloud == pointcloud_rgb)
-
-                # import pdb; pdb.set_trace()
-                obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
-                if 'goal' in self.observation_mode:
-                    obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
-
-
-                    
-                if 'displacement_gripper_to_object' in self.observation_mode:
-                    gripper_pcd = obs_dict_input['gripper_pcd']
-                    object_pcd = obs_dict_input['point_cloud']
-                    distance = scipy.spatial.distance.cdist(gripper_pcd, object_pcd)
-                    min_distance_obj_idx = np.argmin(distance, axis=1)
-                    closest_point = object_pcd[min_distance_obj_idx]
-                    displacement = closest_point - gripper_pcd
-                    obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
-            
-            # [Chialiang] [CDDEBUG]
-            elif 'chained_diffuser' in self.observation_mode:
-                # TODO: handle multiple camera for act3d observation
-
-                # process current gripper and goal gripper
-                if self.chained_diffuser_step == 0:
-                    goal_gripper = self.grasping_goal_pose_7d
-                else:
-                    goal_gripper = self.final_goal_pose_7d
-
-                cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
-                current_open_close =  cur_joint_angle[0]
-
-                eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-                curr_gripper = np.asarray(list(eef_pos) + list(eef_rot) + [current_open_close])
-                    
-                feature_maps = np.stack(feature_maps, axis=0).astype(np.float32)
-                obs_dict_input['visible_rgb'] = feature_maps
-                obs_dict_input['visible_pcd'] = feature_maps[...,2:5]
-                # obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
-                obs_dict_input['curr_gripper'] = curr_gripper
-                obs_dict_input['goal_gripper'] = goal_gripper
-
-                # # import pdb; pdb.set_trace()
-                # obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
-                # if 'goal' in self.observation_mode:
-                #     obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
-                    
-                # if 'displacement_gripper_to_object' in self.observation_mode:
-                #     gripper_pcd = obs_dict_input['gripper_pcd']
-                #     object_pcd = obs_dict_input['point_cloud']
-                #     distance = scipy.spatial.distance.cdist(gripper_pcd, object_pcd)
-                #     min_distance_obj_idx = np.argmin(distance, axis=1)
-                #     closest_point = object_pcd[min_distance_obj_idx]
-                #     displacement = closest_point - gripper_pcd
-                #     obs_dict_input['displacement_gripper_to_object'] = displacement.astype(np.float32)
-
-            else:
-                obs_dict_input['feature_map'] = np.zeros((1, 1, 1)).astype(np.float32)
-                obs_dict_input['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
-                obs_dict_input['pcd_mask'] = np.zeros((1, 1, 1)).astype(np.uint8)
-            
+                obs_dict_input = {}
+                for key in act3d_obs_dict.keys():
+                    obs_dict_input[key] = act3d_obs_dict[key]
+                for key in dp3_obs_dict.keys():
+                    obs_dict_input["dp3_" + key] = dp3_obs_dict[key]
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))

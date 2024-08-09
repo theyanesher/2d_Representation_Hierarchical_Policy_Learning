@@ -818,16 +818,31 @@ def load_env(env, load_path=None, state=None):
     for obj_name, obj_id in env.urdf_ids.items():
         if obj_name not in state['object_base_position'].keys():
             continue
+        if env.mobile and obj_name == "robot" and state['object_base_position'][obj_name][2] == 0:
+            state['object_base_position'][obj_name] = [
+                state['object_base_position'][obj_name][0], state['object_base_position'][obj_name][1],
+                state['object_base_position'][obj_name][2] + 0.28]
         p.resetBasePositionAndOrientation(obj_id, state['object_base_position'][obj_name], state['object_base_orientation'][obj_name], physicsClientId=env.id)
 
     ### set env to stored object joint angles
     for obj_name, obj_id in env.urdf_ids.items():
         if obj_name not in state['object_joint_angle_dicts'].keys():
             continue
+        
         num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-        for link_idx in range(0, num_links):
-            joint_angle = state['object_joint_angle_dicts'][obj_name][link_idx]
-            p.resetJointState(obj_id, link_idx, joint_angle, physicsClientId=env.id)
+        
+        if env.mobile and obj_name == "robot" and len(state['object_joint_angle_dicts'][obj_name]) < num_links:
+            init_joint_angles = state['object_joint_angle_dicts'][obj_name]
+            env.robot.set_joint_angles(env.robot.right_arm_joint_indices[3:], init_joint_angles)
+            pos, orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+            real_pos = np.array(pos) - np.array([0, 0, 0.28]) # get the real robot eef pose without the mobile base
+            ik_indices = [i for i in range(len(env.robot.right_arm_joint_indices))]
+            ik_joint_angles = env.robot.ik(env.robot.right_end_effector, real_pos, orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
+            env.robot.set_joint_angles(env.robot.right_arm_joint_indices, ik_joint_angles)
+        else:
+            for link_idx in range(0, num_links):
+                joint_angle = state['object_joint_angle_dicts'][obj_name][link_idx]
+                p.resetJointState(obj_id, link_idx, joint_angle, physicsClientId=env.id)
 
     ### recover suction
     env.activated = state['activated']
