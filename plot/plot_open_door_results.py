@@ -208,8 +208,20 @@ object_ids = [
 json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07221724-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.22_17.24.11_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 
-json_results_list = glob.glob(f'{json_results_root}/*-seen-0.json')
-tag = 'all_seen'
+# ==== #
+# 0810 #
+# ==== #
+
+# delta wpt, aug_rot 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/08081744-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot_2024.08.08_17.44.49_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# delta wpt, aug_scale 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_scale_2024.08.09_01.03.17_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+
+
+json_results_list = glob.glob(f'{json_results_root}/*-unseen-0.json')
+tag = 'all_unseen'
 
 if len(json_results_list) == 0:
     print(f'no files issue')

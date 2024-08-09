@@ -700,6 +700,27 @@ if __name__ == "__main__":
     new_object = False
     checkpoint_name = "latest.ckpt"
     
+    # -------------------- #
+    # -       0809       - #
+    # -------------------- #
+
+    # delta wpt, aug rot
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08081744-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot/2024.08.08/17.44.49_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+
+    # delta wpt, aug noise
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_scale/2024.08.09/01.03.17_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+
+    #############################################################
+
+    # abs wpt, aug noise
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_scale/2024.08.09/01.03.16_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+    
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
@@ -736,10 +757,10 @@ if __name__ == "__main__":
         run_eval_non_parallel(cfg, policy, num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
-                exp_beg_ratio=exp_beg_ratio,
-                exp_end_ratio=exp_end_ratio,
-                # exp_beg_idx=0, exp_end_idx=25,
-                post_fix=f'-seen-{i}',
+                # exp_beg_ratio=exp_beg_ratio,
+                # exp_end_ratio=exp_end_ratio,
+                exp_beg_idx=0, exp_end_idx=25,
+                post_fix=f'-unseen-{i}',
                 new_object=new_object,
         )
         # run_eval(cfg, policy, num_worker, save_path, 
