@@ -18,6 +18,7 @@ import pickle
 from manipulation.utils import save_numpy_as_gif
 from multiprocessing import Pool
 from add_distractors_around_target import add_distractors_around_target
+from collections import defaultdict
 
 def parallel_render(args):
     task_config_path, solution_path, first_step, rpy, gripper_num_points, add_contact, \
@@ -38,7 +39,8 @@ def parallel_render(args):
         object_name, rpy_mean_list=rpy, seed=0,
         gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=num_point_in_pc,
         use_segmask=use_segmask, only_handle_points=only_handle_points, 
-        observation_mode=observation_mode)
+        observation_mode=observation_mode,
+        record_all_observation=True)
     
     load_env(simulator._env, load_path=state)
     observation = simulator._get_observation()
@@ -110,14 +112,18 @@ def extract_pc_states_for_all_trajectories(pool_args):
     all_experiments = all_experiments
     all_experiments = all_experiments[beg_idx:end_idx]
     
-    all_traj_pc = []
-    all_traj_pos_ori = []
+    # all_traj_pc = []
+    # all_traj_pos_ori = []
+    # all_traj_feature_maps = []
+    # all_traj_gripper_pcds = []
+    # all_traj_rgbs = []
+    # all_traj_pcd_masks = []
+    # all_traj_dp3_pc = []
+    
     all_traj_stage_lengths = []
-    all_traj_feature_maps = []
-    all_traj_gripper_pcds = []
     all_traj_store_label_paths = []
-    all_traj_rgbs = []
-    all_traj_pcd_masks = []
+    obs_keys = ['point_cloud', 'agent_pos', 'feature_map', 'gripper_pcd', 'pcd_mask', 'goal_gripper_pcd', 'displacement_gripper_to_object']
+    all_traj_obs_dict_of_list = defaultdict(list)
     
     first_step, first_step_folder = get_first_step_folder(solution_path)
     for experiment in tqdm.tqdm(all_experiments):
@@ -155,7 +161,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
                 ratio = opened_angle / max_angle
-            if opened_angle < angle_threshold:
+            if opened_angle < angle_threshold or ratio < args.min_opened_ratio:
                 print("not open enough, continue")
                 continue
 
@@ -188,19 +194,17 @@ def extract_pc_states_for_all_trajectories(pool_args):
                     object_name, rpy_mean_list=rpy, seed=0,
                     gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=args.pointcloud_num,
                     use_segmask=args.use_segmask, only_handle_points=args.only_handle_points,
-                    observation_mode=args.observation_mode)
-                    
-                pc_list = []
-                pos_ori_list = []
-                rgb_list = []
-                feature_map_list = []
-                gripper_pcd_list = []
-                pcd_mask_list = []
+                    observation_mode=args.observation_mode, record_all_observation=False)
+                
                 door_joint_angles = []
+                traj_list = defaultdict(list)
 
                 reach_till_contact_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"]
                 open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+                reach_till_contact_idx = reach_till_contact_idx // args.combine_action_steps
+                open_time_idx = open_time_idx // args.combine_action_steps
 
+                expert_states = expert_states[::args.combine_action_steps]
                 for t_idx, state in enumerate(tqdm.tqdm(expert_states)):
                     load_env(simulator._env, load_path=state)
                     
@@ -212,22 +216,20 @@ def extract_pc_states_for_all_trajectories(pool_args):
                     only_object = not add_distractors
                     observation = simulator._get_observation(only_object=only_object)  
                     rgb = simulator._env.render()
-                    point_cloud = observation['point_cloud'].tolist()
-                    traj_pos_ori = observation['agent_pos'].tolist()
-                    feature_map = observation['feature_map'].tolist()
-                    gripper_pcd = observation['gripper_pcd'].tolist()
-                    pcd_mask = observation['pcd_mask'].tolist()
-                    
-                    pc_list.append(point_cloud)
-                    pos_ori_list.append(traj_pos_ori)
-                    rgb_list.append(rgb)
-                    feature_map_list.append(feature_map)
-                    gripper_pcd_list.append(gripper_pcd)
-                    pcd_mask_list.append(pcd_mask)
+
+                    traj_list['rgb'].append(rgb)
+                    for key in obs_keys:
+                        traj_list[key].append(observation[key].tolist())
+                        
+                goal_gripper_pcd_at_grasping = traj_list['gripper_pcd'][open_time_idx]
+                goal_gripper_pcd_at_end = traj_list['gripper_pcd'][-1]
+                for t in range(open_time_idx):
+                    traj_list['goal_gripper_pcd'][t] = goal_gripper_pcd_at_grasping
+                for t in range(open_time_idx, len(traj_list['gripper_pcd'])):
+                    traj_list['goal_gripper_pcd'][t] = goal_gripper_pcd_at_end
                                     
                 door_joint_angles = np.array(door_joint_angles)
                 door_joint_angle_diffs = np.diff(door_joint_angles)
-                open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
                 door_joint_angle_diffs = door_joint_angle_diffs[open_time_idx:]
                 
                 # if np.any(door_joint_angle_diffs > angle_threshold / 100 * 3):
@@ -252,32 +254,25 @@ def extract_pc_states_for_all_trajectories(pool_args):
                 feature_map_list = [x[3] for x in results]
                 gripper_pcd_list = [x[4] for x in results]
                 pcd_mask_list = [x[5] for x in results]
+                dp3_pc_list = [x[6] for x in results]
     
             end = time.time()
-            cprint(f"Finished extracting data from trajectory index: {str(len(all_traj_pc))} time cost {end - beg}" , "green")
+            cprint(f"Finished extracting data from trajectory index: {len(expert_states) // args.combine_action_steps} time cost {end - beg}" , "green")
 
         if not bad_experiment:
-            all_traj_pc.append(pc_list)
-            all_traj_pos_ori.append(pos_ori_list)
-            all_traj_rgbs.append(rgb_list)
-            all_traj_feature_maps.append(feature_map_list)
-            all_traj_gripper_pcds.append(gripper_pcd_list)
-            all_traj_pcd_masks.append(pcd_mask_list)
             all_traj_stage_lengths.append(stage_lengths)
             all_traj_store_label_paths.append(os.path.join(experiment_path, first_step_folder))
+            for key in obs_keys + ['rgb']:
+                all_traj_obs_dict_of_list[key].append(traj_list[key])
         else:
             label_path = os.path.join(experiment_path, first_step_folder, "label.json")
             with open(label_path, "w") as f:
                 json.dump({"good_traj": False, "failure reason": "simulation error during door opening"}, f)        
     
-    return all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, \
-        all_traj_stage_lengths, all_traj_store_label_paths
+    return all_traj_obs_dict_of_list, all_traj_stage_lengths, all_traj_store_label_paths
     
 def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None, parallel=True, 
                                     gripper_num_points=0, add_contact=False, save_path=None, add_distractors=False):
-    task_paths = os.listdir(dirtory_path)
-    task_paths = sorted(task_paths)
-    
     action_dist_save_path = os.path.join(save_path, "action_dist")
     if not os.path.exists(action_dist_save_path):
         os.makedirs(action_dist_save_path)
@@ -294,7 +289,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
     last_state_indices = []
     all_demo_paths = []
     total_count = 0
-    for task_path in task_paths[args.task_beg_idx:args.task_end_idx]:
+    for task_path in [args.exp_folder]:
         files_and_folders = os.listdir(os.path.join(dirtory_path, task_path))
         solution_path, task_config_path = None, None
         for file_or_folder in files_and_folders:
@@ -316,7 +311,6 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
         all_expert_opened_ratios, all_expert_opened_angles = get_all_expert_angles([os.path.join(experiment_folder, exp) for exp in all_experiments], solution_path)
         angle_threshold = np.quantile(all_expert_opened_angles, 0.1)
         
-        
         num_experiment = min(num_experiment, args.num_experiment)        
         batch_size = 5
         num_batch = (num_experiment - 1) // batch_size + 1
@@ -326,8 +320,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
             end_idx = min((batch_idx + 1) * batch_size, num_experiment)
             
             if not args.parallel:
-                all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, \
-                all_traj_stage_lengths, all_traj_store_label_paths = extract_pc_states_for_all_trajectories(
+                all_traj_obs_dict_of_list, all_traj_stage_lengths, all_traj_store_label_paths = extract_pc_states_for_all_trajectories(
                     [
                         task_config_path, solution_path, object_category, exp_name, 
                         False,
@@ -353,24 +346,34 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 all_traj_pcd_masks = [x[5][0] for x in res if len(x[5]) > 0]
                 all_traj_stage_lengths = [x[6][0] for x in res if len(x[6]) > 0]
                 all_traj_store_label_paths = [x[7][0] for x in res if len(x[7]) > 0]
+                # all_traj_dp3_pc = [x[8][0] for x in res if len(x[8]) > 0]
 
-
+            all_traj_pc = all_traj_obs_dict_of_list['point_cloud']
+            all_traj_pos_ori = all_traj_obs_dict_of_list['agent_pos']
+            all_traj_rgbs = all_traj_obs_dict_of_list['rgb']
+            all_traj_feature_maps = all_traj_obs_dict_of_list['feature_map']
+            all_traj_gripper_pcds = all_traj_obs_dict_of_list['gripper_pcd']
+            all_traj_pcd_masks = all_traj_obs_dict_of_list['pcd_mask']
+            # all_traj_dp3_pc = all_traj_obs_dict_of_list['dp3_point_cloud']
+            all_traj_goal_gripper_pcd = all_traj_obs_dict_of_list['goal_gripper_pcd']
+            all_traj_displacement_gripper_to_object = all_traj_obs_dict_of_list['displacement_gripper_to_object']
             for traj_idx in tqdm.tqdm(range(len(all_traj_pc)), total=len(all_traj_pc)):
 
                 traj_pc, traj_pos_ori, traj_feature_maps, traj_gripper_pcd, traj_pcd_masks = all_traj_pc[traj_idx], all_traj_pos_ori[traj_idx], all_traj_feature_maps[traj_idx], all_traj_gripper_pcds[traj_idx], all_traj_pcd_masks[traj_idx]
                 traj_stage_length, traj_store_label_path  = all_traj_stage_lengths[traj_idx], all_traj_store_label_paths[traj_idx]
+                # traj_dp3_pc = all_traj_dp3_pc[traj_idx]
+                traj_goal_gripper_pcd, traj_displacement_gripper_to_object = all_traj_goal_gripper_pcd[traj_idx], all_traj_displacement_gripper_to_object[traj_idx]
                 
                 good_traj = True
                 failure_reason = "null"
 
                 traj_actions = []
                 quaternion_diffs = []
-                base_pos = traj_pos_ori[0][:3]
-                base_ori_6d = traj_pos_ori[0][3:9]
-                base_finger_angle = traj_pos_ori[0][9]
                 
-                open_door_start_idx = traj_stage_length['reach_handle'] + traj_stage_length['reach_to_contact'] + traj_stage_length['close_gripper']
-                after_contact_step_idx = traj_stage_length['reach_handle'] + traj_stage_length['reach_to_contact']
+                opening_start_idx = traj_stage_length['reach_handle'] + traj_stage_length['reach_to_contact'] + traj_stage_length['close_gripper']
+                after_contact_idx = traj_stage_length['reach_handle'] + traj_stage_length['reach_to_contact']
+                opening_start_idx = opening_start_idx // args.combine_action_steps
+                after_contact_idx = after_contact_idx // args.combine_action_steps
             
                 filtered_pcs = []
                 filtered_pos_oris = []
@@ -378,12 +381,23 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                 filtered_gripper_pcds = []
                 filtered_pcd_masks = []
                 filtered_rgbs = []
+                # filtered_dp3_pcs = []
+                filtered_goal_gripper_pcds = []
+                filtered_displacement_gripper_to_objects = []
+                
+                base_pos = traj_pos_ori[0][:3]
+                base_ori_6d = traj_pos_ori[0][3:9]
+                base_finger_angle = traj_pos_ori[0][9]
                 base_rgb = all_traj_rgbs[traj_idx][0]
                 base_feature_map = traj_feature_maps[0]
                 base_gripper_pcd = traj_gripper_pcd[0]
                 base_pc = traj_pc[0]
                 base_pcd_mask = traj_pcd_masks[0]
                 base_pos_ori = traj_pos_ori[0]
+                # base_dp3_pc = traj_dp3_pc[0]
+                base_goal_gripper_pcd = traj_goal_gripper_pcd[0]
+                base_displacement_gripper_to_object = traj_displacement_gripper_to_object[0]
+                
                 for i in range(len(traj_pos_ori) - 1):
                     target_pos_ori = traj_pos_ori[i+1]
                     cur_pos = traj_pos_ori[i][:3]
@@ -392,7 +406,7 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     single_step_delta_pos = np.array(target_pos) - np.array(cur_pos)
                     
                     # if single step translation is too large, ignore this trajectory
-                    if np.linalg.norm(single_step_delta_pos) > 0.02:
+                    if np.linalg.norm(single_step_delta_pos) > 0.02 * args.combine_action_steps:
                         good_traj = False
                         failure_reason = "delta movement too large"
                         print("not good traj due to delta movement too large")
@@ -418,36 +432,48 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     quaternion_diffs.append(quat_diff)
                     
                     # if single step rotation is too large, ignore this trajectory
-                    if np.abs(one_step_quaternion_diff) > 0.085:
+                    if np.abs(one_step_quaternion_diff) > 0.085 * args.combine_action_steps:
                         good_traj = False
                         failure_reason = "delta quaternion too large"
                         print("not good due to delta quaternion too large")
                         break
                                             
                     target_finger_angle = traj_pos_ori[i+1][9]
-
                     delta_finger_angle = target_finger_angle - base_finger_angle
-                    if args.fixed_finger_movement:
-                        if i > after_contact_step_idx:
-                            delta_finger_angle = -0.003
-                    
-                    action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
-                    traj_actions.append(action)
-                    filtered_pcs.append(base_pc)
-                    filtered_pcd_masks.append(base_pcd_mask)
-                    filtered_gripper_pcds.append(base_gripper_pcd)
-                    filtered_feature_maps.append(base_feature_map)
-                    filtered_pos_oris.append(base_pos_ori)
-                    filtered_rgbs.append(base_rgb)
-                    base_pc = traj_pc[i+1]
-                    base_pcd_mask = traj_pcd_masks[i+1]
-                    base_gripper_pcd = traj_gripper_pcd[i+1]
-                    base_feature_map = traj_feature_maps[i+1]
-                    base_pos_ori = traj_pos_ori[i+1]
-                    base_rgb = all_traj_rgbs[traj_idx][i+1]
-                    base_pos = target_pos
-                    base_ori_6d = target_ori_6d
-                    base_finger_angle = target_finger_angle
+                            
+                    filter_action = False
+                    if i >= after_contact_idx and i < opening_start_idx:
+                        if np.abs(delta_finger_angle) < args.min_finger_angle_diff and args.filter_close_zero_action:
+                            # print("filter close zero action")
+                            filter_action = True
+                            
+                    if filter_action:
+                        continue
+                    else:
+                        action = delta_pos.tolist() + delta_ori_6d.tolist() + [delta_finger_angle]
+                        traj_actions.append(action)
+                        filtered_pcs.append(base_pc)
+                        filtered_pcd_masks.append(base_pcd_mask)
+                        filtered_gripper_pcds.append(base_gripper_pcd)
+                        filtered_feature_maps.append(base_feature_map)
+                        filtered_pos_oris.append(base_pos_ori)
+                        filtered_rgbs.append(base_rgb)
+                        # filtered_dp3_pcs.append(base_dp3_pc)
+                        filtered_goal_gripper_pcds.append(base_goal_gripper_pcd)
+                        filtered_displacement_gripper_to_objects.append(base_displacement_gripper_to_object)
+                        
+                        base_pc = traj_pc[i+1]
+                        base_pcd_mask = traj_pcd_masks[i+1]
+                        base_gripper_pcd = traj_gripper_pcd[i+1]
+                        base_feature_map = traj_feature_maps[i+1]
+                        base_pos_ori = traj_pos_ori[i+1]
+                        base_rgb = all_traj_rgbs[traj_idx][i+1]
+                        base_pos = target_pos
+                        base_ori_6d = target_ori_6d
+                        base_finger_angle = target_finger_angle
+                        # base_dp3_pc = traj_dp3_pc[i+1]
+                        base_displacement_gripper_to_object = traj_displacement_gripper_to_object[i+1]
+                        base_goal_gripper_pcd = traj_goal_gripper_pcd[i+1]
                         
             
                 # plot the delta translation action distribution
@@ -488,58 +514,139 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
                     #     json.dump({"good_traj": good_traj, "failure reason": failure_reason}, f)
 
                 if good_traj:
+                    for i in range(len(traj_actions)):
+                        if i >= after_contact_idx:
+                            # print("set gripper to be always close after contact")
+                            traj_actions[i][-1] = args.close_gripper_action
+                            
                     experiment_path = os.path.dirname(traj_store_label_path)
                     all_demo_paths.append(experiment_path)
                     data_save_path = os.path.join(save_path, experiment_path.split("/")[-1])
                     beg = time.time()
                     save_data(filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, 
-                            filtered_pcd_masks, traj_actions, data_save_path)
+                            filtered_pcd_masks, traj_actions, None, 
+                            filtered_goal_gripper_pcds, filtered_displacement_gripper_to_objects, 
+                            data_save_path)
                     end = time.time()
                     cprint("Finished saving data to {} using time {}".format(data_save_path, end-beg), "green")
-                    del filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions
+                    del filtered_pcs, filtered_pos_oris, filtered_feature_maps, filtered_gripper_pcds, filtered_pcd_masks, traj_actions, filtered_displacement_gripper_to_objects, filtered_goal_gripper_pcds
             
             save_example_pointcloud([traj_pc[0] for traj_pc in all_traj_pc], save_path)
+            # save_example_pointcloud([traj_dp3_pc[0] for traj_dp3_pc in all_traj_dp3_pc], save_path, name='example_dp3_pointcloud')
             del all_traj_pc, all_traj_pos_ori, all_traj_rgbs, all_traj_feature_maps, all_traj_gripper_pcds, all_traj_pcd_masks, all_traj_stage_lengths, all_traj_store_label_paths
                 
     with open(os.path.join(save_path, "all_demo_path.txt"), "w") as f:
         f.write("\n".join(all_demo_paths))
             
-def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, save_dir):
-    zarr_root = zarr.group(save_dir)
-    try:
+# def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, dp3_pc_list, 
+#                 goal_gripper_pcd_list, displacement_gripper_to_object_list,
+#               save_dir):
+#     zarr_root = zarr.group(save_dir)
+#     try:
+#         zarr_data = zarr_root.create_group('data')
+#         zarr_meta = zarr_root.create_group('meta')
+
+#         state_arrays = np.array(state_list)
+#         point_cloud_arrays = np.array(pc_list)
+#         action_arrays = np.array(action_list)
+#         dp3_point_cloud_arrays = np.array(dp3_pc_list)
+#         if 'act3d' in args.observation_mode:
+#             feature_map_arrays = np.array(feature_map_list)
+#             gripper_pcd_arrays = np.array(gripper_pcd_list)
+#             pcd_mask_list = np.array(pcd_mask_list)
+#             goal_gripper_pcd_arrays = np.array(goal_gripper_pcd_list)
+
+#         compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)
+#         state_chunk_size = (100, state_arrays.shape[1])
+#         point_cloud_chunk_size = (100, point_cloud_arrays.shape[1], point_cloud_arrays.shape[2])
+#         dp3_point_cloud_chunk_size = (100, dp3_point_cloud_arrays.shape[1], dp3_point_cloud_arrays.shape[2])
+#         action_chunk_size = (100, action_arrays.shape[1])
+#         zarr_data.create_dataset('state', data=state_arrays, chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+#         zarr_data.create_dataset('point_cloud', data=point_cloud_arrays, chunks=point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+#         zarr_data.create_dataset('dp3_point_cloud', data=dp3_point_cloud_arrays, chunks=dp3_point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+#         zarr_data.create_dataset('action', data=action_arrays, chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+#         if 'act3d' in args.observation_mode:
+#             feature_map_chunk_size = (100, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3], feature_map_arrays.shape[4]) # there can be mutiple cameras
+#             gripper_pcd_chunk_size = (100, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
+#             pcd_mask_chunk_size = (100, pcd_mask_list.shape[1])
+#             zarr_data.create_dataset('feature_map', data=feature_map_arrays, chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+#             zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays, chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+#             zarr_data.create_dataset('pcd_mask', data=pcd_mask_list, chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
+
+#         if 'act3d' in args.observation_mode:
+#             del feature_map_arrays, gripper_pcd_arrays
+#         del state_arrays, point_cloud_arrays, action_arrays
+#         del zarr_root, zarr_data, zarr_meta
+#         del dp3_point_cloud_arrays
+#     except Exception as e:
+#         print(e)
+#         print("Failed to save data to: ", save_dir)
+
+def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_list, action_list, 
+              dp3_pc_list,
+              goal_gripper_pcd, 
+              displacement_gripper_to_object,
+              save_dir):
+
+    state_arrays = np.array(state_list)
+    point_cloud_arrays = np.array(pc_list)
+    action_arrays = np.array(action_list)
+    feature_map_arrays = np.array(feature_map_list)
+    gripper_pcd_arrays = np.array(gripper_pcd_list)
+    pcd_mask_list = np.array(pcd_mask_list)
+    
+    chunk_size = 1
+    state_chunk_size = (chunk_size, state_arrays.shape[1])
+    point_cloud_chunk_size = (chunk_size, point_cloud_arrays.shape[1], point_cloud_arrays.shape[2])
+    action_chunk_size = (chunk_size, action_arrays.shape[1])
+    feature_map_chunk_size = (chunk_size, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3], feature_map_arrays.shape[4]) # there can be mutiple cameras
+    gripper_pcd_chunk_size = (chunk_size, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
+    pcd_mask_chunk_size = (chunk_size, pcd_mask_list.shape[1])
+    if goal_gripper_pcd is not None:
+        goal_gripper_pcd = np.array(goal_gripper_pcd)
+        goal_gripper_pcd_chunk_size = (chunk_size, goal_gripper_pcd.shape[1], goal_gripper_pcd.shape[2])
+    if displacement_gripper_to_object is not None:
+        displacement_gripper_to_object = np.array(displacement_gripper_to_object)
+        displacement_gripper_to_object_chunk_size = (chunk_size, displacement_gripper_to_object.shape[1], displacement_gripper_to_object.shape[2])
+    if dp3_pc_list is not None:
+        dp3_pc_list = np.array(dp3_pc_list)
+        dp3_point_cloud_chunk_size = (chunk_size, dp3_pc_list.shape[1], dp3_pc_list.shape[2])
+    
+    compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)
+    
+    traj_len = len(state_list)
+    for t_idx in range(traj_len):
+        step_save_dir = os.path.join(save_dir, str(t_idx))
+        if not os.path.exists(step_save_dir):
+            os.makedirs(step_save_dir)
+            
+        zarr_root = zarr.group(step_save_dir)
         zarr_data = zarr_root.create_group('data')
         zarr_meta = zarr_root.create_group('meta')
+        zarr_data.create_dataset('state', data=state_arrays[t_idx][None, :], chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('point_cloud', data=point_cloud_arrays[t_idx][None, :], chunks=point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('action', data=action_arrays[t_idx][None, :], chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('feature_map', data=feature_map_arrays[t_idx][None, :], chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays[t_idx][None, :], chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        zarr_data.create_dataset('pcd_mask', data=pcd_mask_list[t_idx][None, :], chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
+        if goal_gripper_pcd is not None:
+            zarr_data.create_dataset('goal_gripper_pcd', data=goal_gripper_pcd[t_idx][None, :], chunks=goal_gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        if displacement_gripper_to_object is not None:
+            zarr_data.create_dataset('displacement_gripper_to_object', data=displacement_gripper_to_object[t_idx][None, :], chunks=displacement_gripper_to_object_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+        if dp3_pc_list is not None:
+            zarr_data.create_dataset('dp3_point_cloud', data=dp3_pc_list[t_idx][None, :], chunks=dp3_point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
 
-        state_arrays = np.array(state_list)
-        point_cloud_arrays = np.array(pc_list)
-        action_arrays = np.array(action_list)
-        if 'act3d' in args.observation_mode:
-            feature_map_arrays = np.array(feature_map_list)
-            gripper_pcd_arrays = np.array(gripper_pcd_list)
-            pcd_mask_list = np.array(pcd_mask_list)
+    del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays
+    del zarr_root, zarr_data, zarr_meta
+    if goal_gripper_pcd is not None:
+        del goal_gripper_pcd
+    if displacement_gripper_to_object is not None:
+        del displacement_gripper_to_object
+    if dp3_pc_list is not None:
+        del dp3_pc_list
 
-        compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)
-        state_chunk_size = (100, state_arrays.shape[1])
-        point_cloud_chunk_size = (100, point_cloud_arrays.shape[1], point_cloud_arrays.shape[2])
-        action_chunk_size = (100, action_arrays.shape[1])
-        zarr_data.create_dataset('state', data=state_arrays, chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
-        zarr_data.create_dataset('point_cloud', data=point_cloud_arrays, chunks=point_cloud_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
-        zarr_data.create_dataset('action', data=action_arrays, chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
-        if 'act3d' in args.observation_mode:
-            feature_map_chunk_size = (100, feature_map_arrays.shape[1], feature_map_arrays.shape[2], feature_map_arrays.shape[3], feature_map_arrays.shape[4]) # there can be mutiple cameras
-            gripper_pcd_chunk_size = (100, gripper_pcd_arrays.shape[1], gripper_pcd_arrays.shape[2])
-            pcd_mask_chunk_size = (100, pcd_mask_list.shape[1])
-            zarr_data.create_dataset('feature_map', data=feature_map_arrays, chunks=feature_map_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
-            zarr_data.create_dataset('gripper_pcd', data=gripper_pcd_arrays, chunks=gripper_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
-            zarr_data.create_dataset('pcd_mask', data=pcd_mask_list, chunks=pcd_mask_chunk_size, dtype='uint8', overwrite=True, compressor=compressor)
 
-        del state_arrays, point_cloud_arrays, feature_map_arrays, gripper_pcd_arrays, action_arrays
-        del zarr_root, zarr_data, zarr_meta
-    except Exception as e:
-        print(e)
-        print("Failed to save data to: ", save_dir)
-
-def save_example_pointcloud(pc_list, save_dir):
+def save_example_pointcloud(pc_list, save_dir, name='example_pointcloud'):
     if len(pc_list) > 10:
         idxes = np.random.choice(len(pc_list), 10)
     else:
@@ -584,18 +691,21 @@ if __name__ == "__main__":
     args.add_argument("--pointcloud_num", type=int, default=4500)
     args.add_argument("--use_segmask", type=int, default=0)
     args.add_argument("--only_handle_points", type=int, default=0)
-    args.add_argument("--close_finger_angle", type=float, default=-0.08)
     args.add_argument("--observation_mode", type=str, default='segmask')
+    args.add_argument("--filter_close_zero_action", type=int, default=1)
+    args.add_argument("--min_finger_angle_diff", type=float, default=0.001)
+    args.add_argument("--close_gripper_action", type=float, default=-0.006)
+    args.add_argument("--combine_action_steps", type=int, default=2)
+    args.add_argument("--min_opened_ratio", type=float, default=0.2)
 
     
     args.add_argument("--object_name", type=str, required=True)
     args.add_argument("--save_path", type=str, required=True)
-    args.add_argument("--exp_name", type=str, default=None)
+    args.add_argument("--exp_folder", type=str, default=None)
     args.add_argument("--folder_name", type=str, required=True)
     args.add_argument("--generate", type=int, default=1)
     args.add_argument("--parallel", type=int, default=1)
-    args.add_argument("--task_beg_idx", type=int, default=0)
-    args.add_argument("--task_end_idx", type=int, default=1)
+    args.add_argument("--exp_name", type=str, default=None)
     args.add_argument("--num_experiment", type=int, default=10000)
     args.add_argument("--num_worker", type=int, default=20)
     args.add_argument("--add_distractors", type=int, default=0)

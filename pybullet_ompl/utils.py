@@ -12,9 +12,9 @@ from itertools import product, combinations, count
 BASE_LINK = -1
 MAX_DISTANCE = 0.
 
-def pairwise_link_collision(body1, link1, body2, link2=BASE_LINK, max_distance=MAX_DISTANCE):  # 10000
+def pairwise_link_collision(body1, link1, body2, link2=BASE_LINK, max_distance=MAX_DISTANCE, p_id=None):  # 10000
     return len(p.getClosestPoints(bodyA=body1, bodyB=body2, distance=max_distance,
-                                  linkIndexA=link1, linkIndexB=link2)) != 0  # getContactPoints
+                                  linkIndexA=link1, linkIndexB=link2,  physicsClientId=p_id)) != 0  # getContactPoints
 
 def pairwise_collision(body1, body2, **kwargs):
     if isinstance(body1, tuple) or isinstance(body2, tuple):
