@@ -29,3 +29,11 @@ dp3_demo/
 data
 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
 dump_each_results.py
+legacy/
+debug/
+one_traj/
+rename.py
+run-act3d_one.sh
+imgs_copy/
+one_traj/
+trajectory.gif

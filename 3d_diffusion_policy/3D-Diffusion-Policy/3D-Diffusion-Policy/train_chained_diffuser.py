@@ -33,6 +33,10 @@ from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 from multiprocessing import set_start_method
 
+# [Chialiang] instead of using DP3
+from diffusion_policy_3d.policy.chained_diffusor import DiffusionPlanner
+
+
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 class TrainDP3Workspace:
@@ -53,9 +57,9 @@ class TrainDP3Workspace:
         random.seed(seed)
 
         # configure model
-        self.model: DP3 = hydra.utils.instantiate(cfg.policy)
+        self.model: DiffusionPlanner = hydra.utils.instantiate(cfg.policy)
 
-        self.ema_model: DP3 = None
+        self.ema_model: DiffusionPlanner = None
         if cfg.training.use_ema:
             try:
                 self.ema_model = copy.deepcopy(self.model)

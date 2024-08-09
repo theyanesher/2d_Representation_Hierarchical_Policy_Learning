@@ -509,8 +509,9 @@ def extract_demos_from_a_directory(dirtory_path, object_category, exp_name=None,
 
                 path = os.path.join(traj_store_label_path, "label.json")
                 if not os.path.exists(path):
-                    with open(path, 'w') as f:
-                        json.dump({"good_traj": good_traj, "failure reason": failure_reason}, f)
+                    cprint(f"failure reason: {failure_reason}", 'red')
+                    # with open(path, 'w') as f:
+                    #     json.dump({"good_traj": good_traj, "failure reason": failure_reason}, f)
 
                 if good_traj:
                     for i in range(len(traj_actions)):
@@ -643,6 +644,7 @@ def save_data(pc_list, state_list, feature_map_list, gripper_pcd_list, pcd_mask_
         del displacement_gripper_to_object
     if dp3_pc_list is not None:
         del dp3_pc_list
+
 
 def save_example_pointcloud(pc_list, save_dir, name='example_pointcloud'):
     if len(pc_list) > 10:

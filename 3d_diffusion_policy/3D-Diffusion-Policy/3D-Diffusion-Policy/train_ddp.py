@@ -288,15 +288,15 @@ class TrainDP3Workspace:
                 
                 if self.epoch == 0 and not cfg.eval_first:
                     pass
-                else:
-                    t3 = time.time()
-                    # runner_log = env_runner.run(policy, dataset=dataset)
-                    runner_log = env_runner.run(cfg, policy, self.epoch)
-                    # wandb_run.log(runner_log, step=self.epoch)
-                    t4 = time.time()
-                    cprint(f"rollout time: {t4-t3:.3f}", "red")
-                    # log all
-                    step_log.update(runner_log)
+                # else:
+                #     t3 = time.time()
+                #     # runner_log = env_runner.run(policy, dataset=dataset)
+                #     runner_log = env_runner.run(cfg, policy, self.epoch)
+                #     # wandb_run.log(runner_log, step=self.epoch)
+                #     t4 = time.time()
+                #     cprint(f"rollout time: {t4-t3:.3f}", "red")
+                #     # log all
+                #     step_log.update(runner_log)
 
                 # TODO: add dagger here
                 # 1. should store the final state in env_runner.run
@@ -353,31 +353,31 @@ class TrainDP3Workspace:
                     pass
                 else:
                     # checkpointing
-                    # if cfg.checkpoint.save_last_ckpt:
-                    #     self.save_checkpoint()
+                    if cfg.checkpoint.save_last_ckpt:
+                        self.save_checkpoint()
                     # if cfg.checkpoint.save_last_snapshot:
                     #     self.save_snapshot()
 
-                    if 'test_mean_score' in step_log:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
-                        # sanitize metric names
-                        metric_dict = dict()
-                        for key, value in step_log.items() :
-                            new_key = key.replace('/', '_')
-                            metric_dict[new_key] = value
-                        # for key, value in runner_log.items():
-                        #     new_key = key.replace('/', '_')
-                        #     metric_dict[new_key] = value
+                    # if 'test_mean_score' in step_log:
+                    #     self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
+                    #     # sanitize metric names
+                    #     metric_dict = dict()
+                    #     for key, value in step_log.items() :
+                    #         new_key = key.replace('/', '_')
+                    #         metric_dict[new_key] = value
+                    #     # for key, value in runner_log.items():
+                    #     #     new_key = key.replace('/', '_')
+                    #     #     metric_dict[new_key] = value
                         
-                        # We can't copy the last checkpoint here
-                        # since save_checkpoint uses threads.
-                        # therefore at this point the file might have been empty!
-                        topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                    #     # We can't copy the last checkpoint here
+                    #     # since save_checkpoint uses threads.
+                    #     # therefore at this point the file might have been empty!
+                    #     topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                        if topk_ckpt_path is not None:
-                            self.save_checkpoint(path=topk_ckpt_path)
-                    else:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
+                    #     if topk_ckpt_path is not None:
+                    #         self.save_checkpoint(path=topk_ckpt_path)
+                    # else:
+                    #     self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     
                     
                         

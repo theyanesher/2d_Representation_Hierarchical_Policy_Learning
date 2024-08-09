@@ -38,6 +38,8 @@ class RobogenPointCloudWrapper:
                  gripper_bbox=0.1, 
                  add_contact=False,
                  use_joint_angle=False,
+                 use_absolute_waypoint=False, # [Chialiang][CDDEBUG]
+                 use_chained_diffuser=False, # [Chialiang][CDDEBUG]
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
@@ -66,6 +68,9 @@ class RobogenPointCloudWrapper:
         self.gripper_bbox = gripper_bbox
         self.add_contact = add_contact
         self.use_joint_angle = use_joint_angle
+        self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
+        self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
+        self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
         self.only_handle_points = only_handle_points
@@ -91,7 +96,13 @@ class RobogenPointCloudWrapper:
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
-        else:
+
+            if 'goal' in observation_mode:
+                self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            if 'displacement_gripper_to_object' in observation_mode:
+                self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        
+        elif 'act3d' in observation_mode:
             self.observation_space = spaces.Dict({
                 'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
@@ -100,12 +111,26 @@ class RobogenPointCloudWrapper:
                 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
 
-        if 'act3d' in observation_mode: 
             if 'goal' in observation_mode:
                 self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             if 'displacement_gripper_to_object' in observation_mode:
                 self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
+        elif 'chained_diffuser' in observation_mode:
+
+            # [Chialiang] [CDDEBUG]
+            self.observation_space = spaces.Dict({
+                'visible_rgb': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'visible_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'curr_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'goal_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'goal_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            })
+        else :
+            raise NotImplementedError
 
         for name in self._env.urdf_ids: # randomly center at an object
             if name in ['robot', 'plane', 'init_table']: continue
@@ -119,7 +144,8 @@ class RobogenPointCloudWrapper:
         if self.rpy_mean_list is None:
             self.rpy_mean_list = [[0, 0, -45], [0, 0, -135]]
         
-        if 'act3d' in self.observation_mode:
+        # [Chialiang] [CDDEBUG]
+        if 'act3d' in self.observation_mode or 'chained_diffuser' in self.observation_mode:
             # TODO: handle multiple camera for act3d observation
             # TODO: figure out the right camera distance & position
             # self.rpy_mean_list = [[0, 0, -45]]
@@ -145,11 +171,10 @@ class RobogenPointCloudWrapper:
             self.project_matrices.append(project_matrix)
             # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
-
         self.time_step = 0
         
-        # [Chialiang]
-        if "act3d_goal" in self.observation_mode or 'dp3_goal_gripper' in self.observation_mode:
+        # [Chialiang] [CDDEBUG]
+        if ("act3d_goal" in self.observation_mode) or ('chained_diffuser' in self.observation_mode) or ('dp3_goal_gripper' in self.observation_mode):
 
             # [Chialiang]
             config_path = self._env.config_path
@@ -180,6 +205,7 @@ class RobogenPointCloudWrapper:
             # Chialiang for dense goal pcd
             eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            self.grasping_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
             
             self._env.reset(reset_state=goal_2_state)
             final_eef_pc = self.get_gripper_pc()
@@ -187,6 +213,7 @@ class RobogenPointCloudWrapper:
             # Chialiang for dense goal pcd
             eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            self.final_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
@@ -203,43 +230,64 @@ class RobogenPointCloudWrapper:
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
+        self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
     
     def step(self, action, render=True):
         # beg = time.time()
+
         if not self.use_joint_angle:
-            # beg = time.time()
-            pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
+
+            # [CDDEBUG] [CDHERE] modify the output action type
+            # [CDQUESTION] how to add gripper action in this mode? currently it only uses position and rotation
+            if self.use_chained_diffuser:
+                self.chained_diffuser_step = 1 # force set to post grasping
+
+                assert len(action) == 8 or len(action) == 10
+
+                pos = action[:3] 
+                if len(action) == 8:
+                    euler = p.getEulerFromQuaternion(action[3:7])
+                else :
+                    orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
+                    euler = p.getEulerFromQuaternion(orient)
+                target_joint_angle = action[-1]
+                action = pos.tolist() + list(euler) + [target_joint_angle]
+                self._env.take_direct_action(action) # directly use the action to control the robot
             
-            # transfer the action to the gripper frame
-            if self.in_gripper_frame:
-                action[:3] = current_rotate_matrix @ np.array(action[:3])
+            else :
+                # beg = time.time()
+                pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+                current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
                 
+                # transfer the action to the gripper frame
+                if self.in_gripper_frame:
+                    action[:3] = current_rotate_matrix @ np.array(action[:3])
+                    
 
-            delta_orient = action[3:9]
+                delta_orient = action[3:9]
 
-            delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
+                delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
 
-            after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
-            
-            orient = R.from_matrix(after_rotate_matrix).as_quat()
-            euler = p.getEulerFromQuaternion(orient)
+                after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
+                
+                orient = R.from_matrix(after_rotate_matrix).as_quat()
+                euler = p.getEulerFromQuaternion(orient)
 
-            cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+                cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
 
-            pos = pos + np.array(action[:3])
-            target_joint_angle = action[9] + cur_joint_angle[0]
-            
-            action = pos.tolist() + list(euler) + [target_joint_angle]
-            # end = time.time()
-            # cprint("preprocessing time {}".format(end - beg), "green")
+                pos = pos + np.array(action[:3])
+                target_joint_angle = action[9] + cur_joint_angle[0]
+                
+                action = pos.tolist() + list(euler) + [target_joint_angle]
+                # end = time.time()
+                # cprint("preprocessing time {}".format(end - beg), "green")
 
-            # beg = time.time()
-            self._env.take_direct_action(action)
-            # beg = time.time()
-            # end = time.time()
-            # cprint("take direct action time {}".format(end - beg), "blue")
+                # beg = time.time()
+                self._env.take_direct_action(action)
+                # beg = time.time()
+                # end = time.time()
+                # cprint("take direct action time {}".format(end - beg), "blue")
         else:
             self._env.take_joint_action(action)
         
@@ -667,6 +715,7 @@ class RobogenPointCloudWrapper:
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
                                                 only_object=only_object)
+
             
             if not self.record_all_observation:
                 if 'act3d' in self.observation_mode:

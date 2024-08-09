@@ -6,118 +6,15 @@ func=${1}
 if [ $# -lt 1 ]; then
     echo "Usage: $0 [func]"
     exit
-fi
-
-# demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# # save_data_name=0527-act3d-always-close
-# save_data_name=0626-act3d-obj-41510-displacement-to-handle
-# exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
-# task_beg_idx=0
-# task_end_idx=1 # for debugging
-# opened_threshold=0.65
-
-# # demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# # save_data_name=0531-act3d-obj-46462
-# # exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
-# # task_beg_idx=4
-# # task_end_idx=5
-# # opened_threshold=2.6
-
-# observation_mode=act3d
-# observation_mode=act3d_goal
-# observation_mode=dp3_goal_gripper
-# observation_mode=dp3_goal_gripper
-# observation_mode=act3d_goal_gripper_4
-pointcloud_num=4500
-
-# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
-# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-45448
-
-if [ $func = 'collect' ]; then 
-
-    demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-
-    save_data_name=0705-dp3-obj-41510-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-45448-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46462-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46732-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46801-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46874-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46922-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46966-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-47570-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-47578-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-48700-goal_dense_gripper_on_pcd
-
-    task_beg_idx=0
-    task_end_idx=1
-
-    task_beg_idx=2
-    task_end_idx=3
-    
-    task_beg_idx=4
-    task_end_idx=5
-    
-    task_beg_idx=5
-    task_end_idx=6
-    
-    task_beg_idx=6
-    task_end_idx=7
-    
-    task_beg_idx=7
-    task_end_idx=8
-    
-    task_beg_idx=8
-    task_end_idx=9
-    
-    task_beg_idx=9
-    task_end_idx=10
-    
-    task_beg_idx=10
-    task_end_idx=11
-    
-    task_beg_idx=11
-    task_end_idx=12
-    
-    task_beg_idx=12
-    task_end_idx=13
-
-    post_fix='dp3_goal_gripper_dense'
-    observation_mode="${post_fix}"
-
-    python 3d_diffusion_policy/extract_data_from_states_2.py --folder_name data/temp/ --object_name storagefurniture \
-        --save_path "dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
-        --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
-        --pointcloud_num "${pointcloud_num}" \
-        --observation_mode "${observation_mode}" \
-        --parallel 1 \
-        --add_distractors 0 \
-        --num_experiment 1000
-fi
+fi 
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
-
-export CUDA_VISIBLE_DEVICES=5
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
-# export CUDA_VISIBLE_DEVICES=4,5,6,7
+# export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
 
-    # observation_mode="dp3_goal_gripper_whole"
-    # observation_mode="dp3_goal_gripper_part"
-    # observation_mode="act3d_goal"
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
     encoding_mode="keep_position_feature_in_attention_feature"
@@ -125,50 +22,27 @@ if [ $func = 'train' ]; then
 
     # horizon=4
     horizon=8
-    n_obs_steps=4 # 2 or 4
+    n_obs_steps=2
     # num_load_episodes=10 # for debuging
 
     ##########
     train_ratio=0.9 # for generalization
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
-    # batch_size=256 #######
-    batch_size=400 #######
+    batch_size=320 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
-    self_attention=false
+    self_attention=true
     final_attention=false
-    # normalize_action=true
-    # augmentation_rot=false
-    # augmentation_pcd=false
-    normalize_action=false
-    augmentation_rot=true
-    augmentation_pcd=true
-    # use_absolute_waypiont=false
-    use_absolute_waypiont=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-abs_wpt-aug_pcd_rot"
+    exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
 
     action_dim=10
     agent_pos_dim=10
-
-    # # saved data paths
-    # save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
-    # save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
-    # save_data_name_2=0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
-    # save_data_name_3=0703-act3d-mlp-obj-46732-goal
-    # save_data_name_4=0703-act3d-mlp-obj-46801-goal
-    # save_data_name_5=0703-act3d-mlp-obj-46874-goal
-    # save_data_name_6=0703-act3d-mlp-obj-46922-goal
-    # save_data_name_7=0703-act3d-mlp-obj-46966-goal
-    # save_data_name_8=0703-act3d-mlp-obj-47570-goal
-    # save_data_name_9=0703-act3d-mlp-obj-47578-goal
-    # save_data_name_10=0703-act3d-mlp-obj-48700-goal
     
     # saved data paths
     save_data_name_0=0705-obj-41510
@@ -273,6 +147,8 @@ if [ $func = 'train' ]; then
     exp_folder_48=data/diverse_objects_2/open_the_door_45290/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_49=data/diverse_objects_2/open_the_door_45305/task_open_the_door_of_the_storagefurniture_by_its_handle
 
+
+
     demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_2=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
@@ -324,8 +200,8 @@ if [ $func = 'train' ]; then
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     
-    torchrun --standalone --nproc_per_node=4 \
-        train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
+    torchrun --standalone --nproc_per_node=2 \
+        train_ddp.py --config-name=chained_diffuser.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             /scratch/chialiang/dp3_demo/${save_data_name_0},\
             /scratch/chialiang/dp3_demo/${save_data_name_1},\
@@ -546,7 +422,6 @@ if [ $func = 'train' ]; then
         task.env_runner.observation_mode="${observation_mode}" \
         policy.encoder_type="${encoder_type}" \
         policy.encoder_output_dim=60 \
-        policy.normalize_action=${normalize_action} \
         policy.act3d_encoder_cfg.in_channels=${in_channels} \
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
@@ -557,26 +432,20 @@ if [ $func = 'train' ]; then
         task.dataset.enumerate=True \
         training.num_epochs=206 \
         training.rollout_every=50 \
-        training.checkpoint_every=2 \
+        training.checkpoint_every=5 \
         task.env_runner.max_steps=35 \
         task.dataset.train_ratio="${train_ratio}" \
         task.dataset.num_load_episodes="${num_load_episodes}" \
         task.dataset.kept_in_disk=true \
         task.dataset.load_per_step=true \
-        task.dataset.augmentation_rot="${augmentation_rot}" \
-        task.dataset.augmentation_pcd="${augmentation_pcd}" \
-        task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
-        # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07291027-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.07.29/10.27.57_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07172356-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.17/23.56.35_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
 
 fi 
 
 
 if [ $func = 'eval' ]; then 
     python eval_robogen_parallel_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
-    # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=eval
-    # python eval_robogen_new.py --config-name=dp3.yaml task=robogen_open_door exp_name=debug
-    # singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif
 fi 
 
