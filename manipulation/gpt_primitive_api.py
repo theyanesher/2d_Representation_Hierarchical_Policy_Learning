@@ -281,6 +281,16 @@ def approach_object_link_parallel(simulator, object_name, link_name):
     object_normal = np.asarray(pcd.normals)
 
     all_handle_pos, handle_joint_id = get_handle_pos(simulator, object_name, return_median=False)
+    # from matplotlib import pyplot as plt
+    # from manipulation.grasping_utils import voxelize_pc
+    # ax = plt.axes(projection='3d')
+    # link_pc = voxelize_pc(link_pc, voxel_size=0.01)
+    # ax.scatter(link_pc[:, 0], link_pc[:, 1], link_pc[:, 2], c='r', s=1)
+    # for handle_pos in all_handle_pos:
+    #     handle_pos = voxelize_pc(handle_pos, voxel_size=0.01)
+    #     ax.scatter(handle_pos[:, 0], handle_pos[:, 1], handle_pos[:, 2], c='b', s=1)
+    # plt.show()
+    # import pdb; pdb.set_trace()
     handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
 
     # use fps to get a bunch of trying points
