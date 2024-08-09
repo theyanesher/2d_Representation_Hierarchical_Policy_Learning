@@ -32,37 +32,59 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
     for try_idx in range(try_times):
         ompl_robot.set_state(current_joint_angles)
         # first need to compute a collision-free IK solution
-        ik_lower_limits = env.robot.ik_lower_limits 
-        ik_upper_limits = env.robot.ik_upper_limits 
+        ik_lower_limits = env.robot.ik_lower_limits
+        ik_upper_limits = env.robot.ik_upper_limits
         ik_joint_ranges = ik_upper_limits - ik_lower_limits
-        ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
-        ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
+        if not env.mobile:
+            ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
+            ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
+            ik_joint_ranges = ik_upper_limits - ik_lower_limits
 
         ik_success = False
         if robot_target_joint_angle is None:
             it = 0
             solutions = []
             while True:
-                ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
-                ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
+                if not env.mobile:
+                    # print("not mobile ik")
+                    ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
+                    ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
 
-                target_joint_angle = np.array(p.calculateInverseKinematics(
-                    env.robot.body, target_link, 
-                    targetPosition=target_pos, targetOrientation=target_orientation, 
-                    maxNumIterations=10000,
-                    residualThreshold=1e-4
-                ))
+                    target_joint_angle = np.array(p.calculateInverseKinematics(
+                        env.robot.body, target_link, 
+                        targetPosition=target_pos, targetOrientation=target_orientation, 
+                        maxNumIterations=10000,
+                        residualThreshold=1e-4,
+                        # maxNumIterations=5000
+                    ))
+
+                else:
+                    # print("mobile ik")
+                    ik_rest_poses = np.random.uniform(ik_lower_limits, ik_upper_limits)
+        
+                    target_joint_angle = np.array(p.calculateInverseKinematics(
+                        env.robot.body, env.robot.right_end_effector, 
+                        targetPosition=target_pos, targetOrientation=target_orientation, 
+                        lowerLimits=ik_lower_limits.tolist(), upperLimits=ik_upper_limits.tolist(), jointRanges=ik_joint_ranges.tolist(), 
+                        restPoses=ik_rest_poses.tolist(), 
+                        maxNumIterations=10000,
+                        residualThreshold=1e-4
+                    ))
 
                 ompl_robot.set_state(target_joint_angle)
                 
                 eef_pos, eef_orient = env.robot.get_pos_orient(target_link)
                 ik_error = np.linalg.norm(eef_pos - target_pos)
-                if np.all(target_joint_angle[env.robot.right_arm_joint_indices] >= ik_lower_limits[env.robot.right_arm_joint_indices]) \
-                        and np.all(target_joint_angle[env.robot.right_arm_joint_indices] <= ik_upper_limits[env.robot.right_arm_joint_indices]) \
+                
+                # p.addUserDebugPoints([target_pos], [[1, 0, 0]], 10, physicsClientId=env.id)
+                
+                threshold = 0.001 if not env.mobile else 0.005
+                target_joint_angle = np.array(target_joint_angle)[:len(env.robot.right_arm_joint_indices)]
+                if np.all(target_joint_angle >= ik_lower_limits[:len(env.robot.right_arm_joint_indices)]) \
+                        and np.all(target_joint_angle <= ik_upper_limits[:len(env.robot.right_arm_joint_indices)]) \
                         and pb_ompl_interface.is_state_valid(target_joint_angle) \
-                        and ik_error < 0.001:
+                        and ik_error < threshold:
 
-                    # if object_id is None:
                     ik_success = True
                     solutions.append(target_joint_angle)
                     # break
@@ -76,8 +98,10 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                     ompl_robot.set_state(current_joint_angles)
                     # ik_success = False
                     break
+                
+            
             if len(solutions) > 0:
-                solutions = np.array(solutions)[:, env.robot.right_arm_joint_indices]
+                solutions = np.array(solutions)
                 distance = np.linalg.norm(solutions - current_joint_angles, axis=1)
                 best_idx = np.argmin(distance)
                 target_joint_angle = solutions[best_idx]
@@ -85,6 +109,8 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
         else:
             target_joint_angle = robot_target_joint_angle
             ik_success = True
+            
+            
         if not ik_success:
             cprint(f"try_idx: {try_idx}, ik failed", "red")
             continue
@@ -92,7 +118,6 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
         for planner in ["RRTstar", "BITstar", "ABITstar"]:
             pb_ompl_interface.set_planner(planner)
             # then plan using ompl
-            target_joint_angle = target_joint_angle[env.robot.right_arm_joint_indices]    
             assert len(target_joint_angle) == ompl_robot.num_dim
             assert pb_ompl_interface.is_state_valid(target_joint_angle)
 
@@ -128,7 +153,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
         with open(os.path.join(save_path, "current_joint_angle.pkl"), "wb") as f:
             pickle.dump(current_joint_angles, f)
 
-    return res, path, path_translation_lengths[best_idx], path_rotation_lengths[best_idx]
+    return True, path, path_translation_lengths[best_idx], path_rotation_lengths[best_idx]
 
 def get_path_length(env, path):
     cur_pos, cur_orient = env.robot.get_pos_orient(env.robot.right_end_effector)

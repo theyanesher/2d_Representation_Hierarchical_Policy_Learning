@@ -34,6 +34,7 @@ policy:
   # encoder_output_dim: 128
   encoder_output_dim: 64
   normalize_action: true # [AugDebug]
+  scale_scene_by_pcd: false # [AugDebug]
   horizon: ${horizon}
   kernel_size: 5
   n_action_steps: ${n_action_steps}
@@ -127,7 +128,7 @@ training:
   use_ema: True
   rollout_every: 500
   checkpoint_every: 500
-  val_every: 30
+  val_every: 10
   sample_every: 5
   max_train_steps: null
   max_val_steps: null

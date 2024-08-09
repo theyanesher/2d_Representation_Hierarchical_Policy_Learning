@@ -3,6 +3,7 @@
 
 func=${1}
 
+
 if [ $# -lt 1 ]; then
     echo "Usage: $0 [func]"
     exit
@@ -30,8 +31,6 @@ fi
 # observation_mode=act3d_goal_gripper_4
 pointcloud_num=4500
 
-# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
-# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-45448
 
 if [ $func = 'collect' ]; then 
 
@@ -115,12 +114,8 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 if [ $func = 'train' ]; then 
 
-    # source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
     source_dir="/local"
 
-    # observation_mode="dp3_goal_gripper_whole"
-    # observation_mode="dp3_goal_gripper_part"
-    # observation_mode="act3d_goal"
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
     encoding_mode="keep_position_feature_in_attention_feature"
@@ -146,17 +141,17 @@ if [ $func = 'train' ]; then
     # normalize_action=true
     # augmentation_rot=false
     # augmentation_pcd=false
-    normalize_action=false
+    normalize_action=true
     augmentation_rot=true
     augmentation_pcd=false
-    use_absolute_waypoint=false
+    use_absolute_waypoint=true
     # use_absolute_waypoint=true
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_rot"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-abs_wpt-aug_rot"
 
     action_dim=10
     agent_pos_dim=10
@@ -559,9 +554,9 @@ if [ $func = 'train' ]; then
         task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
-        val_dataloader.batch_size="${batch_size}"
-        # load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08061545-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot/2024.08.06/15.47.04_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
-        # load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08051658-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-no_normalize/2024.08.05/16.58.17_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        val_dataloader.batch_size="${batch_size}" \
+        load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08082112-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_rot/2024.08.08/21.13.21_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        
 
 fi 
 

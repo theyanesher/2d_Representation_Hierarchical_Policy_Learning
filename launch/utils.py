@@ -25,6 +25,23 @@ AUTOBOT_NODELIST = [
     # "1-18" # 1/2
 ]
 
+def check_available_nodes_cpu_and_mem():
+    import psutil
+    available_nodes = []
+    
+    for node in AUTOBOT_NODELIST:
+        print("checking node: ", node)
+        cpu_and_mem_usage = check_node_cpu("autobot-" + node)
+        cpu_usage = int(cpu_and_mem_usage[0])
+        mem_usage = int(cpu_and_mem_usage[1])
+        if cpu_usage < 60 and mem_usage < 60:
+            print("node: ", node, " is available")
+            available_nodes.append(node)
+            
+    return available_nodes
+        
+
+
 def check_available_nodes():
     available_nodes = {}
     for node in AUTOBOT_NODELIST:
@@ -43,6 +60,19 @@ def check_available_nodes():
 import subprocess
 
 def check_node_gpu(node, script_path="/project_data/held/yufeiw2/RoboGen_sim2real/launch/check_gpu.py"):
+    try:
+        # Construct the ssh command
+        cmd = ['ssh', node, 'python', script_path]
+        
+        # Execute the command and fetch its output
+        output = subprocess.check_output(cmd)
+        
+        return output.decode('utf-8')
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed with error {e.returncode}, output: {e.output.decode('utf-8')}")
+        return None
+    
+def check_node_cpu(node, script_path="/project_data/held/yufeiw2/RoboGen_sim2real/launch/check_cpu.py"):
     try:
         # Construct the ssh command
         cmd = ['ssh', node, 'python', script_path]
