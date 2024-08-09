@@ -658,12 +658,12 @@ if __name__ == "__main__":
     new_object = False
     checkpoint_name = "latest.ckpt"
     
-    # -------------------- #
-    # -       0723       - #
-    # -------------------- #
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07221724-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.22/17.24.11_train_dp3_robogen_open_door"
-    new_object = False
-    checkpoint_name = "latest.ckpt"
+    # # -------------------- #
+    # # -       0723       - #
+    # # -------------------- #
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07221724-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.22/17.24.11_train_dp3_robogen_open_door"
+    # new_object = False
+    # checkpoint_name = "latest.ckpt"
 
     # ### goal conditioning, alternating attention + self attention
     # # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
@@ -707,7 +707,29 @@ if __name__ == "__main__":
     
     ### Act3d + UNet no goal, trained on 10 objects
     # checkpoint_name = 'epoch-100.ckpt'
-    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"    # -------------------- #
+    # -       0802       - #
+    # -------------------- #
+
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07282338-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-aug_pcd_rot/2024.07.28/23.39.05_train_dp3_robogen_open_door"
+    new_object = False
+    checkpoint_name = "latest.ckpt"
+
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07282339-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000/2024.07.28/23.39.36_train_dp3_robogen_open_door"
+    new_object = False
+    checkpoint_name = "latest.ckpt"
+
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08030037-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.08.03/00.37.23_train_dp3_robogen_open_door"
+    new_object = False
+    checkpoint_name = "latest.ckpt"
+    
+    # -------------------- #
+    # -       0803       - #
+    # -------------------- #
+
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08031154-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-aug_pcd_rot/2024.08.03/11.54.43_train_dp3_robogen_open_door"
+    new_object = False
+    checkpoint_name = "latest.ckpt"
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -762,7 +784,6 @@ if __name__ == "__main__":
     exp_beg_ratio = 0.9
     exp_end_ratio = 1
     
-    for i in range(3):
     for run_idx in range(3):
         save_path = "data/eval_train_10_obj_test_new_10_act3d_unet_0711/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):

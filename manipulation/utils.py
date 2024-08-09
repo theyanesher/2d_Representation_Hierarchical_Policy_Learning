@@ -966,6 +966,42 @@ def rotation_transfer_matrix_to_6D(rotate_matrix):
     orient = np.array([a1, a2], dtype=np.float64).flatten()
     return orient
 
+
+def rotation_transfer_6D_to_matrix_batch(orient):
+
+    # orient shape = (B, 6)
+    # return shape = (3, B * 3)
+
+    if type(orient) == list or type(orient) == tuple:
+        orient = np.array(orient, dtype=np.float64)
+    
+    assert orient.shape[-1] == 6
+
+    orient = orient.reshape(-1, 2, 3)
+    a1 = orient[:,0]
+    a2 = orient[:,1]
+
+    b1 = a1 / np.linalg.norm(a1, axis=-1).reshape(-1,1)
+    b2 = a2 - (np.sum(a2*b1, axis=-1).reshape(-1,1) * b1)
+    b2 = b2 / np.linalg.norm(b2, axis=-1).reshape(-1,1)
+    b3 = np.cross(b1, b2)
+
+    rotate_matrix = np.hstack((b1, b2, b3))
+    rotate_matrix = rotate_matrix.reshape(-1, 3).T
+
+    return rotate_matrix
+
+def rotation_transfer_matrix_to_6D_batch(rotate_matrix):
+
+    # rotate_matrix.shape = (B, 9) or (B, 3, 3) rotation transpose (i.e., row vectors instead of column vectors)
+    # return shape = (B, 6)
+
+    if type(rotate_matrix) == list or type(rotate_matrix) == tuple:
+        rotate_matrix = np.array(rotate_matrix, dtype=np.float64).reshape(-1, 9)
+    rotate_matrix = rotate_matrix.reshape(-1, 9)
+
+    return rotate_matrix[:,:6]
+
 ###########################################
 
 # [Chialiang]: The following functions are from my previous projects

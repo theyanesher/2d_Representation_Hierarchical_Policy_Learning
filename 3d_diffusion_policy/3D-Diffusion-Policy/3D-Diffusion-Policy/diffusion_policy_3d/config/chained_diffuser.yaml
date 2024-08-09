@@ -1,7 +1,7 @@
 defaults:
   - task: adroit_hammer
 
-name: train_dp3
+name: train_chained_diffuser
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
@@ -16,7 +16,7 @@ keypoint_visible_rate: 1.0
 obs_as_global_cond: True
 
 policy:
-  _target_: diffusion_policy_3d.policy.dp3.DP3
+  _target_: diffusion_policy_3d.policy.chained_diffusor.DiffusionPlanner # [Debug]
   use_point_crop: true
   condition_type: film
   use_down_condition: true
@@ -33,7 +33,6 @@ policy:
   - 80
   # encoder_output_dim: 128
   encoder_output_dim: 64
-  normalize_action: true # [AugDebug]
   horizon: ${horizon}
   kernel_size: 5
   n_action_steps: ${n_action_steps}
@@ -96,14 +95,14 @@ ema:
 
 dataloader:
   batch_size: 30
-  num_workers: 12 # [AugDebug]
+  num_workers: 15
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
   batch_size: 30
-  num_workers: 12  # [AugDebug]
+  num_workers: 15
   shuffle: False
   pin_memory: True
   persistent_workers: False

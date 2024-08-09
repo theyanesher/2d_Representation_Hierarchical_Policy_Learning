@@ -1,0 +1,106 @@
+#!/bin/bash
+
+#SBATCH -N 1 # Number of nodes
+#SBATCH -n 24
+#SBATCH -p ROBO
+#SBATCH --gpus=h100:1 #GPU specification. H100
+#SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
+#SBATCH --job-name test # 50-obj-act3d-unet-low-level-with-goal
+#SBATCH -o sbatch_output/job_%j.out
+#SBATCH -e sbatch_output/job_%j.err
+#SBATCH --mail-type=END
+#SBATCH --mail-user=chialiak@andrew.cmu.edu
+
+
+# use the bash shell
+set -x 
+# echo each command to standard out before running it
+
+
+### first copy all the data needed in parallel
+# Define an array of source-destination pairs
+source_dir="/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo"
+declare -a SOURCES=(
+# "${source_dir}/debug:/local/"
+# "/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point:/local/"
+"${source_dir}/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point:/local/"
+"${source_dir}/0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action:/local/"
+"${source_dir}/0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action:/local/"
+"${source_dir}/0628-act3d-obj-46732-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-46801-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-46874-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-46922-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+"${source_dir}/0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"    
+"${source_dir}/0705-obj-45526:/local/"
+"${source_dir}/0705-obj-45661:/local/"
+"${source_dir}/0705-obj-45694:/local/"
+"${source_dir}/0705-obj-45780:/local/"
+"${source_dir}/0705-obj-45910:/local/"
+"${source_dir}/0705-obj-45961:/local/"
+"${source_dir}/0705-obj-46408:/local/"
+"${source_dir}/0705-obj-46417:/local/"
+"${source_dir}/0705-obj-46440:/local/"
+"${source_dir}/0705-obj-46490:/local/"
+"${source_dir}/0705-obj-46762:/local/"
+"${source_dir}/0705-obj-46825:/local/"
+"${source_dir}/0705-obj-46893:/local/"
+"${source_dir}/0705-obj-47235:/local/"
+"${source_dir}/0705-obj-47281:/local/"
+"${source_dir}/0705-obj-47315:/local/"
+"${source_dir}/0705-obj-47529:/local/"
+"${source_dir}/0705-obj-47669:/local/"
+"${source_dir}/0705-obj-47944:/local/"
+"${source_dir}/0705-obj-48063:/local/"
+"${source_dir}/0705-obj-48177:/local/"
+"${source_dir}/0705-obj-48356:/local/"
+"${source_dir}/0705-obj-48623:/local/"
+"${source_dir}/0705-obj-48876:/local/"
+"${source_dir}/0705-obj-49025:/local/"
+"${source_dir}/0705-obj-49062:/local/"
+"${source_dir}/0705-obj-49132:/local/"
+"${source_dir}/0705-obj-49133:/local/"
+"${source_dir}/0712-obj-40417:/local/"
+"${source_dir}/0712-obj-41085:/local/"
+"${source_dir}/0712-obj-41452:/local/"
+"${source_dir}/0712-obj-45162:/local/"
+"${source_dir}/0712-obj-45176:/local/"
+"${source_dir}/0712-obj-45194:/local/"
+"${source_dir}/0712-obj-45203:/local/"
+"${source_dir}/0712-obj-45248:/local/"
+"${source_dir}/0712-obj-45271:/local/"
+"${source_dir}/0712-obj-45290:/local/"
+"${source_dir}/0712-obj-45305:/local/"
+    # Add more source-destination pairs as needed
+)
+
+# Start the timer
+SECONDS=0
+
+# Function to run rsync command
+run_rsync() {
+    local src="$1"
+    local dst="$2"
+    rsync -az "$src" "$dst" &
+}
+
+# Loop through the array and run rsync commands in parallel
+for pair in "${SOURCES[@]}"; do
+    IFS=":" read -r src dst <<< "$pair"
+    run_rsync "$src" "$dst"
+done
+
+# Wait for all background processes to complete
+wait
+
+echo "All rsync commands have completed."
+# echo time used
+total_time=$SECONDS
+echo "Total time taken: $(($total_time / 60)) minutes and $(($total_time % 60)) seconds."
+
+
+#### start training
+singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity.sh
+# singularity exec --bind /ocean/projects/cis240052p/ywang59/RoboGen_sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-2.sh

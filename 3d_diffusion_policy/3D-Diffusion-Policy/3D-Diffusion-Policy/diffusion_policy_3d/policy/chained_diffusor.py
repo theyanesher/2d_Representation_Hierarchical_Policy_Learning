@@ -25,6 +25,7 @@ class DiffusionPlanner(nn.Module):
                  image_size=(256, 256),
                  embedding_dim=60,
                  output_dim=7,
+                 output_traj_length=50,
                  num_vis_ins_attn_layers=2,
                  num_query_cross_attn_layers=8,
                  use_goal=True,
@@ -46,7 +47,11 @@ class DiffusionPlanner(nn.Module):
             'curr_gripper',
             'goal_gripper'
         ]
-
+        
+        # [CDDEBUG]
+        self.output_dim = output_dim
+        self.output_traj_length = output_traj_length
+        
         self._use_goal = use_goal
         self._use_goal_at_test = use_goal_at_test
         self._rotation_parametrization = rotation_parametrization
@@ -248,20 +253,40 @@ class DiffusionPlanner(nn.Module):
         return signal
     
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        trajectory_mask = obs_dict['trajectory_mask']
+        # trajectory_mask = obs_dict['trajectory_mask']
+
         rgb_obs = obs_dict['visible_rgb']
-        pcd_obs = obs_dict['pcd']
-        pcd_mask = obs_dict['pcd_mask']
+        pcd_obs = obs_dict['visible_pcd']
+        
+        # [CDDEBUG] [CDHERE] customize the trajectory mask here
+        B = rgb_obs.shape[0]
+        trajectory_mask = torch.zeros((B, self.output_traj_length), dtype=torch.uint8).to(rgb_obs.device)
+        trajectory_mask[:, 0] = 1
+        trajectory_mask[:, -1] = 1
+        # pcd_mask = obs_dict['pcd_mask']
+
+        assert obs_dict['curr_gripper'].shape[-1] == obs_dict['goal_gripper'].shape[-1], "curr_gripper and goal_gripper should have the same dimension"
+        assert obs_dict['curr_gripper'].shape[-1] == (self.output_dim + 1)
+
         curr_gripper = obs_dict['curr_gripper']
         goal_gripper = obs_dict['goal_gripper']
 
-        return self.compute_trajectory(
-                trajectory_mask,
+        traj_pos_rot =  self.compute_trajectory(
+                trajectory_mask.bool(),
                 rgb_obs,
                 pcd_obs,
-                curr_gripper,
-                goal_gripper
+                curr_gripper[...,:self.output_dim],
+                goal_gripper[...,:self.output_dim]
             )
+        
+        # append the gripper open/close state
+        traj_len = traj_pos_rot.shape[1]
+        curr_gripper_ext = curr_gripper[...,self.output_dim].reshape(-1,1).repeat(1, traj_len-1).unsqueeze(-1)
+        goal_gripper_ext = goal_gripper[...,self.output_dim].reshape(-1,1).unsqueeze(-1)
+        gripper_ext = torch.cat((curr_gripper_ext, goal_gripper_ext), dim=1)
+        traj_full = torch.cat((traj_pos_rot, gripper_ext), dim=-1)
+        
+        return traj_full # (B, T, output_dim + 1)
 
     def forward(self, batch):
         self.compute_loss(batch)
@@ -277,9 +302,9 @@ class DiffusionPlanner(nn.Module):
         trajectory_mask = batch_obs['trajectory_mask']
         rgb_obs = batch_obs['visible_rgb']
         pcd_obs = batch_obs['visible_pcd']
-        pcd_mask = batch_obs['pcd_mask'] # [TODO] acutally not been used
-        curr_gripper = batch_obs['curr_gripper']
-        goal_gripper = batch_obs['goal_gripper']
+        # pcd_mask = batch_obs['pcd_mask'] # [TODO] acutally not been used
+        curr_gripper = batch_obs['curr_gripper'][...,:self.output_dim]
+        goal_gripper = batch_obs['goal_gripper'][...,:self.output_dim]
 
         # Normalize all pos
         gt_trajectory = gt_trajectory.clone()

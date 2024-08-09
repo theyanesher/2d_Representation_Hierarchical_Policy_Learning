@@ -340,19 +340,19 @@ def copy_all_step_to_per_step(input_dir, output_dir, prefix=''):
     # group_names = os.listdir(input_dir)
 
 
-    # group_paths = glob.glob(f'{input_dir}/*')
-    # group_paths.sort()
+    group_paths = glob.glob(f'{input_dir}/*')
+    group_paths.sort()
 
-    group_paths = [
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876-whole-mlp/2024-07-07-10-00-07',
-        # '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0702-act3d-obj-46966-goal/2024-06-27-17-57-07',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526-whole-mlp/2024-07-06-01-32-05'
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp/2024-07-12-03-58-29'
-    ]
+    # group_paths = [
+    #     # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876-whole-mlp/2024-07-07-10-00-07',
+    #     # '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0702-act3d-obj-46966-goal/2024-06-27-17-57-07',
+    #     # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526-whole-mlp/2024-07-06-01-32-05'
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp/2024-07-12-03-58-29'
+    # ]
     # # output_dir = '/scratch/chialiang/dp3_demo/0705-obj-48876'
     # # output_dir = '/scratch/chialiang/dp3_demo/0705-obj-46966'
     # # output_dir = '/scratch/chialiang/dp3_demo/0705-obj-45526'
-    output_dir = '/scratch/chialiang/dp3_demo/0712-obj-41452'
+    # output_dir = '/scratch/chialiang/dp3_demo/0712-obj-41452'
 
     for group_path in group_paths:
 
@@ -712,19 +712,19 @@ def main(arg):
 
     intermediate_dirs = [
         
-        # G1
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-41510-whole-mlp'
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-45448-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46462-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46732-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46801-whole-mlp',
+        # # G1
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-41510-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-45448-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46462-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46732-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46801-whole-mlp',
 
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46874-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46922-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46966-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47570-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47578-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-48700-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46874-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46922-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46966-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47570-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47578-whole-mlp',
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-48700-whole-mlp',
 
         # # G2
         # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526-whole-mlp',
@@ -765,37 +765,37 @@ def main(arg):
         # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-40417-whole-mlp',
         # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41085-whole-mlp',
 
-        # # G5
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45162-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45176-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45194-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45203-whole-mlp',
+        # G5
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45162-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45176-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45194-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45203-whole-mlp',
 
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45248-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45271-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45290-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45305-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45248-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45271-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45290-whole-mlp',
+        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45305-whole-mlp',
 
     ]
 
     output_dirs = [
 
-        # G1
-        '/scratch/chialiang/dp3_demo/0705-obj-41510'
-        '/scratch/chialiang/dp3_demo/0705-obj-45448',
-        '/scratch/chialiang/dp3_demo/0705-obj-46462',
-        '/scratch/chialiang/dp3_demo/0705-obj-46732',
-        '/scratch/chialiang/dp3_demo/0705-obj-46801',
+        # # G1
+        # '/scratch/chialiang/dp3_demo/0705-obj-41510',
+        # '/scratch/chialiang/dp3_demo/0705-obj-45448',
+        # '/scratch/chialiang/dp3_demo/0705-obj-46462',
+        # '/scratch/chialiang/dp3_demo/0705-obj-46732',
+        # '/scratch/chialiang/dp3_demo/0705-obj-46801',
 
-        '/scratch/chialiang/dp3_demo/0705-obj-46874',
-        '/scratch/chialiang/dp3_demo/0705-obj-46922',
-        '/scratch/chialiang/dp3_demo/0705-obj-46966',
-        '/scratch/chialiang/dp3_demo/0705-obj-47570',
-        '/scratch/chialiang/dp3_demo/0705-obj-47578',
-        '/scratch/chialiang/dp3_demo/0705-obj-48700',
+        # '/scratch/chialiang/dp3_demo/0705-obj-46874',
+        # '/scratch/chialiang/dp3_demo/0705-obj-46922',
+        # '/scratch/chialiang/dp3_demo/0705-obj-46966',
+        # '/scratch/chialiang/dp3_demo/0705-obj-47570',
+        # '/scratch/chialiang/dp3_demo/0705-obj-47578',
+        # '/scratch/chialiang/dp3_demo/0705-obj-48700',
         
-        # G2
+        # # G2
         # '/scratch/chialiang/dp3_demo/0705-obj-45526',
         # '/scratch/chialiang/dp3_demo/0705-obj-45661',
         # '/scratch/chialiang/dp3_demo/0705-obj-45694',
@@ -808,7 +808,7 @@ def main(arg):
         # '/scratch/chialiang/dp3_demo/0705-obj-46440',
         # '/scratch/chialiang/dp3_demo/0705-obj-46490',
 
-        # G3
+        # # G3
         # '/scratch/chialiang/dp3_demo/0705-obj-46762',
         # '/scratch/chialiang/dp3_demo/0705-obj-46825',
         # '/scratch/chialiang/dp3_demo/0705-obj-46893',
@@ -821,7 +821,7 @@ def main(arg):
         # '/scratch/chialiang/dp3_demo/0705-obj-47944',
         # '/scratch/chialiang/dp3_demo/0705-obj-48063',
         
-        # G4
+        # # G4
         # '/scratch/chialiang/dp3_demo/0705-obj-48177',
         # '/scratch/chialiang/dp3_demo/0705-obj-48356',
         # '/scratch/chialiang/dp3_demo/0705-obj-48623',
@@ -835,22 +835,22 @@ def main(arg):
         # '/scratch/chialiang/dp3_demo/0712-obj-41085',
 
         # G5
-        # '/scratch/chialiang/dp3_demo/0712-obj-41452',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45162',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45176',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45194',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45203',
+        '/scratch/chialiang/dp3_demo/0712-obj-41452',
+        '/scratch/chialiang/dp3_demo/0712-obj-45162',
+        '/scratch/chialiang/dp3_demo/0712-obj-45176',
+        '/scratch/chialiang/dp3_demo/0712-obj-45194',
+        '/scratch/chialiang/dp3_demo/0712-obj-45203',
 
-        # '/scratch/chialiang/dp3_demo/0712-obj-45248',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45271',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45290',
-        # '/scratch/chialiang/dp3_demo/0712-obj-45305',
+        '/scratch/chialiang/dp3_demo/0712-obj-45248',
+        '/scratch/chialiang/dp3_demo/0712-obj-45271',
+        '/scratch/chialiang/dp3_demo/0712-obj-45290',
+        '/scratch/chialiang/dp3_demo/0712-obj-45305',
 
     ]
 
-    for output_dir in output_dirs:
-        debug_action(output_dir)
-    exit(0)
+    # for output_dir in output_dirs:
+    #     debug_action(output_dir)
+    # exit(0)
 
     # for (input_dir, intermediate_dir, output_dir) in zip(input_dirs, intermediate_dirs, output_dirs):
     for (intermediate_dir, output_dir) in zip(intermediate_dirs, output_dirs):

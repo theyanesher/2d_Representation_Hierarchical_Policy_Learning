@@ -108,12 +108,15 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
-export CUDA_VISIBLE_DEVICES=5
+# export CUDA_VISIBLE_DEVICES=5
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
+
+    # source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+    source_dir="/local"
 
     # observation_mode="dp3_goal_gripper_whole"
     # observation_mode="dp3_goal_gripper_part"
@@ -125,7 +128,7 @@ if [ $func = 'train' ]; then
 
     # horizon=4
     horizon=8
-    n_obs_steps=4 # 2 or 4
+    n_obs_steps=2 # 2 or 4
     # num_load_episodes=10 # for debuging
 
     ##########
@@ -133,7 +136,7 @@ if [ $func = 'train' ]; then
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=400 #######
+    batch_size=1400 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
@@ -145,82 +148,70 @@ if [ $func = 'train' ]; then
     # augmentation_pcd=false
     normalize_action=false
     augmentation_rot=true
-    augmentation_pcd=true
-    # use_absolute_waypiont=false
-    use_absolute_waypiont=true
+    augmentation_pcd=false
+    use_absolute_waypiont=false
+    # use_absolute_waypiont=true
+    ##########
+    is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-abs_wpt-aug_pcd_rot"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_rot"
 
     action_dim=10
     agent_pos_dim=10
-
-    # # saved data paths
-    # save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
-    # save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
-    # save_data_name_2=0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
-    # save_data_name_3=0703-act3d-mlp-obj-46732-goal
-    # save_data_name_4=0703-act3d-mlp-obj-46801-goal
-    # save_data_name_5=0703-act3d-mlp-obj-46874-goal
-    # save_data_name_6=0703-act3d-mlp-obj-46922-goal
-    # save_data_name_7=0703-act3d-mlp-obj-46966-goal
-    # save_data_name_8=0703-act3d-mlp-obj-47570-goal
-    # save_data_name_9=0703-act3d-mlp-obj-47578-goal
-    # save_data_name_10=0703-act3d-mlp-obj-48700-goal
     
     # saved data paths
-    save_data_name_0=0705-obj-41510
-    save_data_name_1=0705-obj-45448
-    save_data_name_2=0705-obj-46462
-    save_data_name_3=0705-obj-46732
-    save_data_name_4=0705-obj-46801
-    save_data_name_5=0705-obj-46874
-    save_data_name_6=0705-obj-46922
-    save_data_name_7=0705-obj-46966
-    save_data_name_8=0705-obj-47570
-    save_data_name_9=0705-obj-47578
-    save_data_name_10=0705-obj-48700
-    save_data_name_11=0705-obj-45526
-    save_data_name_12=0705-obj-45661
-    save_data_name_13=0705-obj-45694
-    save_data_name_14=0705-obj-45780
-    save_data_name_15=0705-obj-45910
-    save_data_name_16=0705-obj-45961
-    save_data_name_17=0705-obj-46408
-    save_data_name_18=0705-obj-46417
-    save_data_name_19=0705-obj-46440
-    save_data_name_20=0705-obj-46490
-    save_data_name_21=0705-obj-46762
-    save_data_name_22=0705-obj-46825
-    save_data_name_23=0705-obj-46893
-    save_data_name_24=0705-obj-47235
-    save_data_name_25=0705-obj-47281
-    save_data_name_26=0705-obj-47315
-    save_data_name_27=0705-obj-47529
-    save_data_name_28=0705-obj-47669
-    save_data_name_29=0705-obj-47944
-    save_data_name_30=0705-obj-48063
-    save_data_name_31=0705-obj-48177
-    save_data_name_32=0705-obj-48356
-    save_data_name_33=0705-obj-48623
-    save_data_name_34=0705-obj-48876
-    save_data_name_35=0705-obj-49025
-    save_data_name_36=0705-obj-49062
-    save_data_name_37=0705-obj-49132
-    save_data_name_38=0705-obj-49133
-    save_data_name_39=0712-obj-40417
-    save_data_name_40=0712-obj-41085
-    save_data_name_41=0712-obj-41452
-    save_data_name_42=0712-obj-45162
-    save_data_name_43=0712-obj-45176
-    save_data_name_44=0712-obj-45194
-    save_data_name_45=0712-obj-45203
-    save_data_name_46=0712-obj-45248
-    save_data_name_47=0712-obj-45271
-    save_data_name_48=0712-obj-45290
-    save_data_name_49=0712-obj-45305
+    save_data_name_0="0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point"
+    save_data_name_1="0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
+    save_data_name_2="0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action"
+    save_data_name_3="0628-act3d-obj-46732-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_4="0628-act3d-obj-46801-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_5="0628-act3d-obj-46874-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_6="0628-act3d-obj-46922-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_7="0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_8="0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_9="0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
+    save_data_name_10="0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"    
+    save_data_name_11="0705-obj-45526"
+    save_data_name_12="0705-obj-45661"
+    save_data_name_13="0705-obj-45694"
+    save_data_name_14="0705-obj-45780"
+    save_data_name_15="0705-obj-45910"
+    save_data_name_16="0705-obj-45961"
+    save_data_name_17="0705-obj-46408"
+    save_data_name_18="0705-obj-46417"
+    save_data_name_19="0705-obj-46440"
+    save_data_name_20="0705-obj-46490"
+    save_data_name_21="0705-obj-46762"
+    save_data_name_22="0705-obj-46825"
+    save_data_name_23="0705-obj-46893"
+    save_data_name_24="0705-obj-47235"
+    save_data_name_25="0705-obj-47281"
+    save_data_name_26="0705-obj-47315"
+    save_data_name_27="0705-obj-47529"
+    save_data_name_28="0705-obj-47669"
+    save_data_name_29="0705-obj-47944"
+    save_data_name_30="0705-obj-48063"
+    save_data_name_31="0705-obj-48177"
+    save_data_name_32="0705-obj-48356"
+    save_data_name_33="0705-obj-48623"
+    save_data_name_34="0705-obj-48876"
+    save_data_name_35="0705-obj-49025"
+    save_data_name_36="0705-obj-49062"
+    save_data_name_37="0705-obj-49132"
+    save_data_name_38="0705-obj-49133"
+    save_data_name_39="0712-obj-40417"
+    save_data_name_40="0712-obj-41085"
+    save_data_name_41="0712-obj-41452"
+    save_data_name_42="0712-obj-45162"
+    save_data_name_43="0712-obj-45176"
+    save_data_name_44="0712-obj-45194"
+    save_data_name_45="0712-obj-45203"
+    save_data_name_46="0712-obj-45248"
+    save_data_name_47="0712-obj-45271"
+    save_data_name_48="0712-obj-45290"
+    save_data_name_49="0712-obj-45305"
 
     exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
     exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
@@ -327,108 +318,108 @@ if [ $func = 'train' ]; then
     torchrun --standalone --nproc_per_node=4 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
-            /scratch/chialiang/dp3_demo/${save_data_name_0},\
-            /scratch/chialiang/dp3_demo/${save_data_name_1},\
-            /scratch/chialiang/dp3_demo/${save_data_name_2},\
-            /scratch/chialiang/dp3_demo/${save_data_name_3},\
-            /scratch/chialiang/dp3_demo/${save_data_name_4},\
-            /scratch/chialiang/dp3_demo/${save_data_name_5},\
-            /scratch/chialiang/dp3_demo/${save_data_name_6},\
-            /scratch/chialiang/dp3_demo/${save_data_name_7},\
-            /scratch/chialiang/dp3_demo/${save_data_name_8},\
-            /scratch/chialiang/dp3_demo/${save_data_name_9},\
-            /scratch/chialiang/dp3_demo/${save_data_name_10},\
-            /scratch/chialiang/dp3_demo/${save_data_name_11},\
-            /scratch/chialiang/dp3_demo/${save_data_name_12},\
-            /scratch/chialiang/dp3_demo/${save_data_name_13},\
-            /scratch/chialiang/dp3_demo/${save_data_name_14},\
-            /scratch/chialiang/dp3_demo/${save_data_name_15},\
-            /scratch/chialiang/dp3_demo/${save_data_name_16},\
-            /scratch/chialiang/dp3_demo/${save_data_name_17},\
-            /scratch/chialiang/dp3_demo/${save_data_name_18},\
-            /scratch/chialiang/dp3_demo/${save_data_name_19},\
-            /scratch/chialiang/dp3_demo/${save_data_name_20},\
-            /scratch/chialiang/dp3_demo/${save_data_name_21},\
-            /scratch/chialiang/dp3_demo/${save_data_name_22},\
-            /scratch/chialiang/dp3_demo/${save_data_name_23},\
-            /scratch/chialiang/dp3_demo/${save_data_name_24},\
-            /scratch/chialiang/dp3_demo/${save_data_name_25},\
-            /scratch/chialiang/dp3_demo/${save_data_name_26},\
-            /scratch/chialiang/dp3_demo/${save_data_name_27},\
-            /scratch/chialiang/dp3_demo/${save_data_name_28},\
-            /scratch/chialiang/dp3_demo/${save_data_name_29},\
-            /scratch/chialiang/dp3_demo/${save_data_name_30},\
-            /scratch/chialiang/dp3_demo/${save_data_name_31},\
-            /scratch/chialiang/dp3_demo/${save_data_name_32},\
-            /scratch/chialiang/dp3_demo/${save_data_name_33},\
-            /scratch/chialiang/dp3_demo/${save_data_name_34},\
-            /scratch/chialiang/dp3_demo/${save_data_name_35},\
-            /scratch/chialiang/dp3_demo/${save_data_name_36},\
-            /scratch/chialiang/dp3_demo/${save_data_name_37},\
-            /scratch/chialiang/dp3_demo/${save_data_name_38},\
-            /scratch/chialiang/dp3_demo/${save_data_name_39},\
-            /scratch/chialiang/dp3_demo/${save_data_name_40},\
-            /scratch/chialiang/dp3_demo/${save_data_name_41},\
-            /scratch/chialiang/dp3_demo/${save_data_name_42},\
-            /scratch/chialiang/dp3_demo/${save_data_name_43},\
-            /scratch/chialiang/dp3_demo/${save_data_name_44},\
-            /scratch/chialiang/dp3_demo/${save_data_name_45},\
-            /scratch/chialiang/dp3_demo/${save_data_name_46},\
-            /scratch/chialiang/dp3_demo/${save_data_name_47},\
-            /scratch/chialiang/dp3_demo/${save_data_name_48},\
-            /scratch/chialiang/dp3_demo/${save_data_name_49}\
+            ${source_dir}/${save_data_name_0},\
+            ${source_dir}/${save_data_name_1},\
+            ${source_dir}/${save_data_name_2},\
+            ${source_dir}/${save_data_name_3},\
+            ${source_dir}/${save_data_name_4},\
+            ${source_dir}/${save_data_name_5},\
+            ${source_dir}/${save_data_name_6},\
+            ${source_dir}/${save_data_name_7},\
+            ${source_dir}/${save_data_name_8},\
+            ${source_dir}/${save_data_name_9},\
+            ${source_dir}/${save_data_name_10},\
+            ${source_dir}/${save_data_name_11},\
+            ${source_dir}/${save_data_name_12},\
+            ${source_dir}/${save_data_name_13},\
+            ${source_dir}/${save_data_name_14},\
+            ${source_dir}/${save_data_name_15},\
+            ${source_dir}/${save_data_name_16},\
+            ${source_dir}/${save_data_name_17},\
+            ${source_dir}/${save_data_name_18},\
+            ${source_dir}/${save_data_name_19},\
+            ${source_dir}/${save_data_name_20},\
+            ${source_dir}/${save_data_name_21},\
+            ${source_dir}/${save_data_name_22},\
+            ${source_dir}/${save_data_name_23},\
+            ${source_dir}/${save_data_name_24},\
+            ${source_dir}/${save_data_name_25},\
+            ${source_dir}/${save_data_name_26},\
+            ${source_dir}/${save_data_name_27},\
+            ${source_dir}/${save_data_name_28},\
+            ${source_dir}/${save_data_name_29},\
+            ${source_dir}/${save_data_name_30},\
+            ${source_dir}/${save_data_name_31},\
+            ${source_dir}/${save_data_name_32},\
+            ${source_dir}/${save_data_name_33},\
+            ${source_dir}/${save_data_name_34},\
+            ${source_dir}/${save_data_name_35},\
+            ${source_dir}/${save_data_name_36},\
+            ${source_dir}/${save_data_name_37},\
+            ${source_dir}/${save_data_name_38},\
+            ${source_dir}/${save_data_name_39},\
+            ${source_dir}/${save_data_name_40},\
+            ${source_dir}/${save_data_name_41},\
+            ${source_dir}/${save_data_name_42},\
+            ${source_dir}/${save_data_name_43},\
+            ${source_dir}/${save_data_name_44},\
+            ${source_dir}/${save_data_name_45},\
+            ${source_dir}/${save_data_name_46},\
+            ${source_dir}/${save_data_name_47},\
+            ${source_dir}/${save_data_name_48},\
+            ${source_dir}/${save_data_name_49}\
         ]"\
         task.env_runner.demo_experiment_path="[\
-            /scratch/chialiang/dp3_demo/${save_data_name_0},\
-            /scratch/chialiang/dp3_demo/${save_data_name_1},\
-            /scratch/chialiang/dp3_demo/${save_data_name_2},\
-            /scratch/chialiang/dp3_demo/${save_data_name_3},\
-            /scratch/chialiang/dp3_demo/${save_data_name_4},\
-            /scratch/chialiang/dp3_demo/${save_data_name_5},\
-            /scratch/chialiang/dp3_demo/${save_data_name_6},\
-            /scratch/chialiang/dp3_demo/${save_data_name_7},\
-            /scratch/chialiang/dp3_demo/${save_data_name_8},\
-            /scratch/chialiang/dp3_demo/${save_data_name_9},\
-            /scratch/chialiang/dp3_demo/${save_data_name_10},\
-            /scratch/chialiang/dp3_demo/${save_data_name_11},\
-            /scratch/chialiang/dp3_demo/${save_data_name_12},\
-            /scratch/chialiang/dp3_demo/${save_data_name_13},\
-            /scratch/chialiang/dp3_demo/${save_data_name_14},\
-            /scratch/chialiang/dp3_demo/${save_data_name_15},\
-            /scratch/chialiang/dp3_demo/${save_data_name_16},\
-            /scratch/chialiang/dp3_demo/${save_data_name_17},\
-            /scratch/chialiang/dp3_demo/${save_data_name_18},\
-            /scratch/chialiang/dp3_demo/${save_data_name_19},\
-            /scratch/chialiang/dp3_demo/${save_data_name_20},\
-            /scratch/chialiang/dp3_demo/${save_data_name_21},\
-            /scratch/chialiang/dp3_demo/${save_data_name_22},\
-            /scratch/chialiang/dp3_demo/${save_data_name_23},\
-            /scratch/chialiang/dp3_demo/${save_data_name_24},\
-            /scratch/chialiang/dp3_demo/${save_data_name_25},\
-            /scratch/chialiang/dp3_demo/${save_data_name_26},\
-            /scratch/chialiang/dp3_demo/${save_data_name_27},\
-            /scratch/chialiang/dp3_demo/${save_data_name_28},\
-            /scratch/chialiang/dp3_demo/${save_data_name_29},\
-            /scratch/chialiang/dp3_demo/${save_data_name_30},\
-            /scratch/chialiang/dp3_demo/${save_data_name_31},\
-            /scratch/chialiang/dp3_demo/${save_data_name_32},\
-            /scratch/chialiang/dp3_demo/${save_data_name_33},\
-            /scratch/chialiang/dp3_demo/${save_data_name_34},\
-            /scratch/chialiang/dp3_demo/${save_data_name_35},\
-            /scratch/chialiang/dp3_demo/${save_data_name_36},\
-            /scratch/chialiang/dp3_demo/${save_data_name_37},\
-            /scratch/chialiang/dp3_demo/${save_data_name_38},\
-            /scratch/chialiang/dp3_demo/${save_data_name_39},\
-            /scratch/chialiang/dp3_demo/${save_data_name_40},\
-            /scratch/chialiang/dp3_demo/${save_data_name_41},\
-            /scratch/chialiang/dp3_demo/${save_data_name_42},\
-            /scratch/chialiang/dp3_demo/${save_data_name_43},\
-            /scratch/chialiang/dp3_demo/${save_data_name_44},\
-            /scratch/chialiang/dp3_demo/${save_data_name_45},\
-            /scratch/chialiang/dp3_demo/${save_data_name_46},\
-            /scratch/chialiang/dp3_demo/${save_data_name_47},\
-            /scratch/chialiang/dp3_demo/${save_data_name_48},\
-            /scratch/chialiang/dp3_demo/${save_data_name_49}\
+            ${source_dir}/${save_data_name_0},\
+            ${source_dir}/${save_data_name_1},\
+            ${source_dir}/${save_data_name_2},\
+            ${source_dir}/${save_data_name_3},\
+            ${source_dir}/${save_data_name_4},\
+            ${source_dir}/${save_data_name_5},\
+            ${source_dir}/${save_data_name_6},\
+            ${source_dir}/${save_data_name_7},\
+            ${source_dir}/${save_data_name_8},\
+            ${source_dir}/${save_data_name_9},\
+            ${source_dir}/${save_data_name_10},\
+            ${source_dir}/${save_data_name_11},\
+            ${source_dir}/${save_data_name_12},\
+            ${source_dir}/${save_data_name_13},\
+            ${source_dir}/${save_data_name_14},\
+            ${source_dir}/${save_data_name_15},\
+            ${source_dir}/${save_data_name_16},\
+            ${source_dir}/${save_data_name_17},\
+            ${source_dir}/${save_data_name_18},\
+            ${source_dir}/${save_data_name_19},\
+            ${source_dir}/${save_data_name_20},\
+            ${source_dir}/${save_data_name_21},\
+            ${source_dir}/${save_data_name_22},\
+            ${source_dir}/${save_data_name_23},\
+            ${source_dir}/${save_data_name_24},\
+            ${source_dir}/${save_data_name_25},\
+            ${source_dir}/${save_data_name_26},\
+            ${source_dir}/${save_data_name_27},\
+            ${source_dir}/${save_data_name_28},\
+            ${source_dir}/${save_data_name_29},\
+            ${source_dir}/${save_data_name_30},\
+            ${source_dir}/${save_data_name_31},\
+            ${source_dir}/${save_data_name_32},\
+            ${source_dir}/${save_data_name_33},\
+            ${source_dir}/${save_data_name_34},\
+            ${source_dir}/${save_data_name_35},\
+            ${source_dir}/${save_data_name_36},\
+            ${source_dir}/${save_data_name_37},\
+            ${source_dir}/${save_data_name_38},\
+            ${source_dir}/${save_data_name_39},\
+            ${source_dir}/${save_data_name_40},\
+            ${source_dir}/${save_data_name_41},\
+            ${source_dir}/${save_data_name_42},\
+            ${source_dir}/${save_data_name_43},\
+            ${source_dir}/${save_data_name_44},\
+            ${source_dir}/${save_data_name_45},\
+            ${source_dir}/${save_data_name_46},\
+            ${source_dir}/${save_data_name_47},\
+            ${source_dir}/${save_data_name_48},\
+            ${source_dir}/${save_data_name_49}\
         ]" \
         task.env_runner.experiment_name="[\
             ${demo_name_0},\
@@ -555,7 +546,7 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
-        training.num_epochs=206 \
+        training.num_epochs=81 \
         training.rollout_every=50 \
         training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \
@@ -566,9 +557,11 @@ if [ $func = 'train' ]; then
         task.dataset.augmentation_rot="${augmentation_rot}" \
         task.dataset.augmentation_pcd="${augmentation_pcd}" \
         task.dataset.use_absolute_waypiont="${use_absolute_waypiont}" \
+        task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
-        # load_checkpoint_path='/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07291027-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.07.29/10.27.57_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        # load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08061545-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot/2024.08.06/15.47.04_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        # load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08051658-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-no_normalize/2024.08.05/16.58.17_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
 
 fi 
 
