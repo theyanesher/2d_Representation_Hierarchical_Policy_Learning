@@ -3,12 +3,14 @@ import os
 import math
 import numbers
 import zarr
+import pickle # [DebugPickle]
 import numcodecs
 import numpy as np
 from functools import cached_property
 from termcolor import cprint
 from collections import defaultdict
 import pickle
+from tqdm import tqdm
 
 class WelfordOnlineStatistics:
     def __init__(self):
@@ -93,7 +95,7 @@ class ReplayBuffer:
 
         action_welford = WelfordOnlineStatistics()
 
-        for idx, zarr_path  in enumerate(path_list):
+        for idx, zarr_path  in enumerate(tqdm(path_list)):
             if not load_per_step:
                 if is_pickle:
                     data = pickle.load(open(zarr_path, 'rb'))
@@ -240,7 +242,7 @@ class ReplayBuffer:
         
         for step_idx in range(start_idx, end_idx):
             if self.is_pickle:
-                step_path = os.path.join(zarr_path, f'{step_id}.pkl')
+                step_path = os.path.join(zarr_path, f'{step_idx}.pkl')
                 data = pickle.load(open(step_path, 'rb'))
                 for key in self.keys_:
                     ret_data[key].append(data[key][:])

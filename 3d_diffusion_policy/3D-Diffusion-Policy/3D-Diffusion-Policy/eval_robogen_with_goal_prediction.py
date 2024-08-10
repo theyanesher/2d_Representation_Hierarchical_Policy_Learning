@@ -659,7 +659,6 @@ if __name__ == "__main__":
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
         )
     goal_cfg = recomposed_config
-    # goal_cfg.policy.act3d_encoder_cfg.use_attn_for_point_features = "large_self_attention"
     
     goal_workspace = TrainDP3Workspace(goal_cfg)
     goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)

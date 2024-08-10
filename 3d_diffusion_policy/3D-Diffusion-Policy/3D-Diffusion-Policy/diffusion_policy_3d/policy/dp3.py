@@ -50,12 +50,14 @@ class DP3(BasePolicy):
             prediction_target='action',
             noise_model_type='unet',
             diffusion_attn_embed_dim=120,
+            normalize_action=True, # [Chialiang] can remove normilizer for action
             # parameters passed to step
             **kwargs):
         super().__init__()
 
         self.condition_type = condition_type
         self.prediction_target = prediction_target
+        self.normalize_action = normalize_action
 
         # parse shape_meta
         action_shape = shape_meta[self.prediction_target]['shape']
@@ -74,7 +76,7 @@ class DP3(BasePolicy):
         self.encoder_type = encoder_type
         if self.encoder_type=="dp3":
             obs_encoder = DP3Encoder(observation_space=obs_dict,
-                                                   img_crop_shape=crop_shape,
+                                                img_crop_shape=crop_shape,
                                                 out_channel=encoder_output_dim,
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
                                                 use_pc_color=use_pc_color,
@@ -180,7 +182,6 @@ class DP3(BasePolicy):
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
 
-
         print_params(self)
         
     # ========= inference  ============
@@ -236,6 +237,7 @@ class DP3(BasePolicy):
             nobs = self.normalizer.normalize(obs_dict)
         else:
             nobs = obs_dict
+
         # import pdb; pdb.set_trace()
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
         # if not self.use_pc_color:
@@ -308,8 +310,12 @@ class DP3(BasePolicy):
 
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
+
+        # [Chialiang] can remove normilizer for action
         if self.prediction_target == 'action':
-            action_pred = self.normalizer[self.prediction_target].unnormalize(naction_pred)
+            action_pred = naction_pred
+            if self.normalize_action:
+                action_pred = self.normalizer[self.prediction_target].unnormalize(action_pred)
         else:
             action_pred = naction_pred
 
@@ -343,8 +349,11 @@ class DP3(BasePolicy):
         else:
             nobs = batch['obs']
         
-        if self.prediction_target == 'action':
-            nactions = self.normalizer[self.prediction_target].normalize(batch[self.prediction_target])
+        # [Chialiang] can remove normilizer for action
+        if  self.prediction_target == 'action':
+            nactions = batch[self.prediction_target]
+            if self.normalize_action:
+                nactions = self.normalizer[self.prediction_target].normalize(nactions)
         else:
             nactions = batch['obs'][self.prediction_target].flatten(start_dim=2)
 

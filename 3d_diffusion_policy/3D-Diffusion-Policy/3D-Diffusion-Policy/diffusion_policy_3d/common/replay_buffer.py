@@ -7,6 +7,7 @@ import numcodecs
 import numpy as np
 from functools import cached_property
 from termcolor import cprint
+from tqdm import tqdm
 
 def check_chunks_compatible(chunks: tuple, shape: tuple):
     assert len(shape) == len(chunks)
@@ -219,7 +220,8 @@ class ReplayBuffer:
         """
         
         per_episode_root = []
-        for zarr_path in path_list:
+        for zarr_path in tqdm(path_list):
+
             group = zarr.open(zarr_path, 'r')
             src_store = group.store
         

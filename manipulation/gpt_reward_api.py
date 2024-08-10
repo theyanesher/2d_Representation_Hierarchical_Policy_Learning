@@ -503,9 +503,10 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
                     b = np.linalg.norm(v2-v3)
                     c = np.linalg.norm(v3-v1)
                     s = (a+b+c) / 2
-                    surface = np.sqrt(s*(s-a)*(s-b)*(s-c))
+                    temp = max(0, s*(s-a)*(s-b)*(s-c))
+                    surface = np.sqrt(temp)
                     num_points = surface * 1e6
-                    num_points = int(num_points)
+                    num_points = int(num_points)            
                     num_points = np.clip(num_points, 0, 5)
                     added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
 

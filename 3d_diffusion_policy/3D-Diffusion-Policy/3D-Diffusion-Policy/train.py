@@ -103,8 +103,8 @@ class TrainDP3Workspace:
         if cfg.load_checkpoint_path is not None:
             print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
             self.load_checkpoint(path=cfg.load_checkpoint_path)
-
         # configure dataset
+        print(cfg.task.dataset)
         dataset: BaseDataset
         dataset = hydra.utils.instantiate(cfg.task.dataset)
 
@@ -174,11 +174,13 @@ class TrainDP3Workspace:
         )
 
         # device transfer
+        cprint('initializeing model...', 'green')
         device = torch.device(cfg.training.device)
         self.model.to(device)
         if self.ema_model is not None:
             self.ema_model.to(device)
         optimizer_to(self.optimizer, device)
+        cprint('model has been created', 'green')
 
         # save batch for sampling
         train_sampling_batch = None
@@ -263,6 +265,7 @@ class TrainDP3Workspace:
 
             # run rollout
             if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
+
                 # first checkpointing then running the eval
                 if cfg.checkpoint.save_last_ckpt:
                     self.save_checkpoint()
@@ -271,15 +274,15 @@ class TrainDP3Workspace:
                 
                 if self.epoch == 0 and not cfg.eval_first:
                     pass
-                else:
-                    t3 = time.time()
-                    # runner_log = env_runner.run(policy, dataset=dataset)
-                    runner_log = env_runner.run(cfg, policy, self.epoch)
-                    # wandb_run.log(runner_log, step=self.epoch)
-                    t4 = time.time()
-                    cprint(f"rollout time: {t4-t3:.3f}", "red")
-                    # log all
-                    step_log.update(runner_log)
+                # else:
+                #     t3 = time.time()
+                #     # runner_log = env_runner.run(policy, dataset=dataset)
+                #     runner_log = env_runner.run(cfg, policy, self.epoch)
+                #     # wandb_run.log(runner_log, step=self.epoch)
+                #     t4 = time.time()
+                #     cprint(f"rollout time: {t4-t3:.3f}", "red")
+                #     # log all
+                #     step_log.update(runner_log)
 
                 # TODO: add dagger here
                 # 1. should store the final state in env_runner.run
@@ -342,7 +345,7 @@ class TrainDP3Workspace:
                     #     self.save_snapshot()
 
                     if 'test_mean_score' in step_log:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
+                        # self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
                         # sanitize metric names
                         metric_dict = dict()
                         for key, value in step_log.items() :
@@ -355,12 +358,12 @@ class TrainDP3Workspace:
                         # We can't copy the last checkpoint here
                         # since save_checkpoint uses threads.
                         # therefore at this point the file might have been empty!
-                        topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                        # topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                        if topk_ckpt_path is not None:
-                            self.save_checkpoint(path=topk_ckpt_path)
-                    else:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
+                    #     if topk_ckpt_path is not None:
+                    #         self.save_checkpoint(path=topk_ckpt_path)
+                    # else:
+                    #     self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     
                     
                         

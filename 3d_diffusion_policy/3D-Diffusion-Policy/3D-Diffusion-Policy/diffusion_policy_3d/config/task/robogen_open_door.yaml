@@ -16,6 +16,7 @@ shape_meta: &shape_meta
       type: point_cloud
     agent_pos:
       shape: [10]
+      # shape: [22]
       type: low_dim
   action:
     shape: [10]
@@ -62,3 +63,6 @@ dataset:
   dataset_keys: None
   only_reach_stage: false
   augmentation_pcd: false
+  augmentation_pcd: false
+  augmentation_rot: false
+  use_absolute_waypiont: false

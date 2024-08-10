@@ -1,8 +1,10 @@
 from typing import Dict
 import torch
+import time
 import numpy as np
 import copy
 import os
+from tqdm import tqdm
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.sampler import (get_val_mask, downsample_mask)
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
@@ -10,6 +12,9 @@ from diffusion_policy_3d.dataset.base_dataset import BaseDataset
 from termcolor import cprint
 import random
 import copy
+
+import pybullet as p
+from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
 
 class RobogenDataset(BaseDataset):
     def __init__(self,
@@ -27,13 +32,18 @@ class RobogenDataset(BaseDataset):
             is_pickle=False,
             dataset_keys=None,
             augmentation_pcd=False,
+            augmentation_rot=False,
+            use_absolute_waypiont=False,
             **kwargs
             ):
         super().__init__()
-        
+
         self.task_name = task_name
         self.observation_mode = observation_mode
+        self.augmentation_rot = augmentation_rot
         self.augmentation_pcd = augmentation_pcd
+        self.use_absolute_waypiont = use_absolute_waypiont
+        self.is_pickle = is_pickle
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -50,7 +60,6 @@ class RobogenDataset(BaseDataset):
             keys = dataset_keys
 
         self.keys_ = keys
-        self.is_pickle = is_pickle
         
         # try to get kept_in_disk from kwargs, if not, set it to False
         if 'kept_in_disk' in kwargs:
@@ -84,10 +93,10 @@ class RobogenDataset(BaseDataset):
             all_paths = []
             train_masks = []
             val_masks = []
-            for zarr_path in all_zarr_paths:
+            for zarr_path in tqdm(all_zarr_paths):
                 all_subfolder = os.listdir(zarr_path)
                 # import pdb; pdb.set_trace()
-                for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
+                for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud', '.zgroup']:
                     if string in all_subfolder:
                         all_subfolder.remove(string)
                 all_subfolder = sorted(all_subfolder)
@@ -108,6 +117,7 @@ class RobogenDataset(BaseDataset):
                 from diffusion_policy_3d.common.replay_buffer import ReplayBuffer
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys)
             else:
+                cprint(f'keep in disk and load per step, load_per_step:{self.load_per_step}', 'green')
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle)
                 self.action_welford = self.replay_buffer.action_welford
@@ -116,8 +126,10 @@ class RobogenDataset(BaseDataset):
             # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
             # train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             # train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-            train_mask = np.concatenate(train_masks)
-            self.val_mask = np.concatenate(val_masks)
+            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
 
         
         if not self.kept_in_disk:
@@ -141,6 +153,9 @@ class RobogenDataset(BaseDataset):
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after 
+
+        # [Chialiang]   
+        cprint('dataset has been loaded', 'green')
             
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -221,24 +236,142 @@ class RobogenDataset(BaseDataset):
         return len(self.sampler)
     
     def _sample_to_data(self, sample):
-        agent_pos = copy.deepcopy(sample['state'][:,].astype(np.float32)) # (T, agent_pos: 7) T is the horizon
-        point_cloud = copy.deepcopy(sample['point_cloud'][:,].astype(np.float32))
-        action = copy.deepcopy(sample['action'].astype(np.float32))
-        agent_pos = copy.deepcopy(agent_pos)
+
+        # get data
+        agent_pos = copy.deepcopy(sample['state'][:,])
+        point_cloud = copy.deepcopy(sample['point_cloud'][:,])
+        action = copy.deepcopy(sample['action'])
+        agent_pos_old = copy.deepcopy(agent_pos)
+
         if 'act3d' in self.observation_mode:
-            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,].astype(np.float32))
-            feature_map = copy.deepcopy(sample['feature_map'][:,].astype(np.float32))
-            pcd_mask = copy.deepcopy(sample['pcd_mask'][:,].astype(np.uint8))
+            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
+            if 'mlp' not in self.observation_mode:
+
+                pcd_mask = copy.deepcopy(sample['pcd_mask'][:,])
+                feature_map = copy.deepcopy(sample['feature_map'][:,])
+
             if 'goal' in self.observation_mode:
-                goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,].astype(np.float32))
+                goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
+            
             if 'displacement_gripper_to_object' in self.observation_mode:
-                displacement_gripper_to_object = copy.deepcopy(sample['displacement_gripper_to_object'][:,].astype(np.float32))
+                displacement_gripper_to_object = copy.deepcopy(sample['displacement_gripper_to_object'][:,])
+        
+        elif 'act3d_pointnet' == self.observation_mode:
+            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
+
+        # augmentation
+        ###########################################
+        debug = False
+        if debug:
+            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/agent_pos_before.npy', agent_pos)
+            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/point_cloud_before.npy', point_cloud)
+            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/action_before.npy', action)
+            # np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/feature_map_before.npy', feature_map)
+            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/gripper_pcd_before.npy', gripper_pcd)
+            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/goal_gripper_pcd_before.npy', goal_gripper_pcd)
+            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/displacement_gripper_to_object_before.npy', displacement_gripper_to_object)
+            start = time.time()
+        ###########################################
+
         if self.augmentation_pcd:
-            point_cloud = pointcloud + np.random.normal(0, 0.005, point_cloud.shape)
+            point_cloud = point_cloud + np.random.normal(0, 0.002, point_cloud.shape) # [AugTODO] add more 
+
+        if self.augmentation_rot:
+            # random rotation
+            random_trans = np.identity(4)
+            random_zrot = (np.random.rand() * 2 - 1) * 10 * np.pi / 180 # -10 degree to 10 degree in raduis
+            
+            ###########################################
+            if debug:
+                random_zrot = 45 * np.pi / 180 
+            ###########################################
+
+            random_rotmat = p.getMatrixFromQuaternion(p.getQuaternionFromEuler([0, 0, random_zrot]))
+            random_rotmat = np.asarray(random_rotmat).reshape(3, 3)
+            random_trans[:3, :3] = random_rotmat
+
+            # agent pos
+            agent_pos_old = copy.deepcopy(agent_pos)
+            agent_trans = np.identity(4).repeat(self.horizon, 1)
+            pos_index = np.asarray([4*i+3 for i in range(self.horizon)]).astype(np.uint16)
+            agent_trans[:3, pos_index] = agent_pos[:, :3].T
+            rot_index = np.asarray([[4*i, 4*i+1, 4*i+2] for i in range(self.horizon)]).astype(np.uint16).reshape(-1)
+            agent_trans[:3, rot_index] = rotation_transfer_6D_to_matrix_batch(agent_pos[:,3:9]) # should be 6D rotation representation
+            agent_trans = random_trans @ agent_trans
+            agent_pos[:, :3] = agent_trans[:3, pos_index].T
+            agent_pos[:, 3:9] = rotation_transfer_matrix_to_6D_batch(agent_trans[:3, rot_index].T)
+
+            # point cloud
+            point_cloud_homo = np.ones((point_cloud.shape[0] * point_cloud.shape[1], 4))
+            point_cloud_homo[:,:3] = point_cloud.reshape((-1, 3))
+            point_cloud = (point_cloud_homo @ random_trans.T)[:, :3]
+            point_cloud = point_cloud.reshape(self.horizon, -1, 3)
+
+            # action
+            action[:,:3] = action[:,:3] @ random_rotmat.T
+
+            if 'act3d' in self.observation_mode:
+
+                gripper_pcd_copy = copy.deepcopy(gripper_pcd)
+                gripper_pcd_homo = np.ones((gripper_pcd.shape[0] * gripper_pcd.shape[1], 4))
+                gripper_pcd_homo[:,:3] = gripper_pcd.reshape((-1, 3))
+                gripper_pcd = (gripper_pcd_homo @ random_trans.T)[:, :3]
+                gripper_pcd = gripper_pcd.reshape(self.horizon, -1, 3)
+
+                # if 'mlp' not in self.observation_mode:
+                #     feature_num = feature_map.shape[0] * feature_map.shape[1]
+                #     feature_dim = feature_map.shape[2]
+                #     feature_map = feature_map.reshape((-1, feature_dim))
+                #     feature_map_homo = np.ones((feature_num, 4))
+                #     feature_map_homo[:,:3] = feature_map[:,2:]
+                #     feature_map[:,2:] = (feature_map_homo @ random_trans.T)[:, :3]
+                #     feature_map = feature_map.reshape(self.horizon, -1, feature_dim)
+
+                if 'goal' in self.observation_mode:
+                    goal_gripper_pcd_homo = np.ones((goal_gripper_pcd.shape[0] * goal_gripper_pcd.shape[1], 4))
+                    goal_gripper_pcd_homo[:,:3] = goal_gripper_pcd.reshape((-1, 3))
+                    goal_gripper_pcd = (goal_gripper_pcd_homo @ random_trans.T)[:, :3]
+                    goal_gripper_pcd = goal_gripper_pcd.reshape(self.horizon, -1, 3)
+                
+                if 'displacement_gripper_to_object' in self.observation_mode:
+                    goal_gripper_to_pcd = gripper_pcd_copy + displacement_gripper_to_object
+                    goal_gripper_to_pcd_homo = np.ones((goal_gripper_to_pcd.shape[0] * goal_gripper_to_pcd.shape[1], 4))
+                    goal_gripper_to_pcd_homo[:,:3] = goal_gripper_to_pcd.reshape((-1, 3))
+                    goal_gripper_to_pcd = (goal_gripper_to_pcd_homo @ random_trans.T)[:, :3]
+                    goal_gripper_to_pcd = goal_gripper_to_pcd.reshape(self.horizon, -1, 3)
+                    displacement_gripper_to_object = goal_gripper_to_pcd - gripper_pcd
+            
+            elif 'act3d_pointnet' == self.observation_mode:
+
+                gripper_pcd_homo = np.ones((gripper_pcd.shape[0] * gripper_pcd.shape[1], 4))
+                gripper_pcd_homo[:,:3] = gripper_pcd.reshape((-1, 3))
+                gripper_pcd = (gripper_pcd_homo @ random_trans.T)[:, :3]
+                gripper_pcd = gripper_pcd_homo.reshape(self.horizon, -1, 3)
+
+
+        # change to absolute waypoints
+        if self.use_absolute_waypiont:
+
+            absolute_action = copy.deepcopy(agent_pos)
+            
+            absolute_action[:, :3] += action[:, :3]
+            current_rotations = rotation_transfer_6D_to_matrix_batch(agent_pos[:, 3:9]).T.reshape((-1, 3, 3)) # (H, 6) -> (3, 3*H) -> (3*H, 3) -> (H, 3, 3)
+            current_rotations = np.transpose(current_rotations, (0, 2, 1)) # (H, 3, 3) make row vector column vector
+            delta_rotations = rotation_transfer_6D_to_matrix_batch(action[:, 3:9]).T.reshape((-1, 3, 3)) # (H, 6) -> (3, 3*H) -> (3*H, 3) -> (H, 3, 3)
+            delta_rotations = np.transpose(delta_rotations, (0, 2, 1)) # (H, 3, 3) make row vector column vector
+            next_rotations = np.matmul(current_rotations, delta_rotations) # (H, 3, 3)
+            row_1 = next_rotations[:, :3, 0] # (H, 3)
+            row_2 = next_rotations[:, :3, 1] # (H, 3)
+            rot_6d = np.hstack((row_1, row_2)) # (H, 6)
+            absolute_action[:, 3:9] = rot_6d
+
+            action = absolute_action
+
+       # assign to dict
         data = {
             'obs': {
-                'point_cloud': point_cloud.astype(np.float32) 
-                'agent_pos': agent_pos.astype(np.float32), 
+                'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
+                'agent_pos': agent_pos.astype(np.float32), # T, D_pos
             },
             'action': action.astype(np.float32)
         }
@@ -251,7 +384,6 @@ class RobogenDataset(BaseDataset):
                 data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
             if 'displacement_gripper_to_object' in self.observation_mode:
                 data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
-
         return data
 
     

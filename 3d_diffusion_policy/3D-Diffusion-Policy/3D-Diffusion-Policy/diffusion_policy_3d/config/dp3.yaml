@@ -33,6 +33,7 @@ policy:
   - 80
   # encoder_output_dim: 128
   encoder_output_dim: 64
+  normalize_action: true # [AugDebug]
   horizon: ${horizon}
   kernel_size: 5
   n_action_steps: ${n_action_steps}
@@ -82,6 +83,10 @@ policy:
     use_attn_for_point_features: false # large_self_attention, locally_self_attention
     pointcloud_backbone: unet # unet, mlp, pointnet2, point_transformer
     use_lightweight_unet: false # dummy param
+
+    use_lightweight_unet: false
+    self_attention: false
+    final_attention: false
 
   prediction_target: action
 

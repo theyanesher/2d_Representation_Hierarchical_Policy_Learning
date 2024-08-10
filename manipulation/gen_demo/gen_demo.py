@@ -25,15 +25,17 @@ def get_folders_from_id(id):
     solution_path = [x['solution_path'] for x in config if 'solution_path' in x][0]
     return config_path, solution_path
 
-def get_all_test_configs():
-    path = "data/temp"
-    all_tasks = os.listdir(path)
+def get_all_test_configs(root_dir='data/temp', extract_name=None):
+    all_tasks = os.listdir(root_dir)
     all_tasks = sorted(all_tasks)
     yaml_configs = []
     solution_paths = []
     reward_assets = []
+    if extract_name is not None:
+        all_tasks = [x for x in all_tasks if extract_name in x]
+        
     for task in all_tasks:
-        path = os.path.join("data/temp", task)
+        path = os.path.join(root_dir, task)
         yaml_config = [x for x in os.listdir(path) if x.endswith(".yaml")]
         yaml_config_lengths = [len(x) for x in yaml_config]
         least_length = np.argmin(yaml_config_lengths)
@@ -47,8 +49,9 @@ def get_all_test_configs():
             if 'solution_path' in obj:
                 obj['solution_path'] = obj['solution_path'].replace("data/sac_storagefurniture/", "data/temp/")
         for obj in new_config:
+            random_center = np.random.uniform(0.6, 0.7)
             if 'center' in obj:
-                obj['center'] = "[0.7, 0, 0]"
+                obj['center'] = f"[{random_center}, 0, 0]"
             
         with open(config_path, "w") as f:
             yaml.dump(new_config, f)    
@@ -58,65 +61,36 @@ def get_all_test_configs():
         
     return yaml_configs, solution_paths, reward_assets
 
-temperature_dict = {
-        "reward": 0,
-        "yaml": 0,
-        "size": 0,
-        "joint": 0,
-        "spatial_relationship": 0,
-    }
-    
-model_dict = {
-    "reward": "gpt-4",
-    "yaml": "gpt-4",
-    "size": "gpt-4",
-    "joint": "gpt-4",
-    "spatial_relationship": "gpt-4",
-}
-
 USE_STEPPING_STONE = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_name", type=str, default="debug")
-parser.add_argument("--beg_idx", type=int, default=12)
-parser.add_argument("--end_idx", type=int, default=13)
+parser.add_argument("--extract_name", type=str, default=None)
 parser.add_argument("--near_distance", type=float, default=0.15)
 parser.add_argument("--far_distance", type=float, default=0.4)
+parser.add_argument("--num_to_generate", type=int, default=5)
+parser.add_argument("--max_try_times", type=int, default=10)
 
 args = parser.parse_args()
 
-all_config_paths, all_solution_paths, reward_assets = get_all_test_configs()
-beg_idx = args.beg_idx
-end_idx = args.end_idx
-all_config_paths = all_config_paths[beg_idx:end_idx]
-all_solution_paths = all_solution_paths[beg_idx:end_idx]
-reward_assets = reward_assets[beg_idx:end_idx]
+root_dir = "data/diverse_objects_2"
+all_config_paths, all_solution_paths, reward_assets = get_all_test_configs(root_dir, args.extract_name)
 
-# exp_name = "0502-vary-obj-init-angle-robot-init-joint-near-handle-larger"
-# exp_name = "0504-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
-# exp_name = "0505-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-100-demo"
-# exp_name = "0509-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo"
-# args.exp_name = "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
-args.exp_name = "0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+# args.exp_name = "0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+args.exp_name = "0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"
+args.exp_name = "debug"
 
 exp_name = args.exp_name
-try_times_min = 0
-try_times_max = 300
+mobile = False
 
-for try_idx in range(try_times_min, try_times_max):
+generated_demo = 0
+try_times = 0
+while True: 
     for config_path, solution_path, obj_id in zip(all_config_paths, all_solution_paths, reward_assets):
-        
+                
         object_name = "storagefurniture"
         os.system(f"python manipulation/scripts/extract_handle_mesh.py --category {object_name} --obj_id {obj_id}")
         
-        # config_path, solution_path = generate_from_task_name(
-        #             "open the door of the dishwasher", 
-        #             "Dishwasher", 
-        #             dishwasher_id, 
-        #             temperature_dict,
-        #             model_dict)
-        # config_path, solution_path = get_folders_from_id(dishwasher_id)
-
         all_substeps_path = os.path.join(solution_path, "substeps.txt")
         with open(all_substeps_path, "r") as f:
             all_substeps = f.readlines()
@@ -136,28 +110,10 @@ for try_idx in range(try_times_min, try_times_max):
         with open(meta_info_path, "w") as f:
             json.dump(args.__dict__, f, indent=4)
         
-        # if os.path.exists(experiment_path):
-        #     all_experiments = os.listdir(experiment_path)
-        #     all_experiments = sorted(all_experiments)
-        #     newest_experiment = all_experiments[-1]
-        #     newest_experiment_path = os.path.join(experiment_path, newest_experiment)
-            
-            
-        #     all_substeps_type = os.path.join(solution_path, "substep_types.txt")
-        #     with open(all_substeps_type, "r") as f:
-        #         all_substeps_type = f.readlines()
-        #         first_step_type = all_substeps_type[0].lstrip().rstrip()
-        #     first_step_folder = first_step.replace(" ", "_") + "_" + first_step_type
-        #     first_step_folder_path = os.path.join(newest_experiment_path, first_step_folder)
-            
-        #     score_file = os.path.join(first_step_folder_path, "best_score.txt")
-        #     if os.path.exists(score_file):
-        #         trained = True
-        
         config_variant_paths = os.path.join("/".join(config_path.split("/")[:-1]), "configs")
         if not os.path.exists(config_variant_paths):
             os.makedirs(config_variant_paths)
-        new_config_path = os.path.join(config_variant_paths, f"config_{try_idx}.yaml")
+        new_config_path = os.path.join(config_variant_paths, f"config_{try_times}.yaml")
         base_config = yaml.safe_load(open(config_path, "r"))
         all_substeps_path = os.path.join(solution_path, "substeps.txt")
         with open(all_substeps_path, "r") as f:
@@ -181,16 +137,6 @@ for try_idx in range(try_times_min, try_times_max):
         info = env._get_info()
         handle_pos = info['handle_pos']
         handle_joint_id = env.handle_joint
-        # all_handle_pos, handle_joint_id = get_handle_pos(env, object_name, return_median=False)
-        # handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
-        # link_name = "link_0"
-        # link_name = link_name.lower()
-        # link_pc = get_link_pc(env, object_name, link_name)
-        # distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
-        # min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
-        # min_distance_handle_idx = np.argmin(min_distance)
-        # handle_pos = handle_median_points[min_distance_handle_idx]
-        # handle_joint_id = handle_joint_id[min_distance_handle_idx]
 
         initial_joint_angles = [0 for _ in range(7)]
         low = [-2.9, -1.8, -2.9, -3.1, -2.9, -0.0, -2.9]
@@ -209,8 +155,8 @@ for try_idx in range(try_times_min, try_times_max):
             new_pos = np.array([0, 0, init_pos[2]])
             new_pos[0] = np.random.uniform(-0.1, 0.1) + init_pos[0]
             new_pos[1] = np.random.uniform(-0.1, 0.1) + init_pos[1]
-            # new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(-np.pi / 6, np.pi / 6)])
-            new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(0, np.pi / 6)])
+            new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(-np.pi / 6, np.pi / 6)])
+            # new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], np.random.uniform(0, np.pi / 6)])
             if USE_STEPPING_STONE:
                 stepping_obj_pos = [new_pos[0], new_pos[1], table_bbox_max[2]]
                 stepping_stone_id = p.loadURDF("objaverse_utils/data/obj/f9a7942ee5894152b73b72ce83ac9ee5/material.urdf", stepping_obj_pos, globalScaling=0.34313793694655315, physicsClientId=env.id)
@@ -237,7 +183,11 @@ for try_idx in range(try_times_min, try_times_max):
                 for i in range(7):
                     initial_joint_angles[i] = np.random.uniform(low[i], high[i])
 
-                env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
+                if not mobile:
+                    env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
+                else:
+                    initial_joint_angles = [0 for _ in range(3)] + initial_joint_angles
+                    env.robot.set_joint_angles(env.robot.right_arm_joint_indices, initial_joint_angles)
                 for _ in range(5):
                     p.stepSimulation()
                 
@@ -248,17 +198,17 @@ for try_idx in range(try_times_min, try_times_max):
                 
                 robot_eef_pos, robot_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
                 distance = np.linalg.norm(handle_pos - robot_eef_pos)
-                print("dsitance: ", distance)
-                print("eef pos: ", robot_eef_pos)
-                print("handle pos: ", handle_pos)
                 if distance < args.far_distance and distance > args.near_distance:
                     good_config = True
                     new_pos = p.getBasePositionAndOrientation(object_id, physicsClientId=env.id)[0]
                     break
+                
+        if not good_config:
+            print("fail to find a good config")
+            continue
             
+        print("find good config")
         new_config = copy.deepcopy(base_config)
-        # import pdb; pdb.set_trace()
-
         
         for config_dict in new_config:
             if 'center' in config_dict:
@@ -301,43 +251,30 @@ for try_idx in range(try_times_min, try_times_max):
             yaml.dump(new_config, f, indent=4)
         env.close()
             
-        if not trained:
-            os.system("python execute.py --task_config_path {} --gui 0 --skip {} --exp_name {}".format(
-                new_config_path, skip_argument, exp_name
-            ))
-        
-        end_time = time.time()
-        
-    #     all_experiments = os.listdir(experiment_path)
-    #     all_experiments = sorted(all_experiments)
-    #     newest_experiment = all_experiments[-1]
-    #     newest_experiment_path = os.path.join(experiment_path, newest_experiment)
-        
-        
-    #     all_substeps_type = os.path.join(solution_path, "substep_types.txt")
-    #     with open(all_substeps_type, "r") as f:
-    #         all_substeps_type = f.readlines()
-    #         first_step_type = all_substeps_type[0].lstrip().rstrip()
-    #     first_step_folder = first_step.replace(" ", "_") + "_" + first_step_type
-    #     first_step_folder_path = os.path.join(newest_experiment_path, first_step_folder)
-        
-    #     score_file = os.path.join(first_step_folder_path, "best_score.txt")
-    #     angle_file = os.path.join(first_step_folder_path, "opened_angle.txt")
-    #     with open(score_file, "r") as f:
-    #         score = f.readlines()
-    #         score = float(score[0].lstrip().rstrip())
-    #         # handle_grasping_scores[dishwasher_id] = (score)
-    #         handle_grasping_scores.append(score)
-    #     with open(angle_file, "r") as f:
-    #         angle = f.readlines()
-    #         opened_angle = float(angle[0].lstrip().rstrip())
-    #         opened_angles.append(opened_angle)
-
-    # print("=============== opened angles =============")
-    # print(opened_angles)
-    # with open("data/opened_angles.yaml", "w") as f:
-    #     yaml.dump(opened_angles, f)
-        
+        ts = time.time()
+        import datetime
+        time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
+        os.system("python execute.py --task_config_path {} --gui 0 --skip {} --exp_name {} --time_string {}".format(
+            new_config_path, skip_argument, exp_name, time_string
+        ))
+    
+        try_times += 1
+        save_state_dir = os.path.join(experiment_path, time_string, "grasp_the_handle_of_the_storage_furniture_door_primitive", "states")
+        if os.path.exists(save_state_dir):
+            all_states = os.listdir(save_state_dir)
+            if len(all_states) > 10:
+                generated_demo += 1
+                
+        if try_times >= 20 and generated_demo == 0:
+            with open('/project_data/held/yufeiw2/RoboGen_sim2real/data/local/gen_data.log', "a") as f:
+                f.write("failed to generate demo for object {}\n".format(obj_id))
+            exit()
+                
+        if try_times >= args.max_try_times:
+            exit()
+                    
+        if generated_demo >= args.num_to_generate:
+            exit()
 
 
 

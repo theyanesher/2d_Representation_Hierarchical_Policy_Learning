@@ -138,14 +138,19 @@ def wrap_obs(list_of_obs):
     parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
     return parallel_input_dict
 
-def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
+def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix='', new_object=False, demo_experiment_path=''):
     # if type(cfg.task.env_runner.experiment_folder) != list:
     #     cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
     # if type(cfg.task.env_runner.experiment_name) != list:
     #     cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
     # if type(cfg.task.env_runner.demo_experiment_path) != list:
     #     cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
-    
+
+    if new_object:
+        cfg.task.env_runner.experiment_folder = ['data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle']
+        cfg.task.env_runner.experiment_name = ['0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first']
+        cfg.task.env_runner.demo_experiment_path = [demo_experiment_path]
+
     # import pdb; pdb.set_trace()
     opened_joint_angles = {}
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
@@ -315,8 +320,12 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                         "ik_failure": float(ik_failures[idx - beg_idx]),
                         'grasped_handle': float(grasped_handles[idx - beg_idx]),
                     }
-                    
-                with open("{}/opened_joint_angles.json".format(save_path), "w") as f:
+                
+                # # [Chialiang]   
+                # with open("{}/opened_joint_angles-{}{}.json".format(save_path, dataset_idx, post_fix), "w") as f:
+                #     json.dump(opened_joint_angles, f, indent=4)
+                # [Chialiang]   
+                with open("{}/opened_joint_angles{}.json".format(save_path, post_fix), "w") as f:
                     json.dump(opened_joint_angles, f, indent=4)
             
             gif_save_exp_name = experiment_folder.split("/")[-2]
@@ -332,11 +341,13 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             ]
             pool.map(parallel_save_gif, args_to_run)
             
+        # # [Chialiang]   
+        # with open("{}/opened_joint_angles{}.json".format(save_path, post_fix), "w") as f:
+        #     json.dump(opened_joint_angles, f, indent=4)
             
 def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
-        # import pdb; pdb.set_trace()
     
         after_reaching_init_state_files = []
         init_state_files = []
@@ -346,7 +357,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
         experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
         all_experiments = os.listdir(experiment_path)
         all_experiments = sorted(all_experiments)
-        
+
         if demo_experiment_path is not None:
             # demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
             all_subfolder = os.listdir(demo_experiment_path)
@@ -373,7 +384,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
                     label = json.load(f)
                 if not label['good_traj']: continue
-                
+            
             first_stage_states_path = os.path.join(first_step_folder, "states")
             expert_states = os.listdir(first_stage_states_path)
             if len(expert_states) == 0:
@@ -390,7 +401,11 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 #     continue
             expert_opened_angles.append(expert_opened_angle)
             
-            first_stage_states_path = os.path.join(first_step_folder, "states")
+            if not mobile:
+                first_stage_states_path = os.path.join(first_step_folder, "states")
+            else:
+                first_stage_states_path = os.path.join(first_step_folder, "mobile_states")
+                
             stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
@@ -404,13 +419,15 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
             after_reaching_init_state_files.append(after_init_state_file)
             init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
-            config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
+            if not mobile:
+                config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
+            else:
+                config_file = os.path.join(experiment_path, experiment, "mobile_config.yaml")
             config_files.append(config_file)
                     
         after_reaching_init_state_files = after_reaching_init_state_files
         config_files = config_files
 
-        opened_joint_angles = {}
 
         if exp_end_ratio is not None:
             exp_end_idx = int(exp_end_ratio * len(config_files))
@@ -437,11 +454,11 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                     solution_path,
                     task_name,
                     init_state_file,
-                    # render=False, 
                     render=False, 
                     randomize=False,
                     obj_id=0,
                     horizon=600,
+                    mobile=True,
             )
             
             object_name = "StorageFurniture".lower()
@@ -502,6 +519,8 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                 os.makedirs(gif_save_folder, exist_ok=True)
             gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
                     float(info["improved_joint_angle"][-1]))
+            save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+            print(f'{gif_save_path} has been saved')
             
             save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
         
@@ -595,3 +614,4 @@ if __name__ == "__main__":
     # ps = pstats.Stats(pr, stream=s).sort_stats('time')
     # ps.print_stats(50)
     # print(s.getvalue())
+    

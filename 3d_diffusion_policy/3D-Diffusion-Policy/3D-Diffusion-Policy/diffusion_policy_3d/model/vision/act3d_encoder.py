@@ -7,10 +7,52 @@ from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
 from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2_small, PointNet2_small2, PointNet2ssg_small
 from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
 import segmentation_models_pytorch as smp
+from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
+from torchvision.models import mobilenet_v3_small
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
 import einops
 import copy
+
+class ModifiedMobileNetV3Small(nn.Module):
+    def __init__(self, in_channels=5, out_channels=60):
+        super(ModifiedMobileNetV3Small, self).__init__()
+        self.mobilenet_v3_small = mobilenet_v3_small(pretrained=True)
+
+        #######################################
+        # Modify the input feature dimensions #
+        #######################################
+
+        # Create a new convolutional layer with "in_channels" input channels and the same number of output channels
+        orig_conv = self.mobilenet_v3_small.features[0][0]
+        new_conv = nn.Conv2d(in_channels=in_channels, out_channels=orig_conv.out_channels,
+                            kernel_size=orig_conv.kernel_size, stride=orig_conv.stride,
+                            padding=orig_conv.padding, bias=orig_conv.bias is not None)
+
+        # Copy the weights from the original convolutional layer for the first 3 channels
+        with torch.no_grad():
+            new_conv.weight[:, :3, :, :] = orig_conv.weight
+            if new_conv.weight.size(1) > 3:
+                nn.init.kaiming_normal_(new_conv.weight[:, 3:, :, :], mode='fan_out', nonlinearity='relu')
+
+        # Replace the original convolutional layer with the new one
+        self.mobilenet_v3_small.features[0][0] = new_conv
+
+        ##############################################################
+        # Modify the classification head to per-pixel classification #
+        ##############################################################
+
+        self.mobilenet_v3_small.classifier = nn.Identity()  # Remove the classifier
+        # Add a new convolutional layer to adjust the number of channels if needed
+        self.conv = nn.Conv2d(576, out_channels, kernel_size=1)  # Example: 576 to output_dim channels
+        # Add an upsample layer to ensure the output is 256x256
+        self.upsample = nn.Upsample(size=(256, 256), mode='bilinear', align_corners=False)
+
+    def forward(self, x):
+        x = self.mobilenet_v3_small(x)
+        x = self.conv(x)
+        x = self.upsample(x)
+        return x
 
 class Act3dEncoder(nn.Module):
     def __init__(self, 
@@ -26,6 +68,8 @@ class Act3dEncoder(nn.Module):
                  self_attention=False,
                  use_attn_for_point_features=False,
                  pointcloud_backbone='unet',
+                 use_lightweight_unet=False,
+                 final_attention=False,
                  **kwargs
                  ):
         super(Act3dEncoder, self).__init__()
@@ -38,8 +82,13 @@ class Act3dEncoder(nn.Module):
         self.encoder_output_dim = encoder_output_dim
         self.state_shape = observation_space[self.state_key]
         self.goal_mode = goal_mode
+
+        # [Chialiang]
         self.use_mlp = use_mlp
+        self.use_lightweight_unet = use_lightweight_unet
+        
         self.self_attention = self_attention
+        self.final_attention = final_attention
         self.mode = mode
         if self.mode in ['keep_position_feature_in_attention_feature']:
             vision_output_dim = encoder_output_dim // 3 * 2
@@ -199,7 +248,7 @@ class Act3dEncoder(nn.Module):
 
         self.n_output_channels = encoder_output_dim * self.num_gripper_points
         self.n_output_channels += output_dim
-        if self.goal_mode == 'cross_attention_to_goal':
+        if self.goal_mode == 'cross_attention_to_goal' and not self.final_attention: # [Debug] [Chialiang] 
             self.n_output_channels += encoder_output_dim * self.num_gripper_points
         if self.goal_mode == 'cross_attention_to_goal_pos_orn':
             self.n_output_channels += encoder_output_dim * self.num_gripper_points
@@ -365,9 +414,22 @@ class Act3dEncoder(nn.Module):
                         query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
                     )[-1]
                 
-                goal_features = einops.rearrange(
-                    goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
-                obs_features = torch.cat([obs_features, goal_features], dim=-1)     
+                if self.final_attention:
+                    final_attn_output = nets['final_attn_layers'](query=attn_output, value=goal_attn_output,
+                        query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
+                    )[-1]
+                    final_attn_output = nets['final_slef_attn_layers'](query=final_attn_output, value=final_attn_output,
+                        query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
+                    )[-1]
+                    obs_features = einops.rearrange(
+                        final_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+                        
+                    obs_features = torch.cat([obs_features, state_feat], dim=-1)     
+                else:
+                    goal_features = einops.rearrange(
+                        goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+
+                    obs_features = torch.cat([obs_features, goal_features], dim=-1)    
                 
                 
             elif self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention': # using gripper features obtained from cross attention to object, and then do self attention
