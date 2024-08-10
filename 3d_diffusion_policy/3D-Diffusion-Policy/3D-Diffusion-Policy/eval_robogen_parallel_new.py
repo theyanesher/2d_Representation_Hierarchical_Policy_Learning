@@ -346,7 +346,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
         # with open("{}/opened_joint_angles{}.json".format(save_path, post_fix), "w") as f:
         #     json.dump(opened_joint_angles, f, indent=4)
             
-def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix='', new_object=False, demo_experiment_path=''):
+def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix='', new_object=False, demo_experiment_path='', mobile=False):
 
     # cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
     # cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
@@ -514,7 +514,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                     randomize=False,
                     obj_id=0,
                     horizon=600,
-                    mobile=True,
+                    mobile=mobile,
             )
             
             object_name = "StorageFurniture".lower()
@@ -749,12 +749,17 @@ if __name__ == "__main__":
     new_object = True
     checkpoint_name = "latest.ckpt"
 
-    #############################################################
-
-    # abs wpt, aug noise
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_scale/2024.08.09/01.03.16_train_dp3_robogen_open_door"
+    # delta wpt, aug noise
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08091652-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_all/2024.08.09/16.53.26_train_dp3_robogen_open_door"
     new_object = True
     checkpoint_name = "latest.ckpt"
+
+    #############################################################
+
+    # # abs wpt, aug noise
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_scale/2024.08.09/01.03.16_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -805,12 +810,9 @@ if __name__ == "__main__":
     save_path = "data/debug-2/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"))
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-        
-    exp_beg_ratio = 0.9
-    exp_end_ratio = 1
     
     for run_idx in range(3):
-        save_path = "data/eval_train_10_obj_test_new_10_act3d_unet_0711/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_train_10_obj_test_new_10_act3d_mlp_0810/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
             
@@ -823,7 +825,7 @@ if __name__ == "__main__":
                 # exp_beg_ratio=exp_beg_ratio,
                 # exp_end_ratio=exp_end_ratio,
                 exp_beg_idx=0, exp_end_idx=25,
-                post_fix=f'-unseen-{i}',
+                post_fix=f'-unseen-{run_idx}',
                 new_object=new_object,
                 mobile=False,
         )

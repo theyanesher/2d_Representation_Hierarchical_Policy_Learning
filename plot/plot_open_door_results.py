@@ -218,6 +218,8 @@ json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_p
 # delta wpt, aug_scale 
 json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_scale_2024.08.09_01.03.17_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
+# delta wpt, aug_scale 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08091652-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_all_2024.08.09_16.53.26_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
 
 
 json_results_list = glob.glob(f'{json_results_root}/*-unseen-0.json')

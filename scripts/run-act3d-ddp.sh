@@ -156,19 +156,6 @@ if [ $func = 'train' ]; then
 
     action_dim=10
     agent_pos_dim=10
-
-    # # saved data paths
-    # save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
-    # save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
-    # save_data_name_2=0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
-    # save_data_name_3=0703-act3d-mlp-obj-46732-goal
-    # save_data_name_4=0703-act3d-mlp-obj-46801-goal
-    # save_data_name_5=0703-act3d-mlp-obj-46874-goal
-    # save_data_name_6=0703-act3d-mlp-obj-46922-goal
-    # save_data_name_7=0703-act3d-mlp-obj-46966-goal
-    # save_data_name_8=0703-act3d-mlp-obj-47570-goal
-    # save_data_name_9=0703-act3d-mlp-obj-47578-goal
-    # save_data_name_10=0703-act3d-mlp-obj-48700-goal
     
     # saved data paths
     save_data_name_0=0705-obj-41510
