@@ -11,6 +11,7 @@ from diffusion_policy_3d.model.common.normalizer import LinearNormalizer, Single
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
 from termcolor import cprint
 import random
+import copy
 
 import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
@@ -28,10 +29,11 @@ class RobogenDataset(BaseDataset):
             task_name=None,
             observation_mode='segmask',
             enumerate=False,
-            augmentation_rot=False,
-            augmentation_pcd=False,
-            use_absolute_waypiont=False,
             is_pickle=False,
+            dataset_keys=None,
+            augmentation_pcd=False,
+            augmentation_rot=False,
+            use_absolute_waypiont=False,
             **kwargs
             ):
         super().__init__()
@@ -43,22 +45,22 @@ class RobogenDataset(BaseDataset):
         self.use_absolute_waypiont = use_absolute_waypiont
         self.is_pickle = is_pickle
         
-        keys = ['state', 'action', 'point_cloud']
-        if 'act3d' in observation_mode:
-
-            # [Chialiang]
-            if 'mlp' in observation_mode:
-                keys += ['gripper_pcd']
-            else :
+        if dataset_keys is None:
+            keys = ['state', 'action', 'point_cloud']
+            if 'act3d' in observation_mode:
                 keys += ['feature_map', 'gripper_pcd', 'pcd_mask']
+                if 'goal' in observation_mode:
+                    keys += ['goal_gripper_pcd']
+                if 'displacement_gripper_to_object' in observation_mode:
+                    keys += ['displacement_gripper_to_object']
+            elif 'act3d_pointnet' == observation_mode:
+                keys += ['gripper_pcd']
+        else:
+            cprint(f"specifying dataset_keys: {dataset_keys}", "red")
+            keys = dataset_keys
 
-            if 'goal' in observation_mode:
-                keys += ['goal_gripper_pcd']
-            if 'displacement_gripper_to_object' in observation_mode:
-                keys += ['displacement_gripper_to_object']
-        elif 'act3d_pointnet' == observation_mode:
-            keys += ['gripper_pcd']
-
+        self.keys_ = keys
+        
         # try to get kept_in_disk from kwargs, if not, set it to False
         if 'kept_in_disk' in kwargs:
             self.kept_in_disk = kwargs['kept_in_disk']
@@ -66,6 +68,8 @@ class RobogenDataset(BaseDataset):
             self.kept_in_disk = False 
             
         self.load_per_step = kwargs.get('load_per_step', False)
+
+        self.only_reach_stage = kwargs.get('only_reach_stage', False)
 
         if self.kept_in_disk:
             cprint("loading dataset in disk, need a lot of I/O", "red")
@@ -115,17 +119,17 @@ class RobogenDataset(BaseDataset):
             else:
                 cprint(f'keep in disk and load per step, load_per_step:{self.load_per_step}', 'green')
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
-
-                # [TODO] add argument "is_pickle"
-                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, is_pickle=self.is_pickle) # [DebugPickle]
+                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle)
                 self.action_welford = self.replay_buffer.action_welford
             
+            # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
+            # train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
+            # train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
             self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
             train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-            # train_mask = np.concatenate(train_masks)
-            # self.val_mask = np.concatenate(val_masks)
 
         
         if not self.kept_in_disk:
@@ -344,25 +348,6 @@ class RobogenDataset(BaseDataset):
                 gripper_pcd = (gripper_pcd_homo @ random_trans.T)[:, :3]
                 gripper_pcd = gripper_pcd_homo.reshape(self.horizon, -1, 3)
 
-        ###########################################
-        if debug:
-            
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/agent_pos_after_neg45.npy', agent_pos)
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/point_cloud_after_neg45.npy', point_cloud)
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/action_after_neg45.npy', action)
-            # np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/feature_map_after_neg45.npy', feature_map)
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/gripper_pcd_after_neg45.npy', gripper_pcd)
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/goal_gripper_pcd_after_neg45.npy', goal_gripper_pcd)
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/displacement_gripper_to_object_after_neg45.npy', displacement_gripper_to_object)
-
-            print(f'time for aug: {time.time() - start}')
-            print('agent_pos', agent_pos.shape)
-            print('point_cloud', point_cloud.shape)
-            print('action', action.shape)
-            print('gripper_pcd', gripper_pcd.shape)
-            print('goal_gripper_pcd', goal_gripper_pcd.shape)
-            print('displacement_gripper_to_object', displacement_gripper_to_object.shape)
-        ###########################################
 
         # change to absolute waypoints
         if self.use_absolute_waypiont:
@@ -382,12 +367,6 @@ class RobogenDataset(BaseDataset):
 
             action = absolute_action
 
-        ###########################################
-        if debug:
-            np.save('/project_data/held/chialiak/RoboGen-sim2real/one_traj/debug/action_after_neg45_abs.npy', action)
-            exit(0)
-        ###########################################
-
        # assign to dict
         data = {
             'obs': {
@@ -399,21 +378,14 @@ class RobogenDataset(BaseDataset):
 
         if 'act3d' in self.observation_mode:
             data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
-            
-            # [Chialiang]
-            if 'mlp' not in self.observation_mode:
-                data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
-                data['obs']['feature_map'] = feature_map.astype(np.float32)
-
+            data['obs']['feature_map'] = feature_map.astype(np.float32)
+            data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
             if 'goal' in self.observation_mode:
                 data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
             if 'displacement_gripper_to_object' in self.observation_mode:
                 data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
-        
-        elif 'act3d_pointnet' == self.observation_mode:
-            data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
-        
         return data
+
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         sample = self.sampler.sample_sequence(idx)

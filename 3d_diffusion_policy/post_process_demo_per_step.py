@@ -168,7 +168,6 @@ def filter_traj(traj_feature_maps, traj_gripper_pcd, traj_pc, traj_pcd_masks, tr
                 min_translation=0.002, min_rotation=0.005, min_finger_angle_diff=0.001):
     
     traj_actions = []
-
     
     base_pos = traj_pos_ori[0][:3]
     base_ori_6d = traj_pos_ori[0][3:9]

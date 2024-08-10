@@ -314,7 +314,10 @@ class TrainDP3Workspace:
                     # sample trajectory from training set, and evaluate difference
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
-                    gt_action = batch['action']
+                    if self.cfg.policy.prediction_target == 'action':
+                        gt_action = batch['action']
+                    else:
+                        gt_action = batch['obs'][self.cfg.policy.prediction_target].flatten(start_dim=2)
                     
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']

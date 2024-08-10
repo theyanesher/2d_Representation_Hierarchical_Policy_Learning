@@ -1,0 +1,62 @@
+#!/bin/bash
+
+
+#SBATCH -N 1 # Number of nodes
+#SBATCH -n 12
+#SBATCH -p ROBO
+#SBATCH --gpus=h100:2 #GPU specification. H100
+#SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
+#SBATCH --job-name 10-obj-pred-goal-transformer-diffusion
+#SBATCH -o job_%j.out
+#SBATCH -e job_%j.err
+#SBATCH --mail-type=END
+#SBATCH --mail-user=ziyuw2@andrew.cmu.edu
+
+
+# use the bash shell
+set -x 
+# echo each command to standard out before running it
+
+echo "Niko Hello!"
+
+### first copy all the data needed in parallel
+# Define an array of source-destination pairs
+source_dir="/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/"
+declare -a SOURCES=(
+    # "${source_dir}/debug:/local/"
+    "${source_dir}/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point:/local/"
+    "${source_dir}/0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action:/local/"
+    "${source_dir}/0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action:/local/"
+    "${source_dir}/0628-act3d-obj-46732-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-46801-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-46874-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-46922-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"
+    "${source_dir}/0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1:/local/"    
+    # Add more source-destination pairs as needed
+)
+
+# Function to run rsync command
+run_rsync() {
+    local src="$1"
+    local dst="$2"
+    rsync -az "$src" "$dst" &
+}
+
+# Loop through the array and run rsync commands in parallel
+for pair in "${SOURCES[@]}"; do
+    IFS=":" read -r src dst <<< "$pair"
+    run_rsync "$src" "$dst"
+done
+
+# Wait for all background processes to complete
+wait
+
+echo "All rsync commands have completed."
+
+
+#### start training
+singularity exec --bind /ocean/projects/cis240052p/zwang41/Robogen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity.sh
+# singularity exec --bind /ocean/projects/cis240052p/zwang41/Robogen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-2.sh

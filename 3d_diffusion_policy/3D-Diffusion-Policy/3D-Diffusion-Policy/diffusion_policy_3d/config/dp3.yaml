@@ -79,11 +79,19 @@ policy:
     goal_mode: null
     mode: null
     use_mlp: false
+    self_attention: false
+    use_attn_for_point_features: false # large_self_attention, locally_self_attention
+    pointcloud_backbone: unet # unet, mlp, pointnet2, point_transformer
+    use_lightweight_unet: false # dummy param
+
     use_lightweight_unet: false
     self_attention: false
     final_attention: false
 
   prediction_target: action
+
+  noise_model_type: unet # unet, transformer
+  diffusion_attn_embed_dim: 240
 
 
 ema:
@@ -96,14 +104,14 @@ ema:
 
 dataloader:
   batch_size: 30
-  num_workers: 12 # [AugDebug]
+  num_workers: 12
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
   batch_size: 30
-  num_workers: 12  # [AugDebug]
+  num_workers: 12
   shuffle: False
   pin_memory: True
   persistent_workers: False
