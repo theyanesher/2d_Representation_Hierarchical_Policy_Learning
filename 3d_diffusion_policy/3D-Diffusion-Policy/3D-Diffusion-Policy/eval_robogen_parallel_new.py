@@ -789,9 +789,6 @@ if __name__ == "__main__":
         if not os.path.exists(save_path):
             os.makedirs(save_path)
             
-        exp_beg_ratio = 0.9
-        exp_end_ratio = 1
-            
         run_eval_non_parallel(cfg, policy, num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
