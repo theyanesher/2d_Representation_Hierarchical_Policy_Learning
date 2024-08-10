@@ -1,4 +1,5 @@
 from test_PointNet2.model import PointNet2_small2
+from test_PointNet2.model_attn import AttnModel
 import torch
 from tqdm import tqdm
 from test_PointNet2.dataset_from_disk import get_dataloader
@@ -54,14 +55,19 @@ def visualize_weight_pointcloud(pointcloud, weights):
 
 def eval(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model = PointNet2_small2(num_classes=13).to(device)
+    if args.model_type == 'pointnet2':
+        model = PointNet2_small2(num_classes=13).to(device)
+    elif args.model_type == 'attn':
+        model = AttnModel(num_classes=13).to(device)
+    else:
+        raise ValueError(f"model_type {args.model_type} not recognized")
     if device == torch.device('cpu'):
         model.load_state_dict(torch.load(args.load_model_path, map_location=torch.device('cpu')))
     else:
         model.load_state_dict(torch.load(args.load_model_path))
     model.eval()
 
-    dataset = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=False, eval_episode=args.eval_episode)
+    dataset = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, eval_episode=args.eval_episode)
 
     displacement_l2 = []
     l2_distribution = []
@@ -116,9 +122,10 @@ def parse_args():
     parser.add_argument('--save_freq', type=int, default=20)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--exp_path', type=str, default="/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps")
-    parser.add_argument('--load_model_path', type=str, default="/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/model_3.pth")
+    parser.add_argument('--load_model_path', type=str, default="/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/results/displacement_weighted_gripper_all/model_18.pth")
     parser.add_argument('--num_visualize', type=int, default=20)
     parser.add_argument('--visualize', action='store_true')
+    parser.add_argument('--model_type', type=str, default='pointnet2')
 
     
 

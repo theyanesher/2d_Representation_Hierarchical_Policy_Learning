@@ -26,12 +26,13 @@ from multiprocessing import set_start_method
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
+import datetime
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 def ddp_setup():
     os.environ["NCCL_P2P_LEVEL"] = "NVL"
-    init_process_group(backend="nccl")
+    init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=5400))
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 class TrainDP3Workspace:

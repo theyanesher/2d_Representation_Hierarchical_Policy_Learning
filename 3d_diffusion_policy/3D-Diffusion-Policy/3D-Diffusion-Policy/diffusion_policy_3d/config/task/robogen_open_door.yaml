@@ -58,5 +58,7 @@ dataset:
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10
+  is_pickle: false
   dataset_keys: None
   only_reach_stage: false
+  augmentation_pcd: false

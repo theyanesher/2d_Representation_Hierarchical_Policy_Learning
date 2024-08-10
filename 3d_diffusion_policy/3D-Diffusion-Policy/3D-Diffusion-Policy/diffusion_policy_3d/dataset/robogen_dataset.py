@@ -8,6 +8,8 @@ from diffusion_policy_3d.common.sampler import (get_val_mask, downsample_mask)
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
 from termcolor import cprint
+import random
+import copy
 
 class RobogenDataset(BaseDataset):
     def __init__(self,
@@ -22,13 +24,16 @@ class RobogenDataset(BaseDataset):
             task_name=None,
             observation_mode='segmask',
             enumerate=False,
+            is_pickle=False,
             dataset_keys=None,
+            augmentation_pcd=False,
             **kwargs
             ):
         super().__init__()
         
         self.task_name = task_name
         self.observation_mode = observation_mode
+        self.augmentation_pcd = augmentation_pcd
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -45,6 +50,7 @@ class RobogenDataset(BaseDataset):
             keys = dataset_keys
 
         self.keys_ = keys
+        self.is_pickle = is_pickle
         
         # try to get kept_in_disk from kwargs, if not, set it to False
         if 'kept_in_disk' in kwargs:
@@ -103,7 +109,7 @@ class RobogenDataset(BaseDataset):
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys)
             else:
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
-                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage)
+                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle)
                 self.action_welford = self.replay_buffer.action_welford
             
             # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
@@ -215,37 +221,39 @@ class RobogenDataset(BaseDataset):
         return len(self.sampler)
     
     def _sample_to_data(self, sample):
-        agent_pos = sample['state'][:,].astype(np.float32) # (T, agent_pos: 7) T is the horizon
-        point_cloud = sample['point_cloud'][:,].astype(np.float32) # (T, 1280, 6)
-       
+        agent_pos = copy.deepcopy(sample['state'][:,].astype(np.float32)) # (T, agent_pos: 7) T is the horizon
+        point_cloud = copy.deepcopy(sample['point_cloud'][:,].astype(np.float32))
+        action = copy.deepcopy(sample['action'].astype(np.float32))
+        agent_pos = copy.deepcopy(agent_pos)
+        if 'act3d' in self.observation_mode:
+            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,].astype(np.float32))
+            feature_map = copy.deepcopy(sample['feature_map'][:,].astype(np.float32))
+            pcd_mask = copy.deepcopy(sample['pcd_mask'][:,].astype(np.uint8))
+            if 'goal' in self.observation_mode:
+                goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,].astype(np.float32))
+            if 'displacement_gripper_to_object' in self.observation_mode:
+                displacement_gripper_to_object = copy.deepcopy(sample['displacement_gripper_to_object'][:,].astype(np.float32))
+        if self.augmentation_pcd:
+            point_cloud = pointcloud + np.random.normal(0, 0.005, point_cloud.shape)
         data = {
             'obs': {
-                'point_cloud': point_cloud, # T, 1280, 6
-                'agent_pos': agent_pos, # T, D_pos
+                'point_cloud': point_cloud.astype(np.float32) 
+                'agent_pos': agent_pos.astype(np.float32), 
             },
-            'action': sample['action'].astype(np.float32) # T, D_action
+            'action': action.astype(np.float32)
         }
 
         if 'act3d' in self.observation_mode:
-            # gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
-            # feature_map = sample['feature_map'][:,].astype(np.float32)
-            # pcd_mask = sample['pcd_mask'][:,].astype(np.uint8)
-            # data['obs']['gripper_pcd'] = gripper_pcd
-            # data['obs']['feature_map'] = feature_map
-            # data['obs']['pcd_mask'] = pcd_mask
-            # if 'goal' in self.observation_mode:
-            #     data['obs']['goal_gripper_pcd'] = sample['goal_gripper_pcd'][:,].astype(np.float32)
-            # if 'displacement_gripper_to_object' in self.observation_mode:
-            #     data['obs']['displacement_gripper_to_object'] = sample['displacement_gripper_to_object'][:,].astype(np.float32)
-            for key in self.keys_:
-                if key in ['action']:
-                    continue
-                data['obs'][key] = sample[key][:,].astype(np.float32)
-        elif 'act3d_pointnet' == self.observation_mode:
-            gripper_pcd = sample['gripper_pcd'][:,].astype(np.float32)
-            data['obs']['gripper_pcd'] = gripper_pcd
-        
+            data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
+            data['obs']['feature_map'] = feature_map.astype(np.float32)
+            data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
+            if 'goal' in self.observation_mode:
+                data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
+            if 'displacement_gripper_to_object' in self.observation_mode:
+                data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
+
         return data
+
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         sample = self.sampler.sample_sequence(idx)

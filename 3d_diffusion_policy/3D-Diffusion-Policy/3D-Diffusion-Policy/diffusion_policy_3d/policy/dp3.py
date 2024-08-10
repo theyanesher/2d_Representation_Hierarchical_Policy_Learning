@@ -447,12 +447,17 @@ class DP3(BasePolicy):
             # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
             # sigma = self.noise_scheduler.sigmas[timesteps]
             # alpha_t, sigma_t = self.noise_scheduler._sigma_to_alpha_sigma_t(sigma)
-            self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
-            self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
-            alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
-            alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
-            sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
-            v_t = alpha_t * noise - sigma_t * trajectory
+            # alpha_t = alpha_t.to(self.device)
+            # sigma_t = sigma_t.to(self.device)
+            # # self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
+            # # self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
+            # # alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
+            # alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
+            # sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
+            # v_t = alpha_t * noise - sigma_t * trajectory
+            # target = v_t
+            # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_ddim.py
+            v_t = self.noise_scheduler.get_velocity(sample=trajectory, noise=noise, timesteps=timesteps)
             target = v_t
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")

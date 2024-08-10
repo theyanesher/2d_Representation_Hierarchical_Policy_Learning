@@ -99,14 +99,14 @@ ema:
 
 dataloader:
   batch_size: 30
-  num_workers: 15
+  num_workers: 12
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
   batch_size: 30
-  num_workers: 15
+  num_workers: 12
   shuffle: False
   pin_memory: True
   persistent_workers: False
