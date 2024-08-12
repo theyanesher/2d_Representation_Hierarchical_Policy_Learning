@@ -84,8 +84,6 @@ policy:
     pointcloud_backbone: unet # unet, mlp, pointnet2, point_transformer
     use_lightweight_unet: false # dummy param
 
-    use_lightweight_unet: false
-    self_attention: false
     final_attention: false
 
   prediction_target: action

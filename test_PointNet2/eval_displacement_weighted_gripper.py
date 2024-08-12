@@ -67,7 +67,7 @@ def eval(args):
         model.load_state_dict(torch.load(args.load_model_path))
     model.eval()
 
-    dataset = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, eval_episode=args.eval_episode)
+    dataset = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=False, eval_episode=args.eval_episode)
 
     displacement_l2 = []
     l2_distribution = []

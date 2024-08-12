@@ -63,6 +63,5 @@ dataset:
   dataset_keys: None
   only_reach_stage: false
   augmentation_pcd: false
-  augmentation_pcd: false
   augmentation_rot: false
   use_absolute_waypiont: false
