@@ -5,7 +5,7 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:4 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name test # 50-obj-act3d-unet-low-level-with-goal
+#SBATCH --job-name 50-obj-act3d-mlp-low-level-with-goal-v_prediction # 50-obj-act3d-unet-low-level-with-goal
 #SBATCH -o sbatch_output/job_%j.out
 #SBATCH -e sbatch_output/job_%j.err
 #SBATCH --mail-type=END

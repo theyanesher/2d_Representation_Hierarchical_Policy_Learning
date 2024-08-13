@@ -138,20 +138,23 @@ if [ $func = 'train' ]; then
     in_channels=3 ####
     self_attention=false
     final_attention=false
+    
     # normalize_action=true
     # augmentation_rot=false
     # augmentation_pcd=false
     normalize_action=true
-    augmentation_rot=true
+    augmentation_rot=false
     augmentation_pcd=false
-    use_absolute_waypoint=true
-    # use_absolute_waypoint=true
+    augmentation_scale=true
+    use_absolute_waypoint=false
+    use_chained_diffuser=false
+    prediction_type=epsilon
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-abs_wpt-aug_rot"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_scale-epsilon"
 
     action_dim=10
     agent_pos_dim=10
@@ -524,6 +527,7 @@ if [ $func = 'train' ]; then
         task.env_runner.use_joint_angle="${use_joint_angle}" \
         task.env_runner.use_segmask="${use_segmask}" \
         task.env_runner.only_handle_points="${only_handle_points}" \
+        task.env_runner.use_absolute_waypoint="${use_absolute_waypoint}" \
         horizon="${horizon}" n_obs_steps="${n_obs_steps}" \
         task.shape_meta.obs.agent_pos.shape="[${agent_pos_dim}]" \
         task.shape_meta.action.shape="[${action_dim}]" \
@@ -551,11 +555,11 @@ if [ $func = 'train' ]; then
         task.dataset.load_per_step=true \
         task.dataset.augmentation_rot="${augmentation_rot}" \
         task.dataset.augmentation_pcd="${augmentation_pcd}" \
+        task.dataset.augmentation_scale="${augmentation_scale}" \
         task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
-        val_dataloader.batch_size="${batch_size}" \
-        load_checkpoint_path='/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08082112-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_rot/2024.08.08/21.13.21_train_dp3_robogen_open_door/checkpoints/latest.ckpt'
+        val_dataloader.batch_size="${batch_size}"
         
 
 fi 

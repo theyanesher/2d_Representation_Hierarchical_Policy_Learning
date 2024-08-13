@@ -170,6 +170,8 @@ class DP3(BasePolicy):
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
 
+        cprint(f'using {self.noise_scheduler.config.prediction_type}', 'green')
+
         print_params(self)
         
     # ========= inference  ============
@@ -232,7 +234,6 @@ class DP3(BasePolicy):
 
             nobs['point_cloud'][...,:3] /= max_scale
             nobs['agent_pos'][...,:3] /= max_scale
-            nobs['action'][...,:3] /= max_scale
 
             if "act3d" in self.encoder_type:
                 nobs['gripper_pcd'][...,:3] /= max_scale
@@ -321,6 +322,9 @@ class DP3(BasePolicy):
 
         else:
             action_pred = naction_pred
+
+        if self.scale_scene_by_pcd:
+            action_pred[...,:3] *= max_scale
 
         # get action
         start = To - 1
@@ -459,12 +463,15 @@ class DP3(BasePolicy):
             # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
             # sigma = self.noise_scheduler.sigmas[timesteps]
             # alpha_t, sigma_t = self.noise_scheduler._sigma_to_alpha_sigma_t(sigma)
-            self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
-            self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
-            alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
-            alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
-            sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
-            v_t = alpha_t * noise - sigma_t * trajectory
+            # self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
+            # self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
+            # alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
+            # alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
+            # sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
+            # v_t = alpha_t * noise - sigma_t * trajectory
+            # target = v_t
+            # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_ddim.py
+            v_t = self.noise_scheduler.get_velocity(sample=trajectory, noise=noise, timesteps=timesteps)
             target = v_t
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")

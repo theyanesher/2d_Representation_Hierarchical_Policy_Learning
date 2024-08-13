@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import time
 from termcolor import cprint
 from scipy.spatial.transform import Rotation as R
+from sklearn.neighbors import NearestNeighbors
 import fpsample
 import os
 import json
@@ -40,6 +41,7 @@ class RobogenPointCloudWrapper:
                  use_joint_angle=False,
                  use_absolute_waypoint=False, # [Chialiang][CDDEBUG]
                  use_chained_diffuser=False, # [Chialiang][CDDEBUG]
+                 dense_pcd_for_goal=False, # [Chialiang][DEBUG]
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
@@ -70,6 +72,7 @@ class RobogenPointCloudWrapper:
         self.use_joint_angle = use_joint_angle
         self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
         self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
+        self.dense_pcd_for_goal = dense_pcd_for_goal # [Chialiang][DEBUG]
         self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
@@ -441,23 +444,85 @@ class RobogenPointCloudWrapper:
         
         num_points = self.num_points
         if using_torch:
-            point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-            num_points = torch.tensor([num_points]).cuda()
-            _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-            sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-            sampled_indices = np.array(sorted(sampled_indices))
-            point_cloud = point_cloud.squeeze(0).cpu().numpy()
-            point_cloud = point_cloud[sampled_indices]
+
+            # [Chialiang] for 
+            if self.dense_pcd_for_goal:
+
+                # get the cropped point cloud from feature_map
+                original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
+                cond = np.where((original_feature_map_faltten[...,0] > 0.5) | (original_feature_map_faltten[...,1] > 0.5) )
+                dense_pcd = original_feature_map_faltten[...,2:5][cond]
+
+                # downsampled pcd from FPS
+                dense_point_num = 500
+                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([num_points-dense_point_num]).cuda() # 4500 - 500
+                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+                sampled_indices = np.array(sorted(sampled_indices))
+                point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                point_cloud = point_cloud[sampled_indices]
+
+                # [TODO] find current goal
+                hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
+                nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
+                distances, indices = nn.kneighbors(hand_point)
+                distances, indices = distances[0], indices[0]
+                sorted_index = np.argsort(distances)
+                additional_index = indices[sorted_index[:dense_point_num]]
+
+                additional_pcd = dense_pcd[additional_index]
+                point_cloud = np.vstack([point_cloud, additional_pcd])
+
+            else :
+                
+                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([num_points]).cuda()
+                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+                sampled_indices = np.array(sorted(sampled_indices))
+                point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                point_cloud = point_cloud[sampled_indices]
+
         else:
+
             if point_cloud.shape[0] < num_points:
                 to_add_points_num = num_points - point_cloud.shape[0]
                 random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
                 point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
             
-            h = min(9, np.log2(num_points))
-            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
-            kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
-            point_cloud = point_cloud[kdline_fps_samples_idx]
+            # [Chialiang] for 
+            if self.dense_pcd_for_goal:
+
+                # get the cropped point cloud from feature_map
+                original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
+                cond = np.where((original_feature_map_faltten[...,0] > 0.5) | (original_feature_map_faltten[...,1] > 0.5) )
+                dense_pcd = original_feature_map_faltten[...,2:5][cond]
+
+                # downsampled pcd from FPS
+                dense_point_num = 500
+                h = min(9, np.log2(num_points-dense_point_num))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points-dense_point_num, h=h)
+                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+                point_cloud = point_cloud[kdline_fps_samples_idx]
+
+                # [TODO] find current goal
+                hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
+                nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
+                distances, indices = nn.kneighbors(hand_point)
+                distances, indices = distances[0], indices[0]
+                sorted_index = np.argsort(distances)
+                additional_index = indices[sorted_index[:dense_point_num]]
+
+                additional_pcd = dense_pcd[additional_index]
+                point_cloud = np.vstack([point_cloud, additional_pcd])
+
+            else :
+
+                h = min(9, np.log2(num_points))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+                point_cloud = point_cloud[kdline_fps_samples_idx]
         
         new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
         new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1

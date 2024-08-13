@@ -50,7 +50,7 @@ policy:
     clip_sample: True
     set_alpha_to_one: True
     steps_offset: 0
-    prediction_type: sample
+    prediction_type: sample # sample, epsilon, v_prediction
 
 
   num_inference_steps: 10

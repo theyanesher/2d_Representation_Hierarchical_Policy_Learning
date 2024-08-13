@@ -17,6 +17,4 @@ echo "login to wandb successed"
 
 echo "start training"
 # bash run-act3d-ddp-goal.sh
-bash run-act3d-ddp-psc-pickle-debug.sh post_process
-
-
+bash run-act3d-ddp-psc-pickle-all.sh train

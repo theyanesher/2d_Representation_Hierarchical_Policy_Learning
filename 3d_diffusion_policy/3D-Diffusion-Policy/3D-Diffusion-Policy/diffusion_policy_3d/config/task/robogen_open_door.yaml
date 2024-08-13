@@ -44,6 +44,7 @@ env_runner:
   only_object: true
   use_absolute_waypoint: false # [Chialiang][CDDEBUG]
   use_chained_diffuser: false # [Chialiang][CDDEBUG]
+  dense_pcd_for_goal: false  # [Chialiang][DEBUG]
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset

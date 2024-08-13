@@ -11,7 +11,6 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-user=chialiak@andrew.cmu.edu
 
-
 # use the bash shell
 set -x 
 # echo each command to standard out before running it

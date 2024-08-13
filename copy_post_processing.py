@@ -7,6 +7,10 @@ import fpsample
 import shutil
 import subprocess
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from sklearn.neighbors import NearestNeighbors
+import pickle
 
 USED_KEYS = [
     'state',
@@ -15,7 +19,36 @@ USED_KEYS = [
     'gripper_pcd',
     'goal_gripper_pcd',
     'displacement_gripper_to_object',
+    'feature_map'
 ]
+
+def plot_pcd(points, path):
+
+    # Create a figure and a 3D axes
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot the points
+    sc = ax.scatter(points[...,0], points[...,1], points[...,2], c='b', marker='o', s=0.5)
+    
+    # Hide the grid
+    ax.grid(False)
+
+    # Add labels and title
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+    ax.set_title('3D Point Cloud Visualization')
+
+    ax.set_xlim([ 0.5, 1.5])
+    ax.set_ylim([-0.5, 0.5])
+    ax.set_zlim([ 0.0, 1.0])
+
+    ax.view_init(elev=ax.elev, azim=180)
+
+    # Show the plot
+    plt.savefig(path)
+    cprint(f'{path} has been saved', 'green')
 
 def rsync_files(input_dir, output_dir, prefix=''):
 
@@ -73,6 +106,121 @@ def rsync_files(input_dir, output_dir, prefix=''):
                 # cprint(f'{dst} created', 'green')
 
             # exit(0)
+
+def post_process_dense_pcd_on_goal(input_dir, output_dir, 
+        num_points=4500, extra_points=500, post_fix=''):
+
+    # group_names = os.listdir(input_dir)
+    dataset_id = input_dir.split('/')[-1]
+    group_paths = glob.glob(f'{input_dir}/2024*')
+    group_paths.sort()
+
+    # file_prefix = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real'
+
+    for group_path in group_paths:
+
+        group_name = group_path.split('/')[-1]
+        wpt_groups = os.listdir(group_path)
+
+        wpt_groups = sorted(wpt_groups, key = lambda x: int(x.split('.')[0]))
+
+        new_states = []
+        new_pcds = []
+        new_actions = []
+
+        new_gripper_pcds = []
+        new_goal_gripper_pcds = []
+        new_displacement_gripper_to_objects = []
+
+        for wpt_group in tqdm(wpt_groups):
+
+            # check no this output path
+            new_data_save_dir = f'{output_dir}/{group_name}'
+            new_pickle_data_save_path = f"{new_data_save_dir}/{wpt_group}.pkl"
+            if os.path.exists(new_pickle_data_save_path):
+                cprint(f"Already exists: {new_pickle_data_save_path}", "yellow")
+                continue
+
+            zarr_path = f'{group_path}/{wpt_group}'
+
+            group = zarr.open(zarr_path, mode='r')
+
+            # one trajectory
+            data_group = group['data']
+            data = {}
+
+            for key in USED_KEYS:
+                data[key] = np.array(data_group[key])
+
+            original_state = data['state']
+            original_pcd = data['point_cloud']
+            original_action = data['action']
+            original_gripper_pcd = data['gripper_pcd']
+            original_goal_gripper_pcd = data['goal_gripper_pcd']
+            original_displacement_gripper_to_object = data['displacement_gripper_to_object']
+            original_feature_map = data['feature_map']
+
+            # print(original_pcd.shape)
+            # print(original_goal_gripper_pcd.shape)
+
+            # get the downsampled point cloud
+            original_feature_map_faltten = original_feature_map.reshape(-1, 5)
+            cond = np.where(original_feature_map_faltten[...,1] > 0.5 )
+            dense_pcd = original_feature_map_faltten[...,2:5][cond]
+
+            h = min(9, np.log2(num_points - extra_points))
+            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(dense_pcd[:, :3], num_points - extra_points, h=h)
+            kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+            point_cloud = dense_pcd[kdline_fps_samples_idx]
+
+            # get the zoom-in point cloud
+            hand_point = original_goal_gripper_pcd[0, 0].reshape(1, -1)
+            nn = NearestNeighbors(n_neighbors=extra_points, algorithm='ball_tree').fit(dense_pcd)
+            distances, indices = nn.kneighbors(hand_point)
+            distances, indices = distances[0], indices[0]
+            sorted_index = np.argsort(distances)
+            additional_index = indices[sorted_index[:extra_points]]
+
+            additional_pcd = dense_pcd[additional_index]
+            point_cloud_final = np.vstack([point_cloud, additional_pcd])
+
+            # if wpt_group == '0':
+            #     # output
+            #     out_path = f'{file_prefix}/{group_name}-{wpt_group}.jpg'
+            #     plot_pcd(point_cloud, out_path)
+            #     out_path = f'{file_prefix}/{group_name}-{wpt_group}-dense.jpg'
+            #     plot_pcd(point_cloud_final, out_path)
+            #     exit(0)
+
+            point_cloud_final = point_cloud_final[None,:]
+
+            # save data
+            # print(f'will save to {new_data_save_dir}')
+            # print(point_cloud_final.shape)
+            if not os.path.exists(new_data_save_dir):
+                cprint(f'create {new_data_save_dir}', 'green')
+                os.makedirs(new_data_save_dir)
+                
+            pickle_data = {
+                'state': original_state,
+                'point_cloud': point_cloud_final,
+                'action': original_action,
+                'gripper_pcd': original_gripper_pcd,
+                'goal_gripper_pcd': original_goal_gripper_pcd,
+                'displacement_gripper_to_object': original_displacement_gripper_to_object,
+            } 
+
+            with open(new_pickle_data_save_path, "wb") as f:
+                pickle.dump(pickle_data, f)
+                cprint(f"Saving new data to: {new_pickle_data_save_path}", "green")
+
+                del original_state
+                del point_cloud_final
+                del original_action
+                del original_gripper_pcd
+                del original_goal_gripper_pcd
+                del original_displacement_gripper_to_object
+            
 
 def copy_per_step(input_dir, output_dir, prefix=''):
 
@@ -339,20 +487,8 @@ def copy_all_step_to_per_step(input_dir, output_dir, prefix=''):
 
     # group_names = os.listdir(input_dir)
 
-
     group_paths = glob.glob(f'{input_dir}/*')
     group_paths.sort()
-
-    # group_paths = [
-    #     # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876-whole-mlp/2024-07-07-10-00-07',
-    #     # '/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0702-act3d-obj-46966-goal/2024-06-27-17-57-07',
-    #     # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526-whole-mlp/2024-07-06-01-32-05'
-    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp/2024-07-12-03-58-29'
-    # ]
-    # # output_dir = '/scratch/chialiang/dp3_demo/0705-obj-48876'
-    # # output_dir = '/scratch/chialiang/dp3_demo/0705-obj-46966'
-    # # output_dir = '/scratch/chialiang/dp3_demo/0705-obj-45526'
-    # output_dir = '/scratch/chialiang/dp3_demo/0712-obj-41452'
 
     for group_path in group_paths:
 
@@ -593,7 +729,6 @@ def main(arg):
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_45694/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_45780/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_45910/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
-        
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_45961/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_46408/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_46417/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
@@ -605,7 +740,6 @@ def main(arg):
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_46893/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_47235/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_47281/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
-        
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_47315/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_47529/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_47669/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
@@ -617,7 +751,6 @@ def main(arg):
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_48623/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_48876/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_49025/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
-        
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_49062/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_49132/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects/open_the_door_49133/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
@@ -629,240 +762,278 @@ def main(arg):
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45176/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45194/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45203/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
-        
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45248/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45271/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
         # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45290/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
-    #     '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45305/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
+        # '/project_data/held/chialiak/RoboGen-sim2real/data/diverse_objects_2/open_the_door_45305/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first'
 
     # ]
-
-    # output_dirs = [
-    #     '/scratch/chialiang/dp3_demo/0712-obj-45305-copy',
-    # ]
-
-    # for (exp_dir, output_dir) in zip(exp_dirs, output_dirs):
-    #     fix_goal(exp_dir, output_dir)
-    # exit(0)
 
     # Load the data
+    # input_dirs = [
+
+    #     '/scratch/yufei/dp3_demo/0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action'
+
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45661',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45694',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45780',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45910',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45961',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46408',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46417',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46440',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46490',
+
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46762',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46825',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46893',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47235',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47281',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47315',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47529',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47669',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47944',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48063',
+
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48177',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48356',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48623',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49025',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49062',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49132',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49133',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-40417',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41085',
+
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45162',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45176',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45194',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45203',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45248',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45271',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45290',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45305',
+    # ]
+
+    # intermediate_dirs = [
+        
+    #     # G1
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-41510-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-45448-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46462-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46732-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46801-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46874-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46922-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46966-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47570-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47578-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-48700-whole-mlp',
+
+    #     # G2
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45661-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45694-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45780-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45910-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45961-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46408-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46417-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46440-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46490-whole-mlp',
+
+    #     # G3
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46762-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46825-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46893-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47235-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47281-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47315-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47529-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47669-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47944-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48063-whole-mlp',
+
+    #     # G4
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48177-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48356-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48623-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49025-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49062-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49132-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49133-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-40417-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41085-whole-mlp',
+
+    #     # G5
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45162-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45176-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45194-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45203-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45248-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45271-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45290-whole-mlp',
+    #     '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45305-whole-mlp',
+
+    # ]
+
     input_dirs = [
 
-        #
-        #
-        #
-        #
-        #
-        #
-        #
-        #
-        #
-        #
-        #
-
-        '/scratch/yufei/dp3_demo/0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action'
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45661',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45694',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45780',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45910',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45961',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46408',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46417',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46440',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46490',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46762',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46825',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46893',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47235',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47281',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47315',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47529',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47669',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47944',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48063',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48177',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48356',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48623',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49025',
-        
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49062',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49132',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49133',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-40417',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41085',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45162',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45176',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45194',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45203',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45248',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45271',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45290',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45305',
-    ]
-
-    intermediate_dirs = [
-        
         # # G1
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-41510-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-45448-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46462-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46732-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46801-whole-mlp',
-
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46874-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46922-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-46966-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47570-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-47578-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0702-obj-48700-whole-mlp',
-
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-46732-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-46801-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-46874-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-46922-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        
         # # G2
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45526-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45661-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45694-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45780-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45910-whole-mlp',
-
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45961-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46408-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46417-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46440-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46490-whole-mlp',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-45526',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-45661',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-45694',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-45780',
+        
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-45910',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-45961',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46408',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46417',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46440',
 
         # # G3
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46762-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46825-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-46893-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47235-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47281-whole-mlp',
-
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47315-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47529-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47669-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-47944-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48063-whole-mlp',
-
-        # # G4
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48177-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48356-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48623-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-48876-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49025-whole-mlp',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46490',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46762',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46825',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-46893',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47235',
         
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49062-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49132-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-49133-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-40417-whole-mlp',
-        # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41085-whole-mlp',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47281',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47315',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47529',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47669',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47944',
+        
+        # # G4
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-48063',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-48177',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-48356',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-48623',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-48876',
+        
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-49025',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-49062',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-49132',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-49133',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-40417',
 
         # G5
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-41452-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45162-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45176-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45194-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45203-whole-mlp',
-
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45248-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45271-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45290-whole-mlp',
-        '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0712-obj-45305-whole-mlp',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-41085',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-41452',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45162',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45176',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45194',
+        
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45203',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45248',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45271',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45290',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45305',
 
     ]
+
 
     output_dirs = [
-
-        # # G1
-        # '/scratch/chialiang/dp3_demo/0705-obj-41510',
-        # '/scratch/chialiang/dp3_demo/0705-obj-45448',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46462',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46732',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46801',
-
-        # '/scratch/chialiang/dp3_demo/0705-obj-46874',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46922',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46966',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47570',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47578',
-        # '/scratch/chialiang/dp3_demo/0705-obj-48700',
         
-        # # G2
-        # '/scratch/chialiang/dp3_demo/0705-obj-45526',
-        # '/scratch/chialiang/dp3_demo/0705-obj-45661',
-        # '/scratch/chialiang/dp3_demo/0705-obj-45694',
-        # '/scratch/chialiang/dp3_demo/0705-obj-45780',
-        # '/scratch/chialiang/dp3_demo/0705-obj-45910',
+        # # G1
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-41510-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-45448-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46462-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46732-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46801-dense_pcd_on_goal',
+        
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46874-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46922-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46966-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-47570-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-47578-dense_pcd_on_goal',
 
-        # '/scratch/chialiang/dp3_demo/0705-obj-45961',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46408',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46417',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46440',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46490',
+        # # G2
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-48700-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-45526-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-45661-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-45694-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-45780-dense_pcd_on_goal',
+        
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-45910-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-45961-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46408-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46417-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46440-dense_pcd_on_goal',
 
         # # G3
-        # '/scratch/chialiang/dp3_demo/0705-obj-46762',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46825',
-        # '/scratch/chialiang/dp3_demo/0705-obj-46893',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47235',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47281',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46490-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46762-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46825-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-46893-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47235-dense_pcd_on_goal',
+        
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47281-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47315-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47529-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47669-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47944-dense_pcd_on_goal',
 
-        # '/scratch/chialiang/dp3_demo/0705-obj-47315',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47529',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47669',
-        # '/scratch/chialiang/dp3_demo/0705-obj-47944',
-        # '/scratch/chialiang/dp3_demo/0705-obj-48063',
-        
         # # G4
-        # '/scratch/chialiang/dp3_demo/0705-obj-48177',
-        # '/scratch/chialiang/dp3_demo/0705-obj-48356',
-        # '/scratch/chialiang/dp3_demo/0705-obj-48623',
-        # '/scratch/chialiang/dp3_demo/0705-obj-48876',
-        # '/scratch/chialiang/dp3_demo/0705-obj-49025',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-48063-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-48177-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-48356-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-48623-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-48876-dense_pcd_on_goal',
         
-        # '/scratch/chialiang/dp3_demo/0705-obj-49062',
-        # '/scratch/chialiang/dp3_demo/0705-obj-49132',
-        # '/scratch/chialiang/dp3_demo/0705-obj-49133',
-        # '/scratch/chialiang/dp3_demo/0712-obj-40417',
-        # '/scratch/chialiang/dp3_demo/0712-obj-41085',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-49025-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-49062-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-49132-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-49133-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-40417-dense_pcd_on_goal',
 
         # G5
-        '/scratch/chialiang/dp3_demo/0712-obj-41452',
-        '/scratch/chialiang/dp3_demo/0712-obj-45162',
-        '/scratch/chialiang/dp3_demo/0712-obj-45176',
-        '/scratch/chialiang/dp3_demo/0712-obj-45194',
-        '/scratch/chialiang/dp3_demo/0712-obj-45203',
-
-        '/scratch/chialiang/dp3_demo/0712-obj-45248',
-        '/scratch/chialiang/dp3_demo/0712-obj-45271',
-        '/scratch/chialiang/dp3_demo/0712-obj-45290',
-        '/scratch/chialiang/dp3_demo/0712-obj-45305',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-41085-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-41452-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45162-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45176-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45194-dense_pcd_on_goal',
+        
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45203-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45248-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45271-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45290-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45305-dense_pcd_on_goal',
 
     ]
 
-    # for output_dir in output_dirs:
-    #     debug_action(output_dir)
-    # exit(0)
+    for (input_dir, output_dir) in zip(input_dirs, output_dirs):
+        post_process_dense_pcd_on_goal(input_dir, output_dir)
 
     # for (input_dir, intermediate_dir, output_dir) in zip(input_dirs, intermediate_dirs, output_dirs):
-    for (intermediate_dir, output_dir) in zip(intermediate_dirs, output_dirs):
+    # for (intermediate_dir, output_dir) in zip(intermediate_dirs, output_dirs):
         # copy_per_step_to_all_step(input_dir, intermediate_dir)
         # cprint(f'writing to {output_dir}', 'green')
-        copy_all_step_to_per_step(intermediate_dir, output_dir)
+        # copy_all_step_to_per_step(intermediate_dir, output_dir)
         
         # write_goal_pose_info(intermediate_dir)
 
     # for (input_dir, output_dir) in zip(input_dirs, output_dirs):
     #     copy_per_step(input_dir, output_dir)
-
 
     print('process completed')
 

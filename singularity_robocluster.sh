@@ -1,0 +1,1 @@
+singularity shell --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif

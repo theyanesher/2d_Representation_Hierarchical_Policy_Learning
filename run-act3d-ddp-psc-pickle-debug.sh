@@ -10,11 +10,17 @@ if [ $# -lt 1 ]; then
 fi
 
 
+if [ $func = 'post_process' ]; then 
+    python3 copy_post_processing.py
+fi
+
+
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 if [ $func = 'train' ]; then 
 
     source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+    source_dir="/jet/projects/cis240052p/ckuo1/dp3_demo"
 
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
@@ -43,22 +49,22 @@ if [ $func = 'train' ]; then
     # augmentation_rot=false
     # augmentation_pcd=false
     normalize_action=true
-    augmentation_rot=true
+    augmentation_rot=false
     augmentation_pcd=false
     use_absolute_waypoint=false
-    # use_absolute_waypoint=true
+    dense_pcd_for_goal=true
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_pcd-normalize"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-dense_pcd_for_goal"
 
     action_dim=10
     agent_pos_dim=10
     
     # saved data paths
-    save_data_name_0="0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point"
+    save_data_name_0=0702-obj-45448-dense_pcd_on_goal
     exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
     demo_name_0=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 
@@ -80,6 +86,7 @@ if [ $func = 'train' ]; then
         task.env_runner.use_joint_angle="${use_joint_angle}" \
         task.env_runner.use_segmask="${use_segmask}" \
         task.env_runner.only_handle_points="${only_handle_points}" \
+        task.env_runner.dense_pcd_for_goal="${dense_pcd_for_goal}" \
         horizon="${horizon}" n_obs_steps="${n_obs_steps}" \
         task.shape_meta.obs.agent_pos.shape="[${agent_pos_dim}]" \
         task.shape_meta.action.shape="[${action_dim}]" \

@@ -143,18 +143,18 @@ if [ $func = 'train' ]; then
     # augmentation_rot=false
     # augmentation_pcd=false
     normalize_action=true
-    augmentation_rot=true
-    augmentation_pcd=true
-    augmentation_scale=true
+    augmentation_rot=false
+    augmentation_pcd=false
+    augmentation_scale=false
     use_absolute_waypoint=false
+    scale_scene_by_pcd=true
     use_chained_diffuser=false
-    # use_absolute_waypoint=true
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_all"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-scale_scene_by_pcd"
 
     action_dim=10
     agent_pos_dim=10
@@ -537,6 +537,7 @@ if [ $func = 'train' ]; then
         policy.encoder_type="${encoder_type}" \
         policy.encoder_output_dim=60 \
         policy.normalize_action=${normalize_action} \
+        policy.scale_scene_by_pcd=${scale_scene_by_pcd} \
         policy.act3d_encoder_cfg.in_channels=${in_channels} \
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
@@ -556,6 +557,7 @@ if [ $func = 'train' ]; then
         task.dataset.augmentation_rot="${augmentation_rot}" \
         task.dataset.augmentation_pcd="${augmentation_pcd}" \
         task.dataset.augmentation_scale="${augmentation_scale}" \
+        task.dataset.scale_scene_by_pcd="${scale_scene_by_pcd}" \
         task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \

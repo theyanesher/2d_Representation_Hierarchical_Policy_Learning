@@ -31,8 +31,6 @@ fi
 # observation_mode=act3d_goal_gripper_4
 pointcloud_num=4500
 
-# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
-# # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-45448
 
 if [ $func = 'collect' ]; then 
 
@@ -118,9 +116,6 @@ if [ $func = 'train' ]; then
 
     source_dir="/local"
 
-    # observation_mode="dp3_goal_gripper_whole"
-    # observation_mode="dp3_goal_gripper_part"
-    # observation_mode="act3d_goal"
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
     encoding_mode="keep_position_feature_in_attention_feature"
@@ -143,20 +138,22 @@ if [ $func = 'train' ]; then
     in_channels=3 ####
     self_attention=false
     final_attention=false
+    
     # normalize_action=true
     # augmentation_rot=false
     # augmentation_pcd=false
-    normalize_action=false
-    augmentation_rot=false
+    normalize_action=true
+    augmentation_rot=true
     augmentation_pcd=false
+    augmentation_scale=false
     use_absolute_waypoint=false
-    # use_absolute_waypoint=true
+    use_chained_diffuser=false
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-no_normalize"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_rot-v_prediction"
 
     action_dim=10
     agent_pos_dim=10
@@ -529,6 +526,7 @@ if [ $func = 'train' ]; then
         task.env_runner.use_joint_angle="${use_joint_angle}" \
         task.env_runner.use_segmask="${use_segmask}" \
         task.env_runner.only_handle_points="${only_handle_points}" \
+        task.env_runner.use_absolute_waypoint="${use_absolute_waypoint}" \
         horizon="${horizon}" n_obs_steps="${n_obs_steps}" \
         task.shape_meta.obs.agent_pos.shape="[${agent_pos_dim}]" \
         task.shape_meta.action.shape="[${action_dim}]" \
@@ -556,10 +554,12 @@ if [ $func = 'train' ]; then
         task.dataset.load_per_step=true \
         task.dataset.augmentation_rot="${augmentation_rot}" \
         task.dataset.augmentation_pcd="${augmentation_pcd}" \
+        task.dataset.augmentation_scale="${augmentation_scale}" \
         task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
+        
 
 fi 
 

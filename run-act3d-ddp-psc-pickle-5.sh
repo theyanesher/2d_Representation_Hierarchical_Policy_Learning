@@ -138,21 +138,23 @@ if [ $func = 'train' ]; then
     in_channels=3 ####
     self_attention=false
     final_attention=false
+    
     # normalize_action=true
     # augmentation_rot=false
     # augmentation_pcd=false
     normalize_action=true
-    augmentation_rot=false
-    augmentation_pcd=false
+    augmentation_rot=true
+    augmentation_pcd=true
     augmentation_scale=true
-    use_absolute_waypoint=true
-    # use_absolute_waypoint=true
+    use_absolute_waypoint=false
+    use_chained_diffuser=false
+    prediction_type=epsilon
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-abs_wpt-aug_scale"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_all-epsilon"
 
     action_dim=10
     agent_pos_dim=10
@@ -525,6 +527,7 @@ if [ $func = 'train' ]; then
         task.env_runner.use_joint_angle="${use_joint_angle}" \
         task.env_runner.use_segmask="${use_segmask}" \
         task.env_runner.only_handle_points="${only_handle_points}" \
+        task.env_runner.use_absolute_waypoint="${use_absolute_waypoint}" \
         horizon="${horizon}" n_obs_steps="${n_obs_steps}" \
         task.shape_meta.obs.agent_pos.shape="[${agent_pos_dim}]" \
         task.shape_meta.action.shape="[${action_dim}]" \
