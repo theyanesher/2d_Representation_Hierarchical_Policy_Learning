@@ -5,7 +5,7 @@ from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
 from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
 from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2_small, PointNet2_small2, PointNet2ssg_small
-from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
+# from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
 import segmentation_models_pytorch as smp
 from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
 from torchvision.models import mobilenet_v3_small
@@ -129,19 +129,19 @@ class Act3dEncoder(nn.Module):
         elif self.pointcloud_backbone == 'pointnet2ssg':
             vision_encoder = PointNet2ssg_small(num_classes=vision_output_dim)
             vision_encoder = replace_bn_with_gn(vision_encoder,features_per_group=4)
-        elif self.pointcloud_backbone == 'point_transformer':
-            vision_encoder = PointTransformerSeg(
-                npoints=4500,
-                n_c=vision_output_dim,
-                nblocks=3,
-                nneighbor=16,
-                d_points=3,
-                transformer_dim=32,
-                base_dim=8,
-                downsample_ratio=8,
-                hidden_dim=128
-            )
-            vision_encoder = replace_bn_with_gn(vision_encoder, features_per_group=4)
+        # elif self.pointcloud_backbone == 'point_transformer':
+        #     vision_encoder = PointTransformerSeg(
+        #         npoints=4500,
+        #         n_c=vision_output_dim,
+        #         nblocks=3,
+        #         nneighbor=16,
+        #         d_points=3,
+        #         transformer_dim=32,
+        #         base_dim=8,
+        #         downsample_ratio=8,
+        #         hidden_dim=128
+        #     )
+        #     vision_encoder = replace_bn_with_gn(vision_encoder, features_per_group=4)
         else:
             cprint(f"Unknown pointcloud backbone {self.pointcloud_backbone}", 'red')
 
@@ -187,11 +187,11 @@ class Act3dEncoder(nn.Module):
             large_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 3)
             large_attn_layers = replace_bn_with_gn(large_attn_layers)
             self.nets['feature_attn_layers'] = large_attn_layers
-        elif self.use_attn_for_point_features == "locally_self_attention":
-            cprint("Using locally self attention of 2 layers", 'yellow')
-            locally_attn_layers = TrivialLocallyTransformer(n_c=encoder_output_dim, npoints=4504, nneighbor=16, d_points=60, transformer_dim=32, hidden_dim=128)
-            locally_attn_layers = replace_bn_with_gn(locally_attn_layers)
-            self.nets['feature_attn_layers'] = locally_attn_layers
+        # elif self.use_attn_for_point_features == "locally_self_attention":
+        #     cprint("Using locally self attention of 2 layers", 'yellow')
+        #     locally_attn_layers = TrivialLocallyTransformer(n_c=encoder_output_dim, npoints=4504, nneighbor=16, d_points=60, transformer_dim=32, hidden_dim=128)
+        #     locally_attn_layers = replace_bn_with_gn(locally_attn_layers)
+        #     self.nets['feature_attn_layers'] = locally_attn_layers
 
         # NOTE: 
         # cross attention to goal means:
@@ -320,13 +320,13 @@ class Act3dEncoder(nn.Module):
             rgb_features = nets['vision_encoder'](rgb_obs_feat) # B num_points encoder_output_dim
             rgb_features = einops.rearrange(rgb_features, "B N C -> N B C", B=B)
             point_cloud = observation[self.point_cloud_key]
-        elif self.pointcloud_backbone == 'point_transformer':
-            rgb_obs_feat = observation[self.point_cloud_key]
-            B, N, C = rgb_obs_feat.shape
-            assert C == 3, f"Expected 3 channels for point cloud, got {C}"
-            rgb_features = nets['vision_encoder'](rgb_obs_feat) # B num_points encoder_output_dim
-            rgb_features = einops.rearrange(rgb_features, "B N C -> N B C", B=B)
-            point_cloud = observation[self.point_cloud_key]
+        # elif self.pointcloud_backbone == 'point_transformer':
+        #     rgb_obs_feat = observation[self.point_cloud_key]
+        #     B, N, C = rgb_obs_feat.shape
+        #     assert C == 3, f"Expected 3 channels for point cloud, got {C}"
+        #     rgb_features = nets['vision_encoder'](rgb_obs_feat) # B num_points encoder_output_dim
+        #     rgb_features = einops.rearrange(rgb_features, "B N C -> N B C", B=B)
+        #     point_cloud = observation[self.point_cloud_key]
 
         point_cloud_rel_pos_embedding = nets['relative_pe_layer'](point_cloud) # shape B N encoder_output_dim
                        

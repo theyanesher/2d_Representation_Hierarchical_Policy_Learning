@@ -96,11 +96,12 @@ class ReplayBuffer:
         action_welford = WelfordOnlineStatistics()
 
         for idx, zarr_path  in enumerate(tqdm(path_list)):
+
             if not load_per_step:
 
                 # [DebugPickle]
                 if is_pickle: 
-
+                    
                     data = pickle.load(open(zarr_path, 'rb'))
 
                     if keys is None:
@@ -139,6 +140,7 @@ class ReplayBuffer:
                 # [DebugPickle]
                 if is_pickle: 
 
+                    print(zarr_path)
                     all_substeps = os.listdir(zarr_path)
                     all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0])) # ex: 0.pkl -> 0
                     episode_lengths.append(len(all_substeps))

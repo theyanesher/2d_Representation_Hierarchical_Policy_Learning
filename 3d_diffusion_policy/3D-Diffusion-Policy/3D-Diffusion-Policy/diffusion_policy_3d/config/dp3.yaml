@@ -80,8 +80,10 @@ policy:
     goal_mode: null
     mode: null
     use_mlp: false
-    use_lightweight_unet: false
     self_attention: false
+    use_attn_for_point_features: false
+    pointcloud_backbone: 'mlp'
+    use_lightweight_unet: false
     final_attention: false
 
   prediction_target: action

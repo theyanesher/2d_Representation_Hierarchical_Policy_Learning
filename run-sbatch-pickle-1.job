@@ -23,6 +23,7 @@ set -x
 # "/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point:/local/"
 # "/jet/projects/cis240052p/ywang59/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point/2024-05-11-14-17-04:/local/"
 source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
 declare -a SOURCES=(
     "${source_dir}/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point:/local/"
     "${source_dir}/0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action:/local/"

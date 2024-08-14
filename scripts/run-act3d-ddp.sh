@@ -149,6 +149,10 @@ if [ $func = 'train' ]; then
     # use_absolute_waypoint=false
     use_absolute_waypoint=true
     ##########
+    use_attn_for_point_features=false
+    pointcloud_backbone='pointnet2'
+    ##########
+
 
     time_stamp=$(date +%m%d%H%M)
     # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
@@ -538,8 +542,10 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
-        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
+        policy.act3d_encoder_cfg.use_attn_for_point_features="${use_attn_for_point_features}" \
+        policy.act3d_encoder_cfg.pointcloud_backbone="${pointcloud_backbone}" \
+        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
         training.num_epochs=206 \

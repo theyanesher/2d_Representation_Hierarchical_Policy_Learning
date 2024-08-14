@@ -20,11 +20,12 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 if [ $func = 'train' ]; then 
 
     source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
-    source_dir="/jet/projects/cis240052p/ckuo1/dp3_demo"
+    # source_dir="/jet/projects/cis240052p/ckuo1/dp3_demo"
 
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
-    encoding_mode="keep_position_feature_in_attention_feature"
+    encoding_mode="" # only useful for UNet based methods
+    # encoding_mode="keep_position_feature_in_attention_feature"
     # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # horizon=4
@@ -33,14 +34,14 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
-    training_epoches=1
+    training_epoches=2
     train_ratio=0.9 # for generalization
-    num_load_episodes=2    # for generalization
+    num_load_episodes=100    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=1400 #######
+    batch_size=32 #######
     encoder_type=act3d
-    use_mlp=1
+    use_mlp=0
     use_lightweight_unet=0
     in_channels=3 ####
     self_attention=false
@@ -54,17 +55,21 @@ if [ $func = 'train' ]; then
     use_absolute_waypoint=false
     dense_pcd_for_goal=true
     ##########
+    use_attn_for_point_features=false
+    pointcloud_backbone='pointnet2'
+    ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-dense_pcd_for_goal"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-pn2-debug"
 
     action_dim=10
     agent_pos_dim=10
     
     # saved data paths
-    save_data_name_0=0702-obj-45448-dense_pcd_on_goal
+    # save_data_name_0=0702-obj-45448-dense_pcd_on_goal
+    save_data_name_0=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
     exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
     demo_name_0=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 
@@ -100,8 +105,10 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
-        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
+        policy.act3d_encoder_cfg.use_attn_for_point_features="${use_attn_for_point_features}" \
+        policy.act3d_encoder_cfg.pointcloud_backbone="${pointcloud_backbone}" \
+        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
         training.num_epochs=${training_epoches} \

@@ -920,7 +920,7 @@ def main(arg):
         # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47281',
         # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47315',
         # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47529',
-        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47669',
+        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47669',
         # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-47944',
         
         # # G4
@@ -936,18 +936,18 @@ def main(arg):
         # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0705-obj-49133',
         # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-40417',
 
-        # G5
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-41085',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-41452',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45162',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45176',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45194',
+        # # G5
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-41085',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-41452',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45162',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45176',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45194',
         
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45203',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45248',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45271',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45290',
-        '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45305',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45203',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45248',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45271',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45290',
+        # '/ocean/projects/cis240052p/ywang59/RoboGen_sim2real/data/dp3_demo/0712-obj-45305',
 
     ]
 
@@ -955,7 +955,7 @@ def main(arg):
     output_dirs = [
         
         # # G1
-        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-41510-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-41510-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-45448-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46462-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0702-obj-46732-dense_pcd_on_goal',
@@ -990,7 +990,7 @@ def main(arg):
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47281-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47315-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47529-dense_pcd_on_goal',
-        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47669-dense_pcd_on_goal',
+        '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47669-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-47944-dense_pcd_on_goal',
 
         # # G4
@@ -1006,18 +1006,18 @@ def main(arg):
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0705-obj-49133-dense_pcd_on_goal',
         # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-40417-dense_pcd_on_goal',
 
-        # G5
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-41085-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-41452-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45162-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45176-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45194-dense_pcd_on_goal',
+        # # G5
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-41085-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-41452-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45162-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45176-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45194-dense_pcd_on_goal',
         
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45203-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45248-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45271-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45290-dense_pcd_on_goal',
-        '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45305-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45203-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45248-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45271-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45290-dense_pcd_on_goal',
+        # '/jet/projects/cis240052p/ckuo1/dp3_demo/0712-obj-45305-dense_pcd_on_goal',
 
     ]
 
