@@ -256,6 +256,11 @@ json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_p
 # # abs wpt, v_prediction 
 json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08131154-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-v_prediction_2024.08.13_11.54.56_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
 
+# ######################################
+
+# # abs wpt, v_prediction 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30_2024.08.14_11.10.47_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+
 json_results_list = glob.glob(f'{json_results_root}/*-unseen-*.json')
 tag = 'all_unseen'
 

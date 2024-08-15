@@ -172,8 +172,6 @@ class DP3(BasePolicy):
         
         cprint(f'using {self.noise_scheduler.config.prediction_type}', 'green')
 
-        cprint(f'using {self.noise_scheduler.config.prediction_type}', 'green')
-
         print_params(self)
         cprint('model has been loaded', 'green')
         
