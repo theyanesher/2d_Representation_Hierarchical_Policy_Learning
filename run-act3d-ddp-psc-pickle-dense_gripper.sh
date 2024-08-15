@@ -135,7 +135,7 @@ if [ $func = 'train' ]; then
     # batch_size=256 #######
     batch_size=1400 #######
     encoder_type=act3d
-    use_mlp=0
+    use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
     self_attention=false
@@ -150,7 +150,7 @@ if [ $func = 'train' ]; then
     dense_pcd_for_goal=true
     ##########
     use_attn_for_point_features=false
-    pointcloud_backbone='pointnet2'
+    pointcloud_backbone=''
     ##########
     is_pickle=true
     ##########

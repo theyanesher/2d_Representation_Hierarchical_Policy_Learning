@@ -495,7 +495,7 @@ class RobogenPointCloudWrapper:
 
                 # get the cropped point cloud from feature_map
                 original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
-                cond = np.where((original_feature_map_faltten[...,1] > 0.5)
+                cond = np.where(original_feature_map_faltten[...,1] > 0.5)
                 dense_pcd = original_feature_map_faltten[...,2:5][cond]
 
                 # downsampled pcd from FPS
