@@ -169,10 +169,13 @@ class DP3(BasePolicy):
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
+        
+        cprint(f'using {self.noise_scheduler.config.prediction_type}', 'green')
 
         cprint(f'using {self.noise_scheduler.config.prediction_type}', 'green')
 
         print_params(self)
+        cprint('model has been loaded', 'green')
         
     # ========= inference  ============
     def conditional_sample(self, 

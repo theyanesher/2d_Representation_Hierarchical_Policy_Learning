@@ -278,7 +278,6 @@ class RobogenPointCloudWrapper:
                 if self.in_gripper_frame:
                     action[:3] = current_rotate_matrix @ np.array(action[:3])
                     
-
                 delta_orient = action[3:9]
 
                 delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
