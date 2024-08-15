@@ -140,7 +140,6 @@ class ReplayBuffer:
                 # [DebugPickle]
                 if is_pickle: 
 
-                    print(zarr_path)
                     all_substeps = os.listdir(zarr_path)
                     all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0])) # ex: 0.pkl -> 0
                     episode_lengths.append(len(all_substeps))
