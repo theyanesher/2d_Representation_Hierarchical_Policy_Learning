@@ -522,12 +522,6 @@ class RobogenPointCloudWrapper:
                 kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
                 kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
                 point_cloud = point_cloud[kdline_fps_samples_idx]
-        
-        new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
-        new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
-        
-        # check
-        assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
            
         point_cloud = point_cloud.tolist()
         
@@ -536,6 +530,13 @@ class RobogenPointCloudWrapper:
         obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
         
         if 'mlp' not in self.observation_mode:
+        
+            new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
+            new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
+            
+            # check
+            assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
+
             obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
             obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
             pointcloud = obs_dict_input['point_cloud']

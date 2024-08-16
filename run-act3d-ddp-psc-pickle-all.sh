@@ -127,13 +127,14 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
+    num_epochs=51
     train_ratio=0.9 # for generalization
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=1400 #######
+    batch_size=72 #######
     encoder_type=act3d
-    use_mlp=1
+    use_mlp=0
     use_lightweight_unet=0
     in_channels=3 ####
     self_attention=false
@@ -144,17 +145,20 @@ if [ $func = 'train' ]; then
     # augmentation_pcd=false
     normalize_action=true
     augmentation_rot=false
-    augmentation_pcd=false
+    augmentation_pcd=true
     augmentation_scale=false
     use_absolute_waypoint=false
     scale_scene_by_pcd=false
     use_chained_diffuser=false
     ##########
+    use_attn_for_point_features=false
+    pointcloud_backbone='pointnet2'
+    ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-all_object-normalize_action-30"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-all_object-pn2-aug_pcd-epsilon"
 
     action_dim=10
     agent_pos_dim=10
@@ -836,11 +840,13 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
         policy.act3d_encoder_cfg.mode="${encoding_mode}" \
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
-        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
+        policy.act3d_encoder_cfg.use_attn_for_point_features="${use_attn_for_point_features}" \
+        policy.act3d_encoder_cfg.pointcloud_backbone="${pointcloud_backbone}" \
+        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
-        training.num_epochs=31 \
+        training.num_epochs="${num_epochs}" \
         training.rollout_every=50 \
         training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \

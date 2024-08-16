@@ -355,6 +355,8 @@ class TrainDP3Workspace:
                     # checkpointing
                     if cfg.checkpoint.save_last_ckpt:
                         self.save_checkpoint()
+                    if self.epoch % 10 == 0 and self.epoch > 0:
+                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     # if cfg.checkpoint.save_last_snapshot:
                     #     self.save_snapshot()
 

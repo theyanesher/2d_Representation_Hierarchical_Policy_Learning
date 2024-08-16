@@ -128,10 +128,8 @@ class RobogenDataset(BaseDataset):
             # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
             # train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             # train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
-            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
+            train_mask = np.concatenate(train_masks)
+            self.val_mask = np.concatenate(val_masks)
 
         
         if not self.kept_in_disk:

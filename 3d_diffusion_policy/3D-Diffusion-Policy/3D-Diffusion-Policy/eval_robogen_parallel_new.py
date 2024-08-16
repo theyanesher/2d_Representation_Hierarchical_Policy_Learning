@@ -528,6 +528,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                                                         observation_mode=cfg.task.env_runner.observation_mode,
                                                         use_absolute_waypoint=cfg.task.env_runner.use_absolute_waypoint,
                                                         use_chained_diffuser=cfg.task.env_runner.use_chained_diffuser,
+                                                        dense_pcd_for_goal=cfg.task.env_runner.dense_pcd_for_goal,
                                                         )
                 
             env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -833,7 +834,7 @@ if __name__ == "__main__":
 
     # #############################################################
 
-    # delta wpt, sample, normalize action, pointnet++
+    # delta wpt, sample, normalize action, all obj
     exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door"
     new_object = True
     checkpoint_name = "latest.ckpt"
@@ -842,6 +843,13 @@ if __name__ == "__main__":
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action/2024.08.14/01.50.59_train_dp3_robogen_open_door"
     # new_object = True
     # checkpoint_name = "latest.ckpt"
+
+    # #############################################################
+
+    # delta wpt, sample, normalize action, dense wpt
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08142025-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper/2024.08.14/20.25.35_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -894,7 +902,7 @@ if __name__ == "__main__":
         os.makedirs(save_path)
     
     for run_idx in range(3):
-        save_path = "data/eval_train_10_obj_test_new_10_act3d_mlp_0810/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_train_10_obj_test_new_10_act3d_mlp_0815/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
             
