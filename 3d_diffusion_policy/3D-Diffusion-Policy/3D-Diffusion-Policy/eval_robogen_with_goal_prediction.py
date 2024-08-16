@@ -652,6 +652,8 @@ if __name__ == "__main__":
     goal_checkpoint_name = 'epoch-30.ckpt'
     goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75/2024.08.07/14.03.40_train_dp3_robogen_open_door'
 
+    # goal_checkpoint_name = 'epoch-24.ckpt'
+    # goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-mlp-self-attn-backbone-UNet-diffusion-ep-75/2024.08.09/15.22.04_train_dp3_robogen_open_door'
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -659,6 +661,7 @@ if __name__ == "__main__":
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
         )
     goal_cfg = recomposed_config
+    # goal_cfg.policy.act3d_encoder_cfg.use_attn_for_point_features = "large_self_attention"
     
     goal_workspace = TrainDP3Workspace(goal_cfg)
     goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
@@ -676,7 +679,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/eval_200_75_pointnet_backbone_unet_diffusion_epsilon_goal_predictor_testing_1/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/debug_merge/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         

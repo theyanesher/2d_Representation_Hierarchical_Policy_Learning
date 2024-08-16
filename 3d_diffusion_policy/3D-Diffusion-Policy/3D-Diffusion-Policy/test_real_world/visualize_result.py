@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle as pkl
 
-original_data = "test_pcd_microwave_0"
+original_data = "test_pcd_microwave_1_with_top"
 
 for i in range(3):
-    data_path = f"/project_data/held/ziyuw2/Robogen-sim2real/local_exps/{original_data}/result_{i}.pkl"
+    data_path = f"/project_data/held/ziyuw2/Robogen-sim2real/local_exps/{original_data}/result_200_{i}.pkl"
     with open(data_path, "rb") as f:
         data = pkl.load(f)  
     pcd = np.array(data["pcd"])

@@ -104,7 +104,11 @@ class RobogenDataset(BaseDataset):
                 num_load_episodes = kwargs.get('num_load_episodes', n_episodes)
                 num_load_episodes = min(num_load_episodes, n_episodes)
                 all_subfolder = all_subfolder[:num_load_episodes]
-                zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
+                # zarr_paths = [os.path.join(zarr_path, subfolder) for subfolder in all_subfolder]
+                zarr_paths = []
+                for subfolder in all_subfolder:
+                    if len(os.listdir(os.path.join(zarr_path, subfolder))) > 10:
+                        zarr_paths.append(os.path.join(zarr_path, subfolder))
                 all_paths += zarr_paths
                 folder_train_mask = np.zeros(num_load_episodes, dtype=bool)
                 folder_train_mask[:int(num_load_episodes*train_ratio)] = True
@@ -126,10 +130,8 @@ class RobogenDataset(BaseDataset):
             # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
             # train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             # train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
-            self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
-            train_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
-            train_mask[:int(self.replay_buffer.n_episodes*train_ratio)] = True
+            train_mask = np.concatenate(train_masks)
+            self.val_mask = np.concatenate(val_masks)
 
         
         if not self.kept_in_disk:
@@ -243,21 +245,21 @@ class RobogenDataset(BaseDataset):
         action = copy.deepcopy(sample['action'])
         agent_pos_old = copy.deepcopy(agent_pos)
 
-        if 'act3d' in self.observation_mode:
-            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
-            if 'mlp' not in self.observation_mode:
+        # if 'act3d' in self.observation_mode:
+        #     gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
+        #     if 'mlp' not in self.observation_mode:
 
-                pcd_mask = copy.deepcopy(sample['pcd_mask'][:,])
-                feature_map = copy.deepcopy(sample['feature_map'][:,])
+        #         pcd_mask = copy.deepcopy(sample['pcd_mask'][:,])
+        #         feature_map = copy.deepcopy(sample['feature_map'][:,])
 
-            if 'goal' in self.observation_mode:
-                goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
+        #     if 'goal' in self.observation_mode:
+        #         goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
             
-            if 'displacement_gripper_to_object' in self.observation_mode:
-                displacement_gripper_to_object = copy.deepcopy(sample['displacement_gripper_to_object'][:,])
+        #     if 'displacement_gripper_to_object' in self.observation_mode:
+        #         displacement_gripper_to_object = copy.deepcopy(sample['displacement_gripper_to_object'][:,])
         
-        elif 'act3d_pointnet' == self.observation_mode:
-            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
+        # elif 'act3d_pointnet' == self.observation_mode:
+        #     gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
 
         # augmentation
         ###########################################
@@ -376,14 +378,18 @@ class RobogenDataset(BaseDataset):
             'action': action.astype(np.float32)
         }
 
-        if 'act3d' in self.observation_mode:
-            data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
-            data['obs']['feature_map'] = feature_map.astype(np.float32)
-            data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
-            if 'goal' in self.observation_mode:
-                data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
-            if 'displacement_gripper_to_object' in self.observation_mode:
-                data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
+        # if 'act3d' in self.observation_mode:
+        #     data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
+        #     if 'mlp' not in self.observation_mode:
+        #         data['obs']['feature_map'] = feature_map.astype(np.float32)
+        #         data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
+        #     if 'goal' in self.observation_mode:
+        #         data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
+        #     if 'displacement_gripper_to_object' in self.observation_mode:
+        #         data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
+        for key in self.keys_:
+            if key not in ['state', 'action', 'point_cloud']:
+                data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
         return data
 
     
