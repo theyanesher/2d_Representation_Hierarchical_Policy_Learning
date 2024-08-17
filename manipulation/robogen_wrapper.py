@@ -8,7 +8,7 @@ from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
 from copy import deepcopy
-import pytorch3d.ops as torch3d_ops
+# import pytorch3d.ops as torch3d_ops
 import gym
 from gym import spaces
 import open3d as o3d
@@ -43,7 +43,7 @@ class RobogenPointCloudWrapper:
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
-                 observation_mode=None,
+                 observation_mode='dp3',
                  camera_height=480,
                  camera_width=640,
                  elevation=30,
@@ -84,6 +84,17 @@ class RobogenPointCloudWrapper:
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
+        self.observation_space = spaces.Dict({
+            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        })
+        if 'goal' in observation_mode:
+            self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        if 'displacement_gripper_to_object' in observation_mode:
+            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
         if 'dp3' in observation_mode:
             self.observation_space = spaces.Dict({
@@ -230,6 +241,8 @@ class RobogenPointCloudWrapper:
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
+        if "goal" in self.observation_mode:
+            self.grasped_handle = False
         self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
     
@@ -742,7 +755,7 @@ class RobogenPointCloudWrapper:
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
-            obs_dict_input['agent_pos'] = np.array(pos_ori)
+            obs_dict_input['agent_pos'] = np.array([0, 0, 0, 0, 0, 0, 0]).astype(np.float32)
         
         return obs_dict_input
     

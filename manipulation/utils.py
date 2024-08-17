@@ -66,8 +66,7 @@ def down_load_single_object(name, uids=None, candidate_num=5, vhacd=True, debug=
     processes = multiprocessing.cpu_count()
    
     for uid in uids:
-        save_path = osp.join("objaverse_utils/data/obj", "{}".format(uid))
-        # print("save_path is: ", save_path)
+        save_path = osp.join(os.environ["PROJECT_DIR"], "objaverse_utils/data/obj", "{}".format(uid))
         if not osp.exists(save_path):
             os.makedirs(save_path)
         if osp.exists(save_path + "/material.urdf"):
@@ -160,6 +159,7 @@ def build_up_env(task_config=None, solution_path=None, task_name=None, restore_s
     save_config['gui'] = render
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
+    save_config['task_name'] = task_name
     for key, value in kwargs.items():
         save_config[key] = value
 

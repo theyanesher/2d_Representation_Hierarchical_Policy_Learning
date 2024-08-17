@@ -22,6 +22,8 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
+from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location
+import cv2
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
     env, _ = build_up_env(
@@ -362,10 +364,20 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             
             
 def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
+                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
     
+    if calculate_distance_from_gt:
+        all_obj_distances = []
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
-    
+        
+        if dataset_index is not None:
+            dataset_idx = dataset_index
+
+        
+
+        # if dataset_idx == 0:
+        #     continue
+
         after_reaching_init_state_files = []
         init_state_files = []
         config_files = []
@@ -449,6 +461,9 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
         expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
         # import pdb; pdb.set_trace()
+        all_distances = []
+        all_grasp_distances = []
+
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
                 
             with open(config_file, 'r') as f:
@@ -470,6 +485,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
             all_rgbs = [rgb]
             for t in range(1, horizon):
                 parallel_input_dict = obs
+                # import pdb; pdb.set_trace()
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
                 
                 
@@ -491,11 +507,33 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 np_batched_action = np_batched_action['action']
                 
                 obs, reward, done, info = env.step(np_batched_action.squeeze(0))
+                if calculate_distance_from_gt:
+                    predicted_goal = np_predicted_goal.squeeze(0)[1].reshape(4, 3)
+                    gt_goal = env.env.goal_gripper_pcd
+                    distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
+                    all_distances.append(distance)
+                    grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
+                    all_grasp_distances.append(grasp_distance)
+                    rgb = env.env.render()
+                    for point in predicted_goal:
+                        pixel_x, pixel_y, _ = get_pixel_location(env.env._env.projection_matrix, env.env._env.view_matrix, point, env.env._env.camera_width, env.env._env.camera_height)
+                        color = (255, 0, 0)
+                        thickness = 2
+                        radius = 3
+                        image = cv2.circle(rgb, (pixel_x, pixel_y), radius, color, thickness)
+                        # save image
+                        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                        # cv2.imwrite(f'data/debug/{dataset_idx}_{exp_idx}.png', image)
+
+                    break
                 env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
                 rgb = env.env.render()
                 all_rgbs.append(rgb)
             
             env.env._env.close()
+
+            if calculate_distance_from_gt:
+                continue
             
             opened_joint_angles[config_file] = \
             {
@@ -518,17 +556,34 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                     float(info["improved_joint_angle"][-1]))
             
             save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+
+        if calculate_distance_from_gt:
+            print("average distance: {}".format(np.mean(all_distances)))
+            print("average grasp distance: {}".format(np.mean(all_grasp_distances)))
+            all_obj_distances.append(np.mean(all_distances))
+
+    if calculate_distance_from_gt:
+        print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
         
 if __name__ == "__main__":
     
     num_worker = 30
-    pool = Pool(processes=num_worker)
+    # pool = Pool(processes=num_worker)
+    pool=None
     
     # load the low-level reaching policy
     ### with goal gripper, with self attention, fixed order bug in attention
-    checkpoint_name = 'epoch-300.ckpt'
-    exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/18.35.59_train_dp3_robogen_open_door"
+    # checkpoint_name = 'epoch-300.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/18.35.59_train_dp3_robogen_open_door"
     
+    # 10 objects
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
+    # checkpoint_name = 'latest.ckpt'
+
+    # 50 objects
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    checkpoint_name = 'latest.ckpt'
+
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
@@ -547,15 +602,66 @@ if __name__ == "__main__":
     policy.reset()
     policy = policy.to('cuda')
     
+    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+    cfg.task.env_runner.experiment_folder = [
+        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+        ]
+    # import pdb; pdb.set_trace()
+    cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     # load the high-level goal prediction policy
-    goal_checkpoint_name = 'epoch-150.ckpt'
-    goal_exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-obj-45448-pred-goal-gripper-train-ep-260-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.02/01.29.59_train_dp3_robogen_open_door"
+    # goal_checkpoint_name = 'epoch-100.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0716-10-obj-pred-goal-gripper-PoinNet2-backbone-wzy/2024.07.16/16.53.21_train_dp3_robogen_open_door"
+    # goal_checkpoint_name="epoch-120.ckpt"
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0715-10-obj-pred-goal-gripper-MLP-large-self-attention-process-point-features/2024.07.18/11.31.40_train_dp3_robogen_open_door"
+    # goal_checkpoint_name="epoch-100.ckpt"
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0713-10-obj-pred-goal-gripper-conditional-transformer-train-ep-260/2024.07.13/16.33.36_train_dp3_robogen_open_door"
+    # goal_checkpoint_name = 'epoch-150.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0723-10-obj-pred-goal-gripper-MLP-locally-self-attention-process-point-features/2024.07.23/13.46.41_train_dp3_robogen_open_door"
+
+    # goal_checkpoint_name = 'epoch-90.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0717-10-obj-pred-goal-gripper-Point-Transformer-backbone-wzy/2024.07.22/11.42.52_train_dp3_robogen_open_door"
+
+    # goal_checkpoint_name = 'epoch-4.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0726-50-obj-pred-goal-only-reach-stage-gripper-pointnet-backbone-unet-diffusion/2024.07.27/17.36.00_train_dp3_robogen_open_door"
+    # goal_checkpoint_name = 'epoch-6.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0721-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion/2024.07.21/19.18.00_train_dp3_robogen_open_door"
+    # goal_checkpoint_name = 'epoch-16.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0719-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion/2024.07.19/21.27.30_train_dp3_robogen_open_door"
+
+    goal_checkpoint_name = 'epoch-30.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0724-50-obj-pred-goal-gripper-pointnet-solved-softmax-backbone-unet-diffusion/2024.07.24/17.58.04_train_dp3_robogen_open_door"
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0725-50-obj-pred-goal-gripper-pointnetssg-backbone-unet-diffusion/2024.07.25/09.47.40_train_dp3_robogen_open_door"
+    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0721-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion/2024.07.21/19.18.00_train_dp3_robogen_open_door"
+
+    # goal_checkpoint_name = 'epoch-10.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0801-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion-epsilon/2024.08.01/18.03.27_train_dp3_robogen_open_door"
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0801-50-obj-pred-goal-gripper-mlp-self-attn-backbone-transformer-diffusion-epsilon/2024.08.01/18.04.46_train_dp3_robogen_open_door"
+
+    goal_checkpoint_name = 'epoch-24.ckpt'
+    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0730-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon/2024.07.30/17.31.40_train_dp3_robogen_open_door"
+
+    goal_checkpoint_name = 'epoch-30.ckpt'
+    goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+
+    # goal_checkpoint_name = 'epoch-24.ckpt'
+    # goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-mlp-self-attn-backbone-UNet-diffusion-ep-75/2024.08.09/15.22.04_train_dp3_robogen_open_door'
+
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
         )
     goal_cfg = recomposed_config
+    # goal_cfg.policy.act3d_encoder_cfg.use_attn_for_point_features = "large_self_attention"
     
     goal_workspace = TrainDP3Workspace(goal_cfg)
     goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
@@ -572,21 +678,24 @@ if __name__ == "__main__":
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
-    for run_idx in range(3):
-        save_path = "data/eval_generalization_with_goal_prediction_0702_2/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+    for run_idx in range(1):
+        save_path = "data/debug_merge/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-            
-        exp_beg_ratio = 0.9
-        exp_end_ratio = 1
-            
+        
+        cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
+        cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
         run_eval_non_parallel(
                 cfg, policy, goal_cfg, goal_policy, 
                 num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
-                exp_beg_ratio=exp_beg_ratio,
-                exp_end_ratio=exp_end_ratio,
+                exp_beg_idx=0,
+                exp_end_idx=25,
+                # dataset_index=9，
+                # exp_beg_ratio=0.9,
+                # exp_end_ratio=1,
+                # calculate_distance_from_gt=True,
         )
     
         # run_eval(cfg, policy, num_worker, save_path, 

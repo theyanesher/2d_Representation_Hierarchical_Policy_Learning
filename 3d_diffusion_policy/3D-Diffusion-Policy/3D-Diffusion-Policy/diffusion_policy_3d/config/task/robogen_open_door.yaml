@@ -2,6 +2,7 @@ name: robogen_open_door
 
 task_name: robogen_open_door
 in_gripper_frame: false
+run_eval_rollout: true
 
 image_shape: &image_shape [3, 640, 480]
 shape_meta: &shape_meta
@@ -58,7 +59,9 @@ dataset:
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10
+  is_pickle: false
+  dataset_keys: None
+  only_reach_stage: false
   augmentation_pcd: false
   augmentation_rot: false
   use_absolute_waypiont: false
-  is_pickle: false
