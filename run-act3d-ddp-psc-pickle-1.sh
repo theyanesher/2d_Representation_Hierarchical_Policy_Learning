@@ -108,17 +108,18 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
 # export CUDA_VISIBLE_DEVICES=5
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=1,2,3,6
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
 
-    source_dir="/local"
+    source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+    source_dir="/scratch/chialiang/dp3_demo"
 
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
-    encoding_mode=""
+    encoding_mode="keep_position_feature_in_attention_feature"
     # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # horizon=4
@@ -127,14 +128,14 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
-    training_epoches=31
+    training_epoches=5
     train_ratio=0.9 # for generalization
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=72 #######
+    batch_size=400 #######
     encoder_type=act3d
-    use_mlp=0
+    use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
     self_attention=false
@@ -149,13 +150,13 @@ if [ $func = 'train' ]; then
     dense_pcd_for_goal=false
     ##########
     use_attn_for_point_features=false
-    pointcloud_backbone='pointnet2'
+    pointcloud_backbone='mlp'
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-pn2-normalize_action"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-test"
 
     action_dim=10
     agent_pos_dim=10

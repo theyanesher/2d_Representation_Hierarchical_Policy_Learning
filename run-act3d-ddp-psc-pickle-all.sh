@@ -111,14 +111,16 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=1,2,3,5
 
 if [ $func = 'train' ]; then 
 
     source_dir="/local"
+    source_dir="/scratch/chialiang/dp3_demo"
 
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
-    encoding_mode="keep_position_feature_in_attention_feature"
+    encoding_mode=""
     # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # horizon=4
@@ -132,7 +134,7 @@ if [ $func = 'train' ]; then
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=72 #######
+    batch_size=48 #######
     encoder_type=act3d
     use_mlp=0
     use_lightweight_unet=0

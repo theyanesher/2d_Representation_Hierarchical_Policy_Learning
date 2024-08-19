@@ -286,7 +286,7 @@ class RobogenDataset(BaseDataset):
         ###########################################
 
         if self.augmentation_pcd:
-            point_cloud = point_cloud + np.random.normal(0, 0.002, point_cloud.shape) # [AugTODO] add more 
+            point_cloud = point_cloud + np.random.normal(0, 0.003, point_cloud.shape) # [AugTODO] add more 
 
         if self.augmentation_rot:
             # random rotation

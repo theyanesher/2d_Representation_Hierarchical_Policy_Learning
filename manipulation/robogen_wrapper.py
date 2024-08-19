@@ -235,6 +235,65 @@ class RobogenPointCloudWrapper:
         self.time_step = 0
         self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
+
+    # some util function to generate dense waypoints
+    def nth_root_rotation_matrix(self, A, n):
+        """
+        Compute the n-th root of a 3x3 rotation matrix A.
+        
+        Parameters:
+        A (numpy.ndarray): 3x3 rotation matrix.
+        n (int): The root to compute, e.g., n=3 for cubic root.
+        
+        Returns:
+        numpy.ndarray: The n-th root of the rotation matrix A.
+        """
+        # Step 1: Calculate the angle of rotation using the trace of the matrix
+        angle = np.arccos((np.trace(A) - 1) / 2)
+        
+        # Step 2: Calculate the rotation axis
+        if angle != 0:
+            axis = np.array([A[2, 1] - A[1, 2], A[0, 2] - A[2, 0], A[1, 0] - A[0, 1]]) / (2 * np.sin(angle))
+        else:
+            axis = np.array([1, 0, 0])  # Arbitrary axis for zero rotation
+        
+        # Step 3: Compute the new reduced angle by dividing the original angle by n
+        new_angle = angle / n
+        
+        # Step 4: Normalize the rotation axis
+        axis = axis / np.linalg.norm(axis)
+        
+        # Step 5: Construct the rotation matrix using Rodrigues' rotation formula
+        K = np.array([[0, -axis[2], axis[1]],
+                    [axis[2], 0, -axis[0]],
+                    [-axis[1], axis[0], 0]])
+        
+        I = np.eye(3)
+        A_n_root = I + np.sin(new_angle) * K + (1 - np.cos(new_angle)) * np.dot(K, K)
+        
+        return A_n_root
+
+    def get_dense_delta_waypoints(self, delta_action, threshold=0.005):
+        """
+        Get dense waypoints between the given waypoints.
+        
+        Parameters:
+        delta_action (numpy.ndarray): the delta action outputed from the model.
+        threshold (float): the maximum step length of the delta waypoint.
+        
+        Returns:
+        numpy.ndarray: The dense waypoints.
+        """
+        
+        num_steps = int(np.linalg.norm(delta_action[:3]) / threshold + 1)
+        dense_waypoint = np.zeros(10)
+        dense_waypoint[:3] = delta_action[:3] / num_steps
+        dense_waypoint[3:9] = rotation_transfer_matrix_to_6D(self.nth_root_rotation_matrix(rotation_transfer_6D_to_matrix(delta_action[3:9]), n=num_steps))
+        dense_waypoint[9] = delta_action[9] / num_steps
+
+        dense_waypoints = [dense_waypoint for _ in range(num_steps)]
+        return np.array(dense_waypoints)
+
     
     def step(self, action, render=True):
         # beg = time.time()
@@ -271,6 +330,10 @@ class RobogenPointCloudWrapper:
             
             else :
                 # beg = time.time()
+
+                # dense_action = self.get_dense_delta_waypoints(action, threshold=0.005)
+
+                # for action in dense_action:
                 pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
                 current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
                 
@@ -293,14 +356,8 @@ class RobogenPointCloudWrapper:
                 target_joint_angle = action[9] + cur_joint_angle[0]
                 
                 action = pos.tolist() + list(euler) + [target_joint_angle]
-                # end = time.time()
-                # cprint("preprocessing time {}".format(end - beg), "green")
 
-                # beg = time.time()
                 self._env.take_direct_action(action)
-                # beg = time.time()
-                # end = time.time()
-                # cprint("take direct action time {}".format(end - beg), "blue")
         else:
             self._env.take_joint_action(action)
         

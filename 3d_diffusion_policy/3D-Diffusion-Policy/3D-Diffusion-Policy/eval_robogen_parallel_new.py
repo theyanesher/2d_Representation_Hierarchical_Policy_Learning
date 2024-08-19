@@ -839,15 +839,46 @@ if __name__ == "__main__":
     new_object = True
     checkpoint_name = "latest.ckpt"
 
-    # # delta wpt, sample, normalize action, pointnet++
-    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action/2024.08.14/01.50.59_train_dp3_robogen_open_door"
+    # delta wpt, sample, normalize action, pointnet++
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action/2024.08.14/01.50.59_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+
+    # delta wpt, epsilon, normalize action, pcd noise, pointnet++
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08150052-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-epsilon/2024.08.15/00.52.14_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+
+    # delta wpt, epsilon, normalize action, pointnet++
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08161917-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-epsilon-new/2024.08.16/19.17.46_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+
+    # # #############################################################
+
+    # # delta wpt, sample, normalize action, dense wpt
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08142025-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper/2024.08.14/20.25.35_train_dp3_robogen_open_door"
     # new_object = True
     # checkpoint_name = "latest.ckpt"
 
-    # #############################################################
+    # # #############################################################
 
-    # delta wpt, sample, normalize action, dense wpt
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08142025-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper/2024.08.14/20.25.35_train_dp3_robogen_open_door"
+    # # delta wpt, sample, normalize action, combine-2, observation horizon=4
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08152134-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.08.15/21.34.15_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # #############################################################
+    
+    # delta wpt, sample, normalize action, combine-2 (original), observation horizon=2
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08161023-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-combine2-normalize_action/2024.08.16/10.23.55_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
+
+    # # #############################################################
+
+    # delta wpt, sample, normalize action, combine-2 (new), observation horizon=2
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08181722-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-combine-pcd_noise/2024.08.18/17.23.05_train_dp3_robogen_open_door"
     new_object = True
     checkpoint_name = "latest.ckpt"
 

@@ -17,9 +17,11 @@ fi
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
+export CUDA_VISIBLE_DEVICES=1,2,3,6
 if [ $func = 'train' ]; then 
 
     source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+    source_dir="/scratch/chialiang/dp3_demo"
     # source_dir="/jet/projects/cis240052p/ckuo1/dp3_demo"
 
     observation_mode="act3d_goal_mlp"
@@ -34,14 +36,13 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
-    training_epoches=2
+    training_epoches=10
     train_ratio=0.9 # for generalization
-    num_load_episodes=100    # for generalization
+    num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
-    # batch_size=256 #######
-    batch_size=32 #######
+    batch_size=400 #######
     encoder_type=act3d
-    use_mlp=0
+    use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
     self_attention=false
@@ -53,16 +54,16 @@ if [ $func = 'train' ]; then
     augmentation_rot=false
     augmentation_pcd=false
     use_absolute_waypoint=false
-    dense_pcd_for_goal=true
+    dense_pcd_for_goal=false
     ##########
     use_attn_for_point_features=false
-    pointcloud_backbone='pointnet2'
+    pointcloud_backbone='mlp'
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-pn2-debug"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-test"
 
     action_dim=10
     agent_pos_dim=10
@@ -73,7 +74,7 @@ if [ $func = 'train' ]; then
     exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
     demo_name_0=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 
-    torchrun --standalone --nproc_per_node=1 \
+    torchrun --standalone --nproc_per_node=4 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             ${source_dir}/${save_data_name_0}\

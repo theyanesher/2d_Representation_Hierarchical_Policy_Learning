@@ -109,16 +109,14 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 # export CUDA_VISIBLE_DEVICES=5
 export CUDA_VISIBLE_DEVICES=0,1
-# export CUDA_VISIBLE_DEVICES=2,3
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 if [ $func = 'train' ]; then 
 
-    # source_dir="/local"
+    source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
+    source_dir="/scratch/chialiang/dp3_demo"
     source_dir="/scratch/chialiang/dp3_demo_combine_2_new"
-    # source_dir="/scratch/chialiang/dp3_demo_combine_2_new-dense_pcd_on_goal"
-    # source_dir=/jet/projects/cis240052p/ckuo1/dp3_demo
 
     observation_mode="act3d_goal_mlp"
     # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
@@ -151,17 +149,15 @@ if [ $func = 'train' ]; then
     augmentation_pcd=true
     use_absolute_waypoint=false
     dense_pcd_for_goal=false
-    # dense_pcd_for_goal=true
     ##########
     use_attn_for_point_features=false
-    pointcloud_backbone=''
+    pointcloud_backbone='mlp'
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-combine-pcd_noise-new"
-    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-dense_gripper-combine-pcd_noise-new"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-combine-pcd_noise"
 
     action_dim=10
     agent_pos_dim=10
@@ -177,20 +173,7 @@ if [ $func = 'train' ]; then
     save_data_name_7="0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
     save_data_name_8="0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
     save_data_name_9="0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
-    save_data_name_10="0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"
-
-    # save_data_name_0="0702-obj-45448-dense_pcd_on_goal"
-    # save_data_name_1="0702-obj-46462-dense_pcd_on_goal"
-    # save_data_name_2="0702-obj-41510-dense_pcd_on_goal"
-    # save_data_name_3="0702-obj-46732-dense_pcd_on_goal"
-    # save_data_name_4="0702-obj-46801-dense_pcd_on_goal"
-    # save_data_name_5="0702-obj-46874-dense_pcd_on_goal"
-    # save_data_name_6="0702-obj-46922-dense_pcd_on_goal"
-    # save_data_name_7="0702-obj-46966-dense_pcd_on_goal"
-    # save_data_name_8="0702-obj-47570-dense_pcd_on_goal"
-    # save_data_name_9="0702-obj-47578-dense_pcd_on_goal"
-    # save_data_name_10="0702-obj-48700-dense_pcd_on_goal"
-
+    save_data_name_10="0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1"    
     save_data_name_11="0705-obj-45526"
     save_data_name_12="0705-obj-45661"
     save_data_name_13="0705-obj-45694"
