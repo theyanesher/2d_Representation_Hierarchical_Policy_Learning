@@ -108,7 +108,7 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
 # export CUDA_VISIBLE_DEVICES=5
-export CUDA_VISIBLE_DEVICES=1,2,3,6
+export CUDA_VISIBLE_DEVICES=2,3
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
@@ -128,12 +128,12 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
-    training_epoches=5
+    training_epoches=31
     train_ratio=0.9 # for generalization
-    num_load_episodes=1000    # for generalization
+    num_load_episodes=2    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=400 #######
+    batch_size=12 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
@@ -315,7 +315,7 @@ if [ $func = 'train' ]; then
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     
-    torchrun --standalone --nproc_per_node=4 \
+    torchrun --standalone --nproc_per_node=2 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             ${source_dir}/${save_data_name_0},\
