@@ -5,23 +5,29 @@ import matplotlib.pyplot as plt
 import fpsample
 
 
-original_data = "test_pcd_microwave_0_with_top"
+# original_data = "test_pcd_microwave_2"
 
-pcd_path = f"/project_data/held/yufeiw2/RoboGen_sim2real/data/{original_data}.pkl"
-with open(pcd_path, "rb") as f:
-    pcd = pickle.load(f)
-
-
-min_z = np.min(pcd[:, 2])
-# crop the pcd
-pcd = pcd[pcd[:, 2] > min_z + 0.047]
+# pcd_path = f"/project_data/held/yufeiw2/RoboGen_sim2real/data/{original_data}.pkl"
+# with open(pcd_path, "rb") as f:
+#     pcd = pickle.load(f)
 
 
-# min_y = np.min(pcd[:, 1])
-# pcd = pcd[pcd[:, 1] > min_y + 0.08]
+original_data = "temp"
+input_path = "/project_data/held/ziyuw2/Robogen-sim2real/data/parallel_input_dict.pkl"
+with open(input_path, "rb") as f:
+    input_dict = pickle.load(f)
+pcd = np.array(input_dict["high_level_point_cloud"][0])
 
-max_y = np.max(pcd[:, 1])
-pcd = pcd[pcd[:, 1] < max_y - 0.15]
+# min_z = np.min(pcd[:, 2])
+# # crop the pcd
+# pcd = pcd[pcd[:, 2] > min_z + 0.047]
+
+
+# # min_y = np.min(pcd[:, 1])
+# # pcd = pcd[pcd[:, 1] > min_y + 0.08]
+
+# max_y = np.max(pcd[:, 1])
+# pcd = pcd[pcd[:, 1] < max_y - 0.15]
 
 
 
@@ -60,24 +66,24 @@ import open3d as o3d
 # ================= for microwave =================
 # pcd = pcd[pcd[:, 2] < 0.26]
 
-pcd[:, 0] = pcd[:, 0] - x_min
-pcd[:, 1] = pcd[:, 1] - y_min
-pcd[:, 2] = pcd[:, 2] - z_min
+# pcd[:, 0] = pcd[:, 0] - x_min
+# pcd[:, 1] = pcd[:, 1] - y_min
+# pcd[:, 2] = pcd[:, 2] - z_min
 
-pcd[:, 0] = pcd[:, 0] + 0.7
-pcd[:, 1] = pcd[:, 1] - 0.4
-pcd[:, 2] = pcd[:, 2] + 0.3
+# pcd[:, 0] = pcd[:, 0] + 0.7
+# pcd[:, 1] = pcd[:, 1] - 0.4
+# pcd[:, 2] = pcd[:, 2] + 0.3
 
-# remove the outliers of pcd
-pointcloud = o3d.geometry.PointCloud()
-pointcloud.points = o3d.utility.Vector3dVector(pcd[:, :3])
-cl, ind = pointcloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-pcd = np.asarray(pointcloud.points)
+# # remove the outliers of pcd
+# pointcloud = o3d.geometry.PointCloud()
+# pointcloud.points = o3d.utility.Vector3dVector(pcd[:, :3])
+# cl, ind = pointcloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+# pcd = np.asarray(pointcloud.points)
 
 
 
-kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pcd[:, :3], 4500, h=1, start_idx=0)
-pcd = pcd[kdline_fps_samples_idx]
+# kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pcd[:, :3], 4500, h=1, start_idx=0)
+# pcd = pcd[kdline_fps_samples_idx]
 
 agent_pos_1 = np.array([ 0.60897565,  0.05900308,  0.55199987, -0.103153  , -0.5509229 , -0.82815665,  0.92665505,  0.24935651, -0.28130358,  0.04      ])
 gripper_pcd_1 = np.array([[0.58547926, 0.11077122, 0.5204883 ],

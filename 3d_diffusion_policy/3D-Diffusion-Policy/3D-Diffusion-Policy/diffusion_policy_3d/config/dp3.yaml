@@ -91,6 +91,8 @@ policy:
   noise_model_type: unet # unet, transformer
   diffusion_attn_embed_dim: 240
 
+  scale_scene_by_pcd: false
+
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel

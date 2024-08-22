@@ -42,3 +42,4 @@ train_logs/
 test_PointNet2/results/
 test_PointNet2/exps/
 test_PointNet2/exps_all/
+*.npy

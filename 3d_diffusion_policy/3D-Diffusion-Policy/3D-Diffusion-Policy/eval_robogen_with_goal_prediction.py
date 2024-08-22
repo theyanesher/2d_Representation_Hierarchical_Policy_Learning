@@ -47,6 +47,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                                                 use_segmask=cfg.task.env_runner.use_segmask,
                                                 only_handle_points=cfg.task.env_runner.only_handle_points,
                                                 observation_mode=cfg.task.env_runner.observation_mode,
+                                                dense_pcd_for_goal=cfg.task.env_runner.dense_pcd_for_goal,
                                                 )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -87,6 +88,7 @@ def parallel_eval(args):
                                                   only_handle_points=cfg.task.env_runner.only_handle_points,
                                                   observation_mode=cfg.task.env_runner.observation_mode,
                                                   only_object=cfg.task.env_runner.only_object,
+                                                  dense_pcd_for_goal=cfg.task.env_runner.dense_pcd_for_goal,
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -483,6 +485,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
 
             initial_info = info
             all_rgbs = [rgb]
+            closed=False
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 # import pdb; pdb.set_trace()
@@ -498,13 +501,20 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 np_predicted_goal = np_predicted_goal['action']
                 
                 parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
-
+                if cfg.task.env_runner.dense_pcd_for_goal:
+                    parallel_input_dict['point_cloud'] = parallel_input_dict['dense_point_cloud']
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
                     
                     
                 np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
                 np_batched_action = np_batched_action['action']
+
+                # if np_batched_action[0, 1, 9] < -0.004:
+                #     closed = True
+
+                # if closed:
+                #     np_batched_action[:, :, 9] = -0.04
                 
                 obs, reward, done, info = env.step(np_batched_action.squeeze(0))
                 if calculate_distance_from_gt:
@@ -581,8 +591,17 @@ if __name__ == "__main__":
     # checkpoint_name = 'latest.ckpt'
 
     # 50 objects
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    # checkpoint_name = 'latest.ckpt'
+
+    # 200 objects
+    exp_dir = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door'
     checkpoint_name = 'latest.ckpt'
+
+
+    # # low 50 objects dense pcd around goal
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new/2024.08.19/12.50.15_train_dp3_robogen_open_door"
+    checkpoint_name = 'latest.ckpt' 
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -590,6 +609,7 @@ if __name__ == "__main__":
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
         )
     cfg = recomposed_config
+
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
@@ -601,6 +621,7 @@ if __name__ == "__main__":
     policy.eval()
     policy.reset()
     policy = policy.to('cuda')
+
     
     cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
     cfg.task.env_runner.experiment_folder = [
@@ -617,43 +638,19 @@ if __name__ == "__main__":
         ]
     # import pdb; pdb.set_trace()
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    # load the high-level goal prediction policy
-    # goal_checkpoint_name = 'epoch-100.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0716-10-obj-pred-goal-gripper-PoinNet2-backbone-wzy/2024.07.16/16.53.21_train_dp3_robogen_open_door"
-    # goal_checkpoint_name="epoch-120.ckpt"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0715-10-obj-pred-goal-gripper-MLP-large-self-attention-process-point-features/2024.07.18/11.31.40_train_dp3_robogen_open_door"
-    # goal_checkpoint_name="epoch-100.ckpt"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0713-10-obj-pred-goal-gripper-conditional-transformer-train-ep-260/2024.07.13/16.33.36_train_dp3_robogen_open_door"
-    # goal_checkpoint_name = 'epoch-150.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0723-10-obj-pred-goal-gripper-MLP-locally-self-attention-process-point-features/2024.07.23/13.46.41_train_dp3_robogen_open_door"
 
-    # goal_checkpoint_name = 'epoch-90.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0717-10-obj-pred-goal-gripper-Point-Transformer-backbone-wzy/2024.07.22/11.42.52_train_dp3_robogen_open_door"
-
-    # goal_checkpoint_name = 'epoch-4.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0726-50-obj-pred-goal-only-reach-stage-gripper-pointnet-backbone-unet-diffusion/2024.07.27/17.36.00_train_dp3_robogen_open_door"
-    # goal_checkpoint_name = 'epoch-6.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0721-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion/2024.07.21/19.18.00_train_dp3_robogen_open_door"
-    # goal_checkpoint_name = 'epoch-16.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0719-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion/2024.07.19/21.27.30_train_dp3_robogen_open_door"
-
+    # current best model
     goal_checkpoint_name = 'epoch-30.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0724-50-obj-pred-goal-gripper-pointnet-solved-softmax-backbone-unet-diffusion/2024.07.24/17.58.04_train_dp3_robogen_open_door"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0725-50-obj-pred-goal-gripper-pointnetssg-backbone-unet-diffusion/2024.07.25/09.47.40_train_dp3_robogen_open_door"
-    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0721-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion/2024.07.21/19.18.00_train_dp3_robogen_open_door"
+    goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
 
-    # goal_checkpoint_name = 'epoch-10.ckpt'
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0801-50-obj-pred-goal-gripper-mlp-self-atten-backbone-unet-diffusion-epsilon/2024.08.01/18.03.27_train_dp3_robogen_open_door"
-    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0801-50-obj-pred-goal-gripper-mlp-self-attn-backbone-transformer-diffusion-epsilon/2024.08.01/18.04.46_train_dp3_robogen_open_door"
 
-    goal_checkpoint_name = 'epoch-24.ckpt'
-    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0730-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon/2024.07.30/17.31.40_train_dp3_robogen_open_door"
+    # goal_checkpoint_name = 'latest.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0812-200-obj-pred-goal-gripper-mlp-self-attn-backbone-UNet-diffusion-ep-75/2024.08.12/09.56.36_train_dp3_robogen_open_door"
 
-    goal_checkpoint_name = 'epoch-30.ckpt'
-    goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+    # goal_checkpoint_name = 'latest.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0817-200-obj-pred-weighted-displacement-pointnet2-augmentation-pcd/2024.08.18/18.16.24_train_dp3_robogen_open_door"
 
-    # goal_checkpoint_name = 'epoch-24.ckpt'
-    # goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-mlp-self-attn-backbone-UNet-diffusion-ep-75/2024.08.09/15.22.04_train_dp3_robogen_open_door'
+
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -662,6 +659,7 @@ if __name__ == "__main__":
         )
     goal_cfg = recomposed_config
     # goal_cfg.policy.act3d_encoder_cfg.use_attn_for_point_features = "large_self_attention"
+    print("use_attn_for_point_features: {}".format(goal_cfg.policy.act3d_encoder_cfg.use_attn_for_point_features))
     
     goal_workspace = TrainDP3Workspace(goal_cfg)
     goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
@@ -679,7 +677,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/debug_merge/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_low_50_dense_pcd_200_high_testing_1/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
@@ -697,10 +695,3 @@ if __name__ == "__main__":
                 # exp_end_ratio=1,
                 # calculate_distance_from_gt=True,
         )
-    
-        # run_eval(cfg, policy, num_worker, save_path, 
-        #          pool=pool, 
-        #          horizon=35,
-        #          exp_beg_ratio=exp_beg_ratio,
-        #          exp_end_ratio=exp_end_ratio,
-        # )

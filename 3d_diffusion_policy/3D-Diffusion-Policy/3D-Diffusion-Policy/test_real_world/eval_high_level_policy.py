@@ -26,7 +26,7 @@ from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer
 import cv2
 import scipy
 
-original_data = "test_pcd_microwave_1"
+original_data = "temp"
 
 
 
@@ -34,7 +34,7 @@ original_data = "test_pcd_microwave_1"
 # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0730-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon/2024.07.30/17.31.40_train_dp3_robogen_open_door"
 
 goal_checkpoint_name = 'epoch-45.ckpt'
-goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75/2024.08.07/14.03.40_train_dp3_robogen_open_door"
+goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door"
 
 
 with hydra.initialize(config_path='../diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
