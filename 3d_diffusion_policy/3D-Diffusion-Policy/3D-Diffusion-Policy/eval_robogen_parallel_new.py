@@ -834,15 +834,15 @@ if __name__ == "__main__":
 
     # #############################################################
 
-    # delta wpt, sample, normalize action, all obj
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door"
-    new_object = True
-    checkpoint_name = "latest.ckpt"
-
-    # # delta wpt, sample, normalize action, pointnet++
-    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action/2024.08.14/01.50.59_train_dp3_robogen_open_door"
+    # # delta wpt, sample, normalize action, all obj
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door"
     # new_object = True
     # checkpoint_name = "latest.ckpt"
+
+    # delta wpt, sample, normalize action, pointnet++
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action/2024.08.14/01.50.59_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
 
     # # delta wpt, epsilon, normalize action, pcd noise, pointnet++
     # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08150052-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-epsilon/2024.08.15/00.52.14_train_dp3_robogen_open_door"
@@ -874,10 +874,10 @@ if __name__ == "__main__":
     # checkpoint_name = "latest.ckpt"
     
     # # #############################################################
-    # # delta wpt, sample, normalize action, combine-2 (new), dense gripper, observation horizon=2
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191826-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-nouse/2024.08.19/18.26.15_train_dp3_robogen_open_door"
-    new_object = True
-    checkpoint_name = "latest.ckpt"
+    # # debug, no use
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191826-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-nouse/2024.08.19/18.26.15_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(

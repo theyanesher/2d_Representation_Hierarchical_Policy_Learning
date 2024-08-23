@@ -2,6 +2,7 @@ name: robogen_open_door
 
 task_name: robogen_open_door
 in_gripper_frame: false
+run_eval_rollout: true
 
 image_shape: &image_shape [3, 640, 480]
 shape_meta: &shape_meta
@@ -43,7 +44,6 @@ env_runner:
   demo_experiment_path: null
   only_object: true
   use_absolute_waypoint: false # [Chialiang][CDDEBUG]
-  use_chained_diffuser: false # [Chialiang][CDDEBUG]
   dense_pcd_for_goal: false  # [Chialiang][DEBUG]
 
 dataset:
@@ -58,6 +58,7 @@ dataset:
   max_train_episodes: null
   observation_mode: act3d
   enumerate: false
+  dataset_keys: None
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10

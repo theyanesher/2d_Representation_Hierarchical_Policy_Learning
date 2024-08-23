@@ -178,7 +178,7 @@ class Act3dEncoder(nn.Module):
             self.nets['object_pcd_position_embedding_mlp'] = object_pcd_position_embedding_mlp
             self.nets['gripper_pcd_position_embedding_mlp'] = position_embedding_mlp
             self.nets['embed'] = nn.Embedding(1, encoder_output_dim // 3 * 2)
-            self.nets['nouse_embed'] = nn.Embedding(1, encoder_output_dim)
+            # self.nets['nouse_embed'] = nn.Embedding(1, encoder_output_dim)
         else:
             self.nets['embed'] = nn.Embedding(1, encoder_output_dim)
 
@@ -270,6 +270,9 @@ class Act3dEncoder(nn.Module):
         B = agent_pos.shape[0] #  B = batch_size * obs_horizon
 
         if self.pointcloud_backbone == 'mlp':
+            # # [DEBUG] overwrite the point cloud
+            # observation[self.point_cloud_key] = torch.rand(observation[self.point_cloud_key].shape).to(observation[self.point_cloud_key].device)
+
             rgb_obs_feat = observation[self.point_cloud_key]
             B, N, C = rgb_obs_feat.shape
             rgb_obs_flatten = rgb_obs_feat.reshape(-1, C)
@@ -277,7 +280,7 @@ class Act3dEncoder(nn.Module):
             rgb_features = rgb_features_flatten.reshape(B, N, -1) # shape B N encoder_output_dim
             rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # shape N B encoder_output_dim
             
-            rgb_features = self.nets['nouse_embed'].weight.unsqueeze(0).repeat(N, B, 1)
+            # rgb_features = self.nets['nouse_embed'].weight.unsqueeze(0).repeat(N, B, 1)
             point_cloud = observation[self.point_cloud_key]
         elif self.pointcloud_backbone == 'unet':
             # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
@@ -316,6 +319,9 @@ class Act3dEncoder(nn.Module):
             object_point_positions = all_point_positions[observation['pcd_mask'] == 1] # shape B num_points 3
             point_cloud = object_point_positions.reshape(B, -1, 3) # shape (B, num_points, 3)
         elif self.pointcloud_backbone == 'pointnet2' or self.pointcloud_backbone == 'pointnet2ssg':
+            # # [DEBUG] overwrite the point cloud
+            # observation[self.point_cloud_key] = torch.rand(observation[self.point_cloud_key].shape).to(observation[self.point_cloud_key].device)
+            
             rgb_obs_feat = observation[self.point_cloud_key]
             B, N, C = rgb_obs_feat.shape
             rgb_obs_feat = einops.rearrange(rgb_obs_feat, "B N C -> B C N")

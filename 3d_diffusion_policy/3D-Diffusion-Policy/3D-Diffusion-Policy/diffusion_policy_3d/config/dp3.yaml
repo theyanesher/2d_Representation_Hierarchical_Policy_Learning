@@ -88,6 +88,10 @@ policy:
 
   prediction_target: action
 
+  noise_model_type: unet # unet, transformer
+  diffusion_attn_embed_dim: 240
+
+
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
@@ -173,3 +177,5 @@ hydra:
   sweep:
     dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
     subdir: ${hydra.job.num}
+
+pretrained_high_level_policy_as_low_level_input: None

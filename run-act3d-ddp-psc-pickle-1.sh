@@ -117,10 +117,10 @@ if [ $func = 'train' ]; then
     source_dir="/jet/projects/cis240052p/ywang59/dp3_demo"
     source_dir="/scratch/chialiang/dp3_demo"
 
-    observation_mode="act3d_goal_mlp"
-    # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
-    encoding_mode="keep_position_feature_in_attention_feature"
-    # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
+    # observation_mode="act3d_goal_mlp"
+    observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    # encoding_mode="keep_position_feature_in_attention_feature"
+    encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # horizon=4
     horizon=8
@@ -315,7 +315,7 @@ if [ $func = 'train' ]; then
     demo_name_48=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     demo_name_49=0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
     
-    torchrun --standalone --nproc_per_node=2 \
+    torchrun --standalone --nproc_per_node=1 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
         task.dataset.zarr_path="[\
             ${source_dir}/${save_data_name_0},\
