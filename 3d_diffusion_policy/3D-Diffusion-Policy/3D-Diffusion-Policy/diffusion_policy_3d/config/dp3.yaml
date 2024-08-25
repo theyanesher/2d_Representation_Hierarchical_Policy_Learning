@@ -178,4 +178,4 @@ hydra:
     dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
     subdir: ${hydra.job.num}
 
-pretrained_high_level_policy_as_low_level_input: None
+use_pretrained_high_level_policy_as_low_level_input: false

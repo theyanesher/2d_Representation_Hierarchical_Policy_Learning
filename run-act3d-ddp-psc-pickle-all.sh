@@ -111,17 +111,17 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
-export CUDA_VISIBLE_DEVICES=2,3
+# export CUDA_VISIBLE_DEVICES=2,3
 
 if [ $func = 'train' ]; then 
 
     source_dir="/local"
-    source_dir="/scratch/chialiang/dp3_demo"
+    # source_dir="/scratch/chialiang/dp3_demo"
 
-    observation_mode="act3d_goal_mlp"
-    # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
-    encoding_mode="keep_position_feature_in_attention_feature"
-    # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
+    # observation_mode="act3d_goal_mlp"
+    observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    # encoding_mode="keep_position_feature_in_attention_feature"
+    encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # horizon=4
     horizon=8
@@ -129,38 +129,37 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
-    num_epochs=31
-    train_ratio=0.9 # for generalization
-    num_load_episodes=1000    # for generalization
+    training_epoches=31
+    train_ratio=1.0 # for generalization
+    num_load_episodes=75    # for generalization
     pc_channel=3 # we should modify this
     # batch_size=256 #######
-    batch_size=1024 #######
+    batch_size=112 #######
     encoder_type=act3d
     use_mlp=1
     use_lightweight_unet=0
     in_channels=3 ####
     self_attention=false
     final_attention=false
-    
     # normalize_action=true
     # augmentation_rot=false
     # augmentation_pcd=false
     normalize_action=true
     augmentation_rot=false
     augmentation_pcd=true
-    augmentation_scale=false
     use_absolute_waypoint=false
-    scale_scene_by_pcd=false
-    use_chained_diffuser=false
+    dense_pcd_for_goal=false
     ##########
     use_attn_for_point_features=false
-    pointcloud_backbone=''
+    pointcloud_backbone='mlp'
     ##########
     is_pickle=true
     ##########
+    use_pretrained_high_level_policy_as_low_level_input=true
+    ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-all_object-combined-pcd_noise"
+    exp_name="${time_stamp}-${observation_mode}-ns-${n_obs_steps}-h-${horizon}-demonum-${num_load_episodes}-all-pt_goal"
 
     action_dim=10
     agent_pos_dim=10
@@ -364,8 +363,9 @@ if [ $func = 'train' ]; then
     save_data_name_195="0730-obj-48746"
     save_data_name_196="0730-obj-48878"
     
-    torchrun --standalone --nproc_per_node=2 \
+    torchrun --standalone --nproc_per_node=4 \
         train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
+        use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
         task.dataset.zarr_path="[\
             ${source_dir}/${save_data_name_0},\
             ${source_dir}/${save_data_name_1},\
@@ -791,12 +791,12 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
-        training.num_epochs="${num_epochs}" \
+        training.num_epochs="${training_epoches}" \
         training.rollout_every=50 \
         training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \
         task.dataset.train_ratio="${train_ratio}" \
-        task.dataset.num_load_episodes="${num_load_episodes}" \
+        task.dataset.num_load_episodes=${num_load_episodes} \
         task.dataset.kept_in_disk=true \
         task.dataset.load_per_step=true \
         task.dataset.augmentation_rot="${augmentation_rot}" \

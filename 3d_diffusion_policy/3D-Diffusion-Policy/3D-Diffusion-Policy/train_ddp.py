@@ -223,25 +223,24 @@ class TrainDP3Workspace:
                     if self.pretrained_goal_model is not None:
                         with torch.no_grad():
                             goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
-                        goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device, non_blocking=True))
+                        goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
                         goal_model_output = goal_model_output['action']
                         
-                        # for k in batch['obs'].keys():
-                        #     print('{}: {}'.format(k, batch['obs'][k].shape))
-                        # print(f'goal_model_output: {goal_model_output.shape}')
                         reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
-                        # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
 
-                        # batch['obs']['goal_gripper_pcd'][:, :2, :] = reshaped_goal_model_output
                         batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
                         
-                        print(batch['obs']['goal_gripper_pcd'].shape)
-                        for k in batch['obs'].keys():
-                            # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                            path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                            np.save(path, batch['obs'][k].detach().cpu().numpy())
-                            print(f'{path} saved')
-                        exit(0)
+                        # # for k in batch['obs'].keys():
+                        # #     print('{}: {}'.format(k, batch['obs'][k].shape))
+                        # # print(f'goal_model_output: {goal_model_output.shape}')
+                        # # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
+                        # print(batch['obs']['goal_gripper_pcd'].shape)
+                        # for k in batch['obs'].keys():
+                        #     # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
+                        #     path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
+                        #     np.save(path, batch['obs'][k].detach().cpu().numpy())
+                        #     print(f'{path} saved')
+                        # exit(0)
 
                     # compute loss
                     t1_1 = time.time()
@@ -609,7 +608,7 @@ class TrainDP3Workspace:
 # on autobot
 goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
 # on robocluster
-# goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
+goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
 
 goal_checkpoint_name = 'epoch-30.ckpt'
 goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
@@ -642,7 +641,13 @@ pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your s
 def main(cfg):
 
     ddp_setup()
-    workspace = TrainDP3Workspace(cfg, pretrained_goal_model=pretrained_goal_model)
+    if cfg.use_pretrained_high_level_policy_as_low_level_input:
+        cprint(f'=====================================================================================================', 'green')
+        cprint(f'Using {cfg.use_pretrained_high_level_policy_as_low_level_input}', 'green')
+        cprint(f'=====================================================================================================', 'green')
+        workspace = TrainDP3Workspace(cfg, pretrained_goal_model=pretrained_goal_model)
+    else :
+        workspace = TrainDP3Workspace(cfg, pretrained_goal_model=None)
     workspace.run()
     destroy_process_group()
 
