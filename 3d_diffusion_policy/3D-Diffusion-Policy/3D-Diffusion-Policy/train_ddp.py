@@ -339,6 +339,17 @@ class TrainDP3Workspace:
                             leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                         for batch_idx, batch in enumerate(tepoch):
                             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+
+                            if self.pretrained_goal_model is not None:
+                                with torch.no_grad():
+                                    goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
+                                goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
+                                goal_model_output = goal_model_output['action']
+                                
+                                reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
+
+                                batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
+
                             loss, loss_dict = self.model(batch)
                             val_losses.append(loss)
                             if (cfg.training.max_val_steps is not None) \
@@ -557,7 +568,7 @@ class TrainDP3Workspace:
         # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys=None, 
+            exclude_keys='pretrained_goal_model', 
             include_keys=None, 
             **kwargs):
         if path is None:

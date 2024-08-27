@@ -297,8 +297,12 @@ json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_p
 
 # # debug, noise for PointNet++
 # json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action_2024.08.14_01.50.59_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+# ######################################
 
-json_results_list = glob.glob(f'{json_results_root}/*-unseen-*.json')
+# use pretrained high-level for low level
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_low_200_with_pred_goal_input_200_high_testing_0825/08240109-act3d_goal_mlp_displacement_gripper_to_object-ns-2-h-8-demonum-75-all-pt_goal_2024.08.24_01.09.48_train_dp3_robogen_open_door_checkpoints_epoch-30.ckpt/0'
+
+json_results_list = glob.glob(f'{json_results_root}/*-unseen.json')
 tag = 'all_unseen'
 
 if len(json_results_list) == 0:
