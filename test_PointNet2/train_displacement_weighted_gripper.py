@@ -1,4 +1,4 @@
-from test_PointNet2.dataset_from_disk import get_dataloader
+from test_PointNet2.dataset_from_disk import get_dataloader, get_dataloader_from_pickle
 import torch
 from test_PointNet2.model import PointNet2_small2
 from test_PointNet2.model_attn import AttnModel
@@ -19,7 +19,8 @@ def train(args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = torch.nn.MSELoss()
 
-    dataloader = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
+    # dataloader = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
+    dataloader = get_dataloader_from_pickle(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
 
     for epoch in range(args.num_epochs):
         running_loss = 0.0

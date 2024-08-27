@@ -205,8 +205,10 @@ class WeightedDiffusion(BasePolicy):
         nobs = obs_dict
         value = next(iter(nobs.values()))
         batch_size, To = value.shape[:2]
-        To = 2
         horizon = self.horizon
+        Da = self.action_dim
+        Do = self.obs_feature_dim
+        To = self.n_obs_steps
         
 
         this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
@@ -252,7 +254,7 @@ class WeightedDiffusion(BasePolicy):
         pred_goal_gripper = pred_goal_gripper.reshape(batch_size, horizon, 4, 3) # B, T, 4, 3
         pred_goal_gripper = pred_goal_gripper.reshape(batch_size, horizon, -1) # B, T, 12
 
-        action_pred = nsample[...,:Da]
+        action_pred = pred_goal_gripper[...,:Da]
         start = To - 1
         end = start + self.n_action_steps
         action = action_pred[:,start:end]

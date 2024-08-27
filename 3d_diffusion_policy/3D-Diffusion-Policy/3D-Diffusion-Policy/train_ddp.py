@@ -369,26 +369,26 @@ class TrainDP3Workspace:
                     # if cfg.checkpoint.save_last_snapshot:
                     #     self.save_snapshot()
 
-                    # if 'test_mean_score' in step_log:
-                    #     self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
-                    #     # sanitize metric names
-                    #     metric_dict = dict()
-                    #     for key, value in step_log.items() :
-                    #         new_key = key.replace('/', '_')
-                    #         metric_dict[new_key] = value
-                    #     # for key, value in runner_log.items():
-                    #     #     new_key = key.replace('/', '_')
-                    #     #     metric_dict[new_key] = value
+                    if 'test_mean_score' in step_log:
+                        self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
+                        # sanitize metric names
+                        metric_dict = dict()
+                        for key, value in step_log.items() :
+                            new_key = key.replace('/', '_')
+                            metric_dict[new_key] = value
+                        # for key, value in runner_log.items():
+                        #     new_key = key.replace('/', '_')
+                        #     metric_dict[new_key] = value
                         
-                    #     # We can't copy the last checkpoint here
-                    #     # since save_checkpoint uses threads.
-                    #     # therefore at this point the file might have been empty!
-                    #     topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                        # We can't copy the last checkpoint here
+                        # since save_checkpoint uses threads.
+                        # therefore at this point the file might have been empty!
+                        topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                    #     if topk_ckpt_path is not None:
-                    #         self.save_checkpoint(path=topk_ckpt_path)
-                    # else:
-                    #     self.save_checkpoint(tag=f'epoch-{self.epoch}')
+                        if topk_ckpt_path is not None:
+                            self.save_checkpoint(path=topk_ckpt_path)
+                    else:
+                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     
                     
                         

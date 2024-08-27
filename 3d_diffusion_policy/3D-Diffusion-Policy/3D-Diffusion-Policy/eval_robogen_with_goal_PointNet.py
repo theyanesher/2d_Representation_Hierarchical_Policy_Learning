@@ -416,7 +416,7 @@ if __name__ == "__main__":
         ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     
-    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/displacement_weighted_gripper_all/model_18.pth"
+    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/model_9.pth"
     pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
@@ -425,7 +425,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/eval_50_obj_pointnet_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_200_obj_pointnet_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
