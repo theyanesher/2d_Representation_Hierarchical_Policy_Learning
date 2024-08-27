@@ -226,7 +226,7 @@ def square_distance(src, dst):
     """
     return torch.sum((src[:, :, None] - dst[:, None]) ** 2, dim=-1)
 
-import torch_cluster
+# import torch_cluster
 def knn_query_torch_cluster(src, k=16):
     bs, npts, _ = src.shape
     temp_xyz = src.reshape(-1, 3)

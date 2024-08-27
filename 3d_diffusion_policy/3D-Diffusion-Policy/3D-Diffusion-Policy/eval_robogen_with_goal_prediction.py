@@ -591,17 +591,17 @@ if __name__ == "__main__":
     # checkpoint_name = 'latest.ckpt'
 
     # 50 objects
-    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
-    # checkpoint_name = 'latest.ckpt'
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    checkpoint_name = 'latest.ckpt'
 
     # 200 objects
-    exp_dir = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door'
-    checkpoint_name = 'latest.ckpt'
+    # exp_dir = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door'
+    # checkpoint_name = 'latest.ckpt'
 
 
     # # low 50 objects dense pcd around goal
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new/2024.08.19/12.50.15_train_dp3_robogen_open_door"
-    checkpoint_name = 'latest.ckpt' 
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new/2024.08.19/12.50.15_train_dp3_robogen_open_door"
+    # checkpoint_name = 'latest.ckpt' 
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -650,7 +650,11 @@ if __name__ == "__main__":
     # goal_checkpoint_name = 'latest.ckpt'
     # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0817-200-obj-pred-weighted-displacement-pointnet2-augmentation-pcd/2024.08.18/18.16.24_train_dp3_robogen_open_door"
 
+    goal_checkpoint_name = 'latest.ckpt'
+    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0818-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.18/21.18.41_train_dp3_robogen_open_door"
 
+    # goal_checkpoint_name = 'epoch-12.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0823-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.23/19.45.27_train_dp3_robogen_open_door"
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -677,7 +681,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/eval_low_50_dense_pcd_200_high_testing_1/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_low_50_pcd_200_high_level_weighted_diffusion_1/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
