@@ -449,7 +449,7 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path,
                     randomize=False,
                     obj_id=0,
                     horizon=600,
-                    mobile=True,
+                    mobile=mobile,
             )
             
             object_name = "StorageFurniture".lower()
@@ -588,14 +588,19 @@ if __name__ == "__main__":
     # checkpoint_name = 'epoch-100.ckpt'
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"
     
-    ### chialiang's best low-level model
+    ### chialiang's best low-level model tranied on 10 objects
     checkpoint_name = 'latest.ckpt'
-    exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
+    exp_dir = exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
     
     ### Act3d + UNet no goal, trained on 10 objects
     # checkpoint_name = 'epoch-100.ckpt'
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"
     
+
+    ### Chialiang's best low-level model trained on 50 objects
+    checkpoint_name = 'latest.ckpt'
+    exp_dir = exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
@@ -644,7 +649,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(3):
-        save_path = "data/eval_train_10_obj_test_new_10_act3d_unet_0711/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_mobile_train_50_on_test_10_mlp_act3d_low_level/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
             
@@ -654,8 +659,10 @@ if __name__ == "__main__":
         run_eval_non_parallel(cfg, policy, num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
-                exp_beg_ratio=exp_beg_ratio,
-                exp_end_ratio=exp_end_ratio,
+                # exp_beg_ratio=exp_beg_ratio,
+                # exp_end_ratio=exp_end_ratio,
+                exp_beg_idx=0,
+                exp_end_idx=25,
                 mobile=True,
         )
     

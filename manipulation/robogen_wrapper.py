@@ -165,28 +165,36 @@ class RobogenPointCloudWrapper:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
             all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
-            goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
-            goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
+
+            # goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
+            # goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
             
             # NOTE: load the goal state, reset the robot to there, record the eef pose as the goal.
-            with open(goal_1_state, 'rb') as f:
-                goal_1_state = pickle.load(f)
-            with open(goal_2_state, 'rb') as f:
-                goal_2_state = pickle.load(f)
+            # with open(goal_1_state, 'rb') as f:
+            #     goal_1_state = pickle.load(f)
+            # with open(goal_2_state, 'rb') as f:
+            #     goal_2_state = pickle.load(f)
             
-            self._env.reset(reset_state=goal_1_state)
-            grasping_eef_pc = self.get_gripper_pc()
+            # self._env.reset(reset_state=goal_1_state)
+            # grasping_eef_pc = self.get_gripper_pc()
 
-            # Chialiang for dense goal pcd
-            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            # # Chialiang for dense goal pcd
+            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            # self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
-            self._env.reset(reset_state=goal_2_state)
-            final_eef_pc = self.get_gripper_pc()
+            # self._env.reset(reset_state=goal_2_state)
+            # final_eef_pc = self.get_gripper_pc()
             
-            # Chialiang for dense goal pcd
-            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            # # Chialiang for dense goal pcd
+            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            # self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+
+            grasping_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(open_begin_t_idx))
+            final_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(all_time_steps - 1))
+            with open(grasping_eef_pc_path, 'rb') as f:
+                grasping_eef_pc = pickle.load(f)
+            with open(final_eef_pc_path, 'rb') as f:
+                final_eef_pc = pickle.load(f)
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc

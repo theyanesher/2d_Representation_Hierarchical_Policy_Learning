@@ -16,6 +16,9 @@ import copy
 import numpy as np
 import random
 
+from ompl import util as ou
+ou.setLogLevel(ou.LOG_ERROR)
+
 INTERPOLATE_NUM = 100
 DEFAULT_PLANNING_TIME = 5
 

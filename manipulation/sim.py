@@ -139,6 +139,15 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
+
+    def get_gripper_pc(self):
+        # get the point cloud of the gripper
+        right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+        left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+        right_hand_pos, _ = self.robot.get_pos_orient(self.robot.right_hand)
+        eef_pos, _ = self.robot.get_pos_orient(self.robot.right_end_effector)
+        gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
+        return gripper_pc.astype(np.float32)
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':

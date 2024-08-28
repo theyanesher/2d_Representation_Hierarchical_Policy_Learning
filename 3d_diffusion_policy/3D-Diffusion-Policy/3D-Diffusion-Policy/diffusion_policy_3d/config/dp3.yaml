@@ -79,6 +79,7 @@ policy:
     mode: null
     use_mlp: false
     self_attention: false
+    use_lightweight_unet: false
 
   prediction_target: action
 
