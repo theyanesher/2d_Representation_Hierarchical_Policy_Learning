@@ -26,12 +26,13 @@ from multiprocessing import set_start_method
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
+import datetime
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 def ddp_setup():
     os.environ["NCCL_P2P_LEVEL"] = "NVL"
-    init_process_group(backend="nccl")
+    init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=5400))
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 class TrainDP3Workspace:
@@ -147,13 +148,21 @@ class TrainDP3Workspace:
                 model=self.ema_model)
 
         # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
+        if cfg.task.run_eval_rollout:
+            env_runner: BaseRunner
+            env_runner = hydra.utils.instantiate(
+                cfg.task.env_runner,
+                output_dir=self.output_dir)
 
-        if env_runner is not None:
-            assert isinstance(env_runner, BaseRunner)
+            if env_runner is not None:
+                assert isinstance(env_runner, BaseRunner)
+        else:
+            env_runner = None
+
+        cprint("==================================", "green")
+        cprint("================ SAVE DIR ================", "green")
+        cprint(f"{self.output_dir}", "green")
+        cprint("==================================", "green")
         
         cfg.logging.name = str(cfg.logging.name)
         cprint("-----------------------------", "yellow")
@@ -279,7 +288,7 @@ class TrainDP3Workspace:
             policy.eval()
 
             # run rollout
-            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None and os.environ['LOCAL_RANK'] == '0':
+            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and os.environ['LOCAL_RANK'] == '0':
                 # first checkpointing then running the eval
                 if cfg.checkpoint.save_last_ckpt:
                     self.save_checkpoint()
@@ -287,6 +296,8 @@ class TrainDP3Workspace:
                     self.save_snapshot()
                 
                 if self.epoch == 0 and not cfg.eval_first:
+                    pass
+                elif env_runner is None:
                     pass
                 else:
                     t3 = time.time()
@@ -353,8 +364,8 @@ class TrainDP3Workspace:
                     pass
                 else:
                     # checkpointing
-                    # if cfg.checkpoint.save_last_ckpt:
-                    #     self.save_checkpoint()
+                    if cfg.checkpoint.save_last_ckpt:
+                        self.save_checkpoint()
                     # if cfg.checkpoint.save_last_snapshot:
                     #     self.save_snapshot()
 

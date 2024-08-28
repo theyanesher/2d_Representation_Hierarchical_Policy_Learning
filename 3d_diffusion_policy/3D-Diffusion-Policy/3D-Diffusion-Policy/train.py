@@ -103,7 +103,6 @@ class TrainDP3Workspace:
         if cfg.load_checkpoint_path is not None:
             print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
             self.load_checkpoint(path=cfg.load_checkpoint_path)
-
         # configure dataset
         print(cfg.task.dataset)
         dataset: BaseDataset
@@ -275,15 +274,15 @@ class TrainDP3Workspace:
                 
                 if self.epoch == 0 and not cfg.eval_first:
                     pass
-                else:
-                    t3 = time.time()
-                    # runner_log = env_runner.run(policy, dataset=dataset)
-                    runner_log = env_runner.run(cfg, policy, self.epoch)
-                    # wandb_run.log(runner_log, step=self.epoch)
-                    t4 = time.time()
-                    cprint(f"rollout time: {t4-t3:.3f}", "red")
-                    # log all
-                    step_log.update(runner_log)
+                # else:
+                #     t3 = time.time()
+                #     # runner_log = env_runner.run(policy, dataset=dataset)
+                #     runner_log = env_runner.run(cfg, policy, self.epoch)
+                #     # wandb_run.log(runner_log, step=self.epoch)
+                #     t4 = time.time()
+                #     cprint(f"rollout time: {t4-t3:.3f}", "red")
+                #     # log all
+                #     step_log.update(runner_log)
 
                 # TODO: add dagger here
                 # 1. should store the final state in env_runner.run
@@ -315,7 +314,10 @@ class TrainDP3Workspace:
                     # sample trajectory from training set, and evaluate difference
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
-                    gt_action = batch['action']
+                    if self.cfg.policy.prediction_target == 'action':
+                        gt_action = batch['action']
+                    else:
+                        gt_action = batch['obs'][self.cfg.policy.prediction_target].flatten(start_dim=2)
                     
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']

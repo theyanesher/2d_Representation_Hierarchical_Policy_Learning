@@ -8,7 +8,7 @@ from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
 from copy import deepcopy
-import pytorch3d.ops as torch3d_ops
+# import pytorch3d.ops as torch3d_ops
 import gym
 from gym import spaces
 import open3d as o3d
@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import time
 from termcolor import cprint
 from scipy.spatial.transform import Rotation as R
+from sklearn.neighbors import NearestNeighbors
 import fpsample
 import os
 import json
@@ -38,6 +39,9 @@ class RobogenPointCloudWrapper:
                  gripper_bbox=0.1, 
                  add_contact=False,
                  use_joint_angle=False,
+                 use_absolute_waypoint=False, # [Chialiang][CDDEBUG]
+                 use_chained_diffuser=False, # [Chialiang][CDDEBUG]
+                 dense_pcd_for_goal=False, # [Chialiang][DEBUG]
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
@@ -66,6 +70,11 @@ class RobogenPointCloudWrapper:
         self.gripper_bbox = gripper_bbox
         self.add_contact = add_contact
         self.use_joint_angle = use_joint_angle
+        self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
+        self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
+        self.dense_pcd_for_goal = dense_pcd_for_goal # [Chialiang][DEBUG]
+        print("************************** USING DENSE PCD **************************", dense_pcd_for_goal)
+        self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
         self.only_handle_points = only_handle_points
@@ -79,6 +88,17 @@ class RobogenPointCloudWrapper:
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
+        self.observation_space = spaces.Dict({
+            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        })
+        if 'goal' in observation_mode:
+            self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        if 'displacement_gripper_to_object' in observation_mode:
+            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
         if 'dp3' in observation_mode:
             self.observation_space = spaces.Dict({
@@ -91,7 +111,13 @@ class RobogenPointCloudWrapper:
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
-        else:
+
+            if 'goal' in observation_mode:
+                self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            if 'displacement_gripper_to_object' in observation_mode:
+                self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        
+        elif 'act3d' in observation_mode:
             self.observation_space = spaces.Dict({
                 'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
@@ -100,12 +126,28 @@ class RobogenPointCloudWrapper:
                 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
 
-        if 'act3d' in observation_mode: 
             if 'goal' in observation_mode:
                 self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             if 'displacement_gripper_to_object' in observation_mode:
                 self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            if dense_pcd_for_goal:
+                self.observation_space['dense_point_cloud'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4500, 3), dtype=np.float32)
 
+        elif 'chained_diffuser' in observation_mode:
+
+            # [Chialiang] [CDDEBUG]
+            self.observation_space = spaces.Dict({
+                'visible_rgb': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'visible_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'curr_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'goal_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                # 'goal_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            })
+        else :
+            raise NotImplementedError
 
         for name in self._env.urdf_ids: # randomly center at an object
             if name in ['robot', 'plane', 'init_table']: continue
@@ -119,7 +161,8 @@ class RobogenPointCloudWrapper:
         if self.rpy_mean_list is None:
             self.rpy_mean_list = [[0, 0, -45], [0, 0, -135]]
         
-        if 'act3d' in self.observation_mode:
+        # [Chialiang] [CDDEBUG]
+        if 'act3d' in self.observation_mode or 'chained_diffuser' in self.observation_mode:
             # TODO: handle multiple camera for act3d observation
             # TODO: figure out the right camera distance & position
             # self.rpy_mean_list = [[0, 0, -45]]
@@ -145,11 +188,10 @@ class RobogenPointCloudWrapper:
             self.project_matrices.append(project_matrix)
             # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
 
-
         self.time_step = 0
         
-        # [Chialiang]
-        if "act3d_goal" in self.observation_mode or 'dp3_goal_gripper' in self.observation_mode:
+        # [Chialiang] [CDDEBUG]
+        if ("act3d_goal" in self.observation_mode) or ('chained_diffuser' in self.observation_mode) or ('dp3_goal_gripper' in self.observation_mode):
 
             # [Chialiang]
             config_path = self._env.config_path
@@ -166,35 +208,35 @@ class RobogenPointCloudWrapper:
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
             all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
 
-            # goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
-            # goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
+            goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
+            goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
             
-            # NOTE: load the goal state, reset the robot to there, record the eef pose as the goal.
-            # with open(goal_1_state, 'rb') as f:
-            #     goal_1_state = pickle.load(f)
-            # with open(goal_2_state, 'rb') as f:
-            #     goal_2_state = pickle.load(f)
+            NOTE: load the goal state, reset the robot to there, record the eef pose as the goal.
+            with open(goal_1_state, 'rb') as f:
+                goal_1_state = pickle.load(f)
+            with open(goal_2_state, 'rb') as f:
+                goal_2_state = pickle.load(f)
             
-            # self._env.reset(reset_state=goal_1_state)
-            # grasping_eef_pc = self.get_gripper_pc()
+            self._env.reset(reset_state=goal_1_state)
+            grasping_eef_pc = self.get_gripper_pc()
 
             # # Chialiang for dense goal pcd
             # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             # self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
-            # self._env.reset(reset_state=goal_2_state)
-            # final_eef_pc = self.get_gripper_pc()
+            self._env.reset(reset_state=goal_2_state)
+            final_eef_pc = self.get_gripper_pc()
             
             # # Chialiang for dense goal pcd
             # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             # self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
 
-            grasping_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(open_begin_t_idx))
-            final_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(all_time_steps - 1))
-            with open(grasping_eef_pc_path, 'rb') as f:
-                grasping_eef_pc = pickle.load(f)
-            with open(final_eef_pc_path, 'rb') as f:
-                final_eef_pc = pickle.load(f)
+            # grasping_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(open_begin_t_idx))
+            # final_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(all_time_steps - 1))
+            # with open(grasping_eef_pc_path, 'rb') as f:
+            #     grasping_eef_pc = pickle.load(f)
+            # with open(final_eef_pc_path, 'rb') as f:
+            #     final_eef_pc = pickle.load(f)
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
@@ -211,43 +253,125 @@ class RobogenPointCloudWrapper:
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
+        if "goal" in self.observation_mode:
+            self.grasped_handle = False
+        self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
+
+    # some util function to generate dense waypoints
+    def nth_root_rotation_matrix(self, A, n):
+        """
+        Compute the n-th root of a 3x3 rotation matrix A.
+        
+        Parameters:
+        A (numpy.ndarray): 3x3 rotation matrix.
+        n (int): The root to compute, e.g., n=3 for cubic root.
+        
+        Returns:
+        numpy.ndarray: The n-th root of the rotation matrix A.
+        """
+        # Step 1: Calculate the angle of rotation using the trace of the matrix
+        angle = np.arccos((np.trace(A) - 1) / 2)
+        
+        # Step 2: Calculate the rotation axis
+        if angle != 0:
+            axis = np.array([A[2, 1] - A[1, 2], A[0, 2] - A[2, 0], A[1, 0] - A[0, 1]]) / (2 * np.sin(angle))
+        else:
+            axis = np.array([1, 0, 0])  # Arbitrary axis for zero rotation
+        
+        # Step 3: Compute the new reduced angle by dividing the original angle by n
+        new_angle = angle / n
+        
+        # Step 4: Normalize the rotation axis
+        axis = axis / np.linalg.norm(axis)
+        
+        # Step 5: Construct the rotation matrix using Rodrigues' rotation formula
+        K = np.array([[0, -axis[2], axis[1]],
+                    [axis[2], 0, -axis[0]],
+                    [-axis[1], axis[0], 0]])
+        
+        I = np.eye(3)
+        A_n_root = I + np.sin(new_angle) * K + (1 - np.cos(new_angle)) * np.dot(K, K)
+        
+        return A_n_root
+
+    def get_dense_delta_waypoints(self, delta_action, threshold=0.005):
+        """
+        Get dense waypoints between the given waypoints.
+        
+        Parameters:
+        delta_action (numpy.ndarray): the delta action outputed from the model.
+        threshold (float): the maximum step length of the delta waypoint.
+        
+        Returns:
+        numpy.ndarray: The dense waypoints.
+        """
+        
+        num_steps = int(np.linalg.norm(delta_action[:3]) / threshold + 1)
+        dense_waypoint = np.zeros(10)
+        dense_waypoint[:3] = delta_action[:3] / num_steps
+        dense_waypoint[3:9] = rotation_transfer_matrix_to_6D(self.nth_root_rotation_matrix(rotation_transfer_6D_to_matrix(delta_action[3:9]), n=num_steps))
+        dense_waypoint[9] = delta_action[9] / num_steps
+
+        dense_waypoints = [dense_waypoint for _ in range(num_steps)]
+        return np.array(dense_waypoints)
+
     
     def step(self, action, render=True):
         # beg = time.time()
+
         if not self.use_joint_angle:
-            # beg = time.time()
-            pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
+
+            # [CDDEBUG] [CDHERE] modify the output action type
+            # [CDQUESTION] how to add gripper action in this mode? currently it only uses position and rotation
+            if self.use_chained_diffuser:
+                self.chained_diffuser_step = 1 # force set to post grasping
+
+                assert len(action) == 8 or len(action) == 10
+
+                pos = action[:3] 
+                if len(action) == 8:
+                    euler = p.getEulerFromQuaternion(action[3:7])
+                else :
+                    orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
+                    euler = p.getEulerFromQuaternion(orient)
+                target_joint_angle = action[-1]
+                action = pos.tolist() + list(euler) + [target_joint_angle]
+                self._env.take_direct_action(action) # directly use the action to control the robot
             
-            # transfer the action to the gripper frame
-            if self.in_gripper_frame:
-                action[:3] = current_rotate_matrix @ np.array(action[:3])
+            else :
+                # beg = time.time()
+                pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+                current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
                 
+                # transfer the action to the gripper frame
+                if self.in_gripper_frame:
+                    action[:3] = current_rotate_matrix @ np.array(action[:3])
+                    
 
-            delta_orient = action[3:9]
+                delta_orient = action[3:9]
 
-            delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
+                delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
 
-            after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
-            
-            orient = R.from_matrix(after_rotate_matrix).as_quat()
-            euler = p.getEulerFromQuaternion(orient)
+                after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
+                
+                orient = R.from_matrix(after_rotate_matrix).as_quat()
+                euler = p.getEulerFromQuaternion(orient)
 
-            cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+                cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
 
-            pos = pos + np.array(action[:3])
-            target_joint_angle = action[9] + cur_joint_angle[0]
-            
-            action = pos.tolist() + list(euler) + [target_joint_angle]
-            # end = time.time()
-            # cprint("preprocessing time {}".format(end - beg), "green")
+                pos = pos + np.array(action[:3])
+                target_joint_angle = action[9] + cur_joint_angle[0]
+                
+                action = pos.tolist() + list(euler) + [target_joint_angle]
+                # end = time.time()
+                # cprint("preprocessing time {}".format(end - beg), "green")
 
-            # beg = time.time()
-            self._env.take_direct_action(action)
-            # beg = time.time()
-            # end = time.time()
-            # cprint("take direct action time {}".format(end - beg), "blue")
+                # beg = time.time()
+                self._env.take_direct_action(action)
+                # beg = time.time()
+                # end = time.time()
+                # cprint("take direct action time {}".format(end - beg), "blue")
         else:
             self._env.take_joint_action(action)
         
@@ -283,6 +407,7 @@ class RobogenPointCloudWrapper:
         return gripper_pc.astype(np.float32)
     
     def _get_act3d_observation(self, rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=False, only_object=True):
+        obs_dict_input = {}
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
         # get the 6D representation of orientation
@@ -390,14 +515,76 @@ class RobogenPointCloudWrapper:
         
         num_points = self.num_points
         if using_torch:
-            point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-            num_points = torch.tensor([num_points]).cuda()
-            _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-            sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-            sampled_indices = np.array(sorted(sampled_indices))
-            point_cloud = point_cloud.squeeze(0).cpu().numpy()
-            point_cloud = point_cloud[sampled_indices]
+            assert False, "Not implemented"
+            # if self.dense_pcd_for_goal:
+
+            #     # get the cropped point cloud from feature_map
+            #     original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
+            #     cond = np.where(original_feature_map_faltten[...,1] > 0.5)
+            #     dense_pcd = original_feature_map_faltten[...,2:5][cond]
+
+            #     # downsampled pcd from FPS
+            #     dense_point_num = 500
+            #     dense_point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+            #     num_points = torch.tensor([num_points-dense_point_num]).cuda() # 4500 - 500
+            #     _, sampled_indices = torch3d_ops.sample_farthest_points(points=dense_point_cloud[...,:3], K=num_points)
+            #     sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+            #     sampled_indices = np.array(sorted(sampled_indices))
+            #     dense_point_cloud = dense_point_cloud.squeeze(0).cpu().numpy()
+            #     dense_point_cloud = dense_point_cloud[sampled_indices]
+
+            #     # [TODO] find current goal
+            #     hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
+            #     nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
+            #     distances, indices = nn.kneighbors(hand_point)
+            #     distances, indices = distances[0], indices[0]
+            #     sorted_index = np.argsort(distances)
+            #     additional_index = indices[sorted_index[:dense_point_num]]
+
+            #     additional_pcd = dense_pcd[additional_index]
+            #     dense_point_cloud = np.vstack([dense_point_cloud, additional_pcd])
+            #     dense_point_cloud = dense_point_cloud.tolist()
+            #     obs_dict_input['dense_point_cloud'] = np.array(dense_point_cloud).astype(np.float32)
+
+            # else:
+            #     point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+            #     num_points = torch.tensor([num_points]).cuda()
+            #     _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+            #     sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+            #     sampled_indices = np.array(sorted(sampled_indices))
+            #     point_cloud = point_cloud.squeeze(0).cpu().numpy()
+            #     point_cloud = point_cloud[sampled_indices]
+
         else:
+            if self.dense_pcd_for_goal:
+                dense_point_cloud = point_cloud
+                # get the cropped point cloud from feature_map
+                original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
+                cond = np.where(original_feature_map_faltten[...,1] > 0.5)
+                dense_pcd = original_feature_map_faltten[...,2:5][cond]
+
+                # downsampled pcd from FPS
+                dense_point_num = 500
+                temp_num_points = num_points # 4500 - 500
+                h = min(9, np.log2(num_points))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(dense_point_cloud[:, :3], temp_num_points, h=h)
+                sampled_indices = np.array(sorted(kdline_fps_samples_idx))
+                
+                dense_point_cloud = dense_point_cloud[sampled_indices]
+
+                # [TODO] find current goal
+                hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
+                nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
+                distances, indices = nn.kneighbors(hand_point)
+                distances, indices = distances[0], indices[0]
+                sorted_index = np.argsort(distances)
+                additional_index = indices[sorted_index[:dense_point_num]]
+
+                additional_pcd = dense_pcd[additional_index]
+                dense_point_cloud = np.vstack([dense_point_cloud, additional_pcd])
+                dense_point_cloud = dense_point_cloud.tolist()
+                obs_dict_input['dense_point_cloud'] = np.array(dense_point_cloud).astype(np.float32)
+
             if point_cloud.shape[0] < num_points:
                 to_add_points_num = num_points - point_cloud.shape[0]
                 random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
@@ -416,7 +603,7 @@ class RobogenPointCloudWrapper:
            
         point_cloud = point_cloud.tolist()
         
-        obs_dict_input = {}
+        
         obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
         obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
         
@@ -675,6 +862,7 @@ class RobogenPointCloudWrapper:
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
                                                 only_object=only_object)
+
             
             if not self.record_all_observation:
                 if 'act3d' in self.observation_mode:
@@ -701,7 +889,7 @@ class RobogenPointCloudWrapper:
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
-            obs_dict_input['agent_pos'] = np.array(pos_ori)
+            obs_dict_input['agent_pos'] = np.array([0, 0, 0, 0, 0, 0, 0]).astype(np.float32)
         
         return obs_dict_input
     

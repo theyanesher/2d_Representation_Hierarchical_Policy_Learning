@@ -3,11 +3,13 @@ import os
 import math
 import numbers
 import zarr
+import pickle # [DebugPickle]
 import numcodecs
 import numpy as np
 from functools import cached_property
 from termcolor import cprint
 from collections import defaultdict
+import pickle
 from tqdm import tqdm
 
 class WelfordOnlineStatistics:
@@ -62,7 +64,7 @@ class ReplayBuffer:
     Zarr-based temporal datastructure.
     Every time we need data, we load from disk.
     """
-    def __init__(self, all_path_list, episode_lengths, accumulated_episode_lengths, keys, action_welford, load_per_step):
+    def __init__(self, all_path_list, episode_lengths, accumulated_episode_lengths, keys, action_welford, load_per_step, is_pickle=False):
         self.all_path_list = all_path_list
         self.episode_lengths = episode_lengths
         self.accumulated_episode_lengths = accumulated_episode_lengths
@@ -70,12 +72,24 @@ class ReplayBuffer:
         self.action_welford = action_welford
         self.load_per_step = load_per_step
 
+        self.is_pickle = is_pickle
+
     @classmethod
-    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None):
+    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None, only_reach_stage=False, is_pickle=False):
         """
         restore the path_list as well as the length of every episode
         """
+        if only_reach_stage:
+            cprint("loading the data before reaching the goal, no goal switching!!", 'red')
+        else:
+            cprint("loading the full episode data", 'red')
+
+        if is_pickle:
+            cprint("loading the data from pickle files", 'blue')
+        else:
+            cprint("loading the data from zarr files", 'blue')
         self.all_path_list = path_list
+        self.is_pickle = is_pickle
 
         episode_lengths = []
 
@@ -83,32 +97,21 @@ class ReplayBuffer:
 
         for idx, zarr_path  in enumerate(tqdm(path_list)):
             if not load_per_step:
-                group = zarr.open(zarr_path, 'r')
-                src_store = group.store
-            
-                # numpy backend
-                src_root = zarr.group(src_store)
-
-                if keys is None:
-                    keys = src_root['data'].keys()
-                    self.keys_ = list(keys)
+                if is_pickle:
+                    data = pickle.load(open(zarr_path, 'rb'))
+                    if keys is None:
+                        keys = data.keys()
+                        self.keys_ = list(keys)
+                    else:
+                        self.keys_ = keys
+                    episode_lengths.append(len(data[keys[0]][:]))
+                    action = data['action'][:]
+                    action_welford.add(action)
                 else:
-                    self.keys_ = keys
-
-                # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
-                episode_lengths.append(len(src_root['data'][keys[0]][:]))
-
-                action = src_root['data']['action'][:]
-                action_welford.add(action)
-            else:
-                all_substeps = os.listdir(zarr_path)
-                all_substeps = sorted(all_substeps, key=lambda x: int(x))
-                episode_lengths.append(len(all_substeps))
-
-                for substep in all_substeps:
-                    substep_path = os.path.join(zarr_path, substep)
-                    group = zarr.open(substep_path, 'r')
+                    group = zarr.open(zarr_path, 'r')
                     src_store = group.store
+                
+                    # numpy backend
                     src_root = zarr.group(src_store)
 
                     if keys is None:
@@ -117,8 +120,66 @@ class ReplayBuffer:
                     else:
                         self.keys_ = keys
 
+                    # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
+                    episode_lengths.append(len(src_root['data'][keys[0]][:]))
+
                     action = src_root['data']['action'][:]
                     action_welford.add(action)
+            else:
+                
+                # episode_lengths.append(len(all_substeps))
+
+                first_goal = None
+
+                if is_pickle:
+                    all_substeps = os.listdir(zarr_path)
+                    all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0])) # ex: 0.pkl -> 0
+                    for i, substep in enumerate(all_substeps):
+                        substep_path = os.path.join(zarr_path, substep)
+                        data = pickle.load(open(substep_path, 'rb'))
+                        if keys is None:
+                            keys = data.keys()
+                            self.keys_ = list(keys)
+                        else:
+                            self.keys_ = keys
+                        action = data['action'][:]
+
+                        current_goal = data['goal_gripper_pcd'][:]
+                        if first_goal is None:
+                            first_goal = current_goal
+                        elif not np.allclose(first_goal, current_goal) and only_reach_stage:
+                            episode_lengths.append(i)
+                            break
+
+                        action_welford.add(action)
+                else:         
+                    all_substeps = os.listdir(zarr_path)
+                    all_substeps = sorted(all_substeps, key=lambda x: int(x))
+                    for i, substep in enumerate(all_substeps):
+                        substep_path = os.path.join(zarr_path, substep)
+                        group = zarr.open(substep_path, 'r')
+                        src_store = group.store
+                        src_root = zarr.group(src_store)
+
+                        if keys is None:
+                            keys = src_root['data'].keys()
+                            self.keys_ = list(keys)
+                        else:
+                            self.keys_ = keys
+
+                        action = src_root['data']['action'][:]
+
+                        current_goal = src_root['data']['goal_gripper_pcd'][:]
+                        if first_goal is None:
+                            first_goal = current_goal
+                        elif not np.allclose(first_goal, current_goal) and only_reach_stage:
+                            episode_lengths.append(i)
+                            break
+
+                        action_welford.add(action)
+
+                if not only_reach_stage:
+                    episode_lengths.append(len(all_substeps))
         
         self.episode_lengths = np.array(episode_lengths)
         self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
@@ -128,7 +189,7 @@ class ReplayBuffer:
         # TODO: add more statistics
         self.action_welford = action_welford
 
-        return ReplayBuffer(self.all_path_list, self.episode_lengths, self.accumulated_episode_lengths, self.keys_, self.action_welford, load_per_step=load_per_step)
+        return ReplayBuffer(self.all_path_list, self.episode_lengths, self.accumulated_episode_lengths, self.keys_, self.action_welford, load_per_step=load_per_step, is_pickle=is_pickle)
 
     def get_data_disk(self, start_idx, end_idx):
         """
@@ -159,16 +220,19 @@ class ReplayBuffer:
                 # only one zarr file
                 start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
                 end_idx = end_idx - self.accumulated_episode_lengths[start_episode_idx]
-                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, end_idx)
+                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, end_idx, start_episode_idx)
             else:
                 # two zarr files
                 start_idx = start_idx - self.accumulated_episode_lengths[start_episode_idx]
-                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, None)
+                ret_data = self.get_data_single_zarr_per_step(self.all_path_list[start_episode_idx], start_idx, None, start_episode_idx)
         return ret_data
     
-    def get_data_single_zarr_per_step(self, zarr_path, start_idx, end_idx):
+    def get_data_single_zarr_per_step(self, zarr_path, start_idx, end_idx, zarr_idx=None):
         ret_data = defaultdict(list)
-        all_steps = len(os.listdir(zarr_path))
+        if zarr_idx is None:
+            all_steps = len(os.listdir(zarr_path))
+        else:
+            all_steps = self.episode_lengths[zarr_idx]
 
         start_idx = start_idx + all_steps if start_idx < 0 else start_idx        
         if end_idx is None:
@@ -177,14 +241,20 @@ class ReplayBuffer:
             end_idx = end_idx + all_steps if end_idx < 0 else end_idx
         
         for step_idx in range(start_idx, end_idx):
-            step_path = os.path.join(zarr_path, str(step_idx))
-            group = zarr.open(step_path, 'r')
-            src_store = group.store
+            if self.is_pickle:
+                step_path = os.path.join(zarr_path, f'{step_idx}.pkl')
+                data = pickle.load(open(step_path, 'rb'))
+                for key in self.keys_:
+                    ret_data[key].append(data[key][:])
+            else:
+                step_path = os.path.join(zarr_path, str(step_idx))
+                group = zarr.open(step_path, 'r')
+                src_store = group.store
 
-            # numpy backend
-            src_root = zarr.group(src_store)
-            for key in self.keys_:
-                ret_data[key].append(src_root['data'][key][:])
+                # numpy backend
+                src_root = zarr.group(src_store)
+                for key in self.keys_:
+                    ret_data[key].append(src_root['data'][key][:])
         
         for key in self.keys_:
             ret_data[key] = np.concatenate(ret_data[key], axis=0)
@@ -195,19 +265,30 @@ class ReplayBuffer:
         """
         get data from a single zarr file
         """
-        group = zarr.open(zarr_path, 'r')
-        src_store = group.store
+        if self.is_pickle:
+            data = pickle.load(open(zarr_path, 'rb'))
+            ret_data = dict()
+            for key in self.keys_:
+                if end_idx is None:
+                    ret_data[key] = data[key][:][start_idx:]
+                elif start_idx is None:
+                    ret_data[key] = data[key][:][:end_idx]
+                else:
+                    ret_data[key] = data[key][:][start_idx:end_idx]
+        else:
+            group = zarr.open(zarr_path, 'r')
+            src_store = group.store
 
-        # numpy backend
-        src_root = zarr.group(src_store)
-        ret_data = dict()
-        for key in self.keys_:
-            if end_idx is None:
-                ret_data[key] = src_root['data'][key][:][start_idx:]
-            elif start_idx is None:
-                ret_data[key] = src_root['data'][key][:][:end_idx]
-            else:
-                ret_data[key] = src_root['data'][key][:][start_idx:end_idx]
+            # numpy backend
+            src_root = zarr.group(src_store)
+            ret_data = dict()
+            for key in self.keys_:
+                if end_idx is None:
+                    ret_data[key] = src_root['data'][key][:][start_idx:]
+                elif start_idx is None:
+                    ret_data[key] = src_root['data'][key][:][:end_idx]
+                else:
+                    ret_data[key] = src_root['data'][key][:][start_idx:end_idx]
         return ret_data
     
     ## SOME APIs

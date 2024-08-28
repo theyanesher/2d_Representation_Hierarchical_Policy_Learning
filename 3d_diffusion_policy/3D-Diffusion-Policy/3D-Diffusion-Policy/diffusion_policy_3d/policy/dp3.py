@@ -12,6 +12,7 @@ import time
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
 from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
+from diffusion_policy_3d.model.diffusion.conditional_transformers import ConditionalTransformer
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
@@ -35,9 +36,9 @@ class DP3(BasePolicy):
             kernel_size=5,
             n_groups=8,
             condition_type="film",
-            use_down_condition=True,
-            use_mid_condition=True,
-            use_up_condition=True,
+            use_down_condition=True, # true
+            use_mid_condition=True, # true
+            use_up_condition=True, # true
             encoder_output_dim=256,
             crop_shape=None,
             use_pc_color=False,
@@ -47,12 +48,16 @@ class DP3(BasePolicy):
             encoder_type='pointnet',
             act3d_encoder_cfg=None,
             prediction_target='action',
+            noise_model_type='unet',
+            diffusion_attn_embed_dim=120,
+            normalize_action=True, # [Chialiang] can remove normilizer for action
             # parameters passed to step
             **kwargs):
         super().__init__()
 
         self.condition_type = condition_type
         self.prediction_target = prediction_target
+        self.normalize_action = normalize_action
 
         # parse shape_meta
         action_shape = shape_meta[self.prediction_target]['shape']
@@ -71,7 +76,7 @@ class DP3(BasePolicy):
         self.encoder_type = encoder_type
         if self.encoder_type=="dp3":
             obs_encoder = DP3Encoder(observation_space=obs_dict,
-                                                   img_crop_shape=crop_shape,
+                                                img_crop_shape=crop_shape,
                                                 out_channel=encoder_output_dim,
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
                                                 use_pc_color=use_pc_color,
@@ -121,20 +126,32 @@ class DP3(BasePolicy):
                     global_cond_dim = obs_feature_dim
                 else:
                     global_cond_dim = obs_feature_dim * n_obs_steps
+        
+        self.encoder_output_dim = encoder_output_dim
+        self.noise_model_type = noise_model_type
+        if self.noise_model_type == 'unet':
+            model = ConditionalUnet1D(
+                input_dim=input_dim,
+                local_cond_dim=None,
+                global_cond_dim=global_cond_dim,
+                diffusion_step_embed_dim=diffusion_step_embed_dim,
+                down_dims=down_dims,
+                kernel_size=kernel_size,
+                n_groups=n_groups,
+                condition_type=condition_type,
+                use_down_condition=use_down_condition,
+                use_mid_condition=use_mid_condition,
+                use_up_condition=use_up_condition,
+            )
+        elif self.noise_model_type == 'transformer':
+            model = ConditionalTransformer(
+                input_dim=input_dim,
+                local_cond_dim=None,
+                global_cond_dim=global_cond_dim,
+                encoder_feature_dim=encoder_output_dim,
+                diffusion_attn_embed_dim=diffusion_attn_embed_dim
+            )
 
-        model = ConditionalUnet1D(
-            input_dim=input_dim,
-            local_cond_dim=None,
-            global_cond_dim=global_cond_dim,
-            diffusion_step_embed_dim=diffusion_step_embed_dim,
-            down_dims=down_dims,
-            kernel_size=kernel_size,
-            n_groups=n_groups,
-            condition_type=condition_type,
-            use_down_condition=use_down_condition,
-            use_mid_condition=use_mid_condition,
-            use_up_condition=use_up_condition,
-        )
         if self.encoder_type == "act3d":
             model = replace_bn_with_gn(model)
 
@@ -164,7 +181,6 @@ class DP3(BasePolicy):
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
-
 
         print_params(self)
         
@@ -197,7 +213,7 @@ class DP3(BasePolicy):
 
             model_output = model(sample=trajectory,
                                 timestep=t, 
-                                local_cond=local_cond, global_cond=global_cond)
+                                local_cond=local_cond, global_cond=global_cond, **kwargs)
             
             # 3. compute previous image: x_t -> x_t-1
             trajectory = scheduler.step(
@@ -221,6 +237,7 @@ class DP3(BasePolicy):
             nobs = self.normalizer.normalize(obs_dict)
         else:
             nobs = obs_dict
+
         # import pdb; pdb.set_trace()
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
         # if not self.use_pc_color:
@@ -268,17 +285,37 @@ class DP3(BasePolicy):
             cond_mask[:,:To,Da:] = True
 
         # run sampling
-        nsample = self.conditional_sample(
-            cond_data, 
-            cond_mask,
-            local_cond=local_cond,
-            global_cond=global_cond,
-            **self.kwargs)
-        
+        if self.noise_model_type == 'unet':
+            nsample = self.conditional_sample(
+                cond_data, 
+                cond_mask,
+                local_cond=local_cond,
+                global_cond=global_cond,
+                **self.kwargs)
+        elif self.noise_model_type == 'transformer':
+            observed_gripper_points = this_nobs['gripper_pcd'].reshape(B, self.n_obs_steps, -1, 3)
+            scene_points, scene_features = self.obs_encoder.get_rgb_features()
+            scene_points = scene_points.reshape(B, self.n_obs_steps, -1, 3)
+            scene_features = scene_features.reshape(scene_points.shape[2], B, self.n_obs_steps, self.encoder_output_dim)
+            scene_features = scene_features.permute(1, 2, 0, 3)
+            nsample = self.conditional_sample(
+                cond_data,
+                cond_mask,
+                local_cond=local_cond,
+                global_cond=global_cond,
+                observed_gripper_points=observed_gripper_points,
+                scene_points=scene_points,
+                scene_features=scene_features,
+                **self.kwargs)
+
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
+
+        # [Chialiang] can remove normilizer for action
         if self.prediction_target == 'action':
-            action_pred = self.normalizer[self.prediction_target].unnormalize(naction_pred)
+            action_pred = naction_pred
+            if self.normalize_action:
+                action_pred = self.normalizer[self.prediction_target].unnormalize(action_pred)
         else:
             action_pred = naction_pred
 
@@ -312,8 +349,11 @@ class DP3(BasePolicy):
         else:
             nobs = batch['obs']
         
-        if self.prediction_target == 'action':
-            nactions = self.normalizer[self.prediction_target].normalize(batch[self.prediction_target])
+        # [Chialiang] can remove normilizer for action
+        if  self.prediction_target == 'action':
+            nactions = batch[self.prediction_target]
+            if self.normalize_action:
+                nactions = self.normalizer[self.prediction_target].normalize(nactions)
         else:
             nactions = batch['obs'][self.prediction_target].flatten(start_dim=2)
 
@@ -386,11 +426,24 @@ class DP3(BasePolicy):
         noisy_trajectory[condition_mask] = cond_data[condition_mask]
 
         # Predict the noise residual
-        
-        pred = self.model(sample=noisy_trajectory, 
-                        timestep=timesteps, 
-                            local_cond=local_cond, 
-                            global_cond=global_cond)
+        if self.noise_model_type == 'unet':
+            pred = self.model(sample=noisy_trajectory, 
+                            timestep=timesteps, 
+                                local_cond=local_cond, 
+                                global_cond=global_cond)
+        elif self.noise_model_type == 'transformer':
+            observed_gripper_points = this_nobs['gripper_pcd'].reshape(batch_size, self.n_obs_steps, -1, 3)
+            scene_points, scene_features = self.obs_encoder.get_rgb_features()
+            scene_points = scene_points.reshape(batch_size, self.n_obs_steps, -1, 3)
+            scene_features = scene_features.reshape(scene_points.shape[2], batch_size, self.n_obs_steps, self.encoder_output_dim)
+            scene_features = scene_features.permute(1, 2, 0, 3)
+            pred = self.model(sample=noisy_trajectory,
+                                timestep=timesteps,
+                                local_cond=local_cond,
+                                global_cond=global_cond,
+                                observed_gripper_points=observed_gripper_points,
+                                scene_points=scene_points,
+                                scene_features=scene_features)
 
 
         pred_type = self.noise_scheduler.config.prediction_type 
@@ -403,12 +456,17 @@ class DP3(BasePolicy):
             # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
             # sigma = self.noise_scheduler.sigmas[timesteps]
             # alpha_t, sigma_t = self.noise_scheduler._sigma_to_alpha_sigma_t(sigma)
-            self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
-            self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
-            alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
-            alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
-            sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
-            v_t = alpha_t * noise - sigma_t * trajectory
+            # alpha_t = alpha_t.to(self.device)
+            # sigma_t = sigma_t.to(self.device)
+            # # self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
+            # # self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
+            # # alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
+            # alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
+            # sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
+            # v_t = alpha_t * noise - sigma_t * trajectory
+            # target = v_t
+            # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_ddim.py
+            v_t = self.noise_scheduler.get_velocity(sample=trajectory, noise=noise, timesteps=timesteps)
             target = v_t
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
