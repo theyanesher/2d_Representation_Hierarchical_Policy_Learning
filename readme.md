@@ -96,3 +96,65 @@ The simulation environment is implemented in `manipulation/sim.py`.
 The point cloud observation wrapper is in `manipulation/robogen_wrapper.py`
 
 
+## Some tests to run to understand the code & make sure the code runs correctly
+Here we show some commands & basic experiments that you should run to make sure the code is running correctly, and for you to understand the code (e.g., you can use pdb to go through the code step by step when running the following commands). 
+
+- If you are running this in a local machine, i.e., you have copied data from autobot / robo cluster back to your local desktop:
+```
+bash scripts/run-50-act3d-goal.sh
+```
+This will train a high-level policy that predicts the goal gripper points, using 50 objects. 
+By default the experiment is named `test-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon`. The checkpoints and log of this training will be stored at `3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/test-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon`.
+
+Let this train for 30ish epochs. You can then evaluate this trained high-level policy with a pre-trained low-level policy on 10 unseens objects, each with 25 different configurations, using:
+```
+cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/
+python eval_robogen_with_goal_prediction.py
+```
+NOTE: this evaluation requires access to some of the raw data for demonstration generations, which is stored in autobot at 
+```
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_40147/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_44817/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_44962/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45132/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45219/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45243/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45332/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45378/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45384/'
+'/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_45463/'
+```
+You need to scp those to your local machine if you want to evaluate on your local machine. 
+
+In eval_robogen_with_goal_prediction.py, change `goal_check_point_name` and `goal_exp_dir` to be the path of the experiments where you just run. Change `save_path` at the bottom part of the file to be your desired name, e.g., `test_eval`. The evaluation results will be stored at `3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/test_eval/`. 
+To parse the results, run `python plot/plot_open_door_results_multiple.py`. Change `folder` to be your evaluation experiment name. 
+This will give you the performance of each of the 10 objects, where 1 means that the performance perfectly matches the expert policy, and 0 means it does nothing. 
+Ideally, you should be able to see results similar to this google sheet: https://docs.google.com/spreadsheets/d/1EMFSzEfIVoG6cQwVil9FqNFOaoY4T2LIXywdIaU_58o/edit?usp=sharing, under tab `50 objects`, block L58 - L67.
+
+- For running experiments on autobot:
+Everything is similar to above except that you need to run things in a singularity image.
+Singularity is similar to docker, which is a container that has all required environments installed inside it for an application. It is commonly used for high-performance computing clusters, and all 3 of our lab clusters support it, i.e., seuss, autobot, and robo cluster. 
+We have already built a singularity image that has all needed environment and conda packages installed for running the code.
+It is located at `/project_data/held/yufeiw2/robogen-dp3-act3d.sif` on autobot. 
+Feel free to ask ChatGPT more info about singularity if you are interested. 
+
+To run things on autobot, you need to run it inside this singularity, so do the following:
+- You should first ssh into a compute node, e.g., ssh autobot-0-33
+- Then you can either start a tmux session or not. tmux can prevent your job from dying if you lose connection during the ssh session
+- Activate the singularity `singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif`
+- Prepare some environment vairables and activate the conda env inside the singularity: 
+```
+cd /mnt/RoboGen_sim2real
+export PATH=/opt/conda/bin:$PATH
+source /opt/conda/etc/profile.d/conda.sh
+conda activate unisim
+export PYTHONPATH=${PWD}:$PYTHONPATH
+export PYTHONPATH=${PWD}/rl_games:$PYTHONPATH
+export PYTHONPATH=${PWD}/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy:$PYTHONPATH
+export PROJECT_DIR=${PWD}
+source prepare.sh
+export YUFEI_OPENAI_API_KEY="xxx" # TODO: embed this in singularity
+```
+- After this, you should be good to go for training. Just do `bash scripts/run-50-act3d-goal.sh` and everything else follows as running things locally. 
+
+
