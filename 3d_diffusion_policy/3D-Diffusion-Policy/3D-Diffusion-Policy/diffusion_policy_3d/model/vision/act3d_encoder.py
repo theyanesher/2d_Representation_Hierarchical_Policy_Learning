@@ -57,7 +57,7 @@ class ModifiedMobileNetV3Small(nn.Module):
 class Act3dEncoder(nn.Module):
     def __init__(self, 
                 #  in_channels=3, 
-                 in_channels=5, 
+                 in_channels=3, 
                  encoder_output_dim=256, 
                  num_gripper_points=4, 
                  state_mlp_size=(64, 64), state_mlp_activation_fn=nn.ReLU,
@@ -129,23 +129,23 @@ class Act3dEncoder(nn.Module):
         elif self.pointcloud_backbone == 'pointnet2ssg':
             vision_encoder = PointNet2ssg_small(num_classes=vision_output_dim)
             vision_encoder = replace_bn_with_gn(vision_encoder,features_per_group=4)
-        # elif self.pointcloud_backbone == 'point_transformer':
-        #     vision_encoder = PointTransformerSeg(
-        #         npoints=4500,
-        #         n_c=vision_output_dim,
-        #         nblocks=3,
-        #         nneighbor=16,
-        #         d_points=3,
-        #         transformer_dim=32,
-        #         base_dim=8,
-        #         downsample_ratio=8,
-        #         hidden_dim=128
-        #     )
-        #     vision_encoder = replace_bn_with_gn(vision_encoder, features_per_group=4)
+        elif self.pointcloud_backbone == 'point_transformer':
+            vision_encoder = PointTransformerSeg(
+                npoints=4500,
+                n_c=vision_output_dim,
+                nblocks=3,
+                nneighbor=16,
+                d_points=3,
+                transformer_dim=32,
+                base_dim=8,
+                downsample_ratio=8,
+                hidden_dim=128
+            )
+            vision_encoder = replace_bn_with_gn(vision_encoder, features_per_group=4)
         else:
             cprint(f"Unknown pointcloud backbone {self.pointcloud_backbone}", 'red')
-
-        attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)  # [Debug] make it deeper
+            
+        attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
         attn_layers = replace_bn_with_gn(attn_layers)
         self.nets = nn.ModuleDict({
             'vision_encoder': vision_encoder,
@@ -154,7 +154,7 @@ class Act3dEncoder(nn.Module):
         })
         
         if self.self_attention:
-            self.nets['self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2) # [Debug] make it deeper
+            self.nets['self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
             self.nets['self_attn_layers'] = replace_bn_with_gn(self.nets['self_attn_layers'])
         
         if self.mode in ['keep_position_feature_in_attention_feature', 
@@ -188,11 +188,11 @@ class Act3dEncoder(nn.Module):
             large_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 3)
             large_attn_layers = replace_bn_with_gn(large_attn_layers)
             self.nets['feature_attn_layers'] = large_attn_layers
-        # elif self.use_attn_for_point_features == "locally_self_attention":
-        #     cprint("Using locally self attention of 2 layers", 'yellow')
-        #     locally_attn_layers = TrivialLocallyTransformer(n_c=encoder_output_dim, npoints=4504, nneighbor=16, d_points=60, transformer_dim=32, hidden_dim=128)
-        #     locally_attn_layers = replace_bn_with_gn(locally_attn_layers)
-        #     self.nets['feature_attn_layers'] = locally_attn_layers
+        elif self.use_attn_for_point_features == "locally_self_attention":
+            cprint("Using locally self attention of 2 layers", 'yellow')
+            locally_attn_layers = TrivialLocallyTransformer(n_c=encoder_output_dim, npoints=4504, nneighbor=16, d_points=60, transformer_dim=32, hidden_dim=128)
+            locally_attn_layers = replace_bn_with_gn(locally_attn_layers)
+            self.nets['feature_attn_layers'] = locally_attn_layers
 
         # NOTE: 
         # cross attention to goal means:
@@ -206,7 +206,7 @@ class Act3dEncoder(nn.Module):
         # current gripper self-attention
 
         if self.goal_mode in ['cross_attention_to_goal', 'cross_attention_to_goal_not_concat_and_self_attention']:
-            goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)  # [Debug] make it deeper
+            goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
             goal_attn_layers = replace_bn_with_gn(goal_attn_layers)
             self.nets['goal_attn_layers'] = goal_attn_layers
             if self.mode in ['keep_position_feature_in_attention_feature', "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
@@ -329,14 +329,14 @@ class Act3dEncoder(nn.Module):
             rgb_features = nets['vision_encoder'](rgb_obs_feat) # B num_points encoder_output_dim
             rgb_features = einops.rearrange(rgb_features, "B N C -> N B C", B=B)
             point_cloud = observation[self.point_cloud_key]
-        # elif self.pointcloud_backbone == 'point_transformer':
-        #     rgb_obs_feat = observation[self.point_cloud_key]
-        #     B, N, C = rgb_obs_feat.shape
-        #     assert C == 3, f"Expected 3 channels for point cloud, got {C}"
-        #     rgb_features = nets['vision_encoder'](rgb_obs_feat) # B num_points encoder_output_dim
-        #     rgb_features = einops.rearrange(rgb_features, "B N C -> N B C", B=B)
-        #     point_cloud = observation[self.point_cloud_key]
-
+        elif self.pointcloud_backbone == 'point_transformer':
+            rgb_obs_feat = observation[self.point_cloud_key]
+            B, N, C = rgb_obs_feat.shape
+            assert C == 3, f"Expected 3 channels for point cloud, got {C}"
+            rgb_features = nets['vision_encoder'](rgb_obs_feat) # B num_points encoder_output_dim
+            rgb_features = einops.rearrange(rgb_features, "B N C -> N B C", B=B)
+            point_cloud = observation[self.point_cloud_key]
+        
         point_cloud_rel_pos_embedding = nets['relative_pe_layer'](point_cloud) # shape B N encoder_output_dim
                        
         num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3
@@ -390,29 +390,20 @@ class Act3dEncoder(nn.Module):
             query=gripper_pcd_features, value=rgb_features,
             query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
         )[-1]
-
-        if self.self_attention:
-            attn_output = nets['self_attn_layers'](
+        
+        if not self.self_attention:
+            rgb_features = einops.rearrange(
+                attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
+        else:
+            self_attn_output = nets['self_attn_layers'](
                 query=attn_output, value=attn_output,
                 query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
             )[-1]
-
-        state_feat = self.state_mlp(agent_pos)  # B * 64
-        if not self.final_attention:
             rgb_features = einops.rearrange(
-                attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
-            obs_features = torch.cat([rgb_features, state_feat], dim=-1)
-
-        # if not self.self_attention:
-        #     rgb_features = einops.rearrange(
-        #         attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # shape B (num_gripper_points * encoder_output_dim)
-        # else:
-        #     self_attn_output = nets['self_attn_layers'](
-        #         query=attn_output, value=attn_output,
-        #         query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
-        #     )[-1]
-        #     rgb_features = einops.rearrange(
-        #         self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+                self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
+            
+        state_feat = self.state_mlp(agent_pos)  # B * 64
+        obs_features = torch.cat([rgb_features, state_feat], dim=-1)
 
         if self.goal_mode in ['cross_attention_to_goal', "cross_attention_to_goal_not_concat_and_self_attention"]:
             goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation['goal_gripper_pcd']) # shape B num_gripper_points encoder_output_dim
@@ -438,6 +429,7 @@ class Act3dEncoder(nn.Module):
                         query_pos=gripper_pcd_rel_pos_embedding, value_pos=gripper_pcd_rel_pos_embedding,
                     )[-1]
 
+                
                 if self.final_attention:
                     final_attn_output = nets['final_attn_layers'](query=attn_output, value=goal_attn_output,
                         query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,
@@ -449,12 +441,13 @@ class Act3dEncoder(nn.Module):
                         final_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
                         
                     obs_features = torch.cat([obs_features, state_feat], dim=-1)     
-                else :
+                else:
                     goal_features = einops.rearrange(
                         goal_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1)
 
-                    obs_features = torch.cat([obs_features, goal_features], dim=-1)     
-            
+                    obs_features = torch.cat([obs_features, goal_features], dim=-1)    
+                
+                
             elif self.goal_mode == 'cross_attention_to_goal_not_concat_and_self_attention': # using gripper features obtained from cross attention to object, and then do self attention
                 goal_attn_output = nets['goal_attn_layers'](query=attn_output, value=goal_gripper_pcd_features,
                     query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,

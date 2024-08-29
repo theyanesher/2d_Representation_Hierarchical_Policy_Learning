@@ -8,7 +8,7 @@ from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
 from copy import deepcopy
-import pytorch3d.ops as torch3d_ops
+# import pytorch3d.ops as torch3d_ops
 import gym
 from gym import spaces
 import open3d as o3d
@@ -73,6 +73,7 @@ class RobogenPointCloudWrapper:
         self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
         self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
         self.dense_pcd_for_goal = dense_pcd_for_goal # [Chialiang][DEBUG]
+        print("************************** USING DENSE PCD **************************", dense_pcd_for_goal)
         self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
@@ -87,6 +88,17 @@ class RobogenPointCloudWrapper:
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
+        self.observation_space = spaces.Dict({
+            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
+            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        })
+        if 'goal' in observation_mode:
+            self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+        if 'displacement_gripper_to_object' in observation_mode:
+            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
         if 'dp3' in observation_mode:
             self.observation_space = spaces.Dict({
@@ -118,6 +130,8 @@ class RobogenPointCloudWrapper:
                 self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             if 'displacement_gripper_to_object' in observation_mode:
                 self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+            if dense_pcd_for_goal:
+                self.observation_space['dense_point_cloud'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4500, 3), dtype=np.float32)
 
         elif 'chained_diffuser' in observation_mode:
 
@@ -193,6 +207,7 @@ class RobogenPointCloudWrapper:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
             all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
+
             goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
             goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
             
@@ -205,18 +220,23 @@ class RobogenPointCloudWrapper:
             self._env.reset(reset_state=goal_1_state)
             grasping_eef_pc = self.get_gripper_pc()
 
-            # Chialiang for dense goal pcd
-            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
-            self.grasping_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
+            # # Chialiang for dense goal pcd
+            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            # self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
             self._env.reset(reset_state=goal_2_state)
             final_eef_pc = self.get_gripper_pc()
             
-            # Chialiang for dense goal pcd
-            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
-            self.final_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
+            # # Chialiang for dense goal pcd
+            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            # self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+
+            # grasping_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(open_begin_t_idx))
+            # final_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(all_time_steps - 1))
+            # with open(grasping_eef_pc_path, 'rb') as f:
+            #     grasping_eef_pc = pickle.load(f)
+            # with open(final_eef_pc_path, 'rb') as f:
+            #     final_eef_pc = pickle.load(f)
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
@@ -233,6 +253,8 @@ class RobogenPointCloudWrapper:
         self._env.reset(**kwargs)
         self._env._get_info()
         self.time_step = 0
+        if "goal" in self.observation_mode:
+            self.grasped_handle = False
         self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
 
@@ -393,6 +415,7 @@ class RobogenPointCloudWrapper:
         return gripper_pc.astype(np.float32)
     
     def _get_act3d_observation(self, rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=False, only_object=True):
+        obs_dict_input = {}
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
         # get the 6D representation of orientation
@@ -582,7 +605,7 @@ class RobogenPointCloudWrapper:
            
         point_cloud = point_cloud.tolist()
         
-        obs_dict_input = {}
+        
         obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
         obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
         
@@ -875,7 +898,7 @@ class RobogenPointCloudWrapper:
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
-            obs_dict_input['agent_pos'] = np.array(pos_ori)
+            obs_dict_input['agent_pos'] = np.array([0, 0, 0, 0, 0, 0, 0]).astype(np.float32)
         
         return obs_dict_input
     

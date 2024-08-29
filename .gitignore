@@ -41,3 +41,9 @@ sbatch_output/
 read_pickle.py
 run-act3d-ddp-psc_old.sh
 .nfs*
+3d_diffuser_actor/
+train_logs/
+test_PointNet2/results/
+test_PointNet2/exps/
+test_PointNet2/exps_all/
+*.npy
