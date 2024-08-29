@@ -993,7 +993,7 @@ def rotation_transfer_6D_to_matrix_batch(orient):
 
 def rotation_transfer_matrix_to_6D_batch(rotate_matrix):
 
-    # rotate_matrix.shape = (B, 9) or (B, 3, 3) rotation transpose (i.e., row vectors instead of column vectors)
+    # rotate_matrix.shape = (B, 9) or (B x 3, 3) rotation transpose (i.e., row vectors instead of column vectors)
     # return shape = (B, 6)
 
     if type(rotate_matrix) == list or type(rotate_matrix) == tuple:

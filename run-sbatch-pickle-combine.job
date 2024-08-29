@@ -5,7 +5,7 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:4 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name test # 50-obj-act3d-unet-low-level-with-goal
+#SBATCH --job-name 50-obj-act3d-mlp-low-level-with-goal-v_prediction # 50-obj-act3d-unet-low-level-with-goal
 #SBATCH -o sbatch_output/job_%j.out
 #SBATCH -e sbatch_output/job_%j.err
 #SBATCH --mail-type=END
@@ -101,6 +101,6 @@ total_time=$SECONDS
 echo "Total time taken: $(($total_time / 60)) minutes and $(($total_time % 60)) seconds."
 
 #### start training
-# singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-1.sh
-singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-2.sh
+singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-combine.sh
+# singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-2.sh
 # singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-3.sh

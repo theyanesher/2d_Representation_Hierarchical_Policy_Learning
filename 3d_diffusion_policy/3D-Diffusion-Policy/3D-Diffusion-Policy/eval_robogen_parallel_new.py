@@ -49,13 +49,15 @@ def parallel_eval(args):
     object_name = "StorageFurniture".lower()
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
-                                                  gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
-                                                  num_points=cfg.task.env_runner.num_point_in_pc,
-                                                  use_joint_angle=cfg.task.env_runner.use_joint_angle, 
-                                                  use_segmask=cfg.task.env_runner.use_segmask,
-                                                  only_handle_points=cfg.task.env_runner.only_handle_points,
-                                                  observation_mode=cfg.task.env_runner.observation_mode,
-                                                  only_object=cfg.task.env_runner.only_object,
+                                                    gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
+                                                    num_points=cfg.task.env_runner.num_point_in_pc,
+                                                    use_joint_angle=cfg.task.env_runner.use_joint_angle, 
+                                                    use_segmask=cfg.task.env_runner.use_segmask,
+                                                    only_handle_points=cfg.task.env_runner.only_handle_points,
+                                                    observation_mode=cfg.task.env_runner.observation_mode,
+                                                    only_object=cfg.task.env_runner.only_object,
+                                                    use_absolute_waypoint=cfg.task.env_runner.use_absolute_waypoint,
+                                                    use_chained_diffuser=cfg.task.env_runner.use_chained_diffuser
                                                   )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -345,8 +347,63 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
         # with open("{}/opened_joint_angles{}.json".format(save_path, post_fix), "w") as f:
         #     json.dump(opened_joint_angles, f, indent=4)
             
-def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None):
-    
+def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, post_fix='', new_object=True, demo_experiment_path='', mobile=False):
+
+    # cfg.task.env_runner.experiment_folder = [cfg.task.env_runner.experiment_folder]
+    # cfg.task.env_runner.experiment_name = [cfg.task.env_runner.experiment_name]
+    # cfg.task.env_runner.demo_experiment_path = [cfg.task.env_runner.demo_experiment_path]
+    # cprint(cfg.task.env_runner.experiment_folder, 'green')
+    # cprint(cfg.task.env_runner.experiment_name, 'green')
+    # cprint(cfg.task.env_runner.demo_experiment_path, 'green')
+    # cfg.task.env_runner.experiment_folder = ['data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle']
+    # cfg.task.env_runner.experiment_name = ['0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first']
+
+    if new_object:
+        # cfg.task.env_runner.experiment_folder = ['data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle']
+        # cfg.task.env_runner.experiment_name = ['0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first']
+        # cfg.task.env_runner.demo_experiment_path = [demo_experiment_path]
+        cfg.task.env_runner.experiment_folder = [
+            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45297/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        ]
+        cfg.task.env_runner.experiment_name = [
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            # '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+            '0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first',
+        ]
+        cfg.task.env_runner.demo_experiment_path = [
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-40147',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-44817',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-44962',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45132',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45219',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45243',
+            # '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45297',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45332',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45378',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45384',
+            '/project_data/held/chialiak/RoboGen-sim2real/data/dp3_demo/0705-obj-45463',
+        ]
+
+    opened_joint_angles = {}
+
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
     
         after_reaching_init_state_files = []
@@ -470,6 +527,9 @@ def run_eval_non_parallel(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp
                                                         use_segmask=cfg.task.env_runner.use_segmask,
                                                         only_handle_points=cfg.task.env_runner.only_handle_points,
                                                         observation_mode=cfg.task.env_runner.observation_mode,
+                                                        use_absolute_waypoint=cfg.task.env_runner.use_absolute_waypoint,
+                                                        use_chained_diffuser=cfg.task.env_runner.use_chained_diffuser,
+                                                        dense_pcd_for_goal=cfg.task.env_runner.dense_pcd_for_goal,
                                                         )
                 
             env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -546,6 +606,19 @@ if __name__ == "__main__":
     ### goal conditioning, alternating attention + self attention
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention/2024.06.25/01.16.16_train_dp3_robogen_open_door"
     
+    # -------------------- #
+    # -       0719       - #
+    # -------------------- #
+
+    # # act3d_goal_mlp displacement
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07191257-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.19/12.57.05_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # act3d_goal_mlp displacement
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
     ### no goal conditioning + self attention
     # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0624-per-step-load-ddp-obj-45448-horizon-8-train-episodes-260-with-gripper-displacement-to-closest-obj-point-self-attention/2024.06.25/00.47.11_train_dp3_robogen_open_door"
     
@@ -563,6 +636,204 @@ if __name__ == "__main__":
     exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
     
     
+
+    # checkpoint_name = 'epoch-175.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0629-ddp-obj-45448-46462-41510-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint/2024.06.29/01.14.30_train_dp3_robogen_open_door"
+    
+    # ### with goal gripper, with self attention, fixed order bug in attention
+    # checkpoint_name = 'epoch-300.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-gripper-goal-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.01/18.35.59_train_dp3_robogen_open_door"
+    
+    # ### w/o goal gripper, with self attention, fixed order bug in attention
+    # checkpoint_name = 'epoch-150.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0701-ddp-obj-45448-hor-8-train-ep-260-w-gripper-displacement-to-closest-objpoint-self-attention-correct-order/2024.07.02/15.18.18_train_dp3_robogen_open_door"
+    
+    ### Act3d + UNet + goal, trained on 10 objects
+    # checkpoint_name = 'epoch-100.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-goal-act3d_goal_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door/"
+    
+    ### Act3d + UNet no goal, trained on 10 objects
+    # checkpoint_name = 'epoch-100.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"
+    
+    ### chialiang's best low-level model
+    # checkpoint_name = 'latest.ckpt'
+    # exp_dir = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07031908-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.03/19.08.43_train_dp3_robogen_open_door"
+    
+    ### Act3d + UNet no goal, trained on 10 objects
+    # checkpoint_name = 'epoch-100.ckpt'
+    # exp_dir = "/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0710-10-obj-no-goal-act3d_displacement_gripper_to_object-horizon-8-num_load_episodes-1000/2024.07.12/05.50.32_train_dp3_robogen_open_door"    # -------------------- #
+   
+    # -------------------- #
+    # -       0802       - #
+    # -------------------- #
+
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07282338-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-aug_pcd_rot/2024.07.28/23.39.05_train_dp3_robogen_open_door"
+    # new_object = False
+    # checkpoint_name = "latest.ckpt"
+
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07282339-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000/2024.07.28/23.39.36_train_dp3_robogen_open_door"
+    # new_object = False
+    # checkpoint_name = "latest.ckpt"
+
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08030037-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-normalize_action/2024.08.03/00.37.23_train_dp3_robogen_open_door"
+    # new_object = False
+    # checkpoint_name = "latest.ckpt"
+    
+    # -------------------- #
+    # -       0803       - #
+    # -------------------- #
+
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08031154-act3d_goal_mlp-n_obs_steps-4-horizon-8-num_load_episodes-1000-aug_pcd_rot/2024.08.03/11.54.43_train_dp3_robogen_open_door"
+    # new_object = False
+    # checkpoint_name = "latest.ckpt"
+    
+    # -------------------- #
+    # -       0809       - #
+    # -------------------- #
+
+    # # delta wpt, aug rot
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08081744-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot/2024.08.08/17.44.49_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, aug noise
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08062012-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_pcd/2024.08.06/20.12.30_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, aug scale
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_scale/2024.08.09/01.03.17_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, aug all
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08091652-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_all/2024.08.09/16.53.26_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, scale scene by pcd
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08110058-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-scale_scene_by_pcd/2024.08.11/00.58.27_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    #############################################################
+
+    # # delta wpt, epsilon, normalize action
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08101108-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-normalize_action-epsilon/2024.08.10/11.08.09_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, epsilon, aug rot
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08101115-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot-epsilon/2024.08.10/11.15.56_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    #############################################################
+    
+    # # abs wpt, aug noise
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08081732-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt/2024.08.08/17.46.44_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # abs wpt, aug noise
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_scale/2024.08.09/01.03.16_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+    
+    # #############################################################
+    
+    # # abs wpt, epsilon, normalize action
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08110104-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-epsilon/2024.08.11/01.04.17_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+    
+    # # abs wpt, epsilon, aug rot
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08110104-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-aug_rot-epsilon/2024.08.11/01.04.19_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # #############################################################
+
+    # # delta wpt, v_prediction, normalize action
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08120322-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-normalize_action-v_prediction/2024.08.12/03.22.34_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, v_prediction, aug rot
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08120006-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot-v_prediction/2024.08.12/00.06.46_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # #############################################################
+
+    # # delta wpt, sample, normalize action, all objects
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08121539-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action/2024.08.12/15.40.03_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, sample, normalize action, all objects, 30 epochs
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08130042-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.13/00.42.27_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # # delta wpt, v_prediction, normalize action, all objects, 30 epochs
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08131154-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-v_prediction/2024.08.13/11.54.56_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # #############################################################
+
+    # # delta wpt, sample, normalize action, all obj
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, sample, normalize action, pointnet++
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action/2024.08.14/01.50.59_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, epsilon, normalize action, pcd noise, pointnet++
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08150052-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-epsilon/2024.08.15/00.52.14_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # delta wpt, epsilon, normalize action, pointnet++
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08161917-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-epsilon-new/2024.08.16/19.17.46_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # #############################################################
+
+    # # delta wpt, sample, normalize action, dense wpt
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08142025-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper/2024.08.14/20.25.35_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # #############################################################
+
+    # # delta wpt, sample, normalize action, combine-2 (new), observation horizon=2
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191542-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-combine-pcd_noise-new/2024.08.19/15.42.15_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+
+    # # # delta wpt, sample, normalize action, combine-2 (new), dense gripper, observation horizon=2
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new/2024.08.19/12.50.15_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+    
+    # # #############################################################
+    # # debug, no use
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191826-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-nouse/2024.08.19/18.26.15_train_dp3_robogen_open_door"
+    # new_object = True
+    # checkpoint_name = "latest.ckpt"
+    
+    # #############################################################
+    # debug, no use
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08240109-act3d_goal_mlp_displacement_gripper_to_object-ns-2-h-8-demonum-75-all-pt_goal/2024.08.24/01.09.48_train_dp3_robogen_open_door"
+    new_object = True
+    checkpoint_name = "latest.ckpt"
 
     ### Chialiang's best low-level model trained on 50 objects
     checkpoint_name = 'latest.ckpt'
@@ -602,9 +873,10 @@ if __name__ == "__main__":
                 horizon=35,
                 # exp_beg_ratio=exp_beg_ratio,
                 # exp_end_ratio=exp_end_ratio,
-                exp_beg_idx=0,
-                exp_end_idx=25,
-                mobile=True,
+                exp_beg_idx=0, exp_end_idx=25,
+                post_fix=f'-unseen-{run_idx}',
+                new_object=new_object,
+                mobile=False,
         )
     
         # run_eval(cfg, policy, num_worker, save_path, 
@@ -613,13 +885,4 @@ if __name__ == "__main__":
         #          exp_beg_ratio=exp_beg_ratio,
         #          exp_end_ratio=exp_end_ratio,
         # )
-    
-    # pr.disable()
-    # s = io.StringIO()
-    # ps = pstats.Stats(pr, stream=s).sort_stats('cumtime')
-    # ps.print_stats(50)
-    # print(s.getvalue())
-    # ps = pstats.Stats(pr, stream=s).sort_stats('time')
-    # ps.print_stats(50)
-    # print(s.getvalue())
     

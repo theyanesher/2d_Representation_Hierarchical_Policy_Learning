@@ -102,5 +102,6 @@ echo "Total time taken: $(($total_time / 60)) minutes and $(($total_time % 60)) 
 
 #### start training
 # singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-1.sh
-singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-2.sh
+# singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-2.sh
 # singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-3.sh
+singularity exec --bind /ocean/projects/cis240052p/ckuo1/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/run-in-singularity-pickle-4.sh

@@ -591,6 +591,22 @@ if __name__ == "__main__":
     # checkpoint_name = 'latest.ckpt'
 
     # 50 objects
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    # checkpoint_name = 'latest.ckpt'
+
+    # 200 objects
+    exp_dir = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30/2024.08.14/11.10.47_train_dp3_robogen_open_door'
+    checkpoint_name = 'latest.ckpt'
+
+    # # # low 50 objects dense pcd around goal
+    # exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new/2024.08.19/12.50.15_train_dp3_robogen_open_door"
+    # checkpoint_name = 'latest.ckpt' 
+
+    # # low 200 objects trained with predicted goal
+    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/08240109-act3d_goal_mlp_displacement_gripper_to_object-ns-2-h-8-demonum-75-all-pt_goal/2024.08.24/01.09.48_train_dp3_robogen_open_door"
+    checkpoint_name = 'latest.ckpt' 
+    checkpoint_name = 'epoch-30.ckpt' 
+
     exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
     checkpoint_name = 'latest.ckpt'
 
@@ -609,6 +625,7 @@ if __name__ == "__main__":
             overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
         )
     cfg = recomposed_config
+    cfg.use_pretrained_high_level_policy_as_low_level_input = False # because that is only for training
 
     
     workspace = TrainDP3Workspace(cfg)

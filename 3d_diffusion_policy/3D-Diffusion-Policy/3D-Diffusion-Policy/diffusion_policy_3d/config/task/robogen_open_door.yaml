@@ -58,6 +58,7 @@ dataset:
   max_train_episodes: null
   observation_mode: act3d
   enumerate: false
+  dataset_keys: None
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10
@@ -66,7 +67,6 @@ dataset:
   only_reach_stage: false
   augmentation_pcd: false
   augmentation_rot: false
-  use_absolute_waypiont: false
   augmentation_scale: false
   scale_scene_by_pcd: false
   use_absolute_waypoint: false

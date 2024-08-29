@@ -8,9 +8,6 @@ if [ $# -lt 1 ]; then
     exit
 fi
 
-# /mnt/ch/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-00/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/
-# /mnt/ch/data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-
 # demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 # # save_data_name=0527-act3d-always-close
 # save_data_name=0626-act3d-obj-41510-displacement-to-handle
@@ -18,21 +15,6 @@ fi
 # task_beg_idx=0
 # task_end_idx=1 # for debugging
 # opened_threshold=0.65
-
-# post_fix='dp3_goal_gripper_whole'
-# post_fix='dp3_goal_gripper_part'
-
-post_fix='dp3_goal_gripper_on_agent'
-post_fix='dp3_goal_gripper_dense'
-# post_fix='act3d_goal_mlp_displacement_gripper_to_object'
-demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# save_data_name=0531-act3d-obj-45448
-save_data_name="0703-act3d-obj-45448-remove-reaching-collision-resize-2-full-${post_fix}"
-# save_data_name='debug'
-exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
-task_beg_idx=0
-task_end_idx=1
-opened_threshold=0.4
 
 # # demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 # # save_data_name=0531-act3d-obj-46462
@@ -46,7 +28,6 @@ opened_threshold=0.4
 # observation_mode=dp3_goal_gripper
 # observation_mode=dp3_goal_gripper
 # observation_mode=act3d_goal_gripper_4
-observation_mode="${post_fix}"
 pointcloud_num=4500
 
 # # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
@@ -54,14 +35,72 @@ pointcloud_num=4500
 
 if [ $func = 'collect' ]; then 
 
+    demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+
+    save_data_name=0705-dp3-obj-41510-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-45448-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46462-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46732-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46801-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46874-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46922-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-46966-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-47570-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-47578-goal_dense_gripper_on_pcd
+    save_data_name=0705-dp3-obj-48700-goal_dense_gripper_on_pcd
+
+    task_beg_idx=0
+    task_end_idx=1
+
+    task_beg_idx=2
+    task_end_idx=3
+    
+    task_beg_idx=4
+    task_end_idx=5
+    
+    task_beg_idx=5
+    task_end_idx=6
+    
+    task_beg_idx=6
+    task_end_idx=7
+    
+    task_beg_idx=7
+    task_end_idx=8
+    
+    task_beg_idx=8
+    task_end_idx=9
+    
+    task_beg_idx=9
+    task_end_idx=10
+    
+    task_beg_idx=10
+    task_end_idx=11
+    
+    task_beg_idx=11
+    task_end_idx=12
+    
+    task_beg_idx=12
+    task_end_idx=13
+
+    post_fix='dp3_goal_gripper_dense'
+    observation_mode="${post_fix}"
+
     python 3d_diffusion_policy/extract_data_from_states_2.py --folder_name data/temp/ --object_name storagefurniture \
-        --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
+        --save_path "dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
         --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
         --pointcloud_num "${pointcloud_num}" \
-        --use_extracted 0 \
         --observation_mode "${observation_mode}" \
-        --parallel 0 \
-        --opened_threshold "${opened_threshold}" \
+        --parallel 1 \
         --add_distractors 0 \
         --num_experiment 1000
 fi
@@ -69,101 +108,69 @@ fi
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=0
 
 if [ $func = 'train' ]; then 
 
-
-    # # saved data paths
-    # save_data_name_0=0705-dp3-obj-41510-goal_gripper_on_agent
-    # save_data_name_1=0705-dp3-obj-45448-goal_gripper_on_agent
-    # save_data_name_2=0705-dp3-obj-46462-goal_gripper_on_agent
-    # save_data_name_3=0705-dp3-obj-46732-goal_gripper_on_agent
-    # save_data_name_4=0705-dp3-obj-46801-goal_gripper_on_agent
-    # save_data_name_5=0705-dp3-obj-46874-goal_gripper_on_agent
-    # save_data_name_6=0705-dp3-obj-46922-goal_gripper_on_agent
-    # save_data_name_7=0705-dp3-obj-46966-goal_gripper_on_agent
-    # save_data_name_8=0705-dp3-obj-47570-goal_gripper_on_agent
-    # save_data_name_9=0705-dp3-obj-47578-goal_gripper_on_agent
-    # # save_data_name_10=0705-dp3-obj-48700-goal_gripper_on_agent
-
-    # saved data paths
-    save_data_name_0=0707-dp3-obj-41510-goal_gripper_on_agent
-    save_data_name_1=0707-dp3-obj-45448-goal_gripper_on_agent
-    save_data_name_2=0707-dp3-obj-46462-goal_gripper_on_agent
-    save_data_name_3=0707-dp3-obj-46732-goal_gripper_on_agent
-    save_data_name_4=0707-dp3-obj-46801-goal_gripper_on_agent
-    save_data_name_5=0707-dp3-obj-46874-goal_gripper_on_agent
-    save_data_name_6=0707-dp3-obj-46922-goal_gripper_on_agent
-    save_data_name_7=0707-dp3-obj-46966-goal_gripper_on_agent
-    save_data_name_8=0707-dp3-obj-47570-goal_gripper_on_agent
-    save_data_name_9=0707-dp3-obj-47578-goal_gripper_on_agent
-    # save_data_name_10=0707-dp3-obj-48700-goal_gripper_on_agent
-
-    # # saved data paths
-    # save_data_name_0=0706-dp3-obj-41510-goal_dense_gripper_on_pcd
-    # save_data_name_1=0706-dp3-obj-45448-goal_dense_gripper_on_pcd
-    # save_data_name_2=0706-dp3-obj-46462-goal_dense_gripper_on_pcd
-    # save_data_name_3=0706-dp3-obj-46732-goal_dense_gripper_on_pcd
-    # save_data_name_4=0706-dp3-obj-46801-goal_dense_gripper_on_pcd
-    # save_data_name_5=0706-dp3-obj-46874-goal_dense_gripper_on_pcd
-    # save_data_name_6=0706-dp3-obj-46922-goal_dense_gripper_on_pcd
-    # save_data_name_7=0706-dp3-obj-46966-goal_dense_gripper_on_pcd
-    # save_data_name_8=0706-dp3-obj-47570-goal_dense_gripper_on_pcd
-    # save_data_name_9=0706-dp3-obj-47578-goal_dense_gripper_on_pcd
-    # # save_data_name_10=0706-dp3-obj-48700-goal_dense_gripper_on_pcd
-
-    demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_2=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_3=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_4=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_5=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_6=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_7=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_8=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name_9=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    # demo_name_10=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-
-    exp_folder_0=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_2=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_3=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-00/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_4=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46801_2024-03-27-20-37-05/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_5=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46874_2024-03-27-13-57-49/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_6=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46922_2024-03-27-19-42-45/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_7=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46966_2024-03-27-16-55-33/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_8=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47570_2024-03-27-21-36-50/task_open_the_door_of_the_storagefurniture_by_its_handle
-    exp_folder_9=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47578_2024-03-27-14-56-07/task_open_the_door_of_the_storagefurniture_by_its_handle
-    # exp_folder_10=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle
+    observation_mode="act3d_goal_mlp"
+    # observation_mode='act3d_goal_mlp_displacement_gripper_to_object'
+    encoding_mode="keep_position_feature_in_attention_feature"
+    # encoding_mode="keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"
 
     # horizon=4
     horizon=8
-    n_obs_steps=2
+    n_obs_steps=2 # 2 or 4
     # num_load_episodes=10 # for debuging
-    action_dim=10
-    agent_pos_dim=22
-    observation_mode=dp3_goal_gripper_on_agent
 
     ##########
+    num_epochs=101
     train_ratio=0.9 # for generalization
-    num_load_episodes=1000 # for generalization
+    num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
-    batch_size=320
-    encoder_type=dp3
+    # batch_size=256 #######
+    batch_size=320 #######
+    encoder_type=act3d
+    use_mlp=1
+    use_lightweight_unet=0
+    in_channels=3 ####
+    self_attention=false
+    final_attention=false
+    # normalize_action=true
+    # augmentation_rot=false
+    # augmentation_pcd=false
+    normalize_action=true
+    augmentation_rot=true
+    augmentation_pcd=false
+    # use_absolute_waypoint=false
+    use_absolute_waypoint=false
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    # exp_name="0618-act3d-goal-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
-    exp_name="${time_stamp}-${observation_mode}-horizon-${horizon}-num_load_episodes-${num_load_episodes}"
+    # exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-one-aug_rot"
 
-        # task.dataset.zarr_path="['/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']" \
-        # task.env_runner.demo_experiment_path="['/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']" \
-    python train.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-        task.dataset.zarr_path="[/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_0}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_1}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_2}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_3}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_4}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_5}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_6}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_7}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_8}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_9}]" \
-        task.env_runner.demo_experiment_path="[/project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_0}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_1}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_2}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_3}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_4}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_5}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_6}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_7}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_8}, /project_data/held/chialiak/RoboGen-sim2real/dp3_demo/${save_data_name_9}]" \
-        task.env_runner.experiment_name="[${demo_name_0}, ${demo_name_1}, ${demo_name_2}, ${demo_name_3}, ${demo_name_4}, ${demo_name_5}, ${demo_name_6}, ${demo_name_7}, ${demo_name_8}, ${demo_name_9}]" \
-        task.env_runner.experiment_folder="[${exp_folder_0}, ${exp_folder_1}, ${exp_folder_2}, ${exp_folder_3}, ${exp_folder_4}, ${exp_folder_5}, ${exp_folder_6}, ${exp_folder_7}, ${exp_folder_8}, ${exp_folder_9}]" \
+    action_dim=10
+    agent_pos_dim=10
+    
+    # saved data paths
+    save_data_name_1=0705-obj-45448
+    exp_folder_1=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
+    demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    
+    torchrun --standalone --nproc_per_node=4 \
+        train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
+        task.dataset.zarr_path="[\
+            /scratch/chialiang/dp3_demo/${save_data_name_1}\
+        ]"\
+        task.env_runner.demo_experiment_path="[\
+            /scratch/chialiang/dp3_demo/${save_data_name_1}\
+        ]" \
+        task.env_runner.experiment_name="[\
+            ${demo_name_1}\
+        ]" \
+        task.env_runner.experiment_folder="[\
+            ${exp_folder_1}\
+        ]" \
         task.env_runner.num_point_in_pc="${pointcloud_num}" \
         task.env_runner.use_joint_angle="${use_joint_angle}" \
         task.env_runner.use_segmask="${use_segmask}" \
@@ -176,20 +183,28 @@ if [ $func = 'train' ]; then
         task.env_runner.observation_mode="${observation_mode}" \
         policy.encoder_type="${encoder_type}" \
         policy.encoder_output_dim=60 \
+        policy.normalize_action=${normalize_action} \
+        policy.act3d_encoder_cfg.in_channels=${in_channels} \
         policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
-        policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature \
+        policy.act3d_encoder_cfg.mode="${encoding_mode}" \
         policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
+        policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
+        policy.act3d_encoder_cfg.self_attention="${self_attention}" \
+        policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
-        training.num_epochs=210 \
-        training.rollout_every=20 \
-        training.checkpoint_every=20 \
+        training.num_epochs=${num_epochs} \
+        training.rollout_every=50 \
+        training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \
         task.dataset.train_ratio="${train_ratio}" \
         task.dataset.num_load_episodes="${num_load_episodes}" \
-        task.dataset.kept_in_disk=false \
-        task.dataset.load_per_step=false \
+        task.dataset.kept_in_disk=true \
+        task.dataset.load_per_step=true \
+        task.dataset.augmentation_rot="${augmentation_rot}" \
+        task.dataset.augmentation_pcd="${augmentation_pcd}" \
+        task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         dataloader.batch_size="${batch_size}" \
-        val_dataloader.batch_size="${batch_size}" \
+        val_dataloader.batch_size="${batch_size}"
 
 fi 
 

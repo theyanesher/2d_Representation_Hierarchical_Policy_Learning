@@ -127,7 +127,6 @@ if [ $func = 'train' ]; then
     # num_load_episodes=10 # for debuging
 
     ##########
-    training_epoches=31
     train_ratio=0.9 # for generalization
     num_load_episodes=1000    # for generalization
     pc_channel=3 # we should modify this
@@ -144,17 +143,18 @@ if [ $func = 'train' ]; then
     # augmentation_rot=false
     # augmentation_pcd=false
     normalize_action=true
-    augmentation_rot=false
-    augmentation_pcd=false
-    augmentation_scale=false
+    augmentation_rot=true
+    augmentation_pcd=true
+    augmentation_scale=true
     use_absolute_waypoint=false
     use_chained_diffuser=false
+    prediction_type=epsilon
     ##########
     is_pickle=true
     ##########
 
     time_stamp=$(date +%m%d%H%M)
-    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-normalize_action"
+    exp_name="${time_stamp}-${observation_mode}-n_obs_steps-${n_obs_steps}-horizon-${horizon}-num_load_episodes-${num_load_episodes}-aug_all-epsilon"
 
     action_dim=10
     agent_pos_dim=10
@@ -545,7 +545,7 @@ if [ $func = 'train' ]; then
         policy.act3d_encoder_cfg.self_attention="${self_attention}" \
         policy.act3d_encoder_cfg.final_attention="${final_attention}" \
         task.dataset.enumerate=True \
-        training.num_epochs=${training_epoches} \
+        training.num_epochs=81 \
         training.rollout_every=50 \
         training.checkpoint_every=2 \
         task.env_runner.max_steps=35 \
@@ -559,7 +559,7 @@ if [ $func = 'train' ]; then
         task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
-        val_dataloader.batch_size="${batch_size}" 
+        val_dataloader.batch_size="${batch_size}"
         
 
 fi 

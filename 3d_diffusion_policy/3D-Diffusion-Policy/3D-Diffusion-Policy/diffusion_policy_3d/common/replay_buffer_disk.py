@@ -20,6 +20,9 @@ class WelfordOnlineStatistics:
         self.min = None
         self.max = None
 
+        # [DebugNormalize] [Chialiang]
+        self.max_norm_3d = 0.0
+
     def add(self, data):
         """
         data: numpy array [n, d]
@@ -43,6 +46,9 @@ class WelfordOnlineStatistics:
             self.min = new_min
             self.max = new_max
             self.n = new_n
+
+            # [DebugNormalize] [Chialiang]
+            self.max_norm_3d = max(self.max_norm_3d, np.max(np.linalg.norm(data[...,:3], axis=-1)))
     
     def get_mean(self):
         return self.mean
@@ -58,6 +64,10 @@ class WelfordOnlineStatistics:
     
     def get_std(self):
         return np.sqrt(self.variance)
+    
+    # [DebugNormalize] [Chialiang]
+    def get_max_norm_3d(self):
+        return np.array([self.max_norm_3d])
 
 class ReplayBuffer:
     """
@@ -96,6 +106,7 @@ class ReplayBuffer:
         action_welford = WelfordOnlineStatistics()
 
         for idx, zarr_path  in enumerate(tqdm(path_list)):
+
             if not load_per_step:
                 if is_pickle:
                     data = pickle.load(open(zarr_path, 'rb'))

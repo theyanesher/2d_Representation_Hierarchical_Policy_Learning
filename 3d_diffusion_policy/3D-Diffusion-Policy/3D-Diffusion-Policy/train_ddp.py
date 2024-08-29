@@ -14,6 +14,7 @@ from termcolor import cprint
 import shutil
 import time
 import threading
+from copy import deepcopy
 from hydra.core.hydra_config import HydraConfig
 from diffusion_policy_3d.policy.dp3 import DP3
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
@@ -28,6 +29,9 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import datetime
 
+# for loading high-level policy only
+# from dp3_workspace_for_loading_ckpt import DP3WorkspaceHighLevel
+
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 def ddp_setup():
@@ -39,7 +43,7 @@ class TrainDP3Workspace:
     include_keys = ['global_step', 'epoch']
     exclude_keys = tuple()
 
-    def __init__(self, cfg: OmegaConf, output_dir=None):
+    def __init__(self, cfg: OmegaConf, output_dir=None, pretrained_goal_model=None):
         self.cfg = cfg
         # print("cfg: ", cfg)
         # input("Press Enter to continue...")
@@ -62,6 +66,7 @@ class TrainDP3Workspace:
             except: # minkowski engine could not be copied. recreate it
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
 
+        self.pretrained_goal_model = pretrained_goal_model
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -223,13 +228,35 @@ class TrainDP3Workspace:
                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
-                
+
+                    if self.pretrained_goal_model is not None:
+                        with torch.no_grad():
+                            goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
+                        goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
+                        goal_model_output = goal_model_output['action']
+                        
+                        reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
+
+                        batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
+                        
+                        # # for k in batch['obs'].keys():
+                        # #     print('{}: {}'.format(k, batch['obs'][k].shape))
+                        # # print(f'goal_model_output: {goal_model_output.shape}')
+                        # # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
+                        # print(batch['obs']['goal_gripper_pcd'].shape)
+                        # for k in batch['obs'].keys():
+                        #     # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
+                        #     path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
+                        #     np.save(path, batch['obs'][k].detach().cpu().numpy())
+                        #     print(f'{path} saved')
+                        # exit(0)
+
                     # compute loss
                     t1_1 = time.time()
                     raw_loss, loss_dict = self.model(batch)
                     loss = raw_loss / cfg.training.gradient_accumulate_every
                     loss.backward()
-                    
+
                     t1_2 = time.time()
 
                     # step optimizer
@@ -323,6 +350,17 @@ class TrainDP3Workspace:
                             leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                         for batch_idx, batch in enumerate(tepoch):
                             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+
+                            if self.pretrained_goal_model is not None:
+                                with torch.no_grad():
+                                    goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
+                                goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
+                                goal_model_output = goal_model_output['action']
+                                
+                                reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
+
+                                batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
+
                             loss, loss_dict = self.model(batch)
                             val_losses.append(loss)
                             if (cfg.training.max_val_steps is not None) \
@@ -366,6 +404,8 @@ class TrainDP3Workspace:
                     # checkpointing
                     if cfg.checkpoint.save_last_ckpt:
                         self.save_checkpoint()
+                    if self.epoch % 10 == 0 and self.epoch > 0:
+                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     # if cfg.checkpoint.save_last_snapshot:
                     #     self.save_snapshot()
 
@@ -539,7 +579,7 @@ class TrainDP3Workspace:
         # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys=None, 
+            exclude_keys='pretrained_goal_model', 
             include_keys=None, 
             **kwargs):
         if path is None:
@@ -581,7 +621,39 @@ class TrainDP3Workspace:
     @classmethod
     def create_from_snapshot(cls, path):
         return torch.load(open(path, 'rb'), pickle_module=dill)
-    
+
+#############################################
+# for loading pre-trained high-level policy #
+#############################################
+
+# configure model
+# on autobot
+goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+# on robocluster
+goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
+
+goal_checkpoint_name = 'epoch-30.ckpt'
+goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+
+with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
+    recomposed_config = hydra.compose(
+        config_name="dp3.yaml",  # same config_name as used by @hydra.main
+        overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
+    )
+goal_cfg = recomposed_config
+
+goal_workspace = TrainDP3Workspace(goal_cfg)
+goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
+
+goal_policy = deepcopy(goal_workspace.model)
+if goal_workspace.cfg.training.use_ema:
+    goal_policy = deepcopy(goal_workspace.ema_model)
+goal_policy.eval()
+goal_policy.reset()
+device = torch.device(int(os.environ["LOCAL_RANK"]))
+goal_policy = goal_policy.to(device)
+pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
 
 @hydra.main(
     version_base=None,
@@ -589,11 +661,19 @@ class TrainDP3Workspace:
         'diffusion_policy_3d', 'config'))
 )
 def main(cfg):
+
     ddp_setup()
-    workspace = TrainDP3Workspace(cfg)
+    if cfg.use_pretrained_high_level_policy_as_low_level_input:
+        cprint(f'=====================================================================================================', 'green')
+        cprint(f'Using {cfg.use_pretrained_high_level_policy_as_low_level_input}', 'green')
+        cprint(f'=====================================================================================================', 'green')
+        workspace = TrainDP3Workspace(cfg, pretrained_goal_model=pretrained_goal_model)
+    else :
+        workspace = TrainDP3Workspace(cfg, pretrained_goal_model=None)
     workspace.run()
     destroy_process_group()
 
 if __name__ == "__main__":
-    # set_start_method('spawn', force=True)
+
     main()
+    

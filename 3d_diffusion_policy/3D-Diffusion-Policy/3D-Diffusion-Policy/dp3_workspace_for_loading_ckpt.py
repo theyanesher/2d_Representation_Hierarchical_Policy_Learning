@@ -1,12 +1,3 @@
-# if __name__ == "__main__":
-#     import sys
-#     import os
-#     import pathlib
-
-#     ROOT_DIR = str(pathlib.Path(__file__).parent.parent.parent)
-#     sys.path.append(ROOT_DIR)
-#     os.chdir(ROOT_DIR)
-
 import os
 import hydra
 import torch
@@ -32,14 +23,22 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 from multiprocessing import set_start_method
+from torch.utils.data.distributed import DistributedSampler
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
-class TrainDP3Workspace:
+def ddp_setup():
+    os.environ["NCCL_P2P_LEVEL"] = "NVL"
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+class DP3WorkspaceHighLevel:
     include_keys = ['global_step', 'epoch']
     exclude_keys = tuple()
 
-    def __init__(self, cfg: OmegaConf, output_dir=None, pretrained_goal_model=None):
+    def __init__(self, cfg: OmegaConf, output_dir=None):
         self.cfg = cfg
         # print("cfg: ", cfg)
         # input("Press Enter to continue...")
@@ -62,7 +61,6 @@ class TrainDP3Workspace:
             except: # minkowski engine could not be copied. recreate it
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
 
-        self.pretrained_goal_model = pretrained_goal_model
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -104,13 +102,19 @@ class TrainDP3Workspace:
         if cfg.load_checkpoint_path is not None:
             print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
             self.load_checkpoint(path=cfg.load_checkpoint_path)
+
         # configure dataset
-        print(cfg.task.dataset)
         dataset: BaseDataset
         dataset = hydra.utils.instantiate(cfg.task.dataset)
 
         assert isinstance(dataset, BaseDataset), print(f"dataset must be BaseDataset, got {type(dataset)}")
-        train_dataloader = DataLoader(dataset, **cfg.dataloader)
+        train_dataloader = DataLoader(dataset, 
+                                      shuffle=False,
+                                      sampler=DistributedSampler(dataset),
+                                      batch_size=cfg.dataloader.batch_size,
+                                      num_workers=cfg.dataloader.num_workers,
+                                      pin_memory=True,
+                                      )
 
         normalizer = dataset.get_normalizer()
 
@@ -157,16 +161,17 @@ class TrainDP3Workspace:
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
-        wandb_run = wandb.init(
-            dir=str(self.output_dir),
-            config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging
-        )
-        wandb.config.update(
-            {
-                "output_dir": self.output_dir,
-            }
-        )
+        if os.environ['LOCAL_RANK'] == '0':
+            wandb_run = wandb.init(
+                dir=str(self.output_dir),
+                config=OmegaConf.to_container(cfg, resolve=True),
+                **cfg.logging
+            )
+            wandb.config.update(
+                {
+                    "output_dir": self.output_dir,
+                }
+            )
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
@@ -175,13 +180,16 @@ class TrainDP3Workspace:
         )
 
         # device transfer
-        cprint('initializeing model...', 'green')
-        device = torch.device(cfg.training.device)
+        self.gpu_id = int(os.environ["LOCAL_RANK"])
+        device = torch.device(self.gpu_id)
         self.model.to(device)
         if self.ema_model is not None:
             self.ema_model.to(device)
-        optimizer_to(self.optimizer, device)
-        cprint('model has been created', 'green')
+        # optimizer_to(self.optimizer, device)
+        
+        self.model = DDP(self.model, device_ids=[self.gpu_id], find_unused_parameters=True)
+        # if self.ema_model is not None:
+        #     self.ema_model = DDP(self.ema_model, device_ids=[self.gpu_id])
 
         # save batch for sampling
         train_sampling_batch = None
@@ -190,6 +198,10 @@ class TrainDP3Workspace:
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         for local_epoch_idx in range(cfg.training.num_epochs):
+            train_dataloader.sampler.set_epoch(self.epoch)
+            b_sz = cfg.dataloader.batch_size
+            print(f"[GPU{self.gpu_id}] Epoch {self.epoch} | Batchsize: {b_sz} | Steps: {len(train_dataloader)}")
+            
             step_log = dict()
             # ========= train for this epoch ==========
             train_losses = list()
@@ -203,32 +215,9 @@ class TrainDP3Workspace:
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
                 
-
-                    if self.pretrained_goal_model is not None:
-                        with torch.no_grad():
-                            goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
-                        goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
-                        goal_model_output = goal_model_output['action']
-                        
-                        reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
-
-                        batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
-                        
-                        # # for k in batch['obs'].keys():
-                        # #     print('{}: {}'.format(k, batch['obs'][k].shape))
-                        # # print(f'goal_model_output: {goal_model_output.shape}')
-                        # # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
-                        # print(batch['obs']['goal_gripper_pcd'].shape)
-                        # for k in batch['obs'].keys():
-                        #     # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                        #     path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                        #     np.save(path, batch['obs'][k].detach().cpu().numpy())
-                        #     print(f'{path} saved')
-                        # exit(0)
-
                     # compute loss
                     t1_1 = time.time()
-                    raw_loss, loss_dict = self.model.compute_loss(batch)
+                    raw_loss, loss_dict = self.model(batch)
                     loss = raw_loss / cfg.training.gradient_accumulate_every
                     loss.backward()
                     
@@ -242,7 +231,8 @@ class TrainDP3Workspace:
                     t1_3 = time.time()
                     # update ema
                     if cfg.training.use_ema:
-                        ema.step(self.model)
+                        # ema.step(self.model)
+                        ema.step(self.model.module)
                     t1_4 = time.time()
                     # logging
                     raw_loss_cpu = raw_loss.item()
@@ -268,7 +258,8 @@ class TrainDP3Workspace:
                     is_last_batch = (batch_idx == (len(train_dataloader)-1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
-                        wandb_run.log(step_log, step=self.global_step)
+                        if os.environ['LOCAL_RANK'] == '0':
+                            wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     # import pdb; pdb.set_trace()
@@ -288,8 +279,7 @@ class TrainDP3Workspace:
             policy.eval()
 
             # run rollout
-            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
-
+            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None and os.environ['LOCAL_RANK'] == '0':
                 # first checkpointing then running the eval
                 if cfg.checkpoint.save_last_ckpt:
                     self.save_checkpoint()
@@ -322,19 +312,7 @@ class TrainDP3Workspace:
                             leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                         for batch_idx, batch in enumerate(tepoch):
                             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-
-
-                            if self.pretrained_goal_model is not None:
-                                with torch.no_grad():
-                                    goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
-                                goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
-                                goal_model_output = goal_model_output['action']
-                                
-                                reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
-
-                                batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
-
-                            loss, loss_dict = self.model.compute_loss(batch)
+                            loss, loss_dict = self.model(batch)
                             val_losses.append(loss)
                             if (cfg.training.max_val_steps is not None) \
                                 and batch_idx >= (cfg.training.max_val_steps-1):
@@ -375,26 +353,28 @@ class TrainDP3Workspace:
                     pass
                 else:
                     # checkpointing
-                    # if cfg.checkpoint.save_last_ckpt:
-                    #     self.save_checkpoint()
+                    if cfg.checkpoint.save_last_ckpt:
+                        self.save_checkpoint()
+                    if self.epoch % 10 == 0 and self.epoch > 0:
+                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     # if cfg.checkpoint.save_last_snapshot:
                     #     self.save_snapshot()
 
-                    if 'test_mean_score' in step_log:
-                        # self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
-                        # sanitize metric names
-                        metric_dict = dict()
-                        for key, value in step_log.items() :
-                            new_key = key.replace('/', '_')
-                            metric_dict[new_key] = value
-                        # for key, value in runner_log.items():
-                        #     new_key = key.replace('/', '_')
-                        #     metric_dict[new_key] = value
+                    # if 'test_mean_score' in step_log:
+                    #     self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
+                    #     # sanitize metric names
+                    #     metric_dict = dict()
+                    #     for key, value in step_log.items() :
+                    #         new_key = key.replace('/', '_')
+                    #         metric_dict[new_key] = value
+                    #     # for key, value in runner_log.items():
+                    #     #     new_key = key.replace('/', '_')
+                    #     #     metric_dict[new_key] = value
                         
-                        # We can't copy the last checkpoint here
-                        # since save_checkpoint uses threads.
-                        # therefore at this point the file might have been empty!
-                        # topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                    #     # We can't copy the last checkpoint here
+                    #     # since save_checkpoint uses threads.
+                    #     # therefore at this point the file might have been empty!
+                    #     topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
                     #     if topk_ckpt_path is not None:
                     #         self.save_checkpoint(path=topk_ckpt_path)
@@ -408,7 +388,8 @@ class TrainDP3Workspace:
 
             # end of epoch
             # log of last step is combined with validation and rollout
-            wandb_run.log(step_log, step=self.global_step)
+            if os.environ['LOCAL_RANK'] == '0':
+                wandb_run.log(step_log, step=self.global_step)
             self.global_step += 1
             self.epoch += 1
             del step_log
@@ -479,9 +460,13 @@ class TrainDP3Workspace:
                     if use_thread:
                         payload['state_dicts'][key] = _copy_to_cpu(value.state_dict())
                     else:
-                        payload['state_dicts'][key] = value.state_dict()
+                        if key == 'model' and isinstance(value, DDP):
+                            payload['state_dicts'][key] = value.module.state_dict()
+                        else:
+                            payload['state_dicts'][key] = value.state_dict()
             elif key in include_keys:
                 payload['pickles'][key] = dill.dumps(value)
+
         if use_thread:
             self._saving_thread = threading.Thread(
                 target=lambda : torch.save(payload, path.open('wb'), pickle_module=dill))
@@ -521,17 +506,31 @@ class TrainDP3Workspace:
             exclude_keys = tuple()
         if include_keys is None:
             include_keys = payload['pickles'].keys()
-
+        
+        self.gpu_id = int(os.environ["LOCAL_RANK"])
+        device = torch.device(self.gpu_id)
+        
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
-                print('key', key)
-                self.__dict__[key].load_state_dict(value, **kwargs)
+                print(f"loading {key}")
+                if key == 'model':
+                    self.model: DP3 = hydra.utils.instantiate(self.cfg.policy)
+                    self.model.load_state_dict(value, **kwargs)
+                    self.model.to(device)
+                else:
+                    self.__dict__[key].load_state_dict(value, **kwargs)
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
     
+
+        # self.model = DDP(self.model, device_ids=[self.gpu_id], find_unused_parameters=True)
+        # self.model.to(device)
+        # optimizer_to(self.optimizer, device)
+        # self.ema_model.to(device)
+    
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys='pretrained_goal_model', 
+            exclude_keys=None, 
             include_keys=None, 
             **kwargs):
         if path is None:
@@ -581,9 +580,10 @@ class TrainDP3Workspace:
         'diffusion_policy_3d', 'config'))
 )
 def main(cfg):
+    ddp_setup()
     workspace = TrainDP3Workspace(cfg)
-    # import pdb; pdb.set_trace()
     workspace.run()
+    destroy_process_group()
 
 if __name__ == "__main__":
     # set_start_method('spawn', force=True)

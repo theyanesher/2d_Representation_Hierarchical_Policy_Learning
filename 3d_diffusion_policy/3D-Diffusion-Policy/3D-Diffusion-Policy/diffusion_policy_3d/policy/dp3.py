@@ -51,6 +51,7 @@ class DP3(BasePolicy):
             noise_model_type='unet',
             diffusion_attn_embed_dim=120,
             normalize_action=True, # [Chialiang] can remove normilizer for action
+            scale_scene_by_pcd=False, # [Chialiang] can remove normilizer for action
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -58,6 +59,8 @@ class DP3(BasePolicy):
         self.condition_type = condition_type
         self.prediction_target = prediction_target
         self.normalize_action = normalize_action
+        self.scale_scene_by_pcd = scale_scene_by_pcd
+        self.act3d_encoder_cfg = act3d_encoder_cfg
 
         # parse shape_meta
         action_shape = shape_meta[self.prediction_target]['shape']
@@ -181,8 +184,11 @@ class DP3(BasePolicy):
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
+        
+        cprint(f'using {self.noise_scheduler.config.prediction_type}', 'green')
 
         print_params(self)
+        cprint('model has been loaded', 'green')
         
     # ========= inference  ============
     def conditional_sample(self, 
@@ -237,6 +243,23 @@ class DP3(BasePolicy):
             nobs = self.normalizer.normalize(obs_dict)
         else:
             nobs = obs_dict
+
+        if self.scale_scene_by_pcd:
+
+            max_scale = torch.max(torch.norm(nobs['point_cloud'][...,:3], dim=-1))
+
+            nobs['point_cloud'][...,:3] /= max_scale
+            nobs['agent_pos'][...,:3] /= max_scale
+
+            if "act3d" in self.encoder_type:
+                nobs['gripper_pcd'][...,:3] /= max_scale
+                if 'goal' in self.act3d_encoder_cfg:
+                    nobs['goal_gripper_pcd'][...,:3] /= max_scale
+                if 'displacement_gripper_to_object' in self.act3d_encoder_cfg:
+                    nobs['displacement_gripper_to_object'][...,:3] /= max_scale
+            
+            elif 'act3d_pointnet' == self.act3d_encoder_cfg:
+                nobs['gripper_pcd'][...,:3]  /= max_scale
 
         # import pdb; pdb.set_trace()
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
@@ -314,10 +337,26 @@ class DP3(BasePolicy):
         # [Chialiang] can remove normilizer for action
         if self.prediction_target == 'action':
             action_pred = naction_pred
+
+            # [DebugNormalize] [Chialiang]
             if self.normalize_action:
+                action_pred_backup = copy.deepcopy(action_pred)
                 action_pred = self.normalizer[self.prediction_target].unnormalize(action_pred)
+                
+                # for rotation augmentation only
+                if 'additional_params' in self.normalizer.params_dict.keys():
+                    max_norm_3d = self.normalizer.params_dict['additional_params']['max_norm_3d'][0]
+                    # for unnormalizing delta position
+                    action_pred[...,:3] = action_pred_backup[...,:3] * max_norm_3d
+                    # for delta rotation, actually no need to normalize because the original 6D representation ensure they will be in [-1, 1]
+                    action_pred[...,3:9] = action_pred_backup[...,3:9]
+                    # for delta gripper pose (unchanged, so no operation)
+
         else:
             action_pred = naction_pred
+
+        if self.scale_scene_by_pcd:
+            action_pred[...,:3] *= max_scale
 
         # get action
         start = To - 1
@@ -346,14 +385,27 @@ class DP3(BasePolicy):
 
         if 'act3d' not in self.encoder_type:
             nobs = self.normalizer.normalize(batch['obs'])
+
         else:
             nobs = batch['obs']
         
         # [Chialiang] can remove normilizer for action
         if  self.prediction_target == 'action':
             nactions = batch[self.prediction_target]
+            
             if self.normalize_action:
+                nactions_backup = copy.deepcopy(nactions)
                 nactions = self.normalizer[self.prediction_target].normalize(nactions)
+
+                # for rotation augmentation only
+                if 'additional_params' in self.normalizer.params_dict.keys():
+                    max_norm_3d = self.normalizer.params_dict['additional_params']['max_norm_3d'][0]
+                    # for unnormalizing delta position
+                    nactions[...,:3] = nactions_backup[...,:3] / max_norm_3d
+                    # for delta rotation, actually no need to normalize because the original 6D representation ensure they will be in [-1, 1]
+                    nactions[...,3:9] = nactions_backup[...,3:9]
+                    # for delta gripper pose (unchanged, so no operation)
+
         else:
             nactions = batch['obs'][self.prediction_target].flatten(start_dim=2)
 
@@ -377,7 +429,11 @@ class DP3(BasePolicy):
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, 
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
+            print('=======================================================================================')
+            print('the output of the goal feature: {}'.format(this_nobs['goal_gripper_pcd'].shape))
+            print('=======================================================================================')
             nobs_features = self.obs_encoder(this_nobs)
+
 
             if "cross_attention" in self.condition_type:
                 # treat as a sequence
@@ -456,11 +512,9 @@ class DP3(BasePolicy):
             # https://github.com/huggingface/diffusers/blob/v0.11.1-patch/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
             # sigma = self.noise_scheduler.sigmas[timesteps]
             # alpha_t, sigma_t = self.noise_scheduler._sigma_to_alpha_sigma_t(sigma)
-            # alpha_t = alpha_t.to(self.device)
-            # sigma_t = sigma_t.to(self.device)
-            # # self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
-            # # self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
-            # # alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
+            # self.noise_scheduler.alpha_t = self.noise_scheduler.alpha_t.to(self.device)
+            # self.noise_scheduler.sigma_t = self.noise_scheduler.sigma_t.to(self.device)
+            # alpha_t, sigma_t = self.noise_scheduler.alpha_t[timesteps], self.noise_scheduler.sigma_t[timesteps]
             # alpha_t = alpha_t.unsqueeze(-1).unsqueeze(-1)
             # sigma_t = sigma_t.unsqueeze(-1).unsqueeze(-1)
             # v_t = alpha_t * noise - sigma_t * trajectory

@@ -34,6 +34,7 @@ policy:
   # encoder_output_dim: 128
   encoder_output_dim: 64
   normalize_action: true # [AugDebug]
+  scale_scene_by_pcd: false # [AugDebug]
   horizon: ${horizon}
   kernel_size: 5
   n_action_steps: ${n_action_steps}
@@ -49,7 +50,7 @@ policy:
     clip_sample: True
     set_alpha_to_one: True
     steps_offset: 0
-    prediction_type: sample
+    prediction_type: sample # sample, epsilon, v_prediction
 
 
   num_inference_steps: 10
@@ -80,18 +81,15 @@ policy:
     mode: null
     use_mlp: false
     self_attention: false
-    use_attn_for_point_features: false # large_self_attention, locally_self_attention
-    pointcloud_backbone: unet # unet, mlp, pointnet2, point_transformer
-    use_lightweight_unet: false # dummy param
-
+    use_attn_for_point_features: false
+    pointcloud_backbone: 'mlp'
+    use_lightweight_unet: false
     final_attention: false
 
   prediction_target: action
 
   noise_model_type: unet # unet, transformer
   diffusion_attn_embed_dim: 240
-
-  scale_scene_by_pcd: false
 
 
 ema:
@@ -135,7 +133,7 @@ training:
   use_ema: True
   rollout_every: 500
   checkpoint_every: 500
-  val_every: 30
+  val_every: 10
   sample_every: 5
   max_train_steps: null
   max_val_steps: null
@@ -178,3 +176,5 @@ hydra:
   sweep:
     dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
     subdir: ${hydra.job.num}
+
+use_pretrained_high_level_policy_as_low_level_input: false

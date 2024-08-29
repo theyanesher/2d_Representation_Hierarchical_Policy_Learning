@@ -37,6 +37,10 @@ run-act3d_one.sh
 imgs_copy/
 one_traj/
 trajectory.gif
+sbatch_output/
+read_pickle.py
+run-act3d-ddp-psc_old.sh
+.nfs*
 3d_diffuser_actor/
 train_logs/
 test_PointNet2/results/
