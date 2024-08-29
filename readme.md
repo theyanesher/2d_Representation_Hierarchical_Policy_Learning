@@ -127,7 +127,7 @@ NOTE: this evaluation requires access to some of the raw data for demonstration 
 You need to scp those to your local machine if you want to evaluate on your local machine. 
 
 In eval_robogen_with_goal_prediction.py, change `goal_check_point_name` and `goal_exp_dir` to be the path of the experiments where you just run. Change `save_path` at the bottom part of the file to be your desired name, e.g., `test_eval`. The evaluation results will be stored at `3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/test_eval/`. 
-To parse the results, run `python plot/plot_open_door_results_multiple.py`. Change `folder` to be your evaluation experiment name. 
+To parse the results, run `python plot/plot_directory.py --directory 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/test_eval/`.
 This will give you the performance of each of the 10 objects, where 1 means that the performance perfectly matches the expert policy, and 0 means it does nothing. 
 Ideally, you should be able to see results similar to this google sheet: https://docs.google.com/spreadsheets/d/1EMFSzEfIVoG6cQwVil9FqNFOaoY4T2LIXywdIaU_58o/edit?usp=sharing, under tab `50 objects`, block L58 - L67.
 
