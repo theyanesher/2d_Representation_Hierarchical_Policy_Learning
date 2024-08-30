@@ -36,7 +36,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                     randomize=False,
                     obj_id=0,
                     horizon=600,
-                    random_object_translation=True
+                    random_object_translation=False
             )
             
     object_name = "StorageFurniture".lower()
@@ -367,7 +367,8 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             
             
 def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
+                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False,
+                          test_scene_translation: bool =False):
     
     if calculate_distance_from_gt:
         all_obj_distances = []
@@ -487,21 +488,34 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
             initial_info = info
             all_rgbs = [rgb]
             closed=False
+            translation_delta = 1.0 # only used if test_scene_translation is true
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 # import pdb; pdb.set_trace()
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
                 
-                
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                 
+                if test_scene_translation:
+                    for key in obs:
+                        if key in ("point_cloud", "gripper_pcd", "goal_gripper_pcd"):
+                            parallel_input_dict[key] += translation_delta
+                        elif key ==  "agent_pos":
+                            parallel_input_dict[key][:3] += translation_delta
+
                 with torch.no_grad():
                     predicted_goal = goal_policy.predict_action(parallel_input_dict)
                 np_predicted_goal = dict_apply(predicted_goal, lambda x: x.detach().to('cpu').numpy())
                 np_predicted_goal = np_predicted_goal['action']
                 
                 parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
+
+                # if test_scene_translation:
+                #     for key in obs:
+                #         if key in "goal_gripper_pcd":
+                #             parallel_input_dict[key] += translation_delta
+
                 if cfg.task.env_runner.dense_pcd_for_goal:
                     parallel_input_dict['point_cloud'] = parallel_input_dict['dense_point_cloud']
                 with torch.no_grad():
@@ -670,7 +684,6 @@ if __name__ == "__main__":
 
     goal_checkpoint_name = 'epoch-30.ckpt'
     goal_exp_dir = "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door"
-
     # goal_checkpoint_name = 'epoch-12.ckpt'
     # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0823-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.23/19.45.27_train_dp3_robogen_open_door"
 
@@ -712,6 +725,7 @@ if __name__ == "__main__":
                 horizon=35,
                 exp_beg_idx=0,
                 exp_end_idx=25,
+                test_scene_translation=True
                 # dataset_index=9，
                 # exp_beg_ratio=0.9,
                 # exp_end_ratio=1,
