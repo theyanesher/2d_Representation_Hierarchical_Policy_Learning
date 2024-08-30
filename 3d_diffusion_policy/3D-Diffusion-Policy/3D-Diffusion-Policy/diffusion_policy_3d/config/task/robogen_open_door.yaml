@@ -58,7 +58,6 @@ dataset:
   max_train_episodes: null
   observation_mode: act3d
   enumerate: false
-  dataset_keys: None
   kept_in_disk: true # keep the dataset in memory / disk
   load_per_step: true
   num_load_episodes: 10

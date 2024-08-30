@@ -622,38 +622,7 @@ class TrainDP3Workspace:
     def create_from_snapshot(cls, path):
         return torch.load(open(path, 'rb'), pickle_module=dill)
 
-#############################################
-# for loading pre-trained high-level policy #
-#############################################
 
-# configure model
-# on autobot
-goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
-# on robocluster
-goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
-
-goal_checkpoint_name = 'epoch-30.ckpt'
-goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
-
-with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
-    recomposed_config = hydra.compose(
-        config_name="dp3.yaml",  # same config_name as used by @hydra.main
-        overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
-    )
-goal_cfg = recomposed_config
-
-goal_workspace = TrainDP3Workspace(goal_cfg)
-goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
-goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
-
-goal_policy = deepcopy(goal_workspace.model)
-if goal_workspace.cfg.training.use_ema:
-    goal_policy = deepcopy(goal_workspace.ema_model)
-goal_policy.eval()
-goal_policy.reset()
-device = torch.device(int(os.environ["LOCAL_RANK"]))
-goal_policy = goal_policy.to(device)
-pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
 
 @hydra.main(
     version_base=None,
@@ -667,6 +636,40 @@ def main(cfg):
         cprint(f'=====================================================================================================', 'green')
         cprint(f'Using {cfg.use_pretrained_high_level_policy_as_low_level_input}', 'green')
         cprint(f'=====================================================================================================', 'green')
+        
+        #############################################
+        # for loading pre-trained high-level policy #
+        #############################################
+
+        # configure model
+        # on autobot
+        goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+        # on robocluster
+        goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
+
+        goal_checkpoint_name = 'epoch-30.ckpt'
+        goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+
+        with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
+            recomposed_config = hydra.compose(
+                config_name="dp3.yaml",  # same config_name as used by @hydra.main
+                overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
+            )
+        goal_cfg = recomposed_config
+
+        goal_workspace = TrainDP3Workspace(goal_cfg)
+        goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+        goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
+
+        goal_policy = deepcopy(goal_workspace.model)
+        if goal_workspace.cfg.training.use_ema:
+            goal_policy = deepcopy(goal_workspace.ema_model)
+        goal_policy.eval()
+        goal_policy.reset()
+        device = torch.device(int(os.environ["LOCAL_RANK"]))
+        goal_policy = goal_policy.to(device)
+        pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
+        
         workspace = TrainDP3Workspace(cfg, pretrained_goal_model=pretrained_goal_model)
     else :
         workspace = TrainDP3Workspace(cfg, pretrained_goal_model=None)
