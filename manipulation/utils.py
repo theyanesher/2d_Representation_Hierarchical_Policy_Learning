@@ -148,7 +148,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config=None, solution_path=None, task_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0, **kwargs,
+                    obj_id=0, random_object_translation=False, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -160,6 +160,7 @@ def build_up_env(task_config=None, solution_path=None, task_name=None, restore_s
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
     save_config['task_name'] = task_name
+    save_config['random_object_translation'] = random_object_translation
     for key, value in kwargs.items():
         save_config[key] = value
 

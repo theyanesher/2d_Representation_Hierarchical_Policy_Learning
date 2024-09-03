@@ -36,6 +36,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                     randomize=False,
                     obj_id=0,
                     horizon=600,
+                    random_object_translation=True
             )
             
     object_name = "StorageFurniture".lower()

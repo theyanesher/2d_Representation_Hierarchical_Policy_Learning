@@ -1,3 +1,10 @@
+"""
+Generates handle object files for all objects within the partnet mobility dataset
+
+Before running, make sure the REPO_ROOT is pointing to the correct directory path.
+Usage:
+    python generate_handle_obj_files.py
+"""
 import functools
 import json 
 import multiprocessing as mp

@@ -44,6 +44,7 @@ class SimpleEnv(gym.Env):
                     # mobile=True,
                     task_name=None,
                     open_gripper_at_reset=True,
+                    random_object_translation: bool = False
                 ):
         
         super().__init__()
@@ -63,6 +64,7 @@ class SimpleEnv(gym.Env):
         self.randomize = randomize
         self.obj_id = obj_id # which object to choose to use from the candidates
         self.open_gripper_at_reset = open_gripper_at_reset
+        self.random_object_translation = random_object_translation
         
         # robot
         self.mobile = mobile
@@ -297,11 +299,13 @@ class SimpleEnv(gym.Env):
 
         ### if a state is passed in, restore the state
         if reset_state is not None:
+            self.add_object_position_pertubations(reset_state)
             load_env(self, state=reset_state)
             return
 
         ### after first set scene, the init state will be stored, and can be restored here, skipping the following steps to save time
         if self.init_state is not None:
+            self.add_object_position_pertubations(self.init_state)
             load_env(self, state=self.init_state)
             return
         
@@ -596,10 +600,31 @@ class SimpleEnv(gym.Env):
             new_pos = self.clip_x_bbox_within_workspace(robot_base_pos, new_pos, self.on_tables[name], min_aabb, max_aabb)
             new_pos[2] = object_height[id]
             p.resetBasePositionAndOrientation(id, new_pos, orient, physicsClientId=self.id)
+
+            print(f"{name} original load position {new_pos}")
+            if self.random_object_translation:
+                # scale = 5
+                obj_x, obj_y, obj_z = new_pos
+                x_trans = 5 # np.random.uniform(scale=scale)
+                y_trans = 5 # np.random.uniform(scale=scale)
+                new_pos = [obj_x + x_trans, obj_y + y_trans, obj_z]
+            print(f"{name} new load position {new_pos}")
+
             self.init_positions[name] = new_pos
         
         return object_height
         
+    def add_object_position_pertubations(self, state):
+        if not self.random_object_translation:
+            return
+        for obj_name, obj_id in self.urdf_ids.items():
+            if obj_name != "robot":
+                x_trans = np.random.uniform(-0.3,0.3)
+                y_trans = np.random.uniform(-0.3,0.3)
+                state['object_base_position'][obj_name] = [
+                    state['object_base_position'][obj_name][0] + x_trans, state['object_base_position'][obj_name][1] + y_trans,
+                    state['object_base_position'][obj_name][2]]
+
     def resolve_collision(self, robot_base_pos, object_height, spatial_relationships):
         collision = True
         collision_cnt = 1
