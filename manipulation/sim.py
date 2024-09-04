@@ -11,7 +11,8 @@ from scipy.spatial.transform import Rotation as R
 from manipulation.panda import Panda
 from manipulation.ur5 import UR5
 from manipulation.sawyer import Sawyer
-from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, save_env
+from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, \
+                        save_env, piecewise_uniform_sample
 from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from_name, get_handle_pos, get_link_pc
 from manipulation.gpt_primitive_api import get_link_handle
 import matplotlib.pyplot as plt
@@ -619,8 +620,10 @@ class SimpleEnv(gym.Env):
             return
         for obj_name, obj_id in self.urdf_ids.items():
             if obj_name != "robot":
-                x_trans = np.random.uniform(-0.3,0.3)
-                y_trans = np.random.uniform(-0.3,0.3)
+                scale = 0.1
+                min_translation = 0
+                x_trans = piecewise_uniform_sample(min_translation, min_translation + scale)
+                y_trans = piecewise_uniform_sample(min_translation, min_translation + scale)
                 state['object_base_position'][obj_name] = [
                     state['object_base_position'][obj_name][0] + x_trans, state['object_base_position'][obj_name][1] + y_trans,
                     state['object_base_position'][obj_name][2]]

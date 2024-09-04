@@ -1198,6 +1198,16 @@ def draw_bbox(start, end):
         p.addUserDebugLine(points_bb[i + 4], points_bb[(i + 1) % 4 + 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i], points_bb[i + 4], [1, 0, 0])
 
+def piecewise_uniform_sample(low: float, high: float) -> float:
+    """
+    Samples from a piece-wise uniform distribution of [low,high]+[-high, -low]
+    """
+    is_negative = np.random.uniform(0,1) <= 0.5
+    if is_negative:
+        return np.random.uniform(-high, -low)
+    else:
+        return np.random.uniform(low, high)
+
 if __name__ == '__main__':
     
     path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e5/yufei/projects/ibm/objaverse_utils/data/obj/6d9c1aa964be4f7881d89cd6b427296c____Small_house_with_wrecked_car"
