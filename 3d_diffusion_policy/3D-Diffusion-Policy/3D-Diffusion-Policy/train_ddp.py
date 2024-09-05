@@ -75,6 +75,7 @@ class TrainDP3Workspace:
         # configure training state
         self.global_step = 0
         self.epoch = 0
+        self.amp_scaler = torch.cuda.amp.GradScaler(enabled=self.cfg.training.use_amp)
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -253,17 +254,34 @@ class TrainDP3Workspace:
 
                     # compute loss
                     t1_1 = time.time()
-                    raw_loss, loss_dict = self.model(batch)
-                    loss = raw_loss / cfg.training.gradient_accumulate_every
-                    loss.backward()
-
+                    
+                    ### pytorch amp example
+                    # with torch.autocast(device_type=device, dtype=torch.float16, enabled=use_amp):
+                    #     output = net(input)
+                    #     loss = loss_fn(output, target)
+                    # scaler.scale(loss).backward()
+                    # scaler.step(opt)
+                    # scaler.update()
+                    # opt.zero_grad() # set_to_none=True here can modestly improve performance
+                    
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.cfg.training.use_amp):
+                        raw_loss, loss_dict = self.model(batch)
+                        loss = raw_loss / cfg.training.gradient_accumulate_every
+                        
+                    # loss.backward()
+                    self.amp_scaler.scale(loss).backward()    
+                    
                     t1_2 = time.time()
 
                     # step optimizer
                     if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                        self.optimizer.step()
+                        # self.optimizer.step()
+                        # self.optimizer.zero_grad()
+                        self.amp_scaler.step(self.optimizer)
+                        self.amp_scaler.update()
                         self.optimizer.zero_grad()
                         lr_scheduler.step()
+                        
                     t1_3 = time.time()
                     # update ema
                     if cfg.training.use_ema:

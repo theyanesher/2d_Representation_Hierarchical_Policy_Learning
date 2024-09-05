@@ -93,10 +93,10 @@ pointcloud_num=4500
 action_dim=10
 agent_pos_dim=10
 pc_channel=3
-prediction_target=goal_gripper_pcd
+prediction_target=delta_to_goal_gripper
 use_mlp=0
 
-exp_name="test-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon"
+exp_name="0903-50-obj-pred-delta-goal-gripper-pointnet-backbone-unet-diffusion-epsilon"
 
 dataset_prefix=/scratch/chialiang/dp3_demo
 
@@ -131,9 +131,9 @@ torchrun --standalone --nproc_per_node=1 train_ddp.py \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=24 \
-    val_dataloader.batch_size=24 \
-    policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
+    dataloader.batch_size=20 \
+    val_dataloader.batch_size=20 \
+    policy.act3d_encoder_cfg.mode=null \
     policy.act3d_encoder_cfg.self_attention=true \
     policy.prediction_target="${prediction_target}" \
     task.dataset.prediction_target="${prediction_target}" \

@@ -85,11 +85,17 @@ policy:
     pointcloud_backbone: 'mlp'
     use_lightweight_unet: false
     final_attention: false
+    attention_num_heads: 4 # there was a bug with 4, should use 3 instead
+    attention_num_layers: 2
 
   prediction_target: action
 
   noise_model_type: unet # unet, transformer
   diffusion_attn_embed_dim: 240
+
+  # weigthed diffusion loss weights
+  weight_loss_weight: 1.0
+  diffusion_loss_weight: 1.0
 
 
 ema:
@@ -122,6 +128,7 @@ optimizer:
   weight_decay: 1.0e-6
 
 training:
+  use_amp: False
   device: "cuda:0"
   seed: 42
   debug: False

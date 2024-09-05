@@ -36,6 +36,7 @@ class RobogenDataset(BaseDataset):
             scale_scene_by_pcd=False,
             use_absolute_waypoint=False,
             augmentation_rot=False,
+            prediction_target='action',
             **kwargs
             ):
         super().__init__()
@@ -48,6 +49,7 @@ class RobogenDataset(BaseDataset):
         self.scale_scene_by_pcd = scale_scene_by_pcd
         self.use_absolute_waypoint = use_absolute_waypoint
         self.is_pickle = is_pickle
+        self.prediction_target = prediction_target
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -127,7 +129,9 @@ class RobogenDataset(BaseDataset):
             else:
                 cprint(f'keep in disk and load per step, load_per_step:{self.load_per_step}', 'green')
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
-                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle)
+                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, 
+                                                                        only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle,
+                                                                        target_action=self.prediction_target)
                 self.action_welford = self.replay_buffer.action_welford
             
             # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
@@ -234,7 +238,7 @@ class RobogenDataset(BaseDataset):
             })
             for p in this_params.values():
                 p.requires_grad = False
-            normalizer.params_dict['action'] = this_params
+            normalizer.params_dict[self.prediction_target] = this_params
 
             # [DebugNormalize] [Chialiang]
             if self.augmentation_rot:
@@ -449,6 +453,10 @@ class RobogenDataset(BaseDataset):
         for key in self.keys_:
             if key not in ['state', 'action', 'point_cloud']:
                 data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
+                
+        if self.prediction_target == 'delta_to_goal_gripper':
+            data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
+            
         return data
 
     

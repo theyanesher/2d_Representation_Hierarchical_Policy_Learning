@@ -2,6 +2,18 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 save_data_name_debug=debug
 
+# save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
+# save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
+# save_data_name_2=0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
+# save_data_name_3=0628-act3d-obj-46732-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_4=0628-act3d-obj-46801-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_5=0628-act3d-obj-46874-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_6=0628-act3d-obj-46922-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_7=0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_8=0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_9=0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+# save_data_name_10=0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1
+
 save_data_name_0=0626-act3d-obj-41510-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
 save_data_name_1=0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point
 save_data_name_2=0624-act3d-obj-46462-per-step-combine-2-action-gripper-goal-displacement-to-closest-obj-point-filtered-zero-closing-action
@@ -54,6 +66,10 @@ save_data_name_47=0712-obj-45271
 save_data_name_48=0712-obj-45290
 save_data_name_49=0712-obj-45305
 
+
+
+
+
 demo_name_0=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 demo_name_1=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
 demo_name_2=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
@@ -94,14 +110,13 @@ action_dim=10
 agent_pos_dim=10
 pc_channel=3
 prediction_target=goal_gripper_pcd
-use_mlp=0
+use_mlps=false
 
-exp_name="test-50-obj-pred-goal-gripper-pointnet-backbone-unet-diffusion-epsilon"
-
+exp_name="0901-50-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-all-data"
+exp_name="debug-amp-0901-50-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-all-data"
 dataset_prefix=/scratch/chialiang/dp3_demo
 
-
-torchrun --standalone --nproc_per_node=1 train_ddp.py \
+torchrun --standalone --nproc_per_node=8 train_ddp.py \
     --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     task.dataset.zarr_path="[${dataset_prefix}/${save_data_name_0},${dataset_prefix}/${save_data_name_1},${dataset_prefix}/${save_data_name_2},${dataset_prefix}/${save_data_name_3},${dataset_prefix}/${save_data_name_4},${dataset_prefix}/${save_data_name_5},${dataset_prefix}/${save_data_name_6},${dataset_prefix}/${save_data_name_7},${dataset_prefix}/${save_data_name_8},${dataset_prefix}/${save_data_name_9}, \
     ${dataset_prefix}/${save_data_name_10},${dataset_prefix}/${save_data_name_11},${dataset_prefix}/${save_data_name_12},${dataset_prefix}/${save_data_name_13},${dataset_prefix}/${save_data_name_14},${dataset_prefix}/${save_data_name_15},${dataset_prefix}/${save_data_name_16},${dataset_prefix}/${save_data_name_17},${dataset_prefix}/${save_data_name_18},${dataset_prefix}/${save_data_name_19}, \
@@ -131,16 +146,17 @@ torchrun --standalone --nproc_per_node=1 train_ddp.py \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=24 \
-    val_dataloader.batch_size=24 \
+    dataloader.batch_size=15 \
+    val_dataloader.batch_size=15 \
     policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     policy.act3d_encoder_cfg.self_attention=true \
     policy.prediction_target="${prediction_target}" \
-    task.dataset.prediction_target="${prediction_target}" \
     policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
     policy.act3d_encoder_cfg.pointcloud_backbone=pointnet2 \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
     policy.noise_scheduler.prediction_type=epsilon \
+    policy._target_=diffusion_policy_3d.policy.weighted_diffusion.WeightedDiffusion \
+    task.dataset.augmentation_pcd=false \
     task.dataset.is_pickle=true \
-
-# singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif
+    policy.weight_loss_weight=10000000000 \
+    training.use_amp=true \
