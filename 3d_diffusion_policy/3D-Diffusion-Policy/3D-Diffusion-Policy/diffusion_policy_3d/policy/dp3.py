@@ -335,7 +335,7 @@ class DP3(BasePolicy):
         naction_pred = nsample[...,:Da]
 
         # [Chialiang] can remove normilizer for action
-        if self.prediction_target == 'action':
+        if self.prediction_target == 'action' or self.prediction_target == 'delta_to_goal_gripper':
             action_pred = naction_pred
 
             # [DebugNormalize] [Chialiang]
@@ -390,8 +390,11 @@ class DP3(BasePolicy):
             nobs = batch['obs']
         
         # [Chialiang] can remove normilizer for action
-        if  self.prediction_target == 'action':
-            nactions = batch[self.prediction_target]
+        if  self.prediction_target == 'action' or self.prediction_target == 'delta_to_goal_gripper':
+            if self.prediction_target == 'action':
+                nactions = batch[self.prediction_target]
+            elif self.prediction_target == 'delta_to_goal_gripper':
+                nactions = batch['obs'][self.prediction_target].flatten(start_dim=2)
             
             if self.normalize_action:
                 nactions_backup = copy.deepcopy(nactions)
