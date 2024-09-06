@@ -1210,9 +1210,9 @@ def piecewise_uniform_sample(low: float, high: float) -> float:
 
 def radial_shift(x_coord: float, y_coord: float):
     theta = np.arctan2(y_coord, x_coord)
-    theta_noise = np.random.uniform(-0.1, 0.1)
+    theta_noise = np.pi / 4 #np.random.uniform(-0.1, 0.1)
     dist = np.linalg.norm([x_coord, y_coord])
-    dist_noise = np.random.uniform(-0.01,0.01)
+    dist_noise = np.random.uniform(-0.02,0.02)
     theta += theta_noise
     dist += dist_noise
     perturbed_x = dist * np.cos(theta)

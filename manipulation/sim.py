@@ -609,9 +609,13 @@ class SimpleEnv(gym.Env):
         if not self.random_object_translation:
             return
         for obj_name, obj_id in self.urdf_ids.items():
-            if obj_name != "robot":
+            if obj_name != "robot" and obj_name != "plane":
+                print()
+                print(f"obj name: {obj_name}")
                 x, y, z = state['object_base_position'][obj_name]
+                print(f'before translation {x} {y}')
                 x, y = radial_shift(x, y)
+                print(f'after translation {x} {y}')
                 state['object_base_position'][obj_name] = [x, y, z]
 
     def resolve_collision(self, robot_base_pos, object_height, spatial_relationships):
