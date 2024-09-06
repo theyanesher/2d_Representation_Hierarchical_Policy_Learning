@@ -12,7 +12,7 @@ from manipulation.panda import Panda
 from manipulation.ur5 import UR5
 from manipulation.sawyer import Sawyer
 from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, \
-                        save_env, piecewise_uniform_sample
+                        save_env, radial_shift
 from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from_name, get_handle_pos, get_link_pc
 from manipulation.gpt_primitive_api import get_link_handle
 import matplotlib.pyplot as plt
@@ -601,16 +601,6 @@ class SimpleEnv(gym.Env):
             new_pos = self.clip_x_bbox_within_workspace(robot_base_pos, new_pos, self.on_tables[name], min_aabb, max_aabb)
             new_pos[2] = object_height[id]
             p.resetBasePositionAndOrientation(id, new_pos, orient, physicsClientId=self.id)
-
-            print(f"{name} original load position {new_pos}")
-            if self.random_object_translation:
-                # scale = 5
-                obj_x, obj_y, obj_z = new_pos
-                x_trans = 5 # np.random.uniform(scale=scale)
-                y_trans = 5 # np.random.uniform(scale=scale)
-                new_pos = [obj_x + x_trans, obj_y + y_trans, obj_z]
-            print(f"{name} new load position {new_pos}")
-
             self.init_positions[name] = new_pos
         
         return object_height
@@ -620,13 +610,9 @@ class SimpleEnv(gym.Env):
             return
         for obj_name, obj_id in self.urdf_ids.items():
             if obj_name != "robot":
-                scale = 0.1
-                min_translation = 0
-                x_trans = piecewise_uniform_sample(min_translation, min_translation + scale)
-                y_trans = piecewise_uniform_sample(min_translation, min_translation + scale)
-                state['object_base_position'][obj_name] = [
-                    state['object_base_position'][obj_name][0] + x_trans, state['object_base_position'][obj_name][1] + y_trans,
-                    state['object_base_position'][obj_name][2]]
+                x, y, z = state['object_base_position'][obj_name]
+                x, y = radial_shift(x, y)
+                state['object_base_position'][obj_name] = [x, y, z]
 
     def resolve_collision(self, robot_base_pos, object_height, spatial_relationships):
         collision = True

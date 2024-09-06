@@ -1208,6 +1208,17 @@ def piecewise_uniform_sample(low: float, high: float) -> float:
     else:
         return np.random.uniform(low, high)
 
+def radial_shift(x_coord: float, y_coord: float):
+    theta = np.arctan2(y_coord, x_coord)
+    theta_noise = np.random.uniform(-0.1, 0.1)
+    dist = np.linalg.norm([x_coord, y_coord])
+    dist_noise = np.random.uniform(-0.01,0.01)
+    theta += theta_noise
+    dist += dist_noise
+    perturbed_x = dist * np.cos(theta)
+    perturbed_y = dist * np.sin(theta)
+    return perturbed_x, perturbed_y
+
 if __name__ == '__main__':
     
     path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e5/yufei/projects/ibm/objaverse_utils/data/obj/6d9c1aa964be4f7881d89cd6b427296c____Small_house_with_wrecked_car"
