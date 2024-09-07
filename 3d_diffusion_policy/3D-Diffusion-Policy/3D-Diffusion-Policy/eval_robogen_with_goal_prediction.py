@@ -36,6 +36,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                     randomize=False,
                     obj_id=0,
                     horizon=600,
+                    random_object_translation=True
             )
             
     object_name = "StorageFurniture".lower()
@@ -607,7 +608,7 @@ if __name__ == "__main__":
     checkpoint_name = 'latest.ckpt' 
     checkpoint_name = 'epoch-30.ckpt' 
 
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+    exp_dir = "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
     checkpoint_name = 'latest.ckpt'
 
     # 200 objects
@@ -667,8 +668,8 @@ if __name__ == "__main__":
     # goal_checkpoint_name = 'latest.ckpt'
     # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0817-200-obj-pred-weighted-displacement-pointnet2-augmentation-pcd/2024.08.18/18.16.24_train_dp3_robogen_open_door"
 
-    goal_checkpoint_name = 'latest.ckpt'
-    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0818-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.18/21.18.41_train_dp3_robogen_open_door"
+    goal_checkpoint_name = 'epoch-30.ckpt'
+    goal_exp_dir = "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door"
 
     # goal_checkpoint_name = 'epoch-12.ckpt'
     # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0823-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.23/19.45.27_train_dp3_robogen_open_door"

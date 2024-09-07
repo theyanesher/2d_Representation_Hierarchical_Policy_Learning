@@ -148,7 +148,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config=None, solution_path=None, task_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0, **kwargs,
+                    obj_id=0, random_object_translation=False, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -160,6 +160,7 @@ def build_up_env(task_config=None, solution_path=None, task_name=None, restore_s
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
     save_config['task_name'] = task_name
+    save_config['random_object_translation'] = random_object_translation
     for key, value in kwargs.items():
         save_config[key] = value
 
@@ -1196,6 +1197,27 @@ def draw_bbox(start, end):
         p.addUserDebugLine(points_bb[i], points_bb[(i + 1) % 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i + 4], points_bb[(i + 1) % 4 + 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i], points_bb[i + 4], [1, 0, 0])
+
+def piecewise_uniform_sample(low: float, high: float) -> float:
+    """
+    Samples from a piece-wise uniform distribution of [low,high]+[-high, -low]
+    """
+    is_negative = np.random.uniform(0,1) <= 0.5
+    if is_negative:
+        return np.random.uniform(-high, -low)
+    else:
+        return np.random.uniform(low, high)
+
+def radial_shift(x_coord: float, y_coord: float):
+    theta = np.arctan2(y_coord, x_coord)
+    theta_noise = np.random.uniform(-0.1, 0.1)
+    dist = np.linalg.norm([x_coord, y_coord])
+    dist_noise = np.random.uniform(-0.02,0.02)
+    theta += theta_noise
+    dist += dist_noise
+    perturbed_x = dist * np.cos(theta)
+    perturbed_y = dist * np.sin(theta)
+    return perturbed_x, perturbed_y
 
 if __name__ == '__main__':
     
