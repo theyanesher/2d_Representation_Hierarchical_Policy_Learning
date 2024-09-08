@@ -3,7 +3,7 @@ import json
 import os
 import numpy as np
 
-folder = "3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_mobile_train_50_on_test_10_mlp_act3d_low_level/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.20_15.26.54_train_dp3_robogen_open_door_checkpoints_latest.ckpt"
+folder = "3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_low_50_pcd_200_high_level_weighted_diffusion_1/noise-0.06-0.1"
 
 all_subfolders = os.listdir(folder)
 all_obj_runs = []
@@ -47,4 +47,4 @@ for idx in range(10):
     print("obj id {} {:.3f} {:.3f}".format(obj_id, np.mean(performance_runs), np.std(performance_runs)))
     # print("obj id grasped handles {} {} {}".format(obj_id, np.mean(grasped_handles_runs), np.std(grasped_handles_runs)))
     
-# print("all obj average: {:.3f} {:.3f}".format(np.mean(all_obj_runs), np.std(all_obj_runs)))
+print("all obj average: {:.3f} {:.3f}".format(np.mean(all_obj_runs), np.std(all_obj_runs)))
