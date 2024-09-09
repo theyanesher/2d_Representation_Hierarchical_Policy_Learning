@@ -6,7 +6,6 @@ source /mnt/RoboGen_sim2real/prepare.sh
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 dataset_prefix=/scratch/mnakuraf/data/dp3_demo
-
 # build dataset.zarr_path
 data_path=()
 for i in {0..49}; do
