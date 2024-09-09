@@ -1,6 +1,7 @@
-source sandbox/mino/data_training_50.sh
-source sandbox/mino/config_train_low_on_high.sh
-source prepare.sh
+source /mnt/RoboGen_sim2real/sandbox/mino/data_training_50.sh
+source /mnt/RoboGen_sim2real/sandbox/mino/config_train_low_on_high.sh
+source /mnt/RoboGen_sim2real/sandbox/mino/init_singularity.sh
+source /mnt/RoboGen_sim2real/prepare.sh
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 

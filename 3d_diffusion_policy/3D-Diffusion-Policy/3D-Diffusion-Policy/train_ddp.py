@@ -646,7 +646,7 @@ def initialize_pretrained_high_level_policy():
     # on autobot
     goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
     # on robocluster
-    goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
+    # goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
 
     goal_checkpoint_name = 'epoch-30.ckpt'
     goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
