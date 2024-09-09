@@ -138,12 +138,13 @@ def test_translation_invariance(policy, batch):
     print("Calculating difference between outputs")
     norms = []
     for _ in range(10):
-        set_random_seed(0, using_cuda=True)
+        seed = random.randint(0, 100)
+        set_random_seed(seed, using_cuda=True)
         model_output = policy.predict_action(batch)['action']
 
         translation_vector = torch.ones(3).to('cuda:0')
         translated_batch = translate_batch(batch, translation_vector)
-        set_random_seed(0, using_cuda=True)
+        set_random_seed(seed, using_cuda=True)
         translated_model_output = policy.predict_action(translated_batch)['action']
 
         diff = torch.linalg.norm(model_output - translated_model_output)

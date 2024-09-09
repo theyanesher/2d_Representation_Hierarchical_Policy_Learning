@@ -488,7 +488,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
             initial_info = info
             all_rgbs = [rgb]
             closed=False
-            translation_delta = 1.0 # only used if test_scene_translation is true
+            translation_delta = torch.ones(3).to('cuda') # only used if test_scene_translation is true
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 # import pdb; pdb.set_trace()
@@ -502,7 +502,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                         if key in ("point_cloud", "gripper_pcd", "goal_gripper_pcd"):
                             parallel_input_dict[key] += translation_delta
                         elif key ==  "agent_pos":
-                            parallel_input_dict[key][:3] += translation_delta
+                            parallel_input_dict[key][:,:,:3] += translation_delta
 
                 with torch.no_grad():
                     predicted_goal = goal_policy.predict_action(parallel_input_dict)
@@ -725,7 +725,7 @@ if __name__ == "__main__":
                 horizon=35,
                 exp_beg_idx=0,
                 exp_end_idx=25,
-                test_scene_translation=True
+                test_scene_translation=False
                 # dataset_index=9，
                 # exp_beg_ratio=0.9,
                 # exp_end_ratio=1,
