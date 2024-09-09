@@ -487,3 +487,45 @@ class AdaLN(nn.Module):
         scale, shift = self.modulation(t).chunk(2, dim=-1)  # (B, C), (B, C)
         x = x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
         return x  # (B, N, C)
+
+
+if __name__ == '__main__':
+    from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
+    from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
+    
+    # TODO: chech the rotarty relative embedding is translation invariant
+    encoder_output_dim = 6
+    bs = 100
+    relative_pe_layer = RotaryPositionEncoding3D(encoder_output_dim)
+    
+    num_heads = 2
+    num_gripper_points = 5
+    attn_layers = RelativeCrossAttentionModule(encoder_output_dim, num_heads, 1)
+    attn_layers = replace_bn_with_gn(attn_layers)
+    
+    gripper_pcd_features = torch.randn(num_gripper_points, bs, encoder_output_dim)
+    rgb_features = torch.randn(100, bs, encoder_output_dim)
+    
+    gripper_pcd_pos = torch.randn(bs, num_gripper_points, 3)
+    point_cloud_pos = torch.randn(bs, 100, 3)
+    gripper_pcd_rel_pos_embedding = relative_pe_layer(gripper_pcd_pos)
+    point_cloud_rel_pos_embedding = relative_pe_layer(point_cloud_pos)
+    
+    
+    attn_output = attn_layers(
+        query=gripper_pcd_features, value=rgb_features,
+        query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
+    )[-1]
+    
+    translated_gripper_pcd_pos = gripper_pcd_pos - 1.23
+    translated_point_cloud_pos = point_cloud_pos - 1.23
+    translated_gripper_pcd_pos_rel_embedding = relative_pe_layer(translated_gripper_pcd_pos)
+    translated_point_cloud_pos_rel_embedding = relative_pe_layer(translated_point_cloud_pos)
+    translated_attn_output = attn_layers(
+        query=gripper_pcd_features, value=rgb_features,
+        query_pos=translated_gripper_pcd_pos_rel_embedding, value_pos=translated_point_cloud_pos_rel_embedding,
+    )[-1]
+    
+    print("num_heads: ", num_heads)
+    print("difference: ", torch.norm(attn_output - translated_attn_output))
+    print(torch.allclose(attn_output, translated_attn_output, atol=1e-4))

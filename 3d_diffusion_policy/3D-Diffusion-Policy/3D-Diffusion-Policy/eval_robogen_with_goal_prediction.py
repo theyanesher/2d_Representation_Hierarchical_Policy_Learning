@@ -640,7 +640,8 @@ if __name__ == "__main__":
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
 
     # current best model
-    goal_checkpoint_name = 'epoch-30.ckpt'
+    # goal_checkpoint_name = 'epoch-30.ckpt'
+    goal_checkpoint_name = 'epoch-45.ckpt'
     goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
 
 
@@ -650,8 +651,8 @@ if __name__ == "__main__":
     # goal_checkpoint_name = 'latest.ckpt'
     # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0817-200-obj-pred-weighted-displacement-pointnet2-augmentation-pcd/2024.08.18/18.16.24_train_dp3_robogen_open_door"
 
-    goal_checkpoint_name = 'latest.ckpt'
-    goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0818-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.18/21.18.41_train_dp3_robogen_open_door"
+    # goal_checkpoint_name = 'latest.ckpt'
+    # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0818-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.18/21.18.41_train_dp3_robogen_open_door"
 
     # goal_checkpoint_name = 'epoch-12.ckpt'
     # goal_exp_dir = "/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0823-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-epsilon-augmentation-pcd/2024.08.23/19.45.27_train_dp3_robogen_open_door"
@@ -681,7 +682,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/eval_low_50_pcd_200_high_level_weighted_diffusion_1/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/temp_2/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         

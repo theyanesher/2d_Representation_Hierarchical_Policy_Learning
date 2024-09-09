@@ -22,7 +22,7 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
-from test_PointNet2.model import PointNet2_small2
+from test_PointNet2.model import PointNet2_small2, PointNet2
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
     env, _ = build_up_env(
@@ -170,7 +170,7 @@ def wrap_obs(list_of_obs):
 
             
 def run_eval_non_parallel(cfg, policy, goal_prediction_model, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
+                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -305,6 +305,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
                     outputs = goal_prediction_model(inputs_)
                     weights = outputs[:, :, -1] # B, N
                     outputs = outputs[:, :, :-1] # B, N, 12
+                    if output_obj_pcd_only:
+                        weights = weights[:, :-4]
+                        outputs = outputs[:, :-4, :]
+                        inputs = inputs[:, :-4, :]
+
                     B, N, _ = outputs.shape
                     outputs = outputs.view(B, N, 4, 3)
                     outputs = outputs + inputs.unsqueeze(2)
@@ -416,8 +421,16 @@ if __name__ == "__main__":
         ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     
-    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/model_9.pth"
+    # output obj pcd only
+    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/results/200_output_obj_pcd_only/model_39.pth"
     pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
+    output_obj_pcd_only = True
+
+    # pointnet2 large
+    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/results/200_pointnet_large/model_36.pth"
+    # pointnet2_model = PointNet2(num_classes=13).to('cuda')
+    # output_obj_pcd_only = False
+
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
     
@@ -425,7 +438,7 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     for run_idx in range(1):
-        save_path = "data/eval_200_obj_pointnet_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/eval_200_obj_pointnet_output_obj_pcd_only_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
@@ -438,6 +451,7 @@ if __name__ == "__main__":
                 horizon=35,
                 exp_beg_idx=0,
                 exp_end_idx=25,
+                output_obj_pcd_only=output_obj_pcd_only,
                 # dataset_index=9，
                 # exp_beg_ratio=0.9,
                 # exp_end_ratio=1,

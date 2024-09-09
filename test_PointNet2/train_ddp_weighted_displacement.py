@@ -6,9 +6,23 @@ from test_PointNet2.model_attn import AttnModel
 from tqdm import tqdm
 import argparse
 import einops
+from torch.utils.data.distributed import DistributedSampler
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
+import datetime
+import os
+from torch.utils.data import DataLoader
+from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
+
+def ddp_setup():
+    os.environ["NCCL_P2P_LEVEL"] = "NVL"
+    init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=5400))
+    print("Local rank: ", os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 def train(args):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    gpu_id = int(os.environ["LOCAL_RANK"])
+    device = torch.device(gpu_id)
     if args.model_type == 'pointnet2':
         model = PointNet2_small2(num_classes=13).to(device)
     elif args.model_type == 'pointnet2_large':
@@ -28,7 +42,19 @@ def train(args):
     criterion = torch.nn.MSELoss()
 
     # dataloader = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
-    dataloader = get_dataloader_from_pickle(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
+    # dataloader = get_dataloader_from_pickle(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
+    dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage)
+    dataloader = DataLoader(dataset, 
+                shuffle=False,
+                sampler=DistributedSampler(dataset),
+                batch_size=args.batch_size,
+                num_workers=4,
+                pin_memory=True,
+                )
+
+    gpu_id = int(os.environ["LOCAL_RANK"])
+    model = DDP(model, device_ids=[gpu_id])
+
 
     for epoch in range(args.num_epochs):
         running_loss = 0.0
@@ -51,6 +77,12 @@ def train(args):
             outputs = model(inputs) # B, N, 13
             weights = outputs[:, :, -1] # B, N
             outputs = outputs[:, :, :-1] # B, N, 12
+            if args.output_obj_pcd_only:
+                weights = weights[:, :-4]
+                outputs = outputs[:, :-4, :]
+                labels = labels[:, :-4, :]
+                inputs = inputs[:, :, :-4]
+                N = N - 4
             loss = criterion(outputs, labels)
 
             # import pdb; pdb.set_trace()
@@ -72,13 +104,13 @@ def train(args):
             optimizer.step()
             running_loss += loss.item()
 
-            if (i+1) % 1000 == 0:
+            if (i+1) % 1000 == 0 and os.environ['LOCAL_RANK'] == '0':
                 print(f"Epoch {epoch + 1}, iter {i + 1}, loss: {running_loss / 1000}")
                 running_loss = 0.0
 
-        if (epoch + 1) % args.save_freq == 0:
+        if (epoch + 1) % args.save_freq == 0 and os.environ['LOCAL_RANK'] == '0':
             save_path = f"{args.exp_path}/model_{epoch + 1}.pth"
-            torch.save(model.state_dict(), save_path)
+            torch.save(model.module.state_dict(), save_path)
 
     print('Finished Training')
 
@@ -96,9 +128,12 @@ def parse_args():
     parser.add_argument('--exp_path', type=str, default="/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps")
     parser.add_argument('--model_type', type=str, default='pointnet2')
     parser.add_argument('--load_model_path', type=str, default=None)
+    parser.add_argument('--output_obj_pcd_only', action='store_true')
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    ddp_setup()
     train(args)
+    destroy_process_group()
