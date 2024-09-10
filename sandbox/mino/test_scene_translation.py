@@ -128,7 +128,7 @@ def copy_batch(batch):
 def translate_batch(batch, translation=1.0): 
     new_batch = copy_batch(batch)
     for key in batch:
-        if key in ('point_cloud', 'gripper_pcd'): 
+        if key in ('point_cloud', 'gripper_pcd', 'goal_gripper_pcd'):
             new_batch[key] += translation
         elif key == 'agent_pos':
             new_batch[key][:,:,:3] += translation
