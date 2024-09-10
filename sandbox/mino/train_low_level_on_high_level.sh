@@ -1,4 +1,4 @@
-source /mnt/RoboGen_sim2real/sandbox/mino/data_training_50.sh
+source /mnt/RoboGen_sim2real/sandbox/mino/data_training_200.sh
 source /mnt/RoboGen_sim2real/sandbox/mino/config_train_low_on_high.sh
 source /mnt/RoboGen_sim2real/sandbox/mino/init_singularity.sh
 source /mnt/RoboGen_sim2real/prepare.sh
@@ -59,6 +59,7 @@ torchrun --standalone --nproc_per_node=4 \
     task.dataset.augmentation_rot="${augmentation_rot}" \
     task.dataset.augmentation_pcd="${augmentation_pcd}" \
     task.dataset.augmentation_scale="${augmentation_scale}" \
+    task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
     task.dataset.scale_scene_by_pcd="${scale_scene_by_pcd}" \
     task.dataset.use_absolute_waypoint="${use_absolute_waypoint}" \
     task.dataset.is_pickle="${is_pickle}" \
