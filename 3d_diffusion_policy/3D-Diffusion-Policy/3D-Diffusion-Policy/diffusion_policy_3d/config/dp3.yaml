@@ -85,7 +85,7 @@ policy:
     pointcloud_backbone: 'mlp'
     use_lightweight_unet: false
     final_attention: false
-    attention_num_heads: 4 # there was a bug with 4, should use 3 instead
+    attention_num_heads: 3 # there was a bug with 4, should use 3 instead
     attention_num_layers: 2
 
   prediction_target: action
