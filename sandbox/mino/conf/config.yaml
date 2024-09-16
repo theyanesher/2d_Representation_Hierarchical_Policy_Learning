@@ -1,0 +1,391 @@
+task:
+  name: robogen_open_door
+  task_name: robogen_open_door
+  in_gripper_frame: false
+  image_shape:
+  - 3
+  - 640
+  - 480
+  shape_meta:
+    obs:
+      point_cloud:
+        shape:
+        - 4000
+        - 3
+        type: point_cloud
+      agent_pos:
+        shape:
+        - 10
+        type: low_dim
+    action:
+      shape:
+      - 10
+    goal_gripper_pcd:
+      shape:
+      - 12
+  env_runner:
+    _target_: diffusion_policy_3d.env_runner.robogen_runner.RoboGenRunner
+    max_steps: 35
+    n_obs_steps: ${n_obs_steps}
+    n_action_steps: ${n_action_steps}
+    eval_episodes: 3
+    in_gripper_frame: ${task.in_gripper_frame}
+    gripper_num_points: 0
+    start_after_reaching: 0
+    add_contact: 0
+    experiment_name:
+    - 0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    - 0712-diverse-objects-2-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
+    experiment_folder:
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46732_2024-03-27-18-46-00/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46801_2024-03-27-20-37-05/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46874_2024-03-27-13-57-49/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46922_2024-03-27-19-42-45/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46966_2024-03-27-16-55-33/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47570_2024-03-27-21-36-50/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_47578_2024-03-27-14-56-07/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_48700_2024-03-27-12-59-58/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_45526/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_45661/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_45694/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_45780/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_45910/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_45961/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46408/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46417/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46440/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46490/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46762/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46825/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_46893/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_47235/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_47281/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_47315/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_47529/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_47669/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_47944/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_48063/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_48177/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_48356/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_48623/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_48876/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_49025/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_49062/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_49132/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects/open_the_door_49133/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_40417/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_41085/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_41452/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45162/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45176/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45194/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45203/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45248/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45271/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45290/task_open_the_door_of_the_storagefurniture_by_its_handle
+    - data/diverse_objects_2/open_the_door_45305/task_open_the_door_of_the_storagefurniture_by_its_handle
+    use_joint_angle: ''
+    num_point_in_pc: 4500
+    use_segmask: ''
+    only_handle_points: ''
+    num_worker: 40
+    observation_mode: act3d_goal_mlp
+    demo_experiment_path:
+    - /scratch/chialiang/dp3_demo/0705-obj-41510
+    - /scratch/chialiang/dp3_demo/0705-obj-45448
+    - /scratch/chialiang/dp3_demo/0705-obj-46462
+    - /scratch/chialiang/dp3_demo/0705-obj-46732
+    - /scratch/chialiang/dp3_demo/0705-obj-46801
+    - /scratch/chialiang/dp3_demo/0705-obj-46874
+    - /scratch/chialiang/dp3_demo/0705-obj-46922
+    - /scratch/chialiang/dp3_demo/0705-obj-46966
+    - /scratch/chialiang/dp3_demo/0705-obj-47570
+    - /scratch/chialiang/dp3_demo/0705-obj-47578
+    - /scratch/chialiang/dp3_demo/0705-obj-48700
+    - /scratch/chialiang/dp3_demo/0705-obj-45526
+    - /scratch/chialiang/dp3_demo/0705-obj-45661
+    - /scratch/chialiang/dp3_demo/0705-obj-45694
+    - /scratch/chialiang/dp3_demo/0705-obj-45780
+    - /scratch/chialiang/dp3_demo/0705-obj-45910
+    - /scratch/chialiang/dp3_demo/0705-obj-45961
+    - /scratch/chialiang/dp3_demo/0705-obj-46408
+    - /scratch/chialiang/dp3_demo/0705-obj-46417
+    - /scratch/chialiang/dp3_demo/0705-obj-46440
+    - /scratch/chialiang/dp3_demo/0705-obj-46490
+    - /scratch/chialiang/dp3_demo/0705-obj-46762
+    - /scratch/chialiang/dp3_demo/0705-obj-46825
+    - /scratch/chialiang/dp3_demo/0705-obj-46893
+    - /scratch/chialiang/dp3_demo/0705-obj-47235
+    - /scratch/chialiang/dp3_demo/0705-obj-47281
+    - /scratch/chialiang/dp3_demo/0705-obj-47315
+    - /scratch/chialiang/dp3_demo/0705-obj-47529
+    - /scratch/chialiang/dp3_demo/0705-obj-47669
+    - /scratch/chialiang/dp3_demo/0705-obj-47944
+    - /scratch/chialiang/dp3_demo/0705-obj-48063
+    - /scratch/chialiang/dp3_demo/0705-obj-48177
+    - /scratch/chialiang/dp3_demo/0705-obj-48356
+    - /scratch/chialiang/dp3_demo/0705-obj-48623
+    - /scratch/chialiang/dp3_demo/0705-obj-48876
+    - /scratch/chialiang/dp3_demo/0705-obj-49025
+    - /scratch/chialiang/dp3_demo/0705-obj-49062
+    - /scratch/chialiang/dp3_demo/0705-obj-49132
+    - /scratch/chialiang/dp3_demo/0705-obj-49133
+    - /scratch/chialiang/dp3_demo/0712-obj-40417
+    - /scratch/chialiang/dp3_demo/0712-obj-41085
+    - /scratch/chialiang/dp3_demo/0712-obj-41452
+    - /scratch/chialiang/dp3_demo/0712-obj-45162
+    - /scratch/chialiang/dp3_demo/0712-obj-45176
+    - /scratch/chialiang/dp3_demo/0712-obj-45194
+    - /scratch/chialiang/dp3_demo/0712-obj-45203
+    - /scratch/chialiang/dp3_demo/0712-obj-45248
+    - /scratch/chialiang/dp3_demo/0712-obj-45271
+    - /scratch/chialiang/dp3_demo/0712-obj-45290
+    - /scratch/chialiang/dp3_demo/0712-obj-45305
+    only_object: true
+  dataset:
+    _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
+    zarr_path:
+    - /scratch/chialiang/dp3_demo/0705-obj-41510
+    - /scratch/chialiang/dp3_demo/0705-obj-45448
+    - /scratch/chialiang/dp3_demo/0705-obj-46462
+    - /scratch/chialiang/dp3_demo/0705-obj-46732
+    - /scratch/chialiang/dp3_demo/0705-obj-46801
+    - /scratch/chialiang/dp3_demo/0705-obj-46874
+    - /scratch/chialiang/dp3_demo/0705-obj-46922
+    - /scratch/chialiang/dp3_demo/0705-obj-46966
+    - /scratch/chialiang/dp3_demo/0705-obj-47570
+    - /scratch/chialiang/dp3_demo/0705-obj-47578
+    - /scratch/chialiang/dp3_demo/0705-obj-48700
+    - /scratch/chialiang/dp3_demo/0705-obj-45526
+    - /scratch/chialiang/dp3_demo/0705-obj-45661
+    - /scratch/chialiang/dp3_demo/0705-obj-45694
+    - /scratch/chialiang/dp3_demo/0705-obj-45780
+    - /scratch/chialiang/dp3_demo/0705-obj-45910
+    - /scratch/chialiang/dp3_demo/0705-obj-45961
+    - /scratch/chialiang/dp3_demo/0705-obj-46408
+    - /scratch/chialiang/dp3_demo/0705-obj-46417
+    - /scratch/chialiang/dp3_demo/0705-obj-46440
+    - /scratch/chialiang/dp3_demo/0705-obj-46490
+    - /scratch/chialiang/dp3_demo/0705-obj-46762
+    - /scratch/chialiang/dp3_demo/0705-obj-46825
+    - /scratch/chialiang/dp3_demo/0705-obj-46893
+    - /scratch/chialiang/dp3_demo/0705-obj-47235
+    - /scratch/chialiang/dp3_demo/0705-obj-47281
+    - /scratch/chialiang/dp3_demo/0705-obj-47315
+    - /scratch/chialiang/dp3_demo/0705-obj-47529
+    - /scratch/chialiang/dp3_demo/0705-obj-47669
+    - /scratch/chialiang/dp3_demo/0705-obj-47944
+    - /scratch/chialiang/dp3_demo/0705-obj-48063
+    - /scratch/chialiang/dp3_demo/0705-obj-48177
+    - /scratch/chialiang/dp3_demo/0705-obj-48356
+    - /scratch/chialiang/dp3_demo/0705-obj-48623
+    - /scratch/chialiang/dp3_demo/0705-obj-48876
+    - /scratch/chialiang/dp3_demo/0705-obj-49025
+    - /scratch/chialiang/dp3_demo/0705-obj-49062
+    - /scratch/chialiang/dp3_demo/0705-obj-49132
+    - /scratch/chialiang/dp3_demo/0705-obj-49133
+    - /scratch/chialiang/dp3_demo/0712-obj-40417
+    - /scratch/chialiang/dp3_demo/0712-obj-41085
+    - /scratch/chialiang/dp3_demo/0712-obj-41452
+    - /scratch/chialiang/dp3_demo/0712-obj-45162
+    - /scratch/chialiang/dp3_demo/0712-obj-45176
+    - /scratch/chialiang/dp3_demo/0712-obj-45194
+    - /scratch/chialiang/dp3_demo/0712-obj-45203
+    - /scratch/chialiang/dp3_demo/0712-obj-45248
+    - /scratch/chialiang/dp3_demo/0712-obj-45271
+    - /scratch/chialiang/dp3_demo/0712-obj-45290
+    - /scratch/chialiang/dp3_demo/0712-obj-45305
+    horizon: ${horizon}
+    pad_before: ${eval:'${n_obs_steps}-1'}
+    pad_after: ${eval:'${n_action_steps}-1'}
+    seed: 42
+    val_ratio: 0.1
+    train_ratio: 0.9
+    max_train_episodes: null
+    observation_mode: act3d_goal_mlp
+    enumerate: true
+    kept_in_disk: true
+    load_per_step: true
+    num_load_episodes: 1000
+name: train_dp3
+task_name: ${task.name}
+shape_meta: ${task.shape_meta}
+exp_name: 07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000
+horizon: 8
+n_obs_steps: 2
+n_action_steps: 4
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+keypoint_visible_rate: 1.0
+obs_as_global_cond: true
+policy:
+  _target_: diffusion_policy_3d.policy.dp3.DP3
+  use_point_crop: true
+  condition_type: film
+  use_down_condition: true
+  use_mid_condition: true
+  use_up_condition: true
+  diffusion_step_embed_dim: 128
+  down_dims:
+  - 512
+  - 1024
+  - 2048
+  crop_shape:
+  - 80
+  - 80
+  encoder_output_dim: 60
+  horizon: ${horizon}
+  kernel_size: 5
+  n_action_steps: ${n_action_steps}
+  n_groups: 8
+  n_obs_steps: ${n_obs_steps}
+  noise_scheduler:
+    _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
+    num_train_timesteps: 100
+    beta_start: 0.0001
+    beta_end: 0.02
+    beta_schedule: squaredcos_cap_v2
+    clip_sample: true
+    set_alpha_to_one: true
+    steps_offset: 0
+    prediction_type: sample
+  num_inference_steps: 10
+  obs_as_global_cond: true
+  shape_meta: ${shape_meta}
+  use_pc_color: false
+  pointnet_type: pointnet
+  pointcloud_encoder_cfg:
+    in_channels: 3
+    out_channels: ${policy.encoder_output_dim}
+    use_layernorm: true
+    final_norm: layernorm
+    normal_channel: false
+  use_state: true
+  encoder_type: act3d
+  act3d_encoder_cfg:
+    in_channels: 3
+    num_gripper_points: 4
+    goal_mode: cross_attention_to_goal
+    mode: keep_position_feature_in_attention_feature
+    use_mlp: 1
+    use_lightweight_unet: 0
+    self_attention: false
+  prediction_target: action
+ema:
+  _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+dataloader:
+  batch_size: 1024
+  num_workers: 15
+  shuffle: true
+  pin_memory: true
+  persistent_workers: false
+val_dataloader:
+  batch_size: 1024
+  num_workers: 15
+  shuffle: false
+  pin_memory: true
+  persistent_workers: false
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.0001
+  betas:
+  - 0.95
+  - 0.999
+  eps: 1.0e-08
+  weight_decay: 1.0e-06
+training:
+  device: cuda:0
+  seed: 42
+  debug: false
+  resume: false
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 206
+  gradient_accumulate_every: 1
+  use_ema: true
+  rollout_every: 50
+  checkpoint_every: 5
+  val_every: 30
+  sample_every: 5
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+logging:
+  group: ${exp_name}
+  id: null
+  mode: online
+  name: ${exp_name}_{training.seed}
+  project: dp3
+  resume: true
+  tags:
+  - dp3
+eval_first: 0
+checkpoint:
+  save_ckpt: true
+  topk:
+    monitor_key: test_mean_score
+    mode: max
+    k: 1
+    format_str: epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt
+  save_last_ckpt: true
+  save_last_snapshot: true
+load_checkpoint_path: null
+multi_run:
+  run_dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${exp_name}_${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
