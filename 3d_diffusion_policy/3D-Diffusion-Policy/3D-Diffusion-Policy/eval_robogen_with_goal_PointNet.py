@@ -22,9 +22,15 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
+<<<<<<< HEAD
 from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
+=======
+from test_PointNet2.model import PointNet2
+import argparse
+from typing import List, Optional
+>>>>>>> object translation for weighted displacement model
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
+def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -35,6 +41,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                     randomize=False,
                     obj_id=0,
                     horizon=600,
+                    random_object_translation=obj_translation,
             )
             
     object_name = "StorageFurniture".lower()
@@ -169,8 +176,9 @@ def wrap_obs(list_of_obs):
 
 
             
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False):
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, exp_beg_idx=0,
+                          exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
+                          dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -280,7 +288,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file)
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -377,10 +385,9 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
 
     if calculate_distance_from_gt:
         print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
-        
+
 if __name__ == "__main__":
     
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--low_level_exp_dir', type=str, default=None)
     parser.add_argument('--low_level_ckpt_name', type=str, default=None)
@@ -391,6 +398,7 @@ if __name__ == "__main__":
     parser.add_argument("--random_object_translation", type=bool, default=False)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
+    parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
     args = parser.parse_args()
     
     num_worker = 30
@@ -460,6 +468,8 @@ if __name__ == "__main__":
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     
     save_path = "data/{}".format(args.eval_exp_name)
+    if args.noise is not None:
+        save_path = "data/{}_{}_{}".format(args.eval_exp_name, args.noise[0], args.noise[1])
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     checkpoint_info = {
@@ -479,6 +489,7 @@ if __name__ == "__main__":
             horizon=35,
             exp_beg_idx=0,
             exp_end_idx=25,
+            obj_translation=args.noise,
             # dataset_index=9，
             # exp_beg_ratio=0.9,
             # exp_end_ratio=1,
