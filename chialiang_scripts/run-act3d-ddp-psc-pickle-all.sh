@@ -807,8 +807,6 @@ if [ $func = 'train' ]; then
         task.dataset.is_pickle="${is_pickle}" \
         dataloader.batch_size="${batch_size}" \
         val_dataloader.batch_size="${batch_size}"
-        
-
 fi 
 
 
