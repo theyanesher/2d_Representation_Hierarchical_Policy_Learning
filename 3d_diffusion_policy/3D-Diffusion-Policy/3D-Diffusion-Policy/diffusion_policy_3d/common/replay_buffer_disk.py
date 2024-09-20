@@ -164,7 +164,8 @@ class ReplayBuffer:
                             action = data['action'][:]  
                         elif target_action == 'delta_to_goal_gripper':
                             action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).reshape(1, -1)
-                        # import pdb; pdb.set_trace()
+                        elif target_action == 'goal_gripper_pcd':
+                            action = data['goal_gripper_pcd'][:]
 
                         current_goal = data['goal_gripper_pcd'][:]
                         if first_goal is None:

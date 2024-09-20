@@ -432,9 +432,9 @@ class DP3(BasePolicy):
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, 
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
-            print('=======================================================================================')
-            print('the output of the goal feature: {}'.format(this_nobs['goal_gripper_pcd'].shape))
-            print('=======================================================================================')
+            # print('=======================================================================================')
+            # print('the output of the goal feature: {}'.format(this_nobs['goal_gripper_pcd'].shape))
+            # print('=======================================================================================')
             nobs_features = self.obs_encoder(this_nobs)
 
 

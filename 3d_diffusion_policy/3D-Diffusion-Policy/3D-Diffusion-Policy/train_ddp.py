@@ -264,7 +264,7 @@ class TrainDP3Workspace:
                     # scaler.update()
                     # opt.zero_grad() # set_to_none=True here can modestly improve performance
                     
-                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.cfg.training.use_amp):
+                    with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.cfg.training.use_amp):
                         raw_loss, loss_dict = self.model(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         

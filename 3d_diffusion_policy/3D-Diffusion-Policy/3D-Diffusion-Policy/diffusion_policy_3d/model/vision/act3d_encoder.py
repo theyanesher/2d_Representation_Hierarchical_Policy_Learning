@@ -235,7 +235,7 @@ class Act3dEncoder(nn.Module):
                 nn.Linear(128, 256), nn.ReLU(),
                 nn.Linear(256, 7 * encoder_output_dim),
             )
-            self.nets['goal_self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, 4, 2)
+            self.nets['goal_self_attn_layers'] = RelativeCrossAttentionModule(encoder_output_dim, attention_num_heads, 2)
             self.nets['goal_position_embedding_mlp_sin'] = nn.Sequential(
                 nn.Linear(7, 128), nn.ReLU(),
                 nn.Linear(128, 256), nn.ReLU(),
