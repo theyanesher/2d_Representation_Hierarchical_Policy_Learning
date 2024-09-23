@@ -22,7 +22,11 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
-from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
+from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location
+import cv2
+from diffuser_actor_3d.robogen_utils import get_gripper_pos_orient_from_4_points
+import matplotlib.pyplot as plt
+
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
     env, _ = build_up_env(
@@ -36,7 +40,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                     obj_id=0,
                     horizon=600,
             )
-            
+
     object_name = "StorageFurniture".lower()
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
@@ -46,142 +50,22 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                                                 use_segmask=cfg.task.env_runner.use_segmask,
                                                 only_handle_points=cfg.task.env_runner.only_handle_points,
                                                 observation_mode=cfg.task.env_runner.observation_mode,
+                                                dense_pcd_for_goal=cfg.task.env_runner.dense_pcd_for_goal,
                                                 )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
-    
+        
     return env
 
-def parallel_eval(args):
-    config_path, init_state, action, cfg, idx = args 
-    config_file = config_path
-    with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
-    solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-    all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-    with open(all_substeps_path, "r") as f:
-        substeps = f.readlines()
-        first_step = substeps[0].lstrip().rstrip()
-        task_name = first_step.replace(" ", "_")
-    
-    env, _ = build_up_env(
-            config_path,
-            solution_path,
-            task_name,
-            None,
-            render=False, 
-            randomize=False,
-            obj_id=0,
-            horizon=600,
-    )
-    
-    object_name = "StorageFurniture".lower()
-    env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
-                                                  gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
-                                                  num_points=cfg.task.env_runner.num_point_in_pc,
-                                                  use_joint_angle=cfg.task.env_runner.use_joint_angle, 
-                                                  use_segmask=cfg.task.env_runner.use_segmask,
-                                                  only_handle_points=cfg.task.env_runner.only_handle_points,
-                                                  observation_mode=cfg.task.env_runner.observation_mode,
-                                                  only_object=cfg.task.env_runner.only_object,
-                                                  )
+def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy, 
+                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
         
-    env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
-                        max_episode_steps=600, reward_agg_method='sum')
-    
-    env.reset(reset_state=init_state)
-    obs, reward, done, info = env.step(action)
-    rgb = env.env.render()
-    state = save_env(env.env._env)
-        
-    pointcloud_env._env.close()
-    return obs, rgb, info, state, idx
-
-def parallel_reset(args):
-    config_path, init_state_file, cfg, idx = args 
-    config_file = config_path
-    with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
-    solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-    all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-    with open(all_substeps_path, "r") as f:
-        substeps = f.readlines()
-        first_step = substeps[0].lstrip().rstrip()
-        task_name = first_step.replace(" ", "_")
-    
-    env, _ = build_up_env(
-            config_path,
-            solution_path,
-            task_name,
-            init_state_file,
-            render=False, 
-            # render=True, 
-            randomize=False,
-            obj_id=0,
-            horizon=600,
-    )
-    
-    object_name = "StorageFurniture".lower()
-    env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
-                                                  gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
-                                                  num_points=cfg.task.env_runner.num_point_in_pc,
-                                                  use_joint_angle=cfg.task.env_runner.use_joint_angle, 
-                                                  use_segmask=cfg.task.env_runner.use_segmask,
-                                                  only_handle_points=cfg.task.env_runner.only_handle_points,
-                                                  observation_mode=cfg.task.env_runner.observation_mode,
-                                                  only_object=cfg.task.env_runner.only_object,
-                                                  )
-        
-    env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
-                        max_episode_steps=600, reward_agg_method='sum')
-    
-    obs = env.reset()
-    # import pdb; pdb.set_trace()
-    state = save_env(env.env._env)
-    rgb = env.env.render()
-    info = env.env._env._get_info()
-    env.env._env.close()
-    return obs, state, rgb, info, idx
-
-def parallel_save_gif(args):
-    rgbs, save_path = args
-    
-    save_numpy_as_gif(np.array(rgbs), save_path)
-
-def wrap_obs(list_of_obs):
-    parallel_input_dict = {}
-    # parallel_input_dict['point_cloud'] = np.concatenate([x['point_cloud'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['agent_pos'] = np.concatenate([x['agent_pos'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['feature_map'] = np.concatenate([x['feature_map'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['gripper_pcd'] = np.concatenate([x['gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['pcd_mask'] = np.concatenate([x['pcd_mask'][None, ...] for x in list_of_obs], axis=0)
-    # # TODO: add goal key
-    # if 'goal_gripper_pcd' in list_of_obs[0]:
-    #     parallel_input_dict['goal_gripper_pcd'] = np.concatenate([x['goal_gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
-    for key in list_of_obs[0]:
-        parallel_input_dict[key] = np.concatenate([x[key][None, ...] for x in list_of_obs], axis=0)
-    
-    parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
-    return parallel_input_dict
-
-
-            
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False):
-    
+    if calculate_distance_from_gt:
+        all_obj_distances = []
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
-        
         if dataset_index is not None:
             dataset_idx = dataset_index
-
-        if calculate_distance_from_gt:
-            all_obj_distances = []
-
-        # if dataset_idx == 0:
-        #     continue
 
         after_reaching_init_state_files = []
         init_state_files = []
@@ -232,7 +116,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
                     max_angle = float(angles[-1].lstrip().rstrip())
                     ratio = expert_opened_angle / max_angle
                 # if ratio < 0.65:
-                #     continue
+                #   continue
             expert_opened_angles.append(expert_opened_angle)
             
             first_stage_states_path = os.path.join(first_step_folder, "states")
@@ -288,73 +172,65 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
 
             initial_info = info
             all_rgbs = [rgb]
-            for t in range(1, horizon):
+            closed=False
+            parallel_input_dict = obs
+            # import pdb; pdb.set_trace()
+            parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
+            for key in obs:
+                parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
+            with torch.no_grad():
+                predicted_goal = goal_policy.predict_action(parallel_input_dict)
+                np_predicted_goal = dict_apply(predicted_goal, lambda x: x.detach().to('cpu').numpy())
+                np_predicted_goal = np_predicted_goal['action']
+            env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
+
+            goal_pos, goal_orient = get_gripper_pos_orient_from_4_points(env.env.goal_gripper_pcd)
+            res, rgbs = env.env.motion_planning_to_goal(goal_pos, goal_orient)
+            # import pdb; pdb.set_trace()
+            if res:
+                all_rgbs.extend(rgbs)
+                _, rgbs = env.env.close_two_fingers()
+                all_rgbs.extend(rgbs)
+
+                temp_obs = env.env._get_observation(render=True, only_object=env.env.only_object)
+                for _ in range(2):
+                    env.obs.append(temp_obs)
+                obs = env._get_obs(env.n_obs_steps)
                 parallel_input_dict = obs
+                # import pdb; pdb.set_trace()
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
-                
-                
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
-                
                 with torch.no_grad():
-                    pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
-                    gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                    inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
-                    inputs = inputs.to('cuda')
-                    inputs_ = inputs.permute(0, 2, 1)
-                    outputs = goal_prediction_model(inputs_)
-                    weights = outputs[:, :, -1] # B, N
-                    outputs = outputs[:, :, :-1] # B, N, 12
-                    if output_obj_pcd_only:
-                        weights = weights[:, :-4]
-                        outputs = outputs[:, :-4, :]
-                        inputs = inputs[:, :-4, :]
-
-                    B, N, _ = outputs.shape
-                    outputs = outputs.view(B, N, 4, 3)
-                    outputs = outputs + inputs.unsqueeze(2)
-                    weights = torch.nn.functional.softmax(weights, dim=1)
-                    outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-                    outputs = outputs.sum(dim=1)
-                    outputs = outputs.unsqueeze(1)
-                np_predicted_goal = outputs.detach().to('cpu').numpy()
-                
-                predicted_goal = outputs.repeat(1, 2, 1, 1)
-
-                parallel_input_dict['goal_gripper_pcd'] = predicted_goal
-
-                with torch.no_grad():
-                    batched_action = policy.predict_action(parallel_input_dict)
-                    
-                    
-                np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
-                np_batched_action = np_batched_action['action']
-                
-                obs, reward, done, info = env.step(np_batched_action.squeeze(0))
-                if calculate_distance_from_gt:
-                    predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
-                    gt_goal = env.env.goal_gripper_pcd
-                    distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
-                    all_distances.append(distance)
-                    grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
-                    all_grasp_distances.append(grasp_distance)
-                    break
+                    predicted_goal = goal_policy.predict_action(parallel_input_dict)
+                    np_predicted_goal = dict_apply(predicted_goal, lambda x: x.detach().to('cpu').numpy())
+                    np_predicted_goal = np_predicted_goal['action']
                 env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
-                rgb = env.env.render()
-                all_rgbs.append(rgb)
-            
+
+                goal_pos, goal_orient = get_gripper_pos_orient_from_4_points(env.env.goal_gripper_pcd)
+
+                image = env.env.render()
+                plt.imshow(image)
+                plt.savefig("temp.png")
+                print("Save second goal for opening door")
+
+                _, rgbs = env.env.move_to_by_ik(goal_pos, goal_orient)
+                all_rgbs.extend(rgbs)
+
+                
+            info = env.env._env._get_info()
             env.env._env.close()
 
             if calculate_distance_from_gt:
-                break
+                continue
             
             opened_joint_angles[config_file] = \
             {
-                "final_door_joint_angle": float(info['opened_joint_angle'][-1]), 
+                "final_door_joint_angle": float(info['opened_joint_angle']), 
                 "expert_door_joint_angle": expert_opened_angles[exp_idx], 
-                "initial_joint_angle": float(info['initial_joint_angle'][-1]),
-                "ik_failure": float(info['ik_failure'][-1]),
-                'grasped_handle': float(info['grasped_handle'][-1]),
+                "initial_joint_angle": float(info['initial_joint_angle']),
+                "ik_failure": float(info['ik_failure']),
+                'grasped_handle': float(info['grasped_handle']),
                 "exp_idx": exp_idx, 
             }
                     
@@ -366,46 +242,37 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
             if not os.path.exists(gif_save_folder):
                 os.makedirs(gif_save_folder, exist_ok=True)
             gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
-                    float(info["improved_joint_angle"][-1]))
-            
+                    float(info["improved_joint_angle"]))
+            # import pdb; pdb.set_trace()
             save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
 
         if calculate_distance_from_gt:
             print("average distance: {}".format(np.mean(all_distances)))
             print("average grasp distance: {}".format(np.mean(all_grasp_distances)))
-            all_obj_distances.append(all_distances)
+            all_obj_distances.append(np.mean(all_distances))
 
     if calculate_distance_from_gt:
         print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
-        
+
+
 if __name__ == "__main__":
-    
     num_worker = 30
-    # pool = Pool(processes=num_worker)
     pool=None
 
-    # 50 objects
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
-    checkpoint_name = 'latest.ckpt'
-
+    # current best model
+    # goal_checkpoint_name = 'epoch-30.ckpt'
+    goal_checkpoint_name = 'epoch-45.ckpt'
+    goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+        
+        
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
             config_name="dp3.yaml",  # same config_name as used by @hydra.main
-            overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
+            overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
         )
-    cfg = recomposed_config
-    
-    workspace = TrainDP3Workspace(cfg)
-    checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    workspace.load_checkpoint(path=checkpoint_dir)
-
-    policy = deepcopy(workspace.model)
-    if workspace.cfg.training.use_ema:
-        policy = deepcopy(workspace.ema_model)
-    policy.eval()
-    policy.reset()
-    policy = policy.to('cuda')
-    
+    goal_cfg = recomposed_config
+    cfg = deepcopy(goal_cfg)
+        
     cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
     cfg.task.env_runner.experiment_folder = [
         'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
@@ -419,48 +286,38 @@ if __name__ == "__main__":
         'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
         ]
+    # import pdb; pdb.set_trace()
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    
-    # output obj pcd only
-    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/results/200_output_obj_pcd_only/model_39.pth"
-    # pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
-    # output_obj_pcd_only = True
 
-    # pointnet2 large
-    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-13_use_75_episodes/model_39.pth"
-    pointnet2_model = PointNet2(num_classes=13).to('cuda')
-    output_obj_pcd_only = False
+    policy = None
+        
+    goal_workspace = TrainDP3Workspace(goal_cfg)
+    goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+    goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
 
-    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-19_use_75_episodes_300-obj/model_39.pth"
-
-    # pointnet2 super
-    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_super_2024_09_13_use_all_episodes/model_30.pth"
-    # pointnet2_model = PointNet2_super(num_classes=13).to('cuda')
-    # output_obj_pcd_only = False
-
-    pointnet2_model.load_state_dict(torch.load(load_model_path))
-    pointnet2_model.eval()
-    
-    checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
+    goal_policy = deepcopy(goal_workspace.model)
+    if goal_workspace.cfg.training.use_ema:
+        goal_policy = deepcopy(goal_workspace.ema_model)
+    goal_policy.eval()
+    goal_policy.reset()
+    goal_policy = goal_policy.to('cuda')
+        
+        
+    checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
-    
+        
     for run_idx in range(1):
-        save_path = "data_/evaluation/evaluation_PointNet2/pointnet2_large_2024-09-19_use_75_episodes_300-obj/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
+        save_path = "data/debug_replace_low_level_with_primitive/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
         cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
         cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
         run_eval_non_parallel(
-                cfg, policy, pointnet2_model,
+                cfg, policy, goal_cfg, goal_policy, 
                 num_worker, save_path, 
                 pool=pool, 
                 horizon=35,
                 exp_beg_idx=0,
                 exp_end_idx=25,
-                output_obj_pcd_only=output_obj_pcd_only,
-                # dataset_index=9，
-                # exp_beg_ratio=0.9,
-                # exp_end_ratio=1,
-                # calculate_distance_from_gt=True,
         )

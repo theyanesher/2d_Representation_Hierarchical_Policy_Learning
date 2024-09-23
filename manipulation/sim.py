@@ -940,7 +940,7 @@ class SimpleEnv(gym.Env):
 
         return img, depth, camera_K, mask
     
-    def take_direct_action(self, actions, gains=None, forces=None):
+    def take_direct_action(self, actions, gains=None, forces=None, save_img_interval=0, ik_try_times=25, far_target=False):
         if gains is None:
             gains = [a.motor_gains for a in self.agents]
         elif type(gains) not in (list, tuple): 
@@ -983,7 +983,7 @@ class SimpleEnv(gym.Env):
             bullet_solutions = []
             old_state = save_env(self)
             ik_indices = [_ for _ in range(len(self.robot.right_arm_joint_indices))]
-            for try_idx in range(25):
+            for try_idx in range(ik_try_times):
                 if try_idx > 0: 
                     new_joint_angles = original_joint_angles[ik_indices] + np.random.uniform(-0.3, 0.3, size=len(ik_indices))
                     self.robot.set_joint_angles(ik_indices, new_joint_angles)
@@ -992,6 +992,21 @@ class SimpleEnv(gym.Env):
                 
                 if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
                     bullet_solutions.append(ik_joint_angles)
+
+            if far_target:
+                ik_lower_limits = self.robot.ik_lower_limits
+                ik_upper_limits = self.robot.ik_upper_limits
+                ik_joint_ranges = ik_upper_limits - ik_lower_limits
+
+                ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
+                ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
+                ik_joint_ranges = ik_upper_limits - ik_lower_limits
+                for try_idx in range(2 * ik_try_times):
+                    new_joint_angles = np.random.uniform(ik_lower_limits, ik_upper_limits)
+                    self.robot.set_joint_angles(ik_indices, new_joint_angles)
+                    ik_joint_angles = self.robot.ik(self.robot.right_end_effector, pos, orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
+                    if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
+                        bullet_solutions.append(ik_joint_angles)
 
             load_env(self, state = old_state)
             all_possible_solutions = tracIK_solutions + bullet_solutions
@@ -1020,12 +1035,15 @@ class SimpleEnv(gym.Env):
             beg = time.time()
             if ik_success:
                 control_total = 50
-                save_img_interval = 0
+                # save_img_interval = 0
                 # gripper
                 for _ in range(2):
                     if not self.use_suction:
                         agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
                     p.stepSimulation(physicsClientId=self.id) 
+                    if save_img_interval > 0:
+                        rgb = self.render()
+                        self.control_rgbs.append(rgb)
 
                 cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
 

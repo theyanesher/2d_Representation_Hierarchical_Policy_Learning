@@ -1013,3 +1013,81 @@ class RobogenPointCloudWrapper:
                         cnt += 1
 
         return rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices
+
+
+    def motion_planning_to_goal(self, goal_pos, goal_orient, gt_collision_checker=True):
+        if not gt_collision_checker:
+            print("Only support gt collision checker for now")
+            return False, []
+        from manipulation.motion_planning_utils import motion_planning
+        simulator = self._env
+        current_pos, current_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
+        
+        translation_length = np.linalg.norm(goal_pos - current_pos)
+        rotation_length = 2 * np.arccos(np.abs(np.dot(goal_orient, current_orient)))
+        rotation_length = np.rad2deg(rotation_length)
+        translation_steps = int(translation_length / 0.004) + 1
+        rotation_steps = int(rotation_length / 1.8) + 1
+        interpolation_steps = max(translation_steps, rotation_steps)
+        all_objects = list(simulator.urdf_ids.keys())
+        all_objects.remove("robot")
+        obstacles = [simulator.urdf_ids[x] for x in all_objects]
+        
+        res, path, _, _ = motion_planning(
+            simulator, goal_pos, goal_orient, obstacles=obstacles, allow_collision_links=[], 
+            smooth_path=True, interpolation_num=interpolation_steps
+        )
+        # res: succeed or not
+        # path: a list of joint angles: env.robot.set_joint_angles(env.robot.right_arm_joint_indices, q) for q in path
+        if not res:
+            cprint("Failed to find a collision free path to goal", "red")
+            return False, []
+
+        rgbs = []        
+        for idx, q in enumerate(path):
+            # control robot to target joint angles: q
+            agent_joint_angles = q
+            for _ in range(10):
+                simulator.robot.control(simulator.robot.controllable_joint_indices, agent_joint_angles)
+                p.stepSimulation(physicsClientId=simulator.id)
+                cur_joint_angles = simulator.robot.get_joint_angles(simulator.robot.controllable_joint_indices)
+                err = np.linalg.norm(cur_joint_angles - agent_joint_angles)
+                if err < 1e-4:
+                    break
+            rgb = self.render()
+            rgbs.append(rgb)
+
+        return True, rgbs
+
+    def close_two_fingers(self, control_steps=10):
+        rgbs = []
+        for _ in range(control_steps):
+            if not self._env.use_suction:
+                self._env.robot.set_gripper_open_position(self._env.robot.right_gripper_indices, [0, 0], set_instantly=False)
+            p.stepSimulation(physicsClientId=self._env.id)
+            rgb = self.render()
+            rgbs.append(rgb)
+        
+        return True, rgbs
+
+
+    def move_to_by_ik(self, goal_pos, goal_orient):
+        action = np.zeros(7)
+        action[:3] = goal_pos
+        goal_orient_euler = p.getEulerFromQuaternion(goal_orient)
+        action[3:6] = goal_orient_euler
+        action[6] = 0
+        self._env.take_direct_action(actions=action, save_img_interval=1, ik_try_times=50, far_target=True)
+        rgbs = deepcopy(self._env.control_rgbs)
+        added_circle_rgbs = []
+        for image in rgbs:
+            image = np.array(image)
+            # import pdb; pdb.set_trace()
+            for point in self.goal_gripper_pcd:
+                pixel_x, pixel_y, _ = get_pixel_location(self._env.projection_matrix, self._env.view_matrix, point, self._env.camera_width, self._env.camera_height)
+                color = (0, 0, 255)  # Red color in BGR
+                thickness = 2
+                radius = 5
+                image = cv2.circle(image, (pixel_x, pixel_y), radius, color, thickness)
+            added_circle_rgbs.append(image)
+        return True, added_circle_rgbs
