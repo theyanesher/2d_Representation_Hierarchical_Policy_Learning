@@ -265,7 +265,7 @@ class SimpleEnv(gym.Env):
             "robot": 0,
             "plane": 0,
         }
-        urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, \
+         urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes, \
             use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles = self.load_and_parse_config(restore_state)
 
         ### load plane 
@@ -284,7 +284,7 @@ class SimpleEnv(gym.Env):
         self.load_table(use_table, restore_state)
 
         ### load each object from the task config
-        self.load_object(urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables)
+        self.load_object(urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes)
 
         ### if a state is passed in, restore the state
         if reset_state is not None:
@@ -396,7 +396,7 @@ class SimpleEnv(gym.Env):
         
         ### parse config
         urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, \
-            use_table, articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, \
+            use_table, urdf_crop_sizes, articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, \
                 robot_initial_joint_angles = parse_config(self.config, 
                         use_bard=True, obj_id=self.obj_id,
                         use_vhacd=True)
@@ -450,7 +450,7 @@ class SimpleEnv(gym.Env):
                 self.simulator_sizes = restore_state['object_sizes']
                 urdf_sizes = [self.simulator_sizes[name] for name in urdf_names]
                 
-        return urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, \
+        return urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes, \
             use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles
         
     def load_table(self, use_table, restore_state):
@@ -500,8 +500,8 @@ class SimpleEnv(gym.Env):
                 self.robot_base_pos = robot_base_pos_world
                 self.robot.set_base_pos_orient(robot_base_pos_world, robot_base_orient)
                 
-    def load_object(self, urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables):
-        for path, size, pos, urdf_ori, name, type, on_table, moveable in zip(urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables):
+    def load_object(self, urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes):
+        for path, size, pos, urdf_ori, name, type, on_table, moveable, is_crop_size in zip(urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes):
             # print("Loading object: {} path {}".format(name, path))
             
             name = name.lower()
@@ -515,7 +515,7 @@ class SimpleEnv(gym.Env):
             if not moveable:
                 use_fixed_base = True
             
-            if type == 'urdf':
+            if type == 'urdf' and is_crop_size:
                 size = min(size, 1.2)
                 size = max(size, 0.075) # if the object is too small, current gripper cannot really manipulate it.
             
@@ -530,6 +530,10 @@ class SimpleEnv(gym.Env):
             ori_mat = R.from_quat(orientation)
             orientation = urdf_mat * ori_mat
             orientation = orientation.as_quat()
+
+            if name == 'stepping_stone':
+                orientation = urdf_ori
+                use_fixed_base = True
 
             if not on_table:
                 load_pos = pos

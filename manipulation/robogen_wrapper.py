@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import tqdm 
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location, get_matrix_from_pos_rot
-from manipulation.gpt_reward_api import get_handle_pos
+from manipulation.gpt_reward_api import get_handle_pos, get_link_pc
 from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
@@ -240,6 +240,56 @@ class RobogenPointCloudWrapper:
             self.goal_gripper_pcd = None
 
         self.only_object = only_object
+
+     def reset_random_cameras(self):
+        # do a while loop to sample a new camera view
+        try_times = 0
+        # get handle point cloud
+        link_pc = get_link_pc(self._env, self._object_name, 'link_0')
+        all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name, return_median=False)
+        # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
+        handle_pc = np.concatenate(all_handle_pos, axis=0)
+        while try_times < 1000:
+            view_matrices = []
+            project_matrices = []
+            try_times += 1
+            distance = np.random.uniform(0.8, 1.2) * self.mean_distance + np.random.normal(0, 0.05, 1)
+            camera_center = self.mean_camera_target + np.random.normal(0, 0.05, 3)
+            for _ in range(2):
+                rpy = np.zeros(3)
+                rpy[0] = np.random.uniform(-20, 20)
+                rpy[1] = np.random.uniform(-40, 0)
+                if np.random.uniform() > 0.5:
+                    rpy[2] = np.random.uniform(-110, -160)
+                else:
+                    rpy[2] = np.random.uniform(-20, -70)
+                view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=self._env.id)
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=0.01, farVal=100, physicsClientId=self._env.id)
+                view_matrices.append(view_matrix)
+                project_matrices.append(project_matrix)
+            self.view_matrices = view_matrices
+            self.project_matrices = project_matrices
+            pcs = []
+            rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
+                                                return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width,
+                                                only_object=False)
+            for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+                pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+                pcs.append(pc)
+            # check there are some handle points in the point cloud
+            pcs = np.concatenate(pcs, axis=0)
+            device = torch.device('cpu')
+            
+            handle_pc_torch = torch.from_numpy(handle_pc).to(device)
+            pcs_torch = torch.from_numpy(pcs).to(device)
+            pcd_distance = torch.norm(pcs_torch.unsqueeze(1) - handle_pc_torch.unsqueeze(0), dim=-1)
+            min_distance = torch.min(pcd_distance, dim=-1)[0]
+            min_distance = min_distance[min_distance < 0.05]
+            if min_distance.shape[0] > 3:
+                break
+            # import pdb; pdb.set_trace()
+        if try_times >= 1000:
+            raise ValueError("Cannot find a camera view that has handle points in the point cloud")
 
     def reset(self, **kwargs):
         if "act3d_goal" in self.observation_mode:
@@ -972,17 +1022,17 @@ class RobogenPointCloudWrapper:
 
     
     def take_images_around_object(self, env, object_name, elevation=30, return_camera_matrices=False, camera_height=480, camera_width=640, only_object=True):
-        if only_object:
-            ### make all other objects invisiable
-            prev_rgbas = []
-            object_id = env.urdf_ids[object_name]
-            for obj_name, obj_id in env.urdf_ids.items():
-                if obj_name != object_name and obj_name != 'robot':
-                    num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-                    for link_idx in range(-1, num_links):
-                        prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=env.id)[0][14:18]
-                        prev_rgbas.append(prev_rgba)
-                        p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=env.id)
+        # if only_object:
+        #     ### make all other objects invisiable
+        #     prev_rgbas = []
+        #     object_id = env.urdf_ids[object_name]
+        #     for obj_name, obj_id in env.urdf_ids.items():
+        #         if obj_name != object_name and obj_name != 'robot':
+        #             num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
+        #             for link_idx in range(-1, num_links):
+        #                 prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=env.id)[0][14:18]
+        #                 prev_rgbas.append(prev_rgba)
+        #                 p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=env.id)
 
         rgbs = []
         depths = []
@@ -996,21 +1046,31 @@ class RobogenPointCloudWrapper:
             img = np.reshape(img, (h, w, 4))[:, :, :3]
             depth = np.reshape(depth, (h, w))
 
+            if only_object:
+                segmask_obj_id = segmask & ((1 << 24) - 1)
+                object_mask = np.zeros_like(depth).astype(np.float32)
+                object_mask[segmask_obj_id == env.urdf_ids[object_name]] = 1
+                object_mask = object_mask.reshape(self.camera_height, self.camera_width)
+                # let the object point cloud be the only point cloud
+                # other depth values are set to be 1000
+                depth = depth * object_mask
+                depth[depth == 0] = 1000
+
             rgbs.append(img)
             depths.append(depth)
             segmasks.append(segmask)
             view_camera_matrices.append(view_matrix)
             project_camera_matrices.append(project_matrix)
 
-        if only_object:
-            cnt = 0
-            object_id = env.urdf_ids[object_name]
-            for obj_name, obj_id in env.urdf_ids.items():
-                if obj_name != object_name and obj_name != 'robot':
-                    num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-                    for link_idx in range(-1, num_links):
-                        p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=env.id)
-                        cnt += 1
+        # if only_object:
+        #     cnt = 0
+        #     object_id = env.urdf_ids[object_name]
+        #     for obj_name, obj_id in env.urdf_ids.items():
+        #         if obj_name != object_name and obj_name != 'robot':
+        #             num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
+        #             for link_idx in range(-1, num_links):
+        #                 p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=env.id)
+        #                 cnt += 1
 
         return rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices
 
