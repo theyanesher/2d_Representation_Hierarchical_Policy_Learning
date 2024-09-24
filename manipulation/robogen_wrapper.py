@@ -241,7 +241,7 @@ class RobogenPointCloudWrapper:
 
         self.only_object = only_object
 
-     def reset_random_cameras(self):
+    def reset_random_cameras(self):
         # do a while loop to sample a new camera view
         try_times = 0
         # get handle point cloud
