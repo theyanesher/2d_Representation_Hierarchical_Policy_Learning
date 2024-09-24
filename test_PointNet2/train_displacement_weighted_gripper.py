@@ -1,6 +1,7 @@
 from test_PointNet2.dataset_from_disk import get_dataloader, get_dataloader_from_pickle
 import torch
 from test_PointNet2.model import PointNet2_small2
+from test_PointNet2.model import PointNet2
 from test_PointNet2.model_attn import AttnModel
 from tqdm import tqdm
 import argparse
@@ -10,10 +11,17 @@ def train(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if args.model_type == 'pointnet2':
         model = PointNet2_small2(num_classes=13).to(device)
+    elif args.model_type == 'pointnet2_large':
+        model = PointNet2(num_classes=13).to(device)
     elif args.model_type == 'attn':
         model = AttnModel(num_classes=13).to(device)
     else:
         raise ValueError(f"model_type {args.model_type} not recognized")
+    
+    if args.load_model_path is not None:
+        model.load_state_dict(torch.load(args.load_model_path))
+        print("Successfully load model from: ", args.load_model_path)
+    
     model.train()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -87,6 +95,7 @@ def parse_args():
     parser.add_argument('--only_first_stage', action='store_true')
     parser.add_argument('--exp_path', type=str, default="/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps")
     parser.add_argument('--model_type', type=str, default='pointnet2')
+    parser.add_argument('--load_model_path', type=str, default=None)
     return parser.parse_args()
 
 

@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import tqdm 
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location, get_matrix_from_pos_rot
-from manipulation.gpt_reward_api import get_handle_pos
+from manipulation.gpt_reward_api import get_handle_pos, get_link_pc
 from manipulation.gpt_primitive_api import get_pc_num_within_gripper
 import pybullet as p
 import numpy as np
@@ -246,6 +246,56 @@ class RobogenPointCloudWrapper:
             self.goal_gripper_pcd = None
 
         self.only_object = only_object
+
+    def reset_random_cameras(self):
+        # do a while loop to sample a new camera view
+        try_times = 0
+        # get handle point cloud
+        link_pc = get_link_pc(self._env, self._object_name, 'link_0')
+        all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name, return_median=False)
+        # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
+        handle_pc = np.concatenate(all_handle_pos, axis=0)
+        while try_times < 1000:
+            view_matrices = []
+            project_matrices = []
+            try_times += 1
+            distance = np.random.uniform(0.8, 1.2) * self.mean_distance + np.random.normal(0, 0.05, 1)
+            camera_center = self.mean_camera_target + np.random.normal(0, 0.05, 3)
+            for _ in range(2):
+                rpy = np.zeros(3)
+                rpy[0] = np.random.uniform(-20, 20)
+                rpy[1] = np.random.uniform(-40, 0)
+                if np.random.uniform() > 0.5:
+                    rpy[2] = np.random.uniform(-110, -160)
+                else:
+                    rpy[2] = np.random.uniform(-20, -70)
+                view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=self._env.id)
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=0.01, farVal=100, physicsClientId=self._env.id)
+                view_matrices.append(view_matrix)
+                project_matrices.append(project_matrix)
+            self.view_matrices = view_matrices
+            self.project_matrices = project_matrices
+            pcs = []
+            rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
+                                                return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width,
+                                                only_object=False)
+            for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+                pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+                pcs.append(pc)
+            # check there are some handle points in the point cloud
+            pcs = np.concatenate(pcs, axis=0)
+            device = torch.device('cpu')
+            
+            handle_pc_torch = torch.from_numpy(handle_pc).to(device)
+            pcs_torch = torch.from_numpy(pcs).to(device)
+            pcd_distance = torch.norm(pcs_torch.unsqueeze(1) - handle_pc_torch.unsqueeze(0), dim=-1)
+            min_distance = torch.min(pcd_distance, dim=-1)[0]
+            min_distance = min_distance[min_distance < 0.05]
+            if min_distance.shape[0] > 3:
+                break
+            # import pdb; pdb.set_trace()
+        if try_times >= 1000:
+            raise ValueError("Cannot find a camera view that has handle points in the point cloud")
 
     def reset(self, **kwargs):
         if "act3d_goal" in self.observation_mode:
@@ -987,17 +1037,17 @@ class RobogenPointCloudWrapper:
 
     
     def take_images_around_object(self, env, object_name, elevation=30, return_camera_matrices=False, camera_height=480, camera_width=640, only_object=True):
-        if only_object:
-            ### make all other objects invisiable
-            prev_rgbas = []
-            object_id = env.urdf_ids[object_name]
-            for obj_name, obj_id in env.urdf_ids.items():
-                if obj_name != object_name and obj_name != 'robot':
-                    num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-                    for link_idx in range(-1, num_links):
-                        prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=env.id)[0][14:18]
-                        prev_rgbas.append(prev_rgba)
-                        p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=env.id)
+        # if only_object:
+        #     ### make all other objects invisiable
+        #     prev_rgbas = []
+        #     object_id = env.urdf_ids[object_name]
+        #     for obj_name, obj_id in env.urdf_ids.items():
+        #         if obj_name != object_name and obj_name != 'robot':
+        #             num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
+        #             for link_idx in range(-1, num_links):
+        #                 prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=env.id)[0][14:18]
+        #                 prev_rgbas.append(prev_rgba)
+        #                 p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=env.id)
 
         rgbs = []
         depths = []
@@ -1011,20 +1061,108 @@ class RobogenPointCloudWrapper:
             img = np.reshape(img, (h, w, 4))[:, :, :3]
             depth = np.reshape(depth, (h, w))
 
+            if only_object:
+                segmask_obj_id = segmask & ((1 << 24) - 1)
+                object_mask = np.zeros_like(depth).astype(np.float32)
+                object_mask[segmask_obj_id == env.urdf_ids[object_name]] = 1
+                object_mask = object_mask.reshape(self.camera_height, self.camera_width)
+                # let the object point cloud be the only point cloud
+                # other depth values are set to be 1000
+                depth = depth * object_mask
+                depth[depth == 0] = 1000
+
             rgbs.append(img)
             depths.append(depth)
             segmasks.append(segmask)
             view_camera_matrices.append(view_matrix)
             project_camera_matrices.append(project_matrix)
 
-        if only_object:
-            cnt = 0
-            object_id = env.urdf_ids[object_name]
-            for obj_name, obj_id in env.urdf_ids.items():
-                if obj_name != object_name and obj_name != 'robot':
-                    num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-                    for link_idx in range(-1, num_links):
-                        p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=env.id)
-                        cnt += 1
+        # if only_object:
+        #     cnt = 0
+        #     object_id = env.urdf_ids[object_name]
+        #     for obj_name, obj_id in env.urdf_ids.items():
+        #         if obj_name != object_name and obj_name != 'robot':
+        #             num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
+        #             for link_idx in range(-1, num_links):
+        #                 p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=env.id)
+        #                 cnt += 1
 
         return rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices
+
+
+    def motion_planning_to_goal(self, goal_pos, goal_orient, gt_collision_checker=True):
+        if not gt_collision_checker:
+            print("Only support gt collision checker for now")
+            return False, []
+        from manipulation.motion_planning_utils import motion_planning
+        simulator = self._env
+        current_pos, current_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
+        
+        translation_length = np.linalg.norm(goal_pos - current_pos)
+        rotation_length = 2 * np.arccos(np.abs(np.dot(goal_orient, current_orient)))
+        rotation_length = np.rad2deg(rotation_length)
+        translation_steps = int(translation_length / 0.004) + 1
+        rotation_steps = int(rotation_length / 1.8) + 1
+        interpolation_steps = max(translation_steps, rotation_steps)
+        all_objects = list(simulator.urdf_ids.keys())
+        all_objects.remove("robot")
+        obstacles = [simulator.urdf_ids[x] for x in all_objects]
+        
+        res, path, _, _ = motion_planning(
+            simulator, goal_pos, goal_orient, obstacles=obstacles, allow_collision_links=[], 
+            smooth_path=True, interpolation_num=interpolation_steps
+        )
+        # res: succeed or not
+        # path: a list of joint angles: env.robot.set_joint_angles(env.robot.right_arm_joint_indices, q) for q in path
+        if not res:
+            cprint("Failed to find a collision free path to goal", "red")
+            return False, []
+
+        rgbs = []        
+        for idx, q in enumerate(path):
+            # control robot to target joint angles: q
+            agent_joint_angles = q
+            for _ in range(10):
+                simulator.robot.control(simulator.robot.controllable_joint_indices, agent_joint_angles)
+                p.stepSimulation(physicsClientId=simulator.id)
+                cur_joint_angles = simulator.robot.get_joint_angles(simulator.robot.controllable_joint_indices)
+                err = np.linalg.norm(cur_joint_angles - agent_joint_angles)
+                if err < 1e-4:
+                    break
+            rgb = self.render()
+            rgbs.append(rgb)
+
+        return True, rgbs
+
+    def close_two_fingers(self, control_steps=10):
+        rgbs = []
+        for _ in range(control_steps):
+            if not self._env.use_suction:
+                self._env.robot.set_gripper_open_position(self._env.robot.right_gripper_indices, [0, 0], set_instantly=False)
+            p.stepSimulation(physicsClientId=self._env.id)
+            rgb = self.render()
+            rgbs.append(rgb)
+        
+        return True, rgbs
+
+
+    def move_to_by_ik(self, goal_pos, goal_orient):
+        action = np.zeros(7)
+        action[:3] = goal_pos
+        goal_orient_euler = p.getEulerFromQuaternion(goal_orient)
+        action[3:6] = goal_orient_euler
+        action[6] = 0
+        self._env.take_direct_action(actions=action, save_img_interval=1, ik_try_times=50, far_target=True)
+        rgbs = deepcopy(self._env.control_rgbs)
+        added_circle_rgbs = []
+        for image in rgbs:
+            image = np.array(image)
+            # import pdb; pdb.set_trace()
+            for point in self.goal_gripper_pcd:
+                pixel_x, pixel_y, _ = get_pixel_location(self._env.projection_matrix, self._env.view_matrix, point, self._env.camera_width, self._env.camera_height)
+                color = (0, 0, 255)  # Red color in BGR
+                thickness = 2
+                radius = 5
+                image = cv2.circle(image, (pixel_x, pixel_y), radius, color, thickness)
+            added_circle_rgbs.append(image)
+        return True, added_circle_rgbs

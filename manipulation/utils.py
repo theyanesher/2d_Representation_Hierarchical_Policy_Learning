@@ -429,6 +429,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
     urdf_types = []
     urdf_on_tables = []
     urdf_movables = []
+    urdf_crop_sizes = []
     use_table = False
     articulated_joint_angles = {}
     spatial_relationships = []
@@ -540,7 +541,8 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
         urdf_orientations.append(ori)
         urdf_names.append(obj['name'])
         urdf_on_tables.append(obj.get('on_table', False))
-    return urdf_paths, urdf_sizes, urdf_locations, urdf_orientations, urdf_names, urdf_types, urdf_on_tables, use_table, \
+        urdf_crop_sizes.append(obj.get('is_crop_size', True))
+    return urdf_paths, urdf_sizes, urdf_locations, urdf_orientations, urdf_names, urdf_types, urdf_on_tables, use_table, urdf_crop_sizes, \
         articulated_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, robot_initial_joint_angles
             
         

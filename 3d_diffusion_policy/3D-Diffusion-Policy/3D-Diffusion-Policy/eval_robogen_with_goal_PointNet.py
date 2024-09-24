@@ -22,7 +22,7 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
-from test_PointNet2.model import PointNet2_small2, PointNet2
+from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
     env, _ = build_up_env(
@@ -170,7 +170,7 @@ def wrap_obs(list_of_obs):
 
             
 def run_eval_non_parallel(cfg, policy, goal_prediction_model, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
+                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -305,6 +305,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
                     outputs = goal_prediction_model(inputs_)
                     weights = outputs[:, :, -1] # B, N
                     outputs = outputs[:, :, :-1] # B, N, 12
+                    if output_obj_pcd_only:
+                        weights = weights[:, :-4]
+                        outputs = outputs[:, :-4, :]
+                        inputs = inputs[:, :-4, :]
+
                     B, N, _ = outputs.shape
                     outputs = outputs.view(B, N, 4, 3)
                     outputs = outputs + inputs.unsqueeze(2)
