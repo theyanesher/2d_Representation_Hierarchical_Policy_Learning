@@ -455,6 +455,7 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
 
     joint_name = None
     parent_joint_name = None
+    handle_idx = 0
     all_handle_pts_object_frame = []
     for idx, joint_info in enumerate(mobility_info):
         all_parts = [part["name"] for part in joint_info["parts"]]
@@ -517,8 +518,7 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
                 all_handle_pts_object_frame.append(handle_pts)
                     
             else:
-                handle_pts = handle_pts_obj_frame[idx]
-                
+                handle_pts = handle_pts_obj_frame[handle_idx]
             
             
             # transform this to the world frame using the object *base*'s position and orientation
@@ -542,6 +542,8 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
             else:
                 ret_handle_pt_list.append(rotated_handle_pt)
             ret_joint_idx_list.append(joint_idx)
+            
+            handle_idx += 1
             
     if return_info:
         return ret_handle_pt_list, ret_joint_idx_list, all_handle_pts_object_frame, mobility_info

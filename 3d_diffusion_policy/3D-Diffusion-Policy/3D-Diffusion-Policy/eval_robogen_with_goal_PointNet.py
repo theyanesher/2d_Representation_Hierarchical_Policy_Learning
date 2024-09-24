@@ -380,87 +380,107 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
         
 if __name__ == "__main__":
     
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--low_level_exp_dir', type=str, default=None)
+    parser.add_argument('--low_level_ckpt_name', type=str, default=None)
+    parser.add_argument("--high_level_ckpt_name", type=str, default=None)
+    parser.add_argument("--pointnet_class", type=str, default="PointNet2")
+    parser.add_argument("--eval_exp_name", type=str, default=None)
+    parser.add_argument("--test_scene_translation", type=bool, default=False)
+    parser.add_argument("--random_object_translation", type=bool, default=False)
+    parser.add_argument("--use_predicted_goal", type=bool, default=True)
+    parser.add_argument("--test_cross_category", type=bool, default=False)
+    args = parser.parse_args()
+    
     num_worker = 30
-    # pool = Pool(processes=num_worker)
     pool=None
 
-    # 50 objects
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
-    checkpoint_name = 'latest.ckpt'
+    if args.low_level_exp_dir is None:
+        # best 50 objects
+        exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+        checkpoint_name = 'latest.ckpt'
 
-    with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
-        recomposed_config = hydra.compose(
-            config_name="dp3.yaml",  # same config_name as used by @hydra.main
-            overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
-        )
-    cfg = recomposed_config
-    
-    workspace = TrainDP3Workspace(cfg)
-    checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    workspace.load_checkpoint(path=checkpoint_dir)
+        with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
+            recomposed_config = hydra.compose(
+                config_name="dp3.yaml",  # same config_name as used by @hydra.main
+                overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(exp_dir)),
+            )
+        cfg = recomposed_config
+        
+        workspace = TrainDP3Workspace(cfg)
+        checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
+        workspace.load_checkpoint(path=checkpoint_dir)
 
-    policy = deepcopy(workspace.model)
-    if workspace.cfg.training.use_ema:
-        policy = deepcopy(workspace.ema_model)
-    policy.eval()
-    policy.reset()
-    policy = policy.to('cuda')
+        policy = deepcopy(workspace.model)
+        if workspace.cfg.training.use_ema:
+            policy = deepcopy(workspace.ema_model)
+        policy.eval()
+        policy.reset()
+        policy = policy.to('cuda')
     
-    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-    cfg.task.env_runner.experiment_folder = [
-        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+    if not args.test_cross_category:
+        cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+        cfg.task.env_runner.experiment_folder = [
+            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+            ]
+        cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+    else:
+        cprint("testing cross category", "red")
+        cfg.task.env_runner.experiment_name = ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
+        cfg.task.env_runner.experiment_folder = [
+            "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
         ]
-    cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+        cfg.task.env_runner.demo_experiment_path = [None for _ in range(6)]
     
-    # output obj pcd only
-    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/results/200_output_obj_pcd_only/model_39.pth"
-    # pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
-    # output_obj_pcd_only = True
-
-    # pointnet2 large
-    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-13_use_75_episodes/model_39.pth"
-    pointnet2_model = PointNet2(num_classes=13).to('cuda')
-    output_obj_pcd_only = False
-
-    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-19_use_75_episodes_300-obj/model_39.pth"
-
-    # pointnet2 super
-    # load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_super_2024_09_13_use_all_episodes/model_30.pth"
-    # pointnet2_model = PointNet2_super(num_classes=13).to('cuda')
-    # output_obj_pcd_only = False
-
+    load_model_path = args.high_level_ckpt_name
+        
+    if args.pointnet_class == "PointNet2_small2":
+        pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
+    elif args.pointnet_class == "PointNet2":
+        pointnet2_model = PointNet2(num_classes=13).to('cuda')
+        
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
-    for run_idx in range(1):
-        save_path = "data_/evaluation/evaluation_PointNet2/pointnet2_large_2024-09-19_use_75_episodes_300-obj/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        
-        cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
-        cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
-        run_eval_non_parallel(
-                cfg, policy, pointnet2_model,
-                num_worker, save_path, 
-                pool=pool, 
-                horizon=35,
-                exp_beg_idx=0,
-                exp_end_idx=25,
-                output_obj_pcd_only=output_obj_pcd_only,
-                # dataset_index=9，
-                # exp_beg_ratio=0.9,
-                # exp_end_ratio=1,
-                # calculate_distance_from_gt=True,
-        )
+    save_path = "data/{}".format(args.eval_exp_name)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    checkpoint_info = {
+        "low_level_policy": checkpoint_dir,
+        "low_level_policy_checkpoint": checkpoint_name,
+        "high_level_policy_checkpoint": args.high_level_ckpt_name,
+    }
+    with open("{}/checkpoint_info.json".format(save_path), "w") as f:
+        json.dump(checkpoint_info, f, indent=4)
+    
+    cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
+    cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
+    run_eval_non_parallel(
+            cfg, policy, pointnet2_model,
+            num_worker, save_path, 
+            pool=pool, 
+            horizon=35,
+            exp_beg_idx=0,
+            exp_end_idx=25,
+            # dataset_index=9，
+            # exp_beg_ratio=0.9,
+            # exp_end_ratio=1,
+            # calculate_distance_from_gt=True,
+    )

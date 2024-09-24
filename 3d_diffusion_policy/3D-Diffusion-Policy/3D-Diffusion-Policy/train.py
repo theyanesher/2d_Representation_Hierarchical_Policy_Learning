@@ -39,7 +39,7 @@ class TrainDP3Workspace:
     include_keys = ['global_step', 'epoch']
     exclude_keys = tuple()
 
-    def __init__(self, cfg: OmegaConf, output_dir=None):
+    def __init__(self, cfg: OmegaConf, output_dir=None, pretrained_goal_model=None):
         self.cfg = cfg
         # print("cfg: ", cfg)
         # input("Press Enter to continue...")
@@ -62,6 +62,7 @@ class TrainDP3Workspace:
             except: # minkowski engine could not be copied. recreate it
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
 
+        self.pretrained_goal_model = pretrained_goal_model
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -202,6 +203,29 @@ class TrainDP3Workspace:
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
                 
+
+                    if self.pretrained_goal_model is not None:
+                        with torch.no_grad():
+                            goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
+                        goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
+                        goal_model_output = goal_model_output['action']
+                        
+                        reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
+
+                        batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
+                        
+                        # # for k in batch['obs'].keys():
+                        # #     print('{}: {}'.format(k, batch['obs'][k].shape))
+                        # # print(f'goal_model_output: {goal_model_output.shape}')
+                        # # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
+                        # print(batch['obs']['goal_gripper_pcd'].shape)
+                        # for k in batch['obs'].keys():
+                        #     # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
+                        #     path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
+                        #     np.save(path, batch['obs'][k].detach().cpu().numpy())
+                        #     print(f'{path} saved')
+                        # exit(0)
+
                     # compute loss
                     t1_1 = time.time()
                     raw_loss, loss_dict = self.model.compute_loss(batch)
@@ -298,6 +322,18 @@ class TrainDP3Workspace:
                             leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                         for batch_idx, batch in enumerate(tepoch):
                             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+
+
+                            if self.pretrained_goal_model is not None:
+                                with torch.no_grad():
+                                    goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
+                                goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
+                                goal_model_output = goal_model_output['action']
+                                
+                                reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
+
+                                batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
+
                             loss, loss_dict = self.model.compute_loss(batch)
                             val_losses.append(loss)
                             if (cfg.training.max_val_steps is not None) \
@@ -486,15 +522,18 @@ class TrainDP3Workspace:
         if include_keys is None:
             include_keys = payload['pickles'].keys()
 
+        exclude_keys = ['amp_scaler']
         for key, value in payload['state_dicts'].items():
+            print('loading key in load_payload: ', key)
             if key not in exclude_keys:
+                print('key', key)
                 self.__dict__[key].load_state_dict(value, **kwargs)
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys=None, 
+            exclude_keys='pretrained_goal_model', 
             include_keys=None, 
             **kwargs):
         if path is None:

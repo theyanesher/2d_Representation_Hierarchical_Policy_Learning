@@ -20,6 +20,9 @@ class WelfordOnlineStatistics:
         self.min = None
         self.max = None
 
+        # [DebugNormalize] [Chialiang]
+        self.max_norm_3d = 0.0
+
     def add(self, data):
         """
         data: numpy array [n, d]
@@ -43,6 +46,9 @@ class WelfordOnlineStatistics:
             self.min = new_min
             self.max = new_max
             self.n = new_n
+
+            # [DebugNormalize] [Chialiang]
+            self.max_norm_3d = max(self.max_norm_3d, np.max(np.linalg.norm(data[...,:3], axis=-1)))
     
     def get_mean(self):
         return self.mean
@@ -58,6 +64,10 @@ class WelfordOnlineStatistics:
     
     def get_std(self):
         return np.sqrt(self.variance)
+    
+    # [DebugNormalize] [Chialiang]
+    def get_max_norm_3d(self):
+        return np.array([self.max_norm_3d])
 
 class ReplayBuffer:
     """
@@ -75,7 +85,7 @@ class ReplayBuffer:
         self.is_pickle = is_pickle
 
     @classmethod
-    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None, only_reach_stage=False, is_pickle=False):
+    def copy_from_multiple_path(self, path_list, load_per_step=False, keys=None, only_reach_stage=False, is_pickle=False, target_action='action'):
         """
         restore the path_list as well as the length of every episode
         """
@@ -96,6 +106,7 @@ class ReplayBuffer:
         action_welford = WelfordOnlineStatistics()
 
         for idx, zarr_path  in enumerate(tqdm(path_list)):
+
             if not load_per_step:
                 if is_pickle:
                     data = pickle.load(open(zarr_path, 'rb'))
@@ -105,7 +116,10 @@ class ReplayBuffer:
                     else:
                         self.keys_ = keys
                     episode_lengths.append(len(data[keys[0]][:]))
-                    action = data['action'][:]
+                    if target_action == 'action':
+                        action = data['action'][:]
+                    elif target_action == 'delta_to_goal_gripper':
+                        action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).flatten()
                     action_welford.add(action)
                 else:
                     group = zarr.open(zarr_path, 'r')
@@ -123,7 +137,13 @@ class ReplayBuffer:
                     # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
                     episode_lengths.append(len(src_root['data'][keys[0]][:]))
 
-                    action = src_root['data']['action'][:]
+                    action = None
+                    if target_action == 'action':
+                        action = src_root['data']['action'][:]
+                    elif target_action == 'delta_to_goal_gripper':
+                        action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).flatten()
+                    elif target_action == 'goal_gripper_pcd':
+                        action = data['goal_gripper_pcd'][:]
                     action_welford.add(action)
             else:
                 
@@ -142,7 +162,13 @@ class ReplayBuffer:
                             self.keys_ = list(keys)
                         else:
                             self.keys_ = keys
-                        action = data['action'][:]
+                        
+                        if target_action == 'action':
+                            action = data['action'][:]  
+                        elif target_action == 'delta_to_goal_gripper':
+                            action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).reshape(1, -1)
+                        elif target_action == 'goal_gripper_pcd':
+                            action = data['goal_gripper_pcd'][:]
 
                         current_goal = data['goal_gripper_pcd'][:]
                         if first_goal is None:
@@ -167,7 +193,11 @@ class ReplayBuffer:
                         else:
                             self.keys_ = keys
 
-                        action = src_root['data']['action'][:]
+                        if target_action == 'action':
+                            action = src_root['data']['action'][:]
+                        elif target_action == 'delta_to_goal_gripper':
+                            action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).flatten()
+                        
 
                         current_goal = src_root['data']['goal_gripper_pcd'][:]
                         if first_goal is None:

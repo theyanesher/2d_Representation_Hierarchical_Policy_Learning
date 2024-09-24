@@ -3,3 +3,5 @@ export PYTHONPATH=${PWD}/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Po
 export PROJECT_DIR=${PWD}
 export NUMEXPR_MAX_THREADS=90
 export HYDRA_FULL_ERROR=1
+export YUFEI_OPENAI_API_KEY=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
+# sed -i 's/\r$//' prepare.sh

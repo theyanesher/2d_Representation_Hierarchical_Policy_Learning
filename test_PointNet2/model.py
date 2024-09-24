@@ -389,7 +389,7 @@ class PointNet2ssg(nn.Module):
 
         x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
         x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
+        # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         # import pdb; pdb.set_trace()
         return x
@@ -414,7 +414,7 @@ class SimpleMLP(nn.Module):
         x = F.relu(self.conv3(x))
         x = self.drop3(x)
         x = self.conv4(x)
-        x = F.log_softmax(x, dim=1)
+        # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1) # B, N, num_classes
         return x
     
@@ -445,7 +445,7 @@ class PointNet2_small(nn.Module):
 
         x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
+        # # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes
 
@@ -476,7 +476,7 @@ class PointNet2_small2(nn.Module):
 
         x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
+        # # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes: outputing logtis2
 
@@ -527,34 +527,17 @@ class PointNet2_super(nn.Module):
 if __name__ == '__main__':
 
     from tqdm import tqdm
-    # model = PointNet2(num_classes=13).cuda()
-    # model = PointNet2_small(num_classes=13).cuda()
-    # model = PointNet2_small2(num_classes=13).cuda()
-    # model = PointNet2ssg(num_classes=13).cuda()
-    # model = SimpleMLP(num_classes=13).cuda()
-    # model = PointNet2(num_classes=13).cuda()
-    # model = PointNet2_super(num_classes=13).cuda()
-    # for _ in tqdm(range(1000000)):
-    #     points = torch.randn(10, 3, 4500).cuda()
-    #     ret = model(points)
-    # model = replace_bn_with_gn(model, features_per_group=4)
-    # import pdb; pdb.set_trace()
-
-
-    # TEST TRANSLATION INVARIANCE
-    points = torch.randn(1, 3, 4500).cuda()
-    points2 = points + 0.1
-    model = PointNet2(num_classes=40).cuda()
-    model = model.cuda()
-
-    l0_points = points
-    l0_xyz = points[:, :3, :]
-
-    l0_points2 = points2
-    l0_xyz2 = points2[:, :3, :]
-    
-
-    l1_xyz, l1_points = model.sa1(l0_xyz, l0_points)
-    l1_xyz2, l1_points2 = model.sa1(l0_xyz2, l0_points2)
-    import pdb; pdb.set_trace()
-
+    model = PointNet2(num_classes=10).cuda()
+    model.eval()
+    # torch.manual_seed(0)
+    # torch.cuda.manual_seed_all(0)
+    # torch.backends.cudnn.deterministic = True
+    inpput = torch.rand(1, 3, 2000).cuda()
+    out = model(inpput)
+    max_diff = -1
+    for _ in range(1):
+        inpput_translated = inpput + 50
+        out_translated = model(inpput_translated)
+        diff = torch.norm(out-out_translated)
+        max_diff = max(max_diff, diff)
+        print("difference: ", diff)

@@ -197,19 +197,113 @@ object_ids = [
 # # act3d_goal_mlp + closest point
 # json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07191257-act3d_goal_mlp_displacement_gripper_to_object-horizon-8-num_load_episodes-1000_2024.07.19_12.57.05_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
-# # act3d_goal_mlp
-# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.20_15.26.54_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# act3d_goal_mlp
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.20_15.26.54_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 
-# ==== #
-# 0720 #
-# ==== #
-# act3d_goal_mlp 
-json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07221724-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.22_17.24.11_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+# # ==== #
+# # 0720 #
+# # ==== #
+# # act3d_goal_mlp 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/07221724-act3d_goal_mlp-horizon-8-num_load_episodes-1000_2024.07.22_17.24.11_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
 
 
-json_results_list = glob.glob(f'{json_results_root}/*-seen-0.json')
-tag = 'all_seen'
+# # ==== #
+# # 0810 #
+# # ==== #
+
+# delta wpt, sample, aug_rot 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/08062012-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_pcd_2024.08.06_20.12.30_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# # delta wpt, sample, aug_rot 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/08081744-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot_2024.08.08_17.44.49_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# # delta wpt, sample, aug_scale 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/debug-2/08090103-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_scale_2024.08.09_01.03.17_train_dp3_robogen_open_door_checkpoints_latest.ckpt'
+
+# delta wpt, sample, all 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08091652-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_all_2024.08.09_16.53.26_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# ######################################
+
+# delta wpt, epsilon, normalize action 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08101108-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-normalize_action-epsilon_2024.08.10_11.08.09_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# delta wpt, epsilon, aug_rot
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08101115-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot-epsilon_2024.08.10_11.15.56_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# # ######################################
+
+# delta wpt, v_prediction, normalize action 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08120322-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-normalize_action-v_prediction_2024.08.12_03.22.34_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# delta wpt, v_prediction, aug_rot
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08120006-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-aug_rot-v_prediction_2024.08.12_00.06.46_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# ######################################
+
+# # all objects, normalize action 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08121539-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action_2024.08.12_15.40.03_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+
+# all objects, normalize action 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08130042-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30_2024.08.13_00.42.27_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# ######################################
+
+# # # abs wpt, epsilon 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08110104-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-epsilon_2024.08.11_01.04.17_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# # abs wpt, v_prediction 
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08131154-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-abs_wpt-v_prediction_2024.08.13_11.54.56_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# ######################################
+
+# # abs wpt, v_prediction 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0810/08141110-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-normalize_action-30_2024.08.14_11.10.47_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+
+# ######################################
+
+# week 8.14 - 8.20
+
+# pn++
+# # delta wpt, pointnet2, sample, normalize action, 50 objects
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action_2024.08.14_01.50.59_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# delta wpt, pointnet2, sample, normalize action, all objects
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08150052-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-sample_2024.08.15_00.52.14_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# # delta wpt, pointnet2, epsilon, normalize action, all objects
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08161917-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-all_object-pn2-aug_pcd-epsilon-new_2024.08.16_19.17.46_train_dp3_robogen_open_door_checkpoints_latest.ckpt/2'
+
+# # dense pcd
+# # delta wpt, dense pcd, sample, normalize action 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08142025-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper_2024.08.14_20.25.35_train_dp3_robogen_open_door_checkpoints_latest.ckpt_backup/0'
+
+# # combine action
+# # delta wpt, combine-2-new, sample, normalize action 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08191542-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-combine-pcd_noise-new_2024.08.19_15.42.15_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+
+# # dense pcd with combined action
+# # delta wpt, dense pcd, sample, normalize action 
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new_2024.08.19_12.50.15_train_dp3_robogen_open_door_checkpoints_latest.ckpt_backup/0'
+
+# ######################################
+# # delta wpt, dense pcd, sample, normalize action, observation step=4
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08191826-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-nouse_2024.08.19_18.26.15_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+
+# ######################################
+# # debug, noise for MLP
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08191250-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-dense_gripper-combine-pcd_noise-new_2024.08.19_12.50.15_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+
+# # debug, noise for PointNet++
+# json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_train_10_obj_test_new_10_act3d_mlp_0815/08140150-act3d_goal_mlp-n_obs_steps-2-horizon-8-num_load_episodes-1000-pn2-normalize_action_2024.08.14_01.50.59_train_dp3_robogen_open_door_checkpoints_latest.ckpt/0'
+# ######################################
+
+# use pretrained high-level for low level
+json_results_root = '/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_low_200_with_pred_goal_input_200_high_testing_0825/08240109-act3d_goal_mlp_displacement_gripper_to_object-ns-2-h-8-demonum-75-all-pt_goal_2024.08.24_01.09.48_train_dp3_robogen_open_door_checkpoints_epoch-30.ckpt/0'
+
+json_results_list = glob.glob(f'{json_results_root}/*-unseen.json')
+tag = 'all_unseen'
 
 if len(json_results_list) == 0:
     print(f'no files issue')
@@ -275,6 +369,8 @@ for json_results in json_results_list:
     plot_object_ids = []
     plot_nperf = []
     cnt = 0
+
+    test = 0
     
     for object_id in opened_joint_angles_dict.keys():
 
@@ -295,6 +391,10 @@ for json_results in json_results_list:
         # normalized_performance[np.isnan(normalized_performance)] = 0
         # normalized_performance[np.isinf(normalized_performance)] = 0
         cond = ~(np.isnan(normalized_performance) | np.isinf(normalized_performance))
+
+        for num in normalized_performance[cond]:
+            if num > 0.5:
+                test += 1
 
         # Debug
         debug += np.mean(normalized_performance[cond]) * len(normalized_performance[cond])
@@ -375,6 +475,7 @@ for k, v in zip(nperf_dict.keys(), nperf_dict.values()):
     else:
         print(f'{k}, {np.round(np.mean(v),3)}')
 
+print(f"cnt = {test}")
 exit(0)
 # Figure Size
 fig, ax = plt.subplots(figsize =(18, 9))

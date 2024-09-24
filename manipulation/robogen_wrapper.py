@@ -207,6 +207,7 @@ class RobogenPointCloudWrapper:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
             all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
+
             goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
             goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
             
@@ -219,18 +220,23 @@ class RobogenPointCloudWrapper:
             self._env.reset(reset_state=goal_1_state)
             grasping_eef_pc = self.get_gripper_pc()
 
-            # Chialiang for dense goal pcd
-            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
-            self.grasping_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
+            # # Chialiang for dense goal pcd
+            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            # self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
             self._env.reset(reset_state=goal_2_state)
             final_eef_pc = self.get_gripper_pc()
             
-            # Chialiang for dense goal pcd
-            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
-            self.final_goal_pose_7d = np.asarray(list(eef_pos) + list(eef_rot) + [1])
+            # # Chialiang for dense goal pcd
+            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            # self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+
+            # grasping_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(open_begin_t_idx))
+            # final_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(all_time_steps - 1))
+            # with open(grasping_eef_pc_path, 'rb') as f:
+            #     grasping_eef_pc = pickle.load(f)
+            # with open(final_eef_pc_path, 'rb') as f:
+            #     final_eef_pc = pickle.load(f)
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
@@ -382,9 +388,24 @@ class RobogenPointCloudWrapper:
                 target_joint_angle = action[-1]
                 action = pos.tolist() + list(euler) + [target_joint_angle]
                 self._env.take_direct_action(action) # directly use the action to control the robot
+
+            # [ABSDEBUG]
+            elif self.use_absolute_waypoint:
+                
+                pos = action[:3]
+                orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
+                euler = p.getEulerFromQuaternion(orient)
+                target_joint_angle = action[9]
+                action = list(pos) + list(euler) + [target_joint_angle]
+
+                self._env.take_direct_action(action)
             
             else :
                 # beg = time.time()
+
+                # dense_action = self.get_dense_delta_waypoints(action, threshold=0.005)
+
+                # for action in dense_action:
                 pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
                 current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
                 
@@ -392,7 +413,6 @@ class RobogenPointCloudWrapper:
                 if self.in_gripper_frame:
                     action[:3] = current_rotate_matrix @ np.array(action[:3])
                     
-
                 delta_orient = action[3:9]
 
                 delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
@@ -408,14 +428,8 @@ class RobogenPointCloudWrapper:
                 target_joint_angle = action[9] + cur_joint_angle[0]
                 
                 action = pos.tolist() + list(euler) + [target_joint_angle]
-                # end = time.time()
-                # cprint("preprocessing time {}".format(end - beg), "green")
 
-                # beg = time.time()
                 self._env.take_direct_action(action)
-                # beg = time.time()
-                # end = time.time()
-                # cprint("take direct action time {}".format(end - beg), "blue")
         else:
             self._env.take_joint_action(action)
         
@@ -559,49 +573,10 @@ class RobogenPointCloudWrapper:
         
         num_points = self.num_points
         if using_torch:
-            assert False, "Not implemented"
-            # if self.dense_pcd_for_goal:
 
-            #     # get the cropped point cloud from feature_map
-            #     original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
-            #     cond = np.where(original_feature_map_faltten[...,1] > 0.5)
-            #     dense_pcd = original_feature_map_faltten[...,2:5][cond]
-
-            #     # downsampled pcd from FPS
-            #     dense_point_num = 500
-            #     dense_point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-            #     num_points = torch.tensor([num_points-dense_point_num]).cuda() # 4500 - 500
-            #     _, sampled_indices = torch3d_ops.sample_farthest_points(points=dense_point_cloud[...,:3], K=num_points)
-            #     sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-            #     sampled_indices = np.array(sorted(sampled_indices))
-            #     dense_point_cloud = dense_point_cloud.squeeze(0).cpu().numpy()
-            #     dense_point_cloud = dense_point_cloud[sampled_indices]
-
-            #     # [TODO] find current goal
-            #     hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
-            #     nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
-            #     distances, indices = nn.kneighbors(hand_point)
-            #     distances, indices = distances[0], indices[0]
-            #     sorted_index = np.argsort(distances)
-            #     additional_index = indices[sorted_index[:dense_point_num]]
-
-            #     additional_pcd = dense_pcd[additional_index]
-            #     dense_point_cloud = np.vstack([dense_point_cloud, additional_pcd])
-            #     dense_point_cloud = dense_point_cloud.tolist()
-            #     obs_dict_input['dense_point_cloud'] = np.array(dense_point_cloud).astype(np.float32)
-
-            # else:
-            #     point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-            #     num_points = torch.tensor([num_points]).cuda()
-            #     _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-            #     sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-            #     sampled_indices = np.array(sorted(sampled_indices))
-            #     point_cloud = point_cloud.squeeze(0).cpu().numpy()
-            #     point_cloud = point_cloud[sampled_indices]
-
-        else:
+            # [Chialiang] for 
             if self.dense_pcd_for_goal:
-                dense_point_cloud = point_cloud
+
                 # get the cropped point cloud from feature_map
                 original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
                 cond = np.where(original_feature_map_faltten[...,1] > 0.5)
@@ -609,12 +584,13 @@ class RobogenPointCloudWrapper:
 
                 # downsampled pcd from FPS
                 dense_point_num = 500
-                temp_num_points = num_points # 4500 - 500
-                h = min(9, np.log2(num_points))
-                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(dense_point_cloud[:, :3], temp_num_points, h=h)
-                sampled_indices = np.array(sorted(kdline_fps_samples_idx))
-                
-                dense_point_cloud = dense_point_cloud[sampled_indices]
+                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([num_points-dense_point_num]).cuda() # 4500 - 500
+                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+                sampled_indices = np.array(sorted(sampled_indices))
+                point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                point_cloud = point_cloud[sampled_indices]
 
                 # [TODO] find current goal
                 hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
@@ -625,25 +601,57 @@ class RobogenPointCloudWrapper:
                 additional_index = indices[sorted_index[:dense_point_num]]
 
                 additional_pcd = dense_pcd[additional_index]
-                dense_point_cloud = np.vstack([dense_point_cloud, additional_pcd])
-                dense_point_cloud = dense_point_cloud.tolist()
-                obs_dict_input['dense_point_cloud'] = np.array(dense_point_cloud).astype(np.float32)
+                point_cloud = np.vstack([point_cloud, additional_pcd])
+
+            else :
+                
+                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+                num_points = torch.tensor([num_points]).cuda()
+                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+                sampled_indices = np.array(sorted(sampled_indices))
+                point_cloud = point_cloud.squeeze(0).cpu().numpy()
+                point_cloud = point_cloud[sampled_indices]
+
+        else:
 
             if point_cloud.shape[0] < num_points:
                 to_add_points_num = num_points - point_cloud.shape[0]
                 random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
                 point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
             
-            h = min(9, np.log2(num_points))
-            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
-            kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
-            point_cloud = point_cloud[kdline_fps_samples_idx]
-        
-        new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
-        new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
-        
-        # check
-        assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
+            # [Chialiang] for 
+            if self.dense_pcd_for_goal:
+
+                # get the cropped point cloud from feature_map
+                original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
+                cond = np.where(original_feature_map_faltten[...,1] > 0.5)
+                dense_pcd = original_feature_map_faltten[...,2:5][cond]
+
+                # downsampled pcd from FPS
+                dense_point_num = 500
+                h = min(9, np.log2(num_points-dense_point_num))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points-dense_point_num, h=h)
+                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+                point_cloud = point_cloud[kdline_fps_samples_idx]
+
+                # [TODO] find current goal
+                hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
+                nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
+                distances, indices = nn.kneighbors(hand_point)
+                distances, indices = distances[0], indices[0]
+                sorted_index = np.argsort(distances)
+                additional_index = indices[sorted_index[:dense_point_num]]
+
+                additional_pcd = dense_pcd[additional_index]
+                point_cloud = np.vstack([point_cloud, additional_pcd])
+
+            else :
+
+                h = min(9, np.log2(num_points))
+                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+                point_cloud = point_cloud[kdline_fps_samples_idx]
            
         point_cloud = point_cloud.tolist()
         
@@ -652,6 +660,13 @@ class RobogenPointCloudWrapper:
         obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
         
         if 'mlp' not in self.observation_mode:
+        
+            new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
+            new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
+            
+            # check
+            assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
+
             obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
             obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
             pointcloud = obs_dict_input['point_cloud']

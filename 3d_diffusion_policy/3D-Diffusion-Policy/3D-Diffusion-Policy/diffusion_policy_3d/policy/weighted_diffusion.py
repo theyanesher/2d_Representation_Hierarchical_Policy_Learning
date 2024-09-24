@@ -51,6 +51,8 @@ class WeightedDiffusion(BasePolicy):
             diffusion_attn_embed_dim=120,
             normalize_action=True, # [Chialiang] can remove normilizer for action
             # parameters passed to step
+            weight_loss_weight=1.0,
+            diffusion_loss_weight=1.0,
             **kwargs
         ):
         cprint("Using WeightedDiffusion", "yellow")
@@ -60,6 +62,8 @@ class WeightedDiffusion(BasePolicy):
         self.prediction_target = prediction_target
         self.normalize_action = normalize_action
         self.encoder_type = encoder_type
+        self.diffusion_loss_weight = diffusion_loss_weight
+        self.weight_loss_weight = weight_loss_weight
 
         assert prediction_target == "goal_gripper_pcd", f"Unsupported prediction target {prediction_target}"
 
@@ -390,13 +394,13 @@ class WeightedDiffusion(BasePolicy):
         label = batch['obs'][self.prediction_target] # B, T, 4, 3
         weighting_loss = F.mse_loss(pred_goal_gripper, label)
 
-        loss = diffusion_loss + weighting_loss
+        loss = self.diffusion_loss_weight * diffusion_loss + self.weight_loss_weight * weighting_loss
         loss = loss.mean()
 
         loss_dict = {
             'bc_loss': loss.item(),
-            'diffusion_loss': diffusion_loss.item(),
-            'weighting_loss': weighting_loss.item()
+            'diffusion_loss': diffusion_loss.item() * self.diffusion_loss_weight,
+            'weighting_loss': weighting_loss.item() * self.weight_loss_weight,
         }
         return loss, loss_dict
         

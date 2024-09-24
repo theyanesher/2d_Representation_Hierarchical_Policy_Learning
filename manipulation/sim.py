@@ -11,7 +11,8 @@ from scipy.spatial.transform import Rotation as R
 from manipulation.panda import Panda
 from manipulation.ur5 import UR5
 from manipulation.sawyer import Sawyer
-from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, save_env
+from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, \
+                        save_env, radial_shift
 from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from_name, get_handle_pos, get_link_pc
 from manipulation.gpt_primitive_api import get_link_handle
 import matplotlib.pyplot as plt
@@ -44,6 +45,7 @@ class SimpleEnv(gym.Env):
                     # mobile=True,
                     task_name=None,
                     open_gripper_at_reset=True,
+                    random_object_translation: bool = False
                 ):
         
         super().__init__()
@@ -63,6 +65,7 @@ class SimpleEnv(gym.Env):
         self.randomize = randomize
         self.obj_id = obj_id # which object to choose to use from the candidates
         self.open_gripper_at_reset = open_gripper_at_reset
+        self.random_object_translation = random_object_translation
         
         # robot
         self.mobile = mobile
@@ -139,6 +142,15 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
+
+    def get_gripper_pc(self):
+        # get the point cloud of the gripper
+        right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+        left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+        right_hand_pos, _ = self.robot.get_pos_orient(self.robot.right_hand)
+        eef_pos, _ = self.robot.get_pos_orient(self.robot.right_end_effector)
+        gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
+        return gripper_pc.astype(np.float32)
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -288,11 +300,13 @@ class SimpleEnv(gym.Env):
 
         ### if a state is passed in, restore the state
         if reset_state is not None:
+            self.add_object_position_pertubations(reset_state)
             load_env(self, state=reset_state)
             return
 
         ### after first set scene, the init state will be stored, and can be restored here, skipping the following steps to save time
         if self.init_state is not None:
+            self.add_object_position_pertubations(self.init_state)
             load_env(self, state=self.init_state)
             return
         
@@ -595,6 +609,19 @@ class SimpleEnv(gym.Env):
         
         return object_height
         
+    def add_object_position_pertubations(self, state):
+        if not self.random_object_translation:
+            return
+        for obj_name, obj_id in self.urdf_ids.items():
+            if obj_name != "robot" and obj_name != "plane":
+                print()
+                print(f"obj name: {obj_name}")
+                x, y, z = state['object_base_position'][obj_name]
+                print(f'before translation {x} {y}')
+                x, y = radial_shift(x, y)
+                print(f'after translation {x} {y}')
+                state['object_base_position'][obj_name] = [x, y, z]
+
     def resolve_collision(self, robot_base_pos, object_height, spatial_relationships):
         collision = True
         collision_cnt = 1

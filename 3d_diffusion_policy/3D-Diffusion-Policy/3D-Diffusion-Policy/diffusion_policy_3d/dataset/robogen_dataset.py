@@ -32,8 +32,11 @@ class RobogenDataset(BaseDataset):
             is_pickle=False,
             dataset_keys=None,
             augmentation_pcd=False,
+            augmentation_scale=False,
+            scale_scene_by_pcd=False,
+            use_absolute_waypoint=False,
             augmentation_rot=False,
-            use_absolute_waypiont=False,
+            prediction_target='action',
             **kwargs
             ):
         super().__init__()
@@ -42,8 +45,11 @@ class RobogenDataset(BaseDataset):
         self.observation_mode = observation_mode
         self.augmentation_rot = augmentation_rot
         self.augmentation_pcd = augmentation_pcd
-        self.use_absolute_waypiont = use_absolute_waypiont
+        self.augmentation_scale = augmentation_scale
+        self.scale_scene_by_pcd = scale_scene_by_pcd
+        self.use_absolute_waypoint = use_absolute_waypoint
         self.is_pickle = is_pickle
+        self.prediction_target = prediction_target
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -123,7 +129,9 @@ class RobogenDataset(BaseDataset):
             else:
                 cprint(f'keep in disk and load per step, load_per_step:{self.load_per_step}', 'green')
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
-                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle)
+                self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, 
+                                                                        only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle,
+                                                                        target_action=self.prediction_target)
                 self.action_welford = self.replay_buffer.action_welford
             
             # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
@@ -230,7 +238,19 @@ class RobogenDataset(BaseDataset):
             })
             for p in this_params.values():
                 p.requires_grad = False
-            normalizer.params_dict['action'] = this_params
+            normalizer.params_dict[self.prediction_target] = this_params
+
+            # [DebugNormalize] [Chialiang]
+            if self.augmentation_rot:
+                value = self.action_welford.get_max_norm_3d()
+                value = torch.from_numpy(value).float()
+                additional_params = torch.nn.ParameterDict({
+                    'max_norm_3d': value
+                })
+                for p in additional_params.values():
+                    p.requires_grad = False
+
+                normalizer.params_dict['additional_params'] = additional_params
 
         return normalizer
     
@@ -276,7 +296,7 @@ class RobogenDataset(BaseDataset):
         ###########################################
 
         if self.augmentation_pcd:
-            point_cloud = point_cloud + np.random.normal(0, 0.002, point_cloud.shape) # [AugTODO] add more 
+            point_cloud = point_cloud + np.random.normal(0, 0.003, point_cloud.shape) # [AugTODO] add more 
 
         if self.augmentation_rot:
             # random rotation
@@ -352,11 +372,14 @@ class RobogenDataset(BaseDataset):
 
 
         # change to absolute waypoints
-        if self.use_absolute_waypiont:
+        if self.use_absolute_waypoint:
 
             absolute_action = copy.deepcopy(agent_pos)
             
+            # position
             absolute_action[:, :3] += action[:, :3]
+            
+            # rotation
             current_rotations = rotation_transfer_6D_to_matrix_batch(agent_pos[:, 3:9]).T.reshape((-1, 3, 3)) # (H, 6) -> (3, 3*H) -> (3*H, 3) -> (H, 3, 3)
             current_rotations = np.transpose(current_rotations, (0, 2, 1)) # (H, 3, 3) make row vector column vector
             delta_rotations = rotation_transfer_6D_to_matrix_batch(action[:, 3:9]).T.reshape((-1, 3, 3)) # (H, 6) -> (3, 3*H) -> (3*H, 3) -> (H, 3, 3)
@@ -367,9 +390,49 @@ class RobogenDataset(BaseDataset):
             rot_6d = np.hstack((row_1, row_2)) # (H, 6)
             absolute_action[:, 3:9] = rot_6d
 
+            # eef
+            absolute_action[:, 9] += action[:, 9]
+
             action = absolute_action
 
-       # assign to dict
+        if self.augmentation_scale:
+
+            max_difference = 0.2
+            random_scale = 1 + max_difference * (2 * np.random.rand() - 1) # [1 - max_difference, 1 + max_difference]
+
+            point_cloud[...,:3] *= random_scale
+            agent_pos[...,:3] *= random_scale
+            action[...,:3] *= random_scale
+            
+            if 'act3d' in self.observation_mode:
+                gripper_pcd[...,:3] *= random_scale
+                if 'goal' in self.observation_mode:
+                    goal_gripper_pcd[...,:3] *= random_scale
+                if 'displacement_gripper_to_object' in self.observation_mode:
+                    displacement_gripper_to_object[...,:3] *= random_scale
+            
+            elif 'act3d_pointnet' == self.observation_mode:
+                gripper_pcd[...,:3] *= random_scale
+
+        if self.scale_scene_by_pcd:
+
+            max_scale = np.max(np.linalg.norm(point_cloud, axis=-1))
+
+            point_cloud[...,:3] /= max_scale
+            agent_pos[...,:3] /= max_scale
+            action[...,:3] /= max_scale
+
+            if 'act3d' in self.observation_mode:
+                gripper_pcd[...,:3] /= max_scale
+                if 'goal' in self.observation_mode:
+                    goal_gripper_pcd[...,:3] /= max_scale
+                if 'displacement_gripper_to_object' in self.observation_mode:
+                    displacement_gripper_to_object[...,:3] /= max_scale
+            
+            elif 'act3d_pointnet' == self.observation_mode:
+                gripper_pcd[...,:3]  /= max_scale
+
+        # assign to dict
         data = {
             'obs': {
                 'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
@@ -390,6 +453,10 @@ class RobogenDataset(BaseDataset):
         for key in self.keys_:
             if key not in ['state', 'action', 'point_cloud']:
                 data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
+                
+        if self.prediction_target == 'delta_to_goal_gripper':
+            data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
+            
         return data
 
     

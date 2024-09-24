@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # [Debug]
-from .multihead_custom_attention import MultiheadCustomAttention
-
+# from .multihead_custom_attention import MultiheadCustomAttention
+from diffusion_policy_3d.model.vision.multihead_custom_attention import MultiheadCustomAttention
 
 class CrossAttentionLayer(nn.Module):
     def __init__(self, embedding_dim, num_heads, dropout=0.0):
@@ -494,11 +494,11 @@ if __name__ == '__main__':
     from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
     
     # TODO: chech the rotarty relative embedding is translation invariant
-    encoder_output_dim = 6
+    encoder_output_dim = 18
     bs = 100
     relative_pe_layer = RotaryPositionEncoding3D(encoder_output_dim)
     
-    num_heads = 2
+    num_heads = 6
     num_gripper_points = 5
     attn_layers = RelativeCrossAttentionModule(encoder_output_dim, num_heads, 1)
     attn_layers = replace_bn_with_gn(attn_layers)
@@ -529,3 +529,6 @@ if __name__ == '__main__':
     print("num_heads: ", num_heads)
     print("difference: ", torch.norm(attn_output - translated_attn_output))
     print(torch.allclose(attn_output, translated_attn_output, atol=1e-4))
+    
+    
+    

@@ -244,7 +244,8 @@ class PointNetSetAbstractionMsg(nn.Module):
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
             K = self.nsample_list[i]
-            group_idx = query_ball_point(radius, K, xyz, new_xyz)
+            with torch.cuda.amp.autocast(enabled=False):
+                group_idx = query_ball_point(radius, K, xyz, new_xyz)
             grouped_xyz = index_points(xyz, group_idx)
             grouped_xyz -= new_xyz.view(B, S, 1, C)
             if points is not None:
@@ -390,7 +391,6 @@ class PointNet2ssg(nn.Module):
         x = self.conv2(x)
         x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
-        # import pdb; pdb.set_trace()
         return x
     
 class SimpleMLP(nn.Module):
@@ -523,4 +523,3 @@ if __name__ == '__main__':
         points = torch.randn(10, 3, 4500).cuda()
         ret = model(points)
     model = replace_bn_with_gn(model, features_per_group=4)
-    import pdb; pdb.set_trace()
