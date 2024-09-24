@@ -349,9 +349,10 @@ class PointNet2(nn.Module):
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
         l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
 
-        x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
+        # x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
+        x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
+        # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes
     
@@ -388,7 +389,7 @@ class PointNet2ssg(nn.Module):
 
         x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
         x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
+        # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         # import pdb; pdb.set_trace()
         return x
@@ -413,7 +414,7 @@ class SimpleMLP(nn.Module):
         x = F.relu(self.conv3(x))
         x = self.drop3(x)
         x = self.conv4(x)
-        x = F.log_softmax(x, dim=1)
+        # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1) # B, N, num_classes
         return x
     
@@ -444,7 +445,7 @@ class PointNet2_small(nn.Module):
 
         x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
+        # # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes
 
@@ -475,7 +476,7 @@ class PointNet2_small2(nn.Module):
 
         x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
+        # # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes: outputing logtis
 
