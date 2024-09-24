@@ -22,13 +22,9 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
-<<<<<<< HEAD
 from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
-=======
-from test_PointNet2.model import PointNet2
 import argparse
 from typing import List, Optional
->>>>>>> object translation for weighted displacement model
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
     env, _ = build_up_env(
