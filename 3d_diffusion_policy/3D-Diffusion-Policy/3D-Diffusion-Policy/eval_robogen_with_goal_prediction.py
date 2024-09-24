@@ -290,7 +290,7 @@ if __name__ == "__main__":
     
     ### This is the default best low level 50 objects best policy
     if args.low_level_exp_dir is None:
-        exp_dir =  "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
+        exp_dir =  "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
         checkpoint_name = 'latest.ckpt'
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
@@ -343,7 +343,11 @@ if __name__ == "__main__":
 
     ### load the high-level policy
     goal_exp_dir = args.high_level_exp_dir
+    if args.high_level_exp_dir is None:
+        goal_exp_dir = '/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
     goal_checkpoint_name = args.high_level_ckpt_name
+    if args.high_level_ckpt_name is None:
+        goal_checkpoint_name = 'epoch-30.ckpt'
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
