@@ -338,7 +338,7 @@ class DP3(BasePolicy):
 
             # [DebugNormalize] [Chialiang]
             if self.normalize_action:
-                action_pred_backup = copy.deepcopy(action_pred)
+                action_pred_backup = copy.deepcopy(action_pred.detach())
                 action_pred = self.normalizer[self.prediction_target].unnormalize(action_pred)
                 
                 # for rotation augmentation only
