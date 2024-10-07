@@ -671,7 +671,7 @@ def initialize_pretrained_high_level_policy():
     goal_policy = goal_policy.to(device)
     pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
     return pretrained_goal_model
-pretrained_goal_model = initialize_pretrained_high_level_policy()
+# pretrained_goal_model = initialize_pretrained_high_level_policy()
 
 @hydra.main(
     version_base=None,

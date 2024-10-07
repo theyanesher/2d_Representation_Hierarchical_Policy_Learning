@@ -24,8 +24,10 @@ import yaml
 import pickle as pkl
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location
 import cv2
+import argparse
+from typing import Optional, List
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file, random_object_translation=False):
+def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -36,7 +38,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, r
                     randomize=False,
                     obj_id=0,
                     horizon=600,
-                    random_object_translation=False
+                    random_object_translation=obj_translation,
             )
             
     object_name = "StorageFurniture".lower()
@@ -57,9 +59,9 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, r
     return env
             
 def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False,
-                          test_scene_translation: bool =False, 
-                          random_object_translation: bool =False,
+                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
+                          dataset_index=None, calculate_distance_from_gt=False,
+                          obj_translation: Optional[list]= None,
                           use_predicted_goal: bool = True,
                           ):
     
@@ -166,7 +168,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, random_object_translation=random_object_translation)
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -175,21 +177,12 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
             initial_info = info
             all_rgbs = [rgb]
             closed=False
-            translation_delta = torch.ones(3).to('cuda') # only used if test_scene_translation is true
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
                 
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
-                
-                if test_scene_translation:
-                    for key in obs:
-                        if key in ("point_cloud", "gripper_pcd", "goal_gripper_pcd"):
-                            parallel_input_dict[key] += translation_delta
-                        elif key ==  "agent_pos":
-                            parallel_input_dict[key][:,:,:3] += translation_delta
-                
                 if use_predicted_goal:
                     high_level_parallel_input_dict = deepcopy(parallel_input_dict)
                     if goal_cfg.n_obs_steps == 1:
@@ -275,10 +268,9 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
 
     if calculate_distance_from_gt:
         print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
-        
+
 if __name__ == "__main__":
     
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--low_level_exp_dir', type=str, default=None)
     parser.add_argument('--low_level_ckpt_name', type=str, default=None)
@@ -289,6 +281,8 @@ if __name__ == "__main__":
     parser.add_argument("--random_object_translation", type=bool, default=False)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
+    parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
+
     args = parser.parse_args()
     
     num_worker = 30
@@ -296,7 +290,7 @@ if __name__ == "__main__":
     
     ### This is the default best low level 50 objects best policy
     if args.low_level_exp_dir is None:
-        exp_dir =  "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
+        exp_dir =  "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
         checkpoint_name = 'latest.ckpt'
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
@@ -309,7 +303,7 @@ if __name__ == "__main__":
 
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    workspace.load_checkpoint(path=checkpoint_dir)
+    workspace.load_checkpoint(path=checkpoint_dir, exclude_keys=['pretrained_goal_model', 'amp_scaler'])
 
     policy = deepcopy(workspace.model)
     if workspace.cfg.training.use_ema:
@@ -349,7 +343,11 @@ if __name__ == "__main__":
 
     ### load the high-level policy
     goal_exp_dir = args.high_level_exp_dir
+    if args.high_level_exp_dir is None:
+        goal_exp_dir = '/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
     goal_checkpoint_name = args.high_level_ckpt_name
+    if args.high_level_ckpt_name is None:
+        goal_checkpoint_name = 'epoch-30.ckpt'
     
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -374,6 +372,8 @@ if __name__ == "__main__":
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
     save_path = "data/{}".format(args.eval_exp_name)
+    if args.noise is not None:
+        save_path = "data/{}_{}_{}".format(args.eval_exp_name, args.noise[0], args.noise[1])
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     checkpoint_info = {
@@ -395,7 +395,6 @@ if __name__ == "__main__":
             horizon=35,
             exp_beg_idx=0,
             exp_end_idx=25,
-            test_scene_translation=args.test_scene_translation,
-            random_object_translation=args.test_scene_translation,
+            obj_translation=args.noise,
             use_predicted_goal=args.use_predicted_goal,
     )
