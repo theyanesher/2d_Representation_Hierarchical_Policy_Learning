@@ -4,6 +4,7 @@ import os
 import numpy as np
 
 folder = "3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/eval_low_50_pcd_200_high_level_weighted_diffusion_1/09092207-dp3_goal_gripper_dense-horizon-8-num_load_episodes-75_2024.09.09_22.07.41_train_dp3_robogen_open_door_checkpoints_epoch-10.ckpt"
+
 all_subfolders = os.listdir(folder)
 all_obj_runs = []
 for idx in range(10):
