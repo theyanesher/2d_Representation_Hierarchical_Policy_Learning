@@ -303,7 +303,7 @@ if __name__ == "__main__":
 
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    workspace.load_checkpoint(path=checkpoint_dir, exclude_keys=['amp_scaler', 'pretrained_goal_model'])
+    workspace.load_checkpoint(path=checkpoint_dir, exclude_keys=['pretrained_goal_model', 'amp_scaler'])
 
     policy = deepcopy(workspace.model)
     if workspace.cfg.training.use_ema:
