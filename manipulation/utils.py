@@ -18,7 +18,7 @@ import multiprocessing
 import objaverse
 import trimesh
 from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapaien_cannot_vhacd_part_dict
-
+from typing import List, Optional
 
 # Chialiang
 from scipy.spatial.transform import Rotation as R
@@ -148,7 +148,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config=None, solution_path=None, task_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0, random_object_translation=False, **kwargs,
+                    obj_id=0, random_object_translation: Optional[List]=None, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -1210,11 +1210,11 @@ def piecewise_uniform_sample(low: float, high: float) -> float:
     else:
         return np.random.uniform(low, high)
 
-def radial_shift(x_coord: float, y_coord: float):
+def radial_shift(x_coord: float, y_coord: float, noise_bounds: List[float]):
     theta = np.arctan2(y_coord, x_coord)
     theta_noise = np.random.uniform(-0.1, 0.1)
     dist = np.linalg.norm([x_coord, y_coord])
-    dist_noise = np.random.uniform(-0.02,0.02)
+    dist_noise = np.random.uniform(noise_bounds[0],noise_bounds[1])
     theta += theta_noise
     dist += dist_noise
     perturbed_x = dist * np.cos(theta)

@@ -22,6 +22,7 @@ import time
 import scipy
 import os
 from manipulation.gpt_primitive_api import get_pc_num_within_gripper
+from typing import List, Optional
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
@@ -45,7 +46,7 @@ class SimpleEnv(gym.Env):
                     # mobile=True,
                     task_name=None,
                     open_gripper_at_reset=True,
-                    random_object_translation: bool = False
+                    random_object_translation: Optional[List] = None
                 ):
         
         super().__init__()
@@ -277,7 +278,7 @@ class SimpleEnv(gym.Env):
             "robot": 0,
             "plane": 0,
         }
-         urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes, \
+        urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes, \
             use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles = self.load_and_parse_config(restore_state)
 
         ### load plane 
@@ -610,7 +611,8 @@ class SimpleEnv(gym.Env):
         return object_height
         
     def add_object_position_pertubations(self, state):
-        if not self.random_object_translation:
+        print(self.random_object_translation)
+        if self.random_object_translation is None:
             return
         for obj_name, obj_id in self.urdf_ids.items():
             if obj_name != "robot" and obj_name != "plane":
@@ -618,7 +620,7 @@ class SimpleEnv(gym.Env):
                 print(f"obj name: {obj_name}")
                 x, y, z = state['object_base_position'][obj_name]
                 print(f'before translation {x} {y}')
-                x, y = radial_shift(x, y)
+                x, y = radial_shift(x, y, self.random_object_translation)
                 print(f'after translation {x} {y}')
                 state['object_base_position'][obj_name] = [x, y, z]
 
