@@ -1,6 +1,6 @@
 defaults:
 - task: robogen_open_door.yaml
-- task/dataset: dataset_200_combine_3_dense_10.yaml
+- task/dataset: dataset_200_combine_4_dense_10.yaml
 - task/env_runner/experiment_name: experiment_name.yaml
 - task/env_runner/experiment_folder: experiment_folder.yaml
 - task/env_runner/demo_experiment_path: demo_path.yaml
@@ -120,13 +120,13 @@ ema:
   min_value: 0.0
   max_value: 0.9999
 dataloader:
-  batch_size: 1024
+  batch_size: 300
   num_workers: 15
   shuffle: true
   pin_memory: true
   persistent_workers: false
 val_dataloader:
-  batch_size: 1024
+  batch_size: 300
   num_workers: 15
   shuffle: false
   pin_memory: true
@@ -180,3 +180,11 @@ load_checkpoint_path: null
 multi_run:
   run_dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
   wandb_name_base: ${exp_name}_${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}
