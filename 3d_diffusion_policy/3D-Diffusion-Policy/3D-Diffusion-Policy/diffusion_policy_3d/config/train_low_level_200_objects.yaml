@@ -1,6 +1,6 @@
 defaults:
 - task: robogen_open_door.yaml
-- task/dataset: dataset_200_combine_2_dense_10.yaml
+- task/dataset: dataset_200_combine_3_dense_10.yaml
 - task/env_runner/experiment_name: experiment_name.yaml
 - task/env_runner/experiment_folder: experiment_folder.yaml
 - task/env_runner/demo_experiment_path: demo_path.yaml
