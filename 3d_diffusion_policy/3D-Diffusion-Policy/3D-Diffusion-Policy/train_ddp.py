@@ -57,9 +57,9 @@ class TrainDP3Workspace:
         random.seed(seed)
 
         # configure model
-        self.model: DP3 = hydra.utils.instantiate(cfg.policy)
+        self.model = hydra.utils.instantiate(cfg.policy)
 
-        self.ema_model: DP3 = None
+        self.ema_model = None
         if cfg.training.use_ema:
             try:
                 self.ema_model = copy.deepcopy(self.model)
@@ -393,6 +393,20 @@ class TrainDP3Workspace:
             if (self.epoch % cfg.training.sample_every) == 0:
                 with torch.no_grad():
                     # sample trajectory from training set, and evaluate difference
+                    # cprint("test sampling batch {}".format(self.epoch), 'red')
+                    
+                    # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
+                    # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(device, non_blocking=True))
+                    # obs_dict = batch
+                    # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
+                    # result = policy.predict_action(obs_dict)
+                    # pred_action = result['action'][:, 0, :]
+                    # # mse = torch.nn.functional.mse_loss(pred_action, gt_action.reshape(1, 12))
+                    # norm = torch.norm(pred_action.reshape(4, 3) - gt_action.reshape(4, 3), dim=1).mean()
+                    # mse = norm
+                    # cprint(f"epoch {self.epoch} action prediction mse {mse}", "green")
+                    # step_log['train_action_mse_error'] = mse.item()
+                    
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
                     if self.cfg.policy.prediction_target == 'action':
@@ -543,6 +557,16 @@ class TrainDP3Workspace:
         
         del payload
         torch.cuda.empty_cache()
+        
+        # cprint("saving checkpoint path {}".format(str(path.absolute())), 'red')
+        # policy = self.ema_model
+        # policy.eval()
+        # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
+        # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(torch.device("cuda"), non_blocking=True))
+        # obs_dict = batch
+        # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
+        # result = policy.predict_action(obs_dict, pdb=True)
+        
         return str(path.absolute())
     
     def get_checkpoint_path(self, tag='latest'):
@@ -574,14 +598,17 @@ class TrainDP3Workspace:
         if include_keys is None:
             include_keys = payload['pickles'].keys()
         
-        self.gpu_id = int(os.environ["LOCAL_RANK"])
-        device = torch.device(self.gpu_id)
+        if 'LOCAL_RANK' in os.environ:
+            self.gpu_id = int(os.environ["LOCAL_RANK"])
+            device = torch.device(self.gpu_id)
+        else:
+            device = torch.device("cuda")
         
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
                 print(f"loading {key}")
                 if key == 'model':
-                    self.model: DP3 = hydra.utils.instantiate(self.cfg.policy)
+                    self.model = hydra.utils.instantiate(self.cfg.policy)
                     self.model.load_state_dict(value, **kwargs)
                     self.model.to(device)
                 else:

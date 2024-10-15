@@ -49,18 +49,21 @@ class ConditionalResidualBlock1D(nn.Module):
                  cond_dim,
                  kernel_size=3,
                  n_groups=8,
-                 condition_type='film'):
+                 condition_type='film',
+                 use_group_norm=True):
         super().__init__()
 
         self.blocks = nn.ModuleList([
             Conv1dBlock(in_channels,
                         out_channels,
                         kernel_size,
-                        n_groups=n_groups),
+                        n_groups=n_groups,
+                        use_group_norm=use_group_norm),
             Conv1dBlock(out_channels,
                         out_channels,
                         kernel_size,
-                        n_groups=n_groups),
+                        n_groups=n_groups,
+                        use_group_norm=use_group_norm),
         ])
 
         
@@ -159,6 +162,7 @@ class ConditionalUnet1D(nn.Module):
         use_down_condition=True,
         use_mid_condition=True,
         use_up_condition=True,
+        use_group_norm=True,
         ):
         super().__init__()
         self.condition_type = condition_type
@@ -192,12 +196,12 @@ class ConditionalUnet1D(nn.Module):
                 ConditionalResidualBlock1D(
                     dim_in, dim_out, cond_dim=cond_dim, 
                     kernel_size=kernel_size, n_groups=n_groups,
-                    condition_type=condition_type),
+                    condition_type=condition_type, use_group_norm=use_group_norm),
                 # up encoder
                 ConditionalResidualBlock1D(
                     dim_in, dim_out, cond_dim=cond_dim, 
                     kernel_size=kernel_size, n_groups=n_groups,
-                    condition_type=condition_type)
+                    condition_type=condition_type, use_group_norm=use_group_norm)
             ])
 
         mid_dim = all_dims[-1]
@@ -205,12 +209,12 @@ class ConditionalUnet1D(nn.Module):
             ConditionalResidualBlock1D(
                 mid_dim, mid_dim, cond_dim=cond_dim,
                 kernel_size=kernel_size, n_groups=n_groups,
-                condition_type=condition_type
+                condition_type=condition_type, use_group_norm=use_group_norm
             ),
             ConditionalResidualBlock1D(
                 mid_dim, mid_dim, cond_dim=cond_dim,
                 kernel_size=kernel_size, n_groups=n_groups,
-                condition_type=condition_type
+                condition_type=condition_type, use_group_norm=use_group_norm
             ),
         ])
 
@@ -221,11 +225,11 @@ class ConditionalUnet1D(nn.Module):
                 ConditionalResidualBlock1D(
                     dim_in, dim_out, cond_dim=cond_dim, 
                     kernel_size=kernel_size, n_groups=n_groups,
-                    condition_type=condition_type),
+                    condition_type=condition_type, use_group_norm=use_group_norm),
                 ConditionalResidualBlock1D(
                     dim_out, dim_out, cond_dim=cond_dim, 
                     kernel_size=kernel_size, n_groups=n_groups,
-                    condition_type=condition_type),
+                    condition_type=condition_type, use_group_norm=use_group_norm),
                 Downsample1d(dim_out) if not is_last else nn.Identity()
             ]))
 
@@ -236,11 +240,11 @@ class ConditionalUnet1D(nn.Module):
                 ConditionalResidualBlock1D(
                     dim_out*2, dim_in, cond_dim=cond_dim,
                     kernel_size=kernel_size, n_groups=n_groups,
-                    condition_type=condition_type),
+                    condition_type=condition_type, use_group_norm=use_group_norm),
                 ConditionalResidualBlock1D(
                     dim_in, dim_in, cond_dim=cond_dim,
                     kernel_size=kernel_size, n_groups=n_groups,
-                    condition_type=condition_type),
+                    condition_type=condition_type, use_group_norm=use_group_norm),
                 Upsample1d(dim_in) if not is_last else nn.Identity()
             ]))
         

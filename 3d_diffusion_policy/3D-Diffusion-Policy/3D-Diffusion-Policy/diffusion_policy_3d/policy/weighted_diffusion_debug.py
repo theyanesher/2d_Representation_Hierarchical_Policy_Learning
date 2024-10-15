@@ -13,13 +13,16 @@ import einops
 from diffusion_policy_3d.policy.base_policy import BasePolicy
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.model.vision.act3d_encoder import Act3dEncoder
-from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2
+from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2, PointNet2_no_batch_norm
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.common.model_util import print_params
 from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.model.diffusion.conditional_unet1d_4_weighted_diffusion import WeightsModel
+
+from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule
+
 
 class WeightedDiffusion(BasePolicy):
     def __init__(self, 
@@ -62,6 +65,8 @@ class WeightedDiffusion(BasePolicy):
         self.encoder_type = encoder_type
 
         assert prediction_target == "goal_gripper_pcd", f"Unsupported prediction target {prediction_target}"
+        cprint(f"PointNet2 encoder output dim: 13!!!!!", "yellow")
+        encoder_output_dim = 13
 
         action_shape = shape_meta[self.prediction_target]['shape']
         self.action_shape = action_shape
@@ -81,30 +86,32 @@ class WeightedDiffusion(BasePolicy):
         self.encoder_output_dim = encoder_output_dim
         self.noise_model_type = noise_model_type
 
+        obs_separate_encoder_pointnet = PointNet2_no_batch_norm(num_classes=64)
+        self.separate_obs_encoder_pointnet = obs_separate_encoder_pointnet  
+        self.separate_encoder_output_dim = 64
 
         obs_feature_dim = encoder_output_dim
         cprint("Using down_dims= (128, 128, 128)", "yellow")
         model = ConditionalUnet1D(
             input_dim=input_dim, # 12
-            global_cond_dim=encoder_output_dim, # for every point, use its own feature too
+            global_cond_dim=encoder_output_dim-1 + self.separate_encoder_output_dim, # for every point, use its own feature
             diffusion_step_embed_dim=diffusion_step_embed_dim, 
             down_dims=(128,128,128),
             kernel_size=kernel_size,
             n_groups=n_groups,
+            use_group_norm=False,
         )
-
         global_cond_dim = 0
 
-        weights_model = WeightsModel(
-            input_dim=input_dim * horizon + global_cond_dim + encoder_output_dim, # for every point, use current noise displacement, global feature, own feature to predict weight
-        )
-
-        if self.encoder_type == "act3d":
-            model = replace_bn_with_gn(model)
-            weights_model = replace_bn_with_gn(weights_model)
+        model = replace_bn_with_gn(model)
+        # self.obs_encoder_pointnet = replace_bn_with_gn(self.obs_encoder_pointnet, features_per_group=4)
+        self.obs_encoder_pointnet.load_state_dict(torch.load("/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-19_use_75_episodes_300-obj/model_39.pth"))
+        self.obs_encoder_pointnet.eval()
+        for param in self.obs_encoder_pointnet.parameters():
+            param.requires_grad = False
 
         self.model = model
-        self.weights_model = weights_model
+        # self.weights_model = weights_model
         self.obs_encoder = None
         self.noise_scheduler = noise_scheduler
 
@@ -170,7 +177,10 @@ class WeightedDiffusion(BasePolicy):
 
         return trajectory
 
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def predict_action(self, obs_dict: Dict[str, torch.Tensor], pdb=False) -> Dict[str, torch.Tensor]:
+        
+        if pdb:
+            import pdb; pdb.set_trace()
         nobs = obs_dict
         value = next(iter(nobs.values()))
         batch_size, To = value.shape[:2]
@@ -179,11 +189,9 @@ class WeightedDiffusion(BasePolicy):
         Do = self.obs_feature_dim
         To = self.n_obs_steps
         
-        this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
-
+        this_nobs = dict_apply(nobs, lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
         this_n_point_cloud = this_nobs['point_cloud'].reshape(batch_size,-1, *this_nobs['point_cloud'].shape[1:])
         this_n_point_cloud = this_n_point_cloud[..., :3] # B, Do, N, 3
-
         diffuse_obj_point_cloud = this_n_point_cloud[:, -1, :, :] # B, N, 3
         diffuse_gripper_point = this_nobs['gripper_pcd'].reshape(batch_size,-1, *this_nobs['gripper_pcd'].shape[1:])
         diffuse_gripper_point = diffuse_gripper_point[..., :3]
@@ -192,27 +200,67 @@ class WeightedDiffusion(BasePolicy):
         diffuse_point_cloud = torch.cat([diffuse_obj_point_cloud, diffuse_gripper_point], dim=1) # B, N+4, 3
         num_scene_points = diffuse_point_cloud.shape[1]
 
-        global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, encoder_output_dim
+        global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
+        
+        if pdb:
+            import pdb; pdb.set_trace()
+            
+        ### get the pretrained pointnet++ prediction
+        # outputs = global_cond
+        # weights = outputs[:, :, -1] # B, N
+        # outputs = outputs[:, :, :-1] # B, N, 12
+
+        # B, N, _ = outputs.shape
+        # outputs = outputs.view(B, N, 4, 3)
+            
+        # inputs = diffuse_point_cloud
+        # outputs = outputs + inputs.unsqueeze(2)
+        # weights = torch.nn.functional.softmax(weights, dim=1)
+        # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+        # outputs = outputs.sum(dim=1)
+        
+        # labels = this_nobs['goal_gripper_pcd'].reshape(B, 2, 12)[:, 0]
+        # outputs = outputs.reshape(B, -1)
+        # outputs = outputs.reshape(B, 4, 3)
+        # labels = labels.reshape(B, 4 ,3)
+        # error = torch.linalg.norm(outputs - labels, dim=-1).mean()
+        # cprint("in predict action, pretrained pointnet++ prediction loss is {}".format(error), 'yellow')
+        #######
+        
+        weights = global_cond[:, :, -1] # B, N+4
+        global_cond = global_cond[:, :, :-1]
         global_cond = global_cond.reshape(batch_size*num_scene_points, -1)
+        
+        
+        
+        ### add separate global conditioning
+        separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
+        separate_global_cond = separate_global_cond.reshape(batch_size*num_scene_points, -1)
+        global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
+        ###
+        
+        if pdb:
+            import pdb; pdb.set_trace()
 
         cond_data = torch.zeros(batch_size*num_scene_points, horizon, 12, device=value.device) # B*(N+4), T, 12
         cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
-        denoised_trajectory = self.conditional_sample(
-            condition_data=cond_data, condition_mask=cond_mask,
-            local_cond=None, global_cond=global_cond,
-            **self.kwargs) # B*N, T, 12
+        denoised_trajectory = self.conditional_sample(condition_data=cond_data, condition_mask=cond_mask, local_cond=None, global_cond=global_cond, **self.kwargs) # B*N, T, 12
+
+        if pdb:
+            import pdb; pdb.set_trace()
+
         denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, horizon, 12)
         denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, horizon, 4, 3) # B, (N+4), T, 4, 3
         pred_goal_gripper_pcd = denoised_trajectory + diffuse_point_cloud.unsqueeze(2).unsqueeze(3).repeat(1, 1, horizon, 4, 1) # B, (N+4), T, 4, 3
         pred_goal_gripper_pcd = pred_goal_gripper_pcd.reshape(batch_size, num_scene_points, -1) # B, (N+4)`, T*4*3
 
-        weights = torch.cat([pred_goal_gripper_pcd, global_cond.reshape(batch_size, num_scene_points, -1)], dim=-1) # B, N+4, T*4*3 + 60
-        weights = self.weights_model(weights)
-        weights = weights[:, :, 0]
         weights = torch.nn.functional.softmax(weights, dim=1) # B, N+4
         pred_goal_gripper = (pred_goal_gripper_pcd * weights.unsqueeze(-1)).sum(dim=1) # B, T*4*3
         pred_goal_gripper = pred_goal_gripper.reshape(batch_size, horizon, 4, 3) # B, T, 4, 3
         pred_goal_gripper = pred_goal_gripper.reshape(batch_size, horizon, -1) # B, T, 12
+        
+        if pdb:
+            import pdb; pdb.set_trace()
 
         action_pred = pred_goal_gripper[...,:Da]
         start = To - 1
@@ -222,6 +270,8 @@ class WeightedDiffusion(BasePolicy):
         result = {
             'action': action,
             'action_pred': action_pred,
+            # "outputs": outputs,
+            # 'error': error
         }
         
         return result
@@ -249,8 +299,7 @@ class WeightedDiffusion(BasePolicy):
         batch_size = nactions.shape[0]
         horizon = nactions.shape[1]
 
-        this_nobs = dict_apply(nobs, 
-            lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
+        this_nobs = dict_apply(nobs, lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
 
         
         this_n_point_cloud = this_nobs['point_cloud'].reshape(batch_size,-1, *this_nobs['point_cloud'].shape[1:])
@@ -264,9 +313,39 @@ class WeightedDiffusion(BasePolicy):
         diffuse_point_cloud = torch.cat([diffuse_obj_point_cloud, diffuse_gripper_point], dim=1) # B, N+4, 3
         num_scene_points = diffuse_point_cloud.shape[1]
 
-        global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, encoder_output_dim
-        global_cond = global_cond.reshape(batch_size*num_scene_points, -1)
+        global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
+        separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
+        
+        ### perform an infer using the pointnet++ output here
+        # import pdb; pdb.set_trace()
+        # outputs = global_cond
+        # weights = outputs[:, :, -1] # B, N
+        # outputs = outputs[:, :, :-1] # B, N, 12
 
+        # B, N, _ = outputs.shape
+        # outputs = outputs.view(B, N, 4, 3)
+            
+        # inputs = diffuse_point_cloud
+        # outputs = outputs + inputs.unsqueeze(2)
+        # weights = torch.nn.functional.softmax(weights, dim=1)
+        # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+        # outputs = outputs.sum(dim=1)
+        
+        # labels = nactions[:, 0]
+        # outputs = outputs.reshape(B, -1)
+        # error = ((outputs - labels) ** 2).mean()
+        # cprint("in computing loss, pretrained pointnet++ prediction loss is {}".format(error), 'green')
+        ##### 
+        
+        weights = global_cond[:, :, -1] # B, N+4
+        global_cond = global_cond[:, :, :-1]
+        global_cond = global_cond.reshape(batch_size*num_scene_points, -1) # B*(N+4), 12
+        
+        ### add separate global conditioning
+        separate_global_cond = separate_global_cond.reshape(batch_size*num_scene_points, -1)
+        global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
+        ### 
+        
         action = batch['obs'][self.prediction_target]
         action = einops.rearrange(action, 'b t n d -> b (t n) d')
         action = action.unsqueeze(1).repeat(1, diffuse_point_cloud.shape[1], 1, 1) # B, N+4, T*4, 3
@@ -329,9 +408,6 @@ class WeightedDiffusion(BasePolicy):
 
         pred_goal_gripper_pcd = pred_goal_gripper_pcd.reshape(batch_size, num_scene_points, -1) # B, N+4, T*4*3
 
-        weights = torch.cat([pred_goal_gripper_pcd, global_cond.reshape(batch_size, num_scene_points, -1)], dim=-1) # B, N+4, T*4*3 + 60
-        weights = self.weights_model(weights)
-        weights = weights[:, :, 0]
         weights = torch.nn.functional.softmax(weights, dim=1) # B, N+4
         pred_goal_gripper = (pred_goal_gripper_pcd * weights.unsqueeze(-1)).sum(dim=1) # B, T*4*3
         pred_goal_gripper = pred_goal_gripper.reshape(batch_size, horizon, 4, 3) # B, T, 4, 3

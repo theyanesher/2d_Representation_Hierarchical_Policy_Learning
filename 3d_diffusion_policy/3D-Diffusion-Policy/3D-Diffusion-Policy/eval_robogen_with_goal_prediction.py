@@ -4,7 +4,8 @@ import torch
 import dill
 from omegaconf import OmegaConf
 import pathlib
-from train import TrainDP3Workspace
+# from train import TrainDP3Workspace
+from train_ddp import TrainDP3Workspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from manipulation.utils import build_up_env, save_numpy_as_gif, save_env
 import pybullet as p
@@ -191,8 +192,6 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                     
                     with torch.no_grad():
                         predicted_goal = goal_policy.predict_action(high_level_parallel_input_dict)
-                    np_predicted_goal = dict_apply(predicted_goal, lambda x: x.detach().to('cpu').numpy())
-                    np_predicted_goal = np_predicted_goal['action']
                     
                     if goal_cfg.policy.prediction_target == 'goal_gripper_pcd':
                         parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
@@ -212,12 +211,14 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
 
                 obs, reward, done, info = env.step(np_batched_action.squeeze(0))
                 if calculate_distance_from_gt:
-                    predicted_goal = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[1].reshape(4, 3)
+                    predicted_goal = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[0].reshape(4, 3)
                     gt_goal = env.env.goal_gripper_pcd
                     distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
                     all_distances.append(distance)
                     grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
                     all_grasp_distances.append(grasp_distance)
+                    print("grasp distance: ", grasp_distance)
+                    print("distance: ", distance)
                     rgb = env.env.render()
                     for point in predicted_goal:
                         pixel_x, pixel_y, _ = get_pixel_location(env.env._env.projection_matrix, env.env._env.view_matrix, point, env.env._env.camera_width, env.env._env.camera_height)
@@ -281,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--random_object_translation", type=bool, default=False)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
+    parser.add_argument("--calculate_distance_from_gt", type=bool, default=False)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
 
     args = parser.parse_args()
@@ -290,7 +292,7 @@ if __name__ == "__main__":
     
     ### This is the default best low level 50 objects best policy
     if args.low_level_exp_dir is None:
-        exp_dir =  "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
+        exp_dir =  "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
         checkpoint_name = 'latest.ckpt'
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
@@ -315,6 +317,7 @@ if __name__ == "__main__":
     ### these are the test objects
     if not args.test_cross_category:
         cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+        # cfg.task.env_runner.experiment_name = ["0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"]
         cfg.task.env_runner.experiment_folder = [
             'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
@@ -326,6 +329,8 @@ if __name__ == "__main__":
             'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
             'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+            
+            # "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle"
         ]
         cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     else:
@@ -397,4 +402,5 @@ if __name__ == "__main__":
             exp_end_idx=25,
             obj_translation=args.noise,
             use_predicted_goal=args.use_predicted_goal,
+            calculate_distance_from_gt=args.calculate_distance_from_gt,
     )
