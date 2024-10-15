@@ -126,6 +126,127 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             goal_gripper_pcd = src_root['data']['goal_gripper_pcd'][:][0]
 
         return pointcloud, gripper_pcd, goal_gripper_pcd
+    
+class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
+    def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False):
+        self.all_obj_paths = all_obj_paths
+        self.beg_ratio = beg_ratio
+        self.end_ratio = end_ratio
+        self.is_pickle = is_pickle
+        self.use_all_data = use_all_data
+        
+        if only_first_stage:
+            cprint('======= ONLY FIRST STAGE =======', 'red')
+
+        if eval_episode is not None:
+            cprint('======= EVAL MODE =======', 'red')
+            cprint(f'Only evaluating the first observation of {eval_episode} episodes', 'red')
+
+        self.all_zarr_paths = []
+        for obj_path in all_obj_paths:
+            all_subfolder = os.listdir(obj_path)
+            for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
+                if s in all_subfolder:
+                    all_subfolder.remove(s)
+            all_subfolder = sorted(all_subfolder)
+            beg = int(beg_ratio * len(all_subfolder))
+            end = int(end_ratio * len(all_subfolder))
+            if not self.use_all_data:
+                end = min(end, 75)
+            if eval_episode is not None:
+                end = beg + eval_episode
+            all_subfolder = all_subfolder[beg:end]
+            self.all_zarr_paths += [os.path.join(obj_path, s) for s in all_subfolder]
+
+        cprint('Preparing all zarr paths', 'green')
+        self.episode_lengths = []
+        for idx, zarr_path in enumerate(tqdm(self.all_zarr_paths)):
+            if is_pickle:
+                all_substeps = os.listdir(zarr_path)
+                all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0]))
+                    
+                first_goal = None
+
+                for i, substep in enumerate(all_substeps):
+                    if eval_episode is not None and i >=1:
+                        self.episode_lengths.append(i)
+                        break
+
+                    substep_path = os.path.join(zarr_path, substep)
+                    data = pickle.load(open(substep_path, 'rb'))
+                    action = data['action'][:]
+
+                    current_goal = data['goal_gripper_pcd'][:]
+                    if first_goal is None:
+                        first_goal = current_goal
+                    elif only_first_stage and not np.allclose(first_goal, current_goal):
+                        self.episode_lengths.append(i)
+                        break
+
+            
+            else:
+                all_substeps = os.listdir(zarr_path)
+                all_substeps = sorted(all_substeps, key=lambda x: int(x))
+
+                first_goal = None
+
+                for i, substep in enumerate(all_substeps):
+                    
+                    if eval_episode is not None and i >=1:
+                        self.episode_lengths.append(i)
+                        break
+
+                    substep_path = os.path.join(zarr_path, substep)
+                    group = zarr.open(substep_path, 'r')
+                    src_store = group.store
+                    src_root = zarr.group(src_store)
+
+                    action = src_root['data']['action'][:]
+
+                    current_goal = src_root['data']['goal_gripper_pcd'][:]
+                    if first_goal is None:
+                        first_goal = current_goal
+                    elif only_first_stage and not np.allclose(first_goal, current_goal):
+                        self.episode_lengths.append(i)
+                        break
+
+            if not only_first_stage and eval_episode is None:
+                self.episode_lengths.append(len(all_substeps))
+
+        self.episode_lengths = np.array(self.episode_lengths)
+        self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
+        cprint(f'Finished preparing all zarr paths with total datapoints: {self.accumulated_episode_lengths[-1]}', 'green')
+
+    def __len__(self):
+        return len(self.episode_lengths) # num data points is just num trajectories
+
+    def __getitem__(self, idx):
+        episode_idx = idx
+        start_idx = 0
+        end_idx = self.episode_lengths[episode_idx] - 1
+
+        if self.is_pickle:
+            step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
+            data = pickle.load(open(step_path, 'rb'))
+            pointcloud = data['point_cloud'][:][0]
+            gripper_pcd = data['gripper_pcd'][:][0]
+            goal_gripper_pcd = data['goal_gripper_pcd'][:][0]
+
+            step_path_end = os.path.join(self.all_zarr_paths[episode_idx], str(end_idx) + '.pkl')
+            data_end = pickle.load(open(step_path_end, 'rb'))
+            goal_gripper_pcd_end = data_end['goal_gripper_pcd'][:][0]
+        else:
+            zarr_path = self.all_zarr_paths[episode_idx]
+            
+            step_path = os.path.join(zarr_path, str(start_idx))
+            group = zarr.open(step_path, 'r')
+            src_store = group.store
+            src_root = zarr.group(src_store)
+            pointcloud = src_root['data']['point_cloud'][:][0]
+            gripper_pcd = src_root['data']['gripper_pcd'][:][0]
+            goal_gripper_pcd = src_root['data']['goal_gripper_pcd'][:][0]
+
+        return pointcloud, gripper_pcd, np.concatenate([goal_gripper_pcd, goal_gripper_pcd_end], axis=0)
         
 def get_dataloader(all_obj_paths=None, batch_size=32, beg_ratio=0, end_ratio=0.9, shuffle=True, eval_episode=None, only_first_stage=False):
     if all_obj_paths is None:
@@ -426,6 +547,183 @@ save_data_name_284='0822-obj-7220'
 save_data_name_285='0822-obj-7263'
 save_data_name_286='0822-obj-7290'
 
+save_data_name_287="0815-obj-35059" 
+save_data_name_288="0815-obj-41004" 
+save_data_name_289="0815-obj-44781" 
+save_data_name_290="0815-obj-44826" 
+save_data_name_291="0815-obj-45087" 
+save_data_name_292="0815-obj-45092" 
+save_data_name_293="0815-obj-45130" 
+save_data_name_294="0815-obj-45135" 
+save_data_name_295="0815-obj-45164" 
+save_data_name_296="0815-obj-45168" 
+save_data_name_297="0815-obj-45173" 
+save_data_name_298="0815-obj-45189" 
+save_data_name_299="0815-obj-45212" 
+save_data_name_300="0815-obj-45213" 
+save_data_name_301="0815-obj-45247" 
+save_data_name_302="0815-obj-45261" 
+save_data_name_303="0815-obj-45267" 
+save_data_name_304="0815-obj-45354" 
+save_data_name_305="0815-obj-45387" 
+save_data_name_306="0815-obj-45413" 
+save_data_name_307="0815-obj-45419" 
+save_data_name_308="0815-obj-45420" 
+save_data_name_309="0815-obj-45423" 
+save_data_name_310="0815-obj-45503" 
+save_data_name_311="0815-obj-45505" 
+save_data_name_312="0815-obj-45524" 
+save_data_name_313="0815-obj-45573" 
+save_data_name_314="0815-obj-45575" 
+save_data_name_315="0815-obj-45594" 
+save_data_name_316="0815-obj-45606" 
+save_data_name_317="0815-obj-45620" 
+save_data_name_318="0815-obj-45623" 
+save_data_name_319="0815-obj-45638" 
+save_data_name_320="0815-obj-45645" 
+save_data_name_321="0815-obj-45662" 
+save_data_name_322="0815-obj-45677" 
+save_data_name_323="0815-obj-45699" 
+save_data_name_324="0815-obj-45746" 
+save_data_name_325="0815-obj-45783" 
+save_data_name_326="0815-obj-45790" 
+save_data_name_327="0815-obj-45822" 
+save_data_name_328="0815-obj-45853" 
+save_data_name_329="0815-obj-45855" 
+save_data_name_330="0815-obj-45936" 
+save_data_name_331="0815-obj-45937" 
+save_data_name_332="0815-obj-45948" 
+save_data_name_333="0815-obj-45963" 
+save_data_name_334="0815-obj-45964" 
+save_data_name_335="0815-obj-46029" 
+save_data_name_336="0815-obj-46037" 
+save_data_name_337="0815-obj-46060" 
+save_data_name_338="0815-obj-46092" 
+save_data_name_339="0815-obj-46117" 
+save_data_name_340="0815-obj-46120" 
+save_data_name_341="0815-obj-46132" 
+save_data_name_342="0815-obj-46179" 
+save_data_name_343="0815-obj-46197" 
+save_data_name_344="0815-obj-46430" 
+save_data_name_345="0815-obj-46456" 
+save_data_name_346="0815-obj-46537" 
+save_data_name_347="0815-obj-46556" 
+save_data_name_348="0815-obj-46616" 
+save_data_name_349="0815-obj-46699" 
+save_data_name_350="0815-obj-46744" 
+save_data_name_351="0815-obj-46847" 
+save_data_name_352="0815-obj-46889" 
+save_data_name_353="0815-obj-46906" 
+save_data_name_354="0815-obj-47024" 
+save_data_name_355="0815-obj-47178" 
+save_data_name_356="0815-obj-47207" 
+save_data_name_357="0815-obj-47227" 
+save_data_name_358="0815-obj-47252" 
+save_data_name_359="0815-obj-47296" 
+save_data_name_360="0815-obj-47419" 
+save_data_name_361="0815-obj-47438" 
+save_data_name_362="0815-obj-47577" 
+save_data_name_363="0815-obj-47595" 
+save_data_name_364="0815-obj-47601" 
+save_data_name_365="0815-obj-47613" 
+save_data_name_366="0815-obj-47632" 
+save_data_name_367="0815-obj-47729" 
+save_data_name_368="0815-obj-47742" 
+save_data_name_369="0815-obj-47747" 
+save_data_name_370="0815-obj-47808" 
+save_data_name_371="0815-obj-47853" 
+save_data_name_372="0815-obj-47976" 
+save_data_name_373="0815-obj-48010" 
+save_data_name_374="0815-obj-48023" 
+save_data_name_375="0815-obj-48258" 
+save_data_name_376="0815-obj-48271" 
+save_data_name_377="0815-obj-48379" 
+save_data_name_378="0815-obj-48413" 
+save_data_name_379="0815-obj-48452" 
+save_data_name_380="0815-obj-48467" 
+save_data_name_381="0815-obj-48490" 
+save_data_name_382="0815-obj-48513" 
+save_data_name_383="0815-obj-48517" 
+save_data_name_384="0815-obj-48721" 
+save_data_name_385="0815-obj-48740" 
+save_data_name_386="0815-obj-48746" 
+save_data_name_387="0815-obj-48797" 
+save_data_name_388="0815-obj-48855" 
+save_data_name_389="0815-obj-48859" 
+save_data_name_390="0815-obj-48878" 
+save_data_name_391="0815-obj-49188" 
+save_data_name_392="0826-obj-44781" 
+save_data_name_393="0826-obj-45092" 
+save_data_name_394="0826-obj-45135" 
+save_data_name_395="0826-obj-45159" 
+save_data_name_396="0826-obj-45213" 
+save_data_name_397="0826-obj-45247" 
+save_data_name_398="0826-obj-45261" 
+save_data_name_399="0826-obj-45354" 
+save_data_name_400="0826-obj-45372" 
+save_data_name_401="0826-obj-45387" 
+save_data_name_402="0826-obj-45423" 
+save_data_name_403="0826-obj-45575" 
+save_data_name_404="0826-obj-45606" 
+save_data_name_405="0826-obj-45621" 
+save_data_name_406="0826-obj-45638" 
+save_data_name_407="0826-obj-45645" 
+save_data_name_408="0826-obj-45662" 
+save_data_name_409="0826-obj-45676" 
+save_data_name_410="0826-obj-45677" 
+save_data_name_411="0826-obj-45746" 
+save_data_name_412="0826-obj-45790" 
+save_data_name_413="0826-obj-45853" 
+save_data_name_414="0826-obj-45855" 
+save_data_name_415="0826-obj-45915" 
+save_data_name_416="0826-obj-45963" 
+save_data_name_417="0826-obj-45964" 
+save_data_name_418="0826-obj-46002" 
+save_data_name_419="0826-obj-46029" 
+save_data_name_420="0826-obj-46033" 
+save_data_name_421="0826-obj-46037" 
+save_data_name_422="0826-obj-46044" 
+save_data_name_423="0826-obj-46060" 
+save_data_name_424="0826-obj-46117" 
+save_data_name_425="0826-obj-46120" 
+save_data_name_426="0826-obj-46179" 
+save_data_name_427="0826-obj-46430" 
+save_data_name_428="0826-obj-46439" 
+save_data_name_429="0826-obj-46537" 
+save_data_name_430="0826-obj-46616" 
+save_data_name_431="0826-obj-46699" 
+save_data_name_432="0826-obj-46847" 
+save_data_name_433="0826-obj-46856" 
+save_data_name_434="0826-obj-46859" 
+save_data_name_435="0826-obj-46889" 
+save_data_name_436="0826-obj-46955" 
+save_data_name_437="0826-obj-47024" 
+save_data_name_438="0826-obj-47088" 
+save_data_name_439="0826-obj-47089" 
+save_data_name_440="0826-obj-47207" 
+save_data_name_441="0826-obj-47233" 
+save_data_name_442="0826-obj-47252" 
+save_data_name_443="0826-obj-47296" 
+save_data_name_444="0826-obj-47388" 
+save_data_name_445="0826-obj-47419" 
+save_data_name_446="0826-obj-47595" 
+save_data_name_447="0826-obj-47601" 
+save_data_name_448="0826-obj-47613" 
+save_data_name_449="0826-obj-47632" 
+save_data_name_450="0826-obj-47701" 
+save_data_name_451="0826-obj-47729" 
+save_data_name_452="0826-obj-47853" 
+save_data_name_453="0826-obj-48023" 
+save_data_name_454="0826-obj-48271" 
+save_data_name_455="0826-obj-48413" 
+save_data_name_456="0826-obj-48467" 
+save_data_name_457="0826-obj-48490" 
+save_data_name_458="0826-obj-48491" 
+save_data_name_459="0826-obj-48513" 
+save_data_name_460="0826-obj-48517" 
+save_data_name_461="0826-obj-48721" 
+save_data_name_462="0826-obj-48740"
+
 def get_dataloader_from_pickle(all_obj_paths=None, batch_size=32, beg_ratio=0, end_ratio=0.9, shuffle=True, eval_episode=None, only_first_stage=False):
     dataset_prefix='/scratch/chialiang/dp3_demo'
     if all_obj_paths is None:
@@ -452,7 +750,7 @@ def get_dataloader_from_pickle(all_obj_paths=None, batch_size=32, beg_ratio=0, e
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True)    
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200):
+def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, predict_two_goals=False):
     
     if dataset_prefix is None:
         dataset_prefix='/scratch/chialiang/dp3_demo'
@@ -511,7 +809,43 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             f'{dataset_prefix}/{save_data_name_260}', f'{dataset_prefix}/{save_data_name_261}', f'{dataset_prefix}/{save_data_name_262}', f'{dataset_prefix}/{save_data_name_263}', f'{dataset_prefix}/{save_data_name_264}', f'{dataset_prefix}/{save_data_name_265}', f'{dataset_prefix}/{save_data_name_266}', f'{dataset_prefix}/{save_data_name_267}', f'{dataset_prefix}/{save_data_name_268}', f'{dataset_prefix}/{save_data_name_269}',
             f'{dataset_prefix}/{save_data_name_270}', f'{dataset_prefix}/{save_data_name_271}', f'{dataset_prefix}/{save_data_name_272}', f'{dataset_prefix}/{save_data_name_273}', f'{dataset_prefix}/{save_data_name_274}', f'{dataset_prefix}/{save_data_name_275}', f'{dataset_prefix}/{save_data_name_276}', f'{dataset_prefix}/{save_data_name_277}', f'{dataset_prefix}/{save_data_name_278}', f'{dataset_prefix}/{save_data_name_279}',
             f'{dataset_prefix}/{save_data_name_280}', f'{dataset_prefix}/{save_data_name_281}', f'{dataset_prefix}/{save_data_name_282}', f'{dataset_prefix}/{save_data_name_283}', f'{dataset_prefix}/{save_data_name_284}', f'{dataset_prefix}/{save_data_name_285}', f'{dataset_prefix}/{save_data_name_286}']
+        elif num_train_objects == 500:
+            all_obj_paths = [f'{dataset_prefix}/{save_data_name_0}', f'{dataset_prefix}/{save_data_name_1}', f'{dataset_prefix}/{save_data_name_2}', f'{dataset_prefix}/{save_data_name_3}', f'{dataset_prefix}/{save_data_name_4}', f'{dataset_prefix}/{save_data_name_5}', f'{dataset_prefix}/{save_data_name_6}', f'{dataset_prefix}/{save_data_name_7}', f'{dataset_prefix}/{save_data_name_8}', f'{dataset_prefix}/{save_data_name_9}', 
+            f'{dataset_prefix}/{save_data_name_10}', f'{dataset_prefix}/{save_data_name_11}', f'{dataset_prefix}/{save_data_name_12}', f'{dataset_prefix}/{save_data_name_13}', f'{dataset_prefix}/{save_data_name_14}', f'{dataset_prefix}/{save_data_name_15}', f'{dataset_prefix}/{save_data_name_16}', f'{dataset_prefix}/{save_data_name_17}', f'{dataset_prefix}/{save_data_name_18}', f'{dataset_prefix}/{save_data_name_19}', 
+            f'{dataset_prefix}/{save_data_name_20}', f'{dataset_prefix}/{save_data_name_21}', f'{dataset_prefix}/{save_data_name_22}', f'{dataset_prefix}/{save_data_name_23}', f'{dataset_prefix}/{save_data_name_24}', f'{dataset_prefix}/{save_data_name_25}', f'{dataset_prefix}/{save_data_name_26}', f'{dataset_prefix}/{save_data_name_27}', f'{dataset_prefix}/{save_data_name_28}', f'{dataset_prefix}/{save_data_name_29}', 
+            f'{dataset_prefix}/{save_data_name_30}', f'{dataset_prefix}/{save_data_name_31}', f'{dataset_prefix}/{save_data_name_32}', f'{dataset_prefix}/{save_data_name_33}', f'{dataset_prefix}/{save_data_name_34}', f'{dataset_prefix}/{save_data_name_35}', f'{dataset_prefix}/{save_data_name_36}', f'{dataset_prefix}/{save_data_name_37}', f'{dataset_prefix}/{save_data_name_38}', f'{dataset_prefix}/{save_data_name_39}', 
+            f'{dataset_prefix}/{save_data_name_40}', f'{dataset_prefix}/{save_data_name_41}', f'{dataset_prefix}/{save_data_name_42}', f'{dataset_prefix}/{save_data_name_43}', f'{dataset_prefix}/{save_data_name_44}', f'{dataset_prefix}/{save_data_name_45}', f'{dataset_prefix}/{save_data_name_46}', f'{dataset_prefix}/{save_data_name_47}', f'{dataset_prefix}/{save_data_name_48}', f'{dataset_prefix}/{save_data_name_49}',
+            f'{dataset_prefix}/{save_data_name_50}', f'{dataset_prefix}/{save_data_name_51}', f'{dataset_prefix}/{save_data_name_52}', f'{dataset_prefix}/{save_data_name_53}', f'{dataset_prefix}/{save_data_name_54}', f'{dataset_prefix}/{save_data_name_55}', f'{dataset_prefix}/{save_data_name_56}', f'{dataset_prefix}/{save_data_name_57}', f'{dataset_prefix}/{save_data_name_58}', f'{dataset_prefix}/{save_data_name_59}',
+            f'{dataset_prefix}/{save_data_name_60}', f'{dataset_prefix}/{save_data_name_61}', f'{dataset_prefix}/{save_data_name_62}', f'{dataset_prefix}/{save_data_name_63}', f'{dataset_prefix}/{save_data_name_64}', f'{dataset_prefix}/{save_data_name_65}', f'{dataset_prefix}/{save_data_name_66}', f'{dataset_prefix}/{save_data_name_67}', f'{dataset_prefix}/{save_data_name_68}', f'{dataset_prefix}/{save_data_name_69}',
+            f'{dataset_prefix}/{save_data_name_70}', f'{dataset_prefix}/{save_data_name_71}', f'{dataset_prefix}/{save_data_name_72}', f'{dataset_prefix}/{save_data_name_73}', f'{dataset_prefix}/{save_data_name_74}', f'{dataset_prefix}/{save_data_name_75}', f'{dataset_prefix}/{save_data_name_76}', f'{dataset_prefix}/{save_data_name_77}', f'{dataset_prefix}/{save_data_name_78}', f'{dataset_prefix}/{save_data_name_79}',
+            f'{dataset_prefix}/{save_data_name_80}', f'{dataset_prefix}/{save_data_name_81}', f'{dataset_prefix}/{save_data_name_82}', f'{dataset_prefix}/{save_data_name_83}', f'{dataset_prefix}/{save_data_name_84}', f'{dataset_prefix}/{save_data_name_85}', f'{dataset_prefix}/{save_data_name_86}', f'{dataset_prefix}/{save_data_name_87}', f'{dataset_prefix}/{save_data_name_88}', f'{dataset_prefix}/{save_data_name_89}',
+            f'{dataset_prefix}/{save_data_name_90}', f'{dataset_prefix}/{save_data_name_91}', f'{dataset_prefix}/{save_data_name_92}', f'{dataset_prefix}/{save_data_name_93}', f'{dataset_prefix}/{save_data_name_94}', f'{dataset_prefix}/{save_data_name_95}', f'{dataset_prefix}/{save_data_name_96}', f'{dataset_prefix}/{save_data_name_97}', f'{dataset_prefix}/{save_data_name_98}', f'{dataset_prefix}/{save_data_name_99}',
+            f'{dataset_prefix}/{save_data_name_100}', f'{dataset_prefix}/{save_data_name_101}', f'{dataset_prefix}/{save_data_name_102}', f'{dataset_prefix}/{save_data_name_103}', f'{dataset_prefix}/{save_data_name_104}', f'{dataset_prefix}/{save_data_name_105}', f'{dataset_prefix}/{save_data_name_106}', f'{dataset_prefix}/{save_data_name_107}', f'{dataset_prefix}/{save_data_name_108}', f'{dataset_prefix}/{save_data_name_109}',
+            f'{dataset_prefix}/{save_data_name_110}', f'{dataset_prefix}/{save_data_name_111}', f'{dataset_prefix}/{save_data_name_112}', f'{dataset_prefix}/{save_data_name_113}', f'{dataset_prefix}/{save_data_name_114}', f'{dataset_prefix}/{save_data_name_115}', f'{dataset_prefix}/{save_data_name_116}', f'{dataset_prefix}/{save_data_name_117}', f'{dataset_prefix}/{save_data_name_118}', f'{dataset_prefix}/{save_data_name_119}',
+            f'{dataset_prefix}/{save_data_name_120}', f'{dataset_prefix}/{save_data_name_121}', f'{dataset_prefix}/{save_data_name_122}', f'{dataset_prefix}/{save_data_name_123}', f'{dataset_prefix}/{save_data_name_124}', f'{dataset_prefix}/{save_data_name_125}', f'{dataset_prefix}/{save_data_name_126}', f'{dataset_prefix}/{save_data_name_127}', f'{dataset_prefix}/{save_data_name_128}', f'{dataset_prefix}/{save_data_name_129}',
+            f'{dataset_prefix}/{save_data_name_130}', f'{dataset_prefix}/{save_data_name_131}', f'{dataset_prefix}/{save_data_name_132}', f'{dataset_prefix}/{save_data_name_133}', f'{dataset_prefix}/{save_data_name_134}', f'{dataset_prefix}/{save_data_name_135}', f'{dataset_prefix}/{save_data_name_136}', f'{dataset_prefix}/{save_data_name_137}', f'{dataset_prefix}/{save_data_name_138}', f'{dataset_prefix}/{save_data_name_139}',
+            f'{dataset_prefix}/{save_data_name_140}', f'{dataset_prefix}/{save_data_name_141}', f'{dataset_prefix}/{save_data_name_142}', f'{dataset_prefix}/{save_data_name_143}', f'{dataset_prefix}/{save_data_name_144}', f'{dataset_prefix}/{save_data_name_145}', f'{dataset_prefix}/{save_data_name_146}', f'{dataset_prefix}/{save_data_name_147}', f'{dataset_prefix}/{save_data_name_148}', f'{dataset_prefix}/{save_data_name_149}',
+            f'{dataset_prefix}/{save_data_name_150}', f'{dataset_prefix}/{save_data_name_151}', f'{dataset_prefix}/{save_data_name_152}', f'{dataset_prefix}/{save_data_name_153}', f'{dataset_prefix}/{save_data_name_154}', f'{dataset_prefix}/{save_data_name_155}', f'{dataset_prefix}/{save_data_name_156}', f'{dataset_prefix}/{save_data_name_157}', f'{dataset_prefix}/{save_data_name_158}', f'{dataset_prefix}/{save_data_name_159}',
+            f'{dataset_prefix}/{save_data_name_160}', f'{dataset_prefix}/{save_data_name_161}', f'{dataset_prefix}/{save_data_name_162}', f'{dataset_prefix}/{save_data_name_163}', f'{dataset_prefix}/{save_data_name_164}', f'{dataset_prefix}/{save_data_name_165}', f'{dataset_prefix}/{save_data_name_166}', f'{dataset_prefix}/{save_data_name_167}', f'{dataset_prefix}/{save_data_name_168}', f'{dataset_prefix}/{save_data_name_169}',
+            f'{dataset_prefix}/{save_data_name_170}', f'{dataset_prefix}/{save_data_name_171}', f'{dataset_prefix}/{save_data_name_172}', f'{dataset_prefix}/{save_data_name_173}', f'{dataset_prefix}/{save_data_name_174}', f'{dataset_prefix}/{save_data_name_175}', f'{dataset_prefix}/{save_data_name_176}', f'{dataset_prefix}/{save_data_name_177}', f'{dataset_prefix}/{save_data_name_178}', f'{dataset_prefix}/{save_data_name_179}',
+            f'{dataset_prefix}/{save_data_name_180}', f'{dataset_prefix}/{save_data_name_181}', f'{dataset_prefix}/{save_data_name_182}', f'{dataset_prefix}/{save_data_name_183}', f'{dataset_prefix}/{save_data_name_184}', f'{dataset_prefix}/{save_data_name_185}', f'{dataset_prefix}/{save_data_name_186}', f'{dataset_prefix}/{save_data_name_187}', f'{dataset_prefix}/{save_data_name_188}', f'{dataset_prefix}/{save_data_name_189}',
+            f'{dataset_prefix}/{save_data_name_190}', f'{dataset_prefix}/{save_data_name_191}', f'{dataset_prefix}/{save_data_name_192}', f'{dataset_prefix}/{save_data_name_193}', f'{dataset_prefix}/{save_data_name_194}', f'{dataset_prefix}/{save_data_name_195}', f'{dataset_prefix}/{save_data_name_196}', f'{dataset_prefix}/{save_data_name_197}', f'{dataset_prefix}/{save_data_name_198}', f'{dataset_prefix}/{save_data_name_199}',
+            f'{dataset_prefix}/{save_data_name_200}', f'{dataset_prefix}/{save_data_name_201}', f'{dataset_prefix}/{save_data_name_202}', f'{dataset_prefix}/{save_data_name_203}', f'{dataset_prefix}/{save_data_name_204}', f'{dataset_prefix}/{save_data_name_205}', f'{dataset_prefix}/{save_data_name_206}', f'{dataset_prefix}/{save_data_name_207}', f'{dataset_prefix}/{save_data_name_208}', f'{dataset_prefix}/{save_data_name_209}',
+            f'{dataset_prefix}/{save_data_name_210}', f'{dataset_prefix}/{save_data_name_211}', f'{dataset_prefix}/{save_data_name_212}', f'{dataset_prefix}/{save_data_name_213}', f'{dataset_prefix}/{save_data_name_214}', f'{dataset_prefix}/{save_data_name_215}', f'{dataset_prefix}/{save_data_name_216}', f'{dataset_prefix}/{save_data_name_217}', f'{dataset_prefix}/{save_data_name_218}', f'{dataset_prefix}/{save_data_name_219}',
+            f'{dataset_prefix}/{save_data_name_220}', f'{dataset_prefix}/{save_data_name_221}', f'{dataset_prefix}/{save_data_name_222}', f'{dataset_prefix}/{save_data_name_223}', f'{dataset_prefix}/{save_data_name_224}', f'{dataset_prefix}/{save_data_name_225}', f'{dataset_prefix}/{save_data_name_226}', f'{dataset_prefix}/{save_data_name_227}', f'{dataset_prefix}/{save_data_name_228}', f'{dataset_prefix}/{save_data_name_229}',
+            f'{dataset_prefix}/{save_data_name_230}', f'{dataset_prefix}/{save_data_name_231}', f'{dataset_prefix}/{save_data_name_232}', f'{dataset_prefix}/{save_data_name_233}', f'{dataset_prefix}/{save_data_name_234}', f'{dataset_prefix}/{save_data_name_235}', f'{dataset_prefix}/{save_data_name_236}', f'{dataset_prefix}/{save_data_name_237}', f'{dataset_prefix}/{save_data_name_238}', f'{dataset_prefix}/{save_data_name_239}',
+            f'{dataset_prefix}/{save_data_name_240}', f'{dataset_prefix}/{save_data_name_241}', f'{dataset_prefix}/{save_data_name_242}', f'{dataset_prefix}/{save_data_name_243}', f'{dataset_prefix}/{save_data_name_244}', f'{dataset_prefix}/{save_data_name_245}', f'{dataset_prefix}/{save_data_name_246}', f'{dataset_prefix}/{save_data_name_247}', f'{dataset_prefix}/{save_data_name_248}', f'{dataset_prefix}/{save_data_name_249}',
+            f'{dataset_prefix}/{save_data_name_250}', f'{dataset_prefix}/{save_data_name_251}', f'{dataset_prefix}/{save_data_name_252}', f'{dataset_prefix}/{save_data_name_253}', f'{dataset_prefix}/{save_data_name_254}', f'{dataset_prefix}/{save_data_name_255}', f'{dataset_prefix}/{save_data_name_256}', f'{dataset_prefix}/{save_data_name_257}', f'{dataset_prefix}/{save_data_name_258}', f'{dataset_prefix}/{save_data_name_259}',
+            f'{dataset_prefix}/{save_data_name_260}', f'{dataset_prefix}/{save_data_name_261}', f'{dataset_prefix}/{save_data_name_262}', f'{dataset_prefix}/{save_data_name_263}', f'{dataset_prefix}/{save_data_name_264}', f'{dataset_prefix}/{save_data_name_265}', f'{dataset_prefix}/{save_data_name_266}', f'{dataset_prefix}/{save_data_name_267}', f'{dataset_prefix}/{save_data_name_268}', f'{dataset_prefix}/{save_data_name_269}',
+            f'{dataset_prefix}/{save_data_name_270}', f'{dataset_prefix}/{save_data_name_271}', f'{dataset_prefix}/{save_data_name_272}', f'{dataset_prefix}/{save_data_name_273}', f'{dataset_prefix}/{save_data_name_274}', f'{dataset_prefix}/{save_data_name_275}', f'{dataset_prefix}/{save_data_name_276}', f'{dataset_prefix}/{save_data_name_277}', f'{dataset_prefix}/{save_data_name_278}', f'{dataset_prefix}/{save_data_name_279}',
+            f'{dataset_prefix}/{save_data_name_280}', f'{dataset_prefix}/{save_data_name_281}', f'{dataset_prefix}/{save_data_name_282}', f'{dataset_prefix}/{save_data_name_283}', f'{dataset_prefix}/{save_data_name_284}', f'{dataset_prefix}/{save_data_name_285}', f'{dataset_prefix}/{save_data_name_286}',
+            f'{dataset_prefix}/{save_data_name_287}', f'{dataset_prefix}/{save_data_name_288}', f'{dataset_prefix}/{save_data_name_289}', f'{dataset_prefix}/{save_data_name_290}', f'{dataset_prefix}/{save_data_name_291}', f'{dataset_prefix}/{save_data_name_292}', f'{dataset_prefix}/{save_data_name_293}', f'{dataset_prefix}/{save_data_name_294}', f'{dataset_prefix}/{save_data_name_295}', f'{dataset_prefix}/{save_data_name_296}', f'{dataset_prefix}/{save_data_name_297}', f'{dataset_prefix}/{save_data_name_298}', f'{dataset_prefix}/{save_data_name_299}', f'{dataset_prefix}/{save_data_name_300}', f'{dataset_prefix}/{save_data_name_301}', f'{dataset_prefix}/{save_data_name_302}', f'{dataset_prefix}/{save_data_name_303}', f'{dataset_prefix}/{save_data_name_304}', f'{dataset_prefix}/{save_data_name_305}', f'{dataset_prefix}/{save_data_name_306}', f'{dataset_prefix}/{save_data_name_307}', f'{dataset_prefix}/{save_data_name_308}', f'{dataset_prefix}/{save_data_name_309}', f'{dataset_prefix}/{save_data_name_310}', f'{dataset_prefix}/{save_data_name_311}', f'{dataset_prefix}/{save_data_name_312}', f'{dataset_prefix}/{save_data_name_313}', f'{dataset_prefix}/{save_data_name_314}', f'{dataset_prefix}/{save_data_name_315}', f'{dataset_prefix}/{save_data_name_316}', f'{dataset_prefix}/{save_data_name_317}', f'{dataset_prefix}/{save_data_name_318}', f'{dataset_prefix}/{save_data_name_319}', f'{dataset_prefix}/{save_data_name_320}', f'{dataset_prefix}/{save_data_name_321}', f'{dataset_prefix}/{save_data_name_322}', f'{dataset_prefix}/{save_data_name_323}', f'{dataset_prefix}/{save_data_name_324}', f'{dataset_prefix}/{save_data_name_325}', f'{dataset_prefix}/{save_data_name_326}', f'{dataset_prefix}/{save_data_name_327}', f'{dataset_prefix}/{save_data_name_328}', f'{dataset_prefix}/{save_data_name_329}', f'{dataset_prefix}/{save_data_name_330}', f'{dataset_prefix}/{save_data_name_331}', f'{dataset_prefix}/{save_data_name_332}', f'{dataset_prefix}/{save_data_name_333}', f'{dataset_prefix}/{save_data_name_334}', f'{dataset_prefix}/{save_data_name_335}', f'{dataset_prefix}/{save_data_name_336}', f'{dataset_prefix}/{save_data_name_337}', f'{dataset_prefix}/{save_data_name_338}', f'{dataset_prefix}/{save_data_name_339}', f'{dataset_prefix}/{save_data_name_340}', f'{dataset_prefix}/{save_data_name_341}', f'{dataset_prefix}/{save_data_name_342}', f'{dataset_prefix}/{save_data_name_343}', f'{dataset_prefix}/{save_data_name_344}', f'{dataset_prefix}/{save_data_name_345}', f'{dataset_prefix}/{save_data_name_346}', f'{dataset_prefix}/{save_data_name_347}', f'{dataset_prefix}/{save_data_name_348}', f'{dataset_prefix}/{save_data_name_349}', f'{dataset_prefix}/{save_data_name_350}', f'{dataset_prefix}/{save_data_name_351}', f'{dataset_prefix}/{save_data_name_352}', f'{dataset_prefix}/{save_data_name_353}', f'{dataset_prefix}/{save_data_name_354}', f'{dataset_prefix}/{save_data_name_355}', f'{dataset_prefix}/{save_data_name_356}', f'{dataset_prefix}/{save_data_name_357}', f'{dataset_prefix}/{save_data_name_358}', f'{dataset_prefix}/{save_data_name_359}', f'{dataset_prefix}/{save_data_name_360}', f'{dataset_prefix}/{save_data_name_361}', f'{dataset_prefix}/{save_data_name_362}', f'{dataset_prefix}/{save_data_name_363}', f'{dataset_prefix}/{save_data_name_364}', f'{dataset_prefix}/{save_data_name_365}', f'{dataset_prefix}/{save_data_name_366}', f'{dataset_prefix}/{save_data_name_367}', f'{dataset_prefix}/{save_data_name_368}', f'{dataset_prefix}/{save_data_name_369}', f'{dataset_prefix}/{save_data_name_370}', f'{dataset_prefix}/{save_data_name_371}', f'{dataset_prefix}/{save_data_name_372}', f'{dataset_prefix}/{save_data_name_373}', f'{dataset_prefix}/{save_data_name_374}', f'{dataset_prefix}/{save_data_name_375}', f'{dataset_prefix}/{save_data_name_376}', f'{dataset_prefix}/{save_data_name_377}', f'{dataset_prefix}/{save_data_name_378}', f'{dataset_prefix}/{save_data_name_379}', f'{dataset_prefix}/{save_data_name_380}', f'{dataset_prefix}/{save_data_name_381}', f'{dataset_prefix}/{save_data_name_382}', f'{dataset_prefix}/{save_data_name_383}', f'{dataset_prefix}/{save_data_name_384}', f'{dataset_prefix}/{save_data_name_385}', f'{dataset_prefix}/{save_data_name_386}', f'{dataset_prefix}/{save_data_name_387}', f'{dataset_prefix}/{save_data_name_388}', f'{dataset_prefix}/{save_data_name_389}', f'{dataset_prefix}/{save_data_name_390}', f'{dataset_prefix}/{save_data_name_391}', f'{dataset_prefix}/{save_data_name_392}', f'{dataset_prefix}/{save_data_name_393}', f'{dataset_prefix}/{save_data_name_394}', f'{dataset_prefix}/{save_data_name_395}', f'{dataset_prefix}/{save_data_name_396}', f'{dataset_prefix}/{save_data_name_397}', f'{dataset_prefix}/{save_data_name_398}', f'{dataset_prefix}/{save_data_name_399}', f'{dataset_prefix}/{save_data_name_400}', f'{dataset_prefix}/{save_data_name_401}', f'{dataset_prefix}/{save_data_name_402}', f'{dataset_prefix}/{save_data_name_403}', f'{dataset_prefix}/{save_data_name_404}', f'{dataset_prefix}/{save_data_name_405}', f'{dataset_prefix}/{save_data_name_406}', f'{dataset_prefix}/{save_data_name_407}', f'{dataset_prefix}/{save_data_name_408}', f'{dataset_prefix}/{save_data_name_409}', f'{dataset_prefix}/{save_data_name_410}', f'{dataset_prefix}/{save_data_name_411}', f'{dataset_prefix}/{save_data_name_412}', f'{dataset_prefix}/{save_data_name_413}', f'{dataset_prefix}/{save_data_name_414}', f'{dataset_prefix}/{save_data_name_415}', f'{dataset_prefix}/{save_data_name_416}', f'{dataset_prefix}/{save_data_name_417}', f'{dataset_prefix}/{save_data_name_418}', f'{dataset_prefix}/{save_data_name_419}', f'{dataset_prefix}/{save_data_name_420}', f'{dataset_prefix}/{save_data_name_421}', f'{dataset_prefix}/{save_data_name_422}', f'{dataset_prefix}/{save_data_name_423}', f'{dataset_prefix}/{save_data_name_424}', f'{dataset_prefix}/{save_data_name_425}', f'{dataset_prefix}/{save_data_name_426}', f'{dataset_prefix}/{save_data_name_427}', f'{dataset_prefix}/{save_data_name_428}', f'{dataset_prefix}/{save_data_name_429}', f'{dataset_prefix}/{save_data_name_430}', f'{dataset_prefix}/{save_data_name_431}', f'{dataset_prefix}/{save_data_name_432}', f'{dataset_prefix}/{save_data_name_433}', f'{dataset_prefix}/{save_data_name_434}', f'{dataset_prefix}/{save_data_name_435}', f'{dataset_prefix}/{save_data_name_436}', f'{dataset_prefix}/{save_data_name_437}', f'{dataset_prefix}/{save_data_name_438}', f'{dataset_prefix}/{save_data_name_439}', f'{dataset_prefix}/{save_data_name_440}', f'{dataset_prefix}/{save_data_name_441}', f'{dataset_prefix}/{save_data_name_442}', f'{dataset_prefix}/{save_data_name_443}', f'{dataset_prefix}/{save_data_name_444}', f'{dataset_prefix}/{save_data_name_445}', f'{dataset_prefix}/{save_data_name_446}', f'{dataset_prefix}/{save_data_name_447}', f'{dataset_prefix}/{save_data_name_448}', f'{dataset_prefix}/{save_data_name_449}', f'{dataset_prefix}/{save_data_name_450}', f'{dataset_prefix}/{save_data_name_451}', f'{dataset_prefix}/{save_data_name_452}', f'{dataset_prefix}/{save_data_name_453}', f'{dataset_prefix}/{save_data_name_454}', f'{dataset_prefix}/{save_data_name_455}', f'{dataset_prefix}/{save_data_name_456}', f'{dataset_prefix}/{save_data_name_457}', f'{dataset_prefix}/{save_data_name_458}', f'{dataset_prefix}/{save_data_name_459}', f'{dataset_prefix}/{save_data_name_460}', f'{dataset_prefix}/{save_data_name_461}', f'{dataset_prefix}/{save_data_name_462}',
+            ]
         else:
             raise ValueError('num_train_objects not supported')
-    dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True, use_all_data=use_all_data)    
+        
+    if not predict_two_goals:
+        dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True, use_all_data=use_all_data)    
+    else:
+        dataset = PredictTwoGoalsDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True, use_all_data=use_all_data)
     return dataset

@@ -22,18 +22,22 @@ def ddp_setup():
 def train(args):
     gpu_id = int(os.environ["LOCAL_RANK"])
     device = torch.device(gpu_id)
+
+    if not args.predict_two_goals: output_dim = 13 
+    else: output_dim = 25
+
     if args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
         from test_PointNet2.model_invariant import PointNet2
         from test_PointNet2.model_invariant import PointNet2_super
         if args.model_type == 'pointnet2':
-            model = PointNet2_small2(num_classes=13).to(device)
+            model = PointNet2_small2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_large':
-            model = PointNet2(num_classes=13).to(device)
+            model = PointNet2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_super':
-            model = PointNet2_super(num_classes=13).to(device)
+            model = PointNet2_super(num_classes=output_dim).to(device)
         elif args.model_type == 'attn':
-            model = AttnModel(num_classes=13).to(device)
+            model = AttnModel(num_classes=output_dim).to(device)
         else:
             raise ValueError(f"model_type {args.model_type} not recognized")
     else:
@@ -41,13 +45,13 @@ def train(args):
         from test_PointNet2.model import PointNet2
         from test_PointNet2.model import PointNet2_super
         if args.model_type == 'pointnet2':
-            model = PointNet2_small2(num_classes=13).to(device)
+            model = PointNet2_small2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_large':
-            model = PointNet2(num_classes=13).to(device)
+            model = PointNet2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_super':
-            model = PointNet2_super(num_classes=13).to(device)
+            model = PointNet2_super(num_classes=output_dim).to(device)
         elif args.model_type == 'attn':
-            model = AttnModel(num_classes=13).to(device)
+            model = AttnModel(num_classes=output_dim).to(device)
         else:
             raise ValueError(f"model_type {args.model_type} not recognized")
     
@@ -80,6 +84,14 @@ def train(args):
     
     output_dir = output_dir + "_" + str(args.num_train_objects) + "-obj"
     
+    if args.predict_two_goals:
+        output_dir = output_dir + "_predict_two_goals"
+        
+    if args.output_obj_pcd_only:
+        output_dir = output_dir + "_output_obj_only"
+        
+    output_dir += args.exp_name
+    
     args.exp_path = os.path.join(args.exp_path, output_dir)
 
 
@@ -105,7 +117,7 @@ def train(args):
         )
 
     print("trying to load dataset")
-    dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, num_train_objects=args.num_train_objects)
+    dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, num_train_objects=args.num_train_objects, predict_two_goals=args.predict_two_goals)
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
@@ -127,8 +139,12 @@ def train(args):
             # goal_gripper_points: B, 4, 3
             # calculate the displacement from every point to the gripper to get the labels with shape B, N, 4, 3
             gripper_points = goal_gripper_pcd
-            inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
             
+            if not args.predict_two_goals:
+                inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
+            else:
+                inputs = pointcloud
+
             labels = gripper_points.unsqueeze(1) - inputs.unsqueeze(2)
             B, N, _, _ = labels.shape
             labels = labels.view(B, N, -1) # B, N, 12
@@ -150,7 +166,10 @@ def train(args):
 
             # import pdb; pdb.set_trace()
             inputs = inputs.permute(0, 2, 1)
-            outputs = outputs.view(B, N, 4, 3)
+            if not args.predict_two_goals:
+                outputs = outputs.view(B, N, 4, 3)
+            else:
+                outputs = outputs.view(B, N, 8, 3)
             outputs = outputs + inputs.unsqueeze(2) # B, N, 4, 3
 
             # softmax the weights
@@ -214,6 +233,8 @@ def parse_args():
     parser.add_argument('--use_all_data', action='store_true')
     parser.add_argument('--use_combined_action', action='store_true')
     parser.add_argument('--model_invariant', action='store_true')
+    parser.add_argument('--predict_two_goals', action='store_true')
+    parser.add_argument('--exp_name', type=str, default="")
     return parser.parse_args()
 
 
