@@ -273,12 +273,10 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--low_level_exp_dir', type=str, default=None)
-    parser.add_argument('--low_level_ckpt_name', type=str, default=None)
+    parser.add_argument('--low_level_ckpt_name', type=str, default='latest.ckpt')
     parser.add_argument("--high_level_exp_dir", type=str, default=None)
     parser.add_argument("--high_level_ckpt_name", type=str, default=None)
     parser.add_argument("--eval_exp_name", type=str, default=None)
-    parser.add_argument("--test_scene_translation", type=bool, default=False)
-    parser.add_argument("--random_object_translation", type=bool, default=False)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
@@ -291,7 +289,9 @@ if __name__ == "__main__":
     ### This is the default best low level 50 objects best policy
     if args.low_level_exp_dir is None:
         exp_dir =  "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
-        checkpoint_name = 'latest.ckpt'
+    else:
+        exp_dir = args.low_level_exp_dir
+    checkpoint_name = args.low_level_ckpt_name
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
