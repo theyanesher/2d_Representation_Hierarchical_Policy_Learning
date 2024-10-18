@@ -1,0 +1,3 @@
+# exp_name=0517-vary-obj-loc-ori-only-handle-points-correct-*
+exp_name=0518-vary-obj-loc-ori-segmask-correct-*
+rsync -avrz --exclude wandb --exclude "*.ckpt" --exclude "*.pkl" --exclude "*.gif" autobot:/project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/${exp_name} /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/ 
