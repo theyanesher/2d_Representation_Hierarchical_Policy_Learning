@@ -274,12 +274,10 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--low_level_exp_dir', type=str, default=None)
-    parser.add_argument('--low_level_ckpt_name', type=str, default=None)
+    parser.add_argument('--low_level_ckpt_name', type=str, default='latest.ckpt')
     parser.add_argument("--high_level_exp_dir", type=str, default=None)
     parser.add_argument("--high_level_ckpt_name", type=str, default=None)
     parser.add_argument("--eval_exp_name", type=str, default=None)
-    parser.add_argument("--test_scene_translation", type=bool, default=False)
-    parser.add_argument("--random_object_translation", type=bool, default=False)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument("--calculate_distance_from_gt", type=bool, default=False)

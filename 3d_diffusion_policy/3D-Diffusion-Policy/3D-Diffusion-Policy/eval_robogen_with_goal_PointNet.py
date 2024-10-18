@@ -430,8 +430,6 @@ if __name__ == "__main__":
     parser.add_argument("--high_level_ckpt_name", type=str, default=None)
     parser.add_argument("--pointnet_class", type=str, default="PointNet2")
     parser.add_argument("--eval_exp_name", type=str, default=None)
-    parser.add_argument("--test_scene_translation", type=bool, default=False)
-    parser.add_argument("--random_object_translation", type=bool, default=False)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument("--model_invariant", type=bool, default=False)
