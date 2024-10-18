@@ -24,6 +24,7 @@ import yaml
 import pickle as pkl
 import argparse
 from typing import List, Optional
+from collections import deque
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
     env, _ = build_up_env(
@@ -291,35 +292,69 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
 
             initial_info = info
             all_rgbs = [rgb]
+            goal_stage = 'first'
+            first_step_outputs = None
+            gripper_close_accumulation_buffer = deque(maxlen=5)
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
                 
+                # print("step: ", t)
                 
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                 
-                with torch.no_grad():
-                    pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
-                    gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                    inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
-                    inputs = inputs.to('cuda')
-                    inputs_ = inputs.permute(0, 2, 1)
-                    outputs = goal_prediction_model(inputs_)
-                    weights = outputs[:, :, -1] # B, N
-                    outputs = outputs[:, :, :-1] # B, N, 12
-                    if output_obj_pcd_only:
-                        weights = weights[:, :-4]
-                        outputs = outputs[:, :-4, :]
-                        inputs = inputs[:, :-4, :]
+                if t == 1 or (not args.predict_two_goals):
+                    with torch.no_grad():
+                        pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
+                        gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                        if not args.predict_two_goals:
+                            inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
+                        else:
+                            inputs = pointcloud
+                        inputs = inputs.to('cuda')
+                        inputs_ = inputs.permute(0, 2, 1)
+                        outputs = goal_prediction_model(inputs_)
+                        weights = outputs[:, :, -1] # B, N
+                        outputs = outputs[:, :, :-1] # B, N, 12
+                        if output_obj_pcd_only:
+                            cprint("using only obj pcd output!", "red")
+                            weights = weights[:, :-4]
+                            outputs = outputs[:, :-4, :]
+                            inputs = inputs[:, :-4, :]
 
-                    B, N, _ = outputs.shape
-                    outputs = outputs.view(B, N, 4, 3)
+                        B, N, _ = outputs.shape
+                        if not args.predict_two_goals:
+                            outputs = outputs.view(B, N, 4, 3)
+                        else:
+                            outputs = outputs.view(B, N, 8, 3)
+                            if first_step_outputs is None:
+                                first_step_outputs = deepcopy(outputs)
+                                
+                            if goal_stage == 'first':
+                                outputs = outputs[:, :, :4, :]
+                            elif goal_stage == 'second':
+                                outputs = outputs[:, :, 4:, :]
+                                
+                        outputs = outputs + inputs.unsqueeze(2)
+                        weights = torch.nn.functional.softmax(weights, dim=1)
+                        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                        outputs = outputs.sum(dim=1)
+                        outputs = outputs.unsqueeze(1)
+                        
+                else:
+                    outputs = first_step_outputs
+                    if goal_stage == 'first':
+                        outputs = outputs[:, :, :4, :]
+                    elif goal_stage == 'second':
+                        outputs = outputs[:, :, 4:, :]
+                            
                     outputs = outputs + inputs.unsqueeze(2)
                     weights = torch.nn.functional.softmax(weights, dim=1)
                     outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
                     outputs = outputs.sum(dim=1)
                     outputs = outputs.unsqueeze(1)
+                    
                 np_predicted_goal = outputs.detach().to('cpu').numpy()
                 
                 predicted_goal = outputs.repeat(1, 2, 1, 1)
@@ -328,6 +363,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
 
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
+                    gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
+                    gripper_close_accumulation_buffer.append(np.sum(gripper_close_actions))
+                    if np.sum(gripper_close_accumulation_buffer) < -0.006:
+                        # cprint("changing goal!", 'red')
+                        goal_stage = 'second'
                     
                     
                 np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
@@ -337,6 +377,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 if calculate_distance_from_gt:
                     predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
                     gt_goal = env.env.goal_gripper_pcd
+                    import pdb; pdb.set_trace()
                     distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
                     all_distances.append(distance)
                     grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
@@ -394,6 +435,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument("--model_invariant", type=bool, default=False)
+    parser.add_argument('--predict_two_goals', action='store_true')
+    parser.add_argument('--output_obj_pcd_only', action='store_true')
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
     args = parser.parse_args()
     
@@ -402,7 +445,7 @@ if __name__ == "__main__":
 
     if args.low_level_exp_dir is None:
         # best 50 objects
-        exp_dir = "/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+        exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
         checkpoint_name = 'latest.ckpt'
     else:
         exp_dir = args.low_level_exp_dir
@@ -456,22 +499,23 @@ if __name__ == "__main__":
     
     load_model_path = args.high_level_ckpt_name
         
-        
+    
+    num_class = 13 if not args.predict_two_goals else 25
     if not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
-        if args.pointnet_class == "PointNet2_small2":
-            pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
-        elif args.pointnet_class == "PointNet2":
-            pointnet2_model = PointNet2(num_classes=13).to('cuda')
+        if args.pointnet_class == "PointNet2":
+            pointnet2_model = PointNet2_small2(num_classes=num_class).to('cuda')
+        elif args.pointnet_class == "PointNet2_large":
+            pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == "PointNet2_super":
-            pointnet2_model = PointNet2_super(num_classes=13).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class).to("cuda")
             
     else:
         from test_PointNet2.model_invariant import PointNet2, PointNet2_super
-        if args.pointnet_class == 'PointNet2':
-            pointnet2_model = PointNet2(num_classes=13).to('cuda')
+        if args.pointnet_class == 'PointNet2_large':
+            pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == 'PointNet2_super':
-            pointnet2_model = PointNet2_super(num_classes=13).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class).to("cuda")
         
         
     pointnet2_model.load_state_dict(torch.load(load_model_path))
@@ -489,6 +533,7 @@ if __name__ == "__main__":
         "low_level_policy_checkpoint": checkpoint_name,
         "high_level_policy_checkpoint": args.high_level_ckpt_name,
     }
+    checkpoint_info.update(args.__dict__)
     with open("{}/checkpoint_info.json".format(save_path), "w") as f:
         json.dump(checkpoint_info, f, indent=4)
     
@@ -502,8 +547,12 @@ if __name__ == "__main__":
             exp_beg_idx=0,
             exp_end_idx=25,
             obj_translation=args.noise,
+            output_obj_pcd_only=args.output_obj_pcd_only,
             # dataset_index=9，
             # exp_beg_ratio=0.9,
             # exp_end_ratio=1,
             # calculate_distance_from_gt=True,
     )
+
+
+# python eval_robogen_with_goal_PointNet.py --high_level_ckpt_name /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2024-09-30_use_75_episodes_200-obj/model_39.pth --eval_exp_name eval_yufei_weighted_displacement_pointnet_large_200_invariant_reproduce --pointnet_class PointNet2_super --model_invariant True
