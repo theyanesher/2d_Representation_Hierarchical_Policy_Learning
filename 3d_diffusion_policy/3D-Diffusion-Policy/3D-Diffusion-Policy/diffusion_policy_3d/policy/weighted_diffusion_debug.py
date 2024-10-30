@@ -54,6 +54,9 @@ class WeightedDiffusion(BasePolicy):
             diffusion_attn_embed_dim=120,
             normalize_action=True, # [Chialiang] can remove normilizer for action
             # parameters passed to step
+            load_pretrained_pointnet=False,
+            use_normalization=False,
+            weight_loss_coef=1,
             **kwargs
         ):
         cprint("Using WeightedDiffusion", "yellow")
@@ -63,10 +66,10 @@ class WeightedDiffusion(BasePolicy):
         self.prediction_target = prediction_target
         self.normalize_action = normalize_action
         self.encoder_type = encoder_type
+        self.load_pretrained_pointnet = load_pretrained_pointnet
+        self.weight_loss_coef = weight_loss_coef
 
-        assert prediction_target == "goal_gripper_pcd", f"Unsupported prediction target {prediction_target}"
-        cprint(f"PointNet2 encoder output dim: 13!!!!!", "yellow")
-        encoder_output_dim = 13
+        
 
         action_shape = shape_meta[self.prediction_target]['shape']
         self.action_shape = action_shape
@@ -81,34 +84,43 @@ class WeightedDiffusion(BasePolicy):
         obs_shape_meta = shape_meta['obs']
         obs_dict = dict_apply(obs_shape_meta, lambda x: x['shape'])
 
-        obs_encoder_pointnet = PointNet2(num_classes=encoder_output_dim)
-        self.obs_encoder_pointnet = obs_encoder_pointnet
-        self.encoder_output_dim = encoder_output_dim
+        if self.load_pretrained_pointnet:
+            assert prediction_target == "goal_gripper_pcd", f"Unsupported prediction target {prediction_target}"
+            cprint(f"PointNet2 encoder output dim: 13!!!!!", "yellow")
+            encoder_output_dim = 13
+            obs_encoder_pointnet = PointNet2(num_classes=encoder_output_dim)
+            self.obs_encoder_pointnet = obs_encoder_pointnet
+            self.encoder_output_dim = encoder_output_dim
+
         self.noise_model_type = noise_model_type
 
-        obs_separate_encoder_pointnet = PointNet2_no_batch_norm(num_classes=64)
+        if not use_normalization:
+            obs_separate_encoder_pointnet = PointNet2_no_batch_norm(num_classes=129)
+        else:
+            obs_separate_encoder_pointnet = PointNet2(num_classes=129)
         self.separate_obs_encoder_pointnet = obs_separate_encoder_pointnet  
-        self.separate_encoder_output_dim = 64
+        self.separate_encoder_output_dim = 128
 
         obs_feature_dim = encoder_output_dim
         cprint("Using down_dims= (128, 128, 128)", "yellow")
         model = ConditionalUnet1D(
             input_dim=input_dim, # 12
-            global_cond_dim=encoder_output_dim-1 + self.separate_encoder_output_dim, # for every point, use its own feature
+            global_cond_dim=encoder_output_dim-1 + self.separate_encoder_output_dim if self.load_pretrained_pointnet else self.separate_encoder_output_dim, # for every point, use its own feature
             diffusion_step_embed_dim=diffusion_step_embed_dim, 
             down_dims=(128,128,128),
             kernel_size=kernel_size,
             n_groups=n_groups,
-            use_group_norm=False,
+            use_group_norm=use_normalization,
         )
         global_cond_dim = 0
 
         model = replace_bn_with_gn(model)
         # self.obs_encoder_pointnet = replace_bn_with_gn(self.obs_encoder_pointnet, features_per_group=4)
-        self.obs_encoder_pointnet.load_state_dict(torch.load("/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-19_use_75_episodes_300-obj/model_39.pth"))
-        self.obs_encoder_pointnet.eval()
-        for param in self.obs_encoder_pointnet.parameters():
-            param.requires_grad = False
+        if self.load_pretrained_pointnet:
+            self.obs_encoder_pointnet.load_state_dict(torch.load("/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-19_use_75_episodes_300-obj/model_39.pth"))
+            self.obs_encoder_pointnet.eval()
+            for param in self.obs_encoder_pointnet.parameters():
+                param.requires_grad = False
 
         self.model = model
         # self.weights_model = weights_model
@@ -200,43 +212,49 @@ class WeightedDiffusion(BasePolicy):
         diffuse_point_cloud = torch.cat([diffuse_obj_point_cloud, diffuse_gripper_point], dim=1) # B, N+4, 3
         num_scene_points = diffuse_point_cloud.shape[1]
 
-        global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
-        
-        if pdb:
-            import pdb; pdb.set_trace()
-            
-        ### get the pretrained pointnet++ prediction
-        # outputs = global_cond
-        # weights = outputs[:, :, -1] # B, N
-        # outputs = outputs[:, :, :-1] # B, N, 12
 
-        # B, N, _ = outputs.shape
-        # outputs = outputs.view(B, N, 4, 3)
+        if self.load_pretrained_pointnet:
+            global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
             
-        # inputs = diffuse_point_cloud
-        # outputs = outputs + inputs.unsqueeze(2)
-        # weights = torch.nn.functional.softmax(weights, dim=1)
-        # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-        # outputs = outputs.sum(dim=1)
-        
-        # labels = this_nobs['goal_gripper_pcd'].reshape(B, 2, 12)[:, 0]
-        # outputs = outputs.reshape(B, -1)
-        # outputs = outputs.reshape(B, 4, 3)
-        # labels = labels.reshape(B, 4 ,3)
-        # error = torch.linalg.norm(outputs - labels, dim=-1).mean()
-        # cprint("in predict action, pretrained pointnet++ prediction loss is {}".format(error), 'yellow')
-        #######
-        
-        weights = global_cond[:, :, -1] # B, N+4
-        global_cond = global_cond[:, :, :-1]
-        global_cond = global_cond.reshape(batch_size*num_scene_points, -1)
-        
+            if pdb:
+                import pdb; pdb.set_trace()
+                
+            ### get the pretrained pointnet++ prediction
+            # outputs = global_cond
+            # weights = outputs[:, :, -1] # B, N
+            # outputs = outputs[:, :, :-1] # B, N, 12
+
+            # B, N, _ = outputs.shape
+            # outputs = outputs.view(B, N, 4, 3)
+                
+            # inputs = diffuse_point_cloud
+            # outputs = outputs + inputs.unsqueeze(2)
+            # weights = torch.nn.functional.softmax(weights, dim=1)
+            # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+            # outputs = outputs.sum(dim=1)
+            
+            # labels = this_nobs['goal_gripper_pcd'].reshape(B, 2, 12)[:, 0]
+            # outputs = outputs.reshape(B, -1)
+            # outputs = outputs.reshape(B, 4, 3)
+            # labels = labels.reshape(B, 4 ,3)
+            # error = torch.linalg.norm(outputs - labels, dim=-1).mean()
+            # cprint("in predict action, pretrained pointnet++ prediction loss is {}".format(error), 'yellow')
+            #######
+            
+            weights = global_cond[:, :, -1] # B, N+4
+            global_cond = global_cond[:, :, :-1]
+            global_cond = global_cond.reshape(batch_size*num_scene_points, -1)
+            
         
         
         ### add separate global conditioning
         separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
-        separate_global_cond = separate_global_cond.reshape(batch_size*num_scene_points, -1)
-        global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
+        if self.load_pretrained_pointnet:
+            separate_global_cond = separate_global_cond.reshape(batch_size*num_scene_points, -1)
+            global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
+        else:
+            global_cond = separate_global_cond[:, :, :-1].reshape(batch_size*num_scene_points, -1)
+            weights = separate_global_cond[:, :, -1]
         ###
         
         if pdb:
@@ -313,38 +331,43 @@ class WeightedDiffusion(BasePolicy):
         diffuse_point_cloud = torch.cat([diffuse_obj_point_cloud, diffuse_gripper_point], dim=1) # B, N+4, 3
         num_scene_points = diffuse_point_cloud.shape[1]
 
-        global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
-        separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
-        
-        ### perform an infer using the pointnet++ output here
-        # import pdb; pdb.set_trace()
-        # outputs = global_cond
-        # weights = outputs[:, :, -1] # B, N
-        # outputs = outputs[:, :, :-1] # B, N, 12
-
-        # B, N, _ = outputs.shape
-        # outputs = outputs.view(B, N, 4, 3)
+        if self.load_pretrained_pointnet:
+            global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
             
-        # inputs = diffuse_point_cloud
-        # outputs = outputs + inputs.unsqueeze(2)
-        # weights = torch.nn.functional.softmax(weights, dim=1)
-        # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-        # outputs = outputs.sum(dim=1)
+            ### perform an infer using the pointnet++ output here
+            # import pdb; pdb.set_trace()
+            # outputs = global_cond
+            # weights = outputs[:, :, -1] # B, N
+            # outputs = outputs[:, :, :-1] # B, N, 12
+
+            # B, N, _ = outputs.shape
+            # outputs = outputs.view(B, N, 4, 3)
+                
+            # inputs = diffuse_point_cloud
+            # outputs = outputs + inputs.unsqueeze(2)
+            # weights = torch.nn.functional.softmax(weights, dim=1)
+            # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+            # outputs = outputs.sum(dim=1)
+            
+            # labels = nactions[:, 0]
+            # outputs = outputs.reshape(B, -1)
+            # error = ((outputs - labels) ** 2).mean()
+            # cprint("in computing loss, pretrained pointnet++ prediction loss is {}".format(error), 'green')
+            ##### 
+            
+            weights = global_cond[:, :, -1] # B, N+4
+            global_cond = global_cond[:, :, :-1]
+            global_cond = global_cond.reshape(batch_size*num_scene_points, -1) # B*(N+4), 12
         
-        # labels = nactions[:, 0]
-        # outputs = outputs.reshape(B, -1)
-        # error = ((outputs - labels) ** 2).mean()
-        # cprint("in computing loss, pretrained pointnet++ prediction loss is {}".format(error), 'green')
-        ##### 
-        
-        weights = global_cond[:, :, -1] # B, N+4
-        global_cond = global_cond[:, :, :-1]
-        global_cond = global_cond.reshape(batch_size*num_scene_points, -1) # B*(N+4), 12
-        
-        ### add separate global conditioning
-        separate_global_cond = separate_global_cond.reshape(batch_size*num_scene_points, -1)
-        global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
-        ### 
+            ### add separate global conditioning
+            separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
+            separate_global_cond = separate_global_cond.reshape(batch_size*num_scene_points, -1)
+            global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
+            ### 
+        else:
+            separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
+            weights = separate_global_cond[:, :, -1]
+            global_cond = separate_global_cond[:, :, :-1].reshape(batch_size*num_scene_points, -1)
         
         action = batch['obs'][self.prediction_target]
         action = einops.rearrange(action, 'b t n d -> b (t n) d')
@@ -398,7 +421,7 @@ class WeightedDiffusion(BasePolicy):
                 sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.unsqueeze(-1)
 
             # known noisy_trajectory = sqrt_alpha_prod * denoised_trajectory + sqrt_one_minus_alpha_prod * noise
-            denoised_trajectory = (noisy_trajectory - sqrt_one_minus_alpha_prod * noise) / sqrt_alpha_prod # B*N, T, 12
+            denoised_trajectory = (noisy_trajectory - sqrt_one_minus_alpha_prod * pred) / sqrt_alpha_prod # B*N, T, 12
         elif pred_type == 'sample':
             denoised_trajectory = pred # B*N, T, 12
 
@@ -414,12 +437,12 @@ class WeightedDiffusion(BasePolicy):
         label = batch['obs'][self.prediction_target] # B, T, 4, 3
         weighting_loss = F.mse_loss(pred_goal_gripper, label)
 
-        loss = diffusion_loss + weighting_loss
+        loss = diffusion_loss + weighting_loss * self.weight_loss_coef
         loss = loss.mean()
 
         loss_dict = {
             'bc_loss': loss.item(),
             'diffusion_loss': diffusion_loss.item(),
-            'weighting_loss': weighting_loss.item()
+            'weighting_loss': weighting_loss.item() * self.weight_loss_coef,
         }
         return loss, loss_dict

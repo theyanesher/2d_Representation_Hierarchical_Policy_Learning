@@ -60,6 +60,10 @@ policy:
   use_pc_color: false
   pointnet_type: "pointnet"
 
+  ### weighted diffusion params
+  use_normalization: false
+  weight_loss_coef: 1
+  load_pretrained_pointnet: false
 
   pointcloud_encoder_cfg:
     # in_channels: 6

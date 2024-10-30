@@ -292,6 +292,9 @@ if __name__ == "__main__":
     if args.low_level_exp_dir is None:
         exp_dir =  "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door/"
         checkpoint_name = 'latest.ckpt'
+    else:
+        exp_dir = args.low_level_exp_dir
+        checkpoint_name = args.low_level_ckpt_name
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(

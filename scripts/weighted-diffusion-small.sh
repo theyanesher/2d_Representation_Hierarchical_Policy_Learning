@@ -256,7 +256,7 @@ pc_channel=3
 prediction_target=goal_gripper_pcd
 
 use_mlp=0
-exp_name="debug-weighted-diffusion-small"
+exp_name="1021-weighted-diffusion-no-normalization-fixed-bug-norm-weight-loss-10"
 wandb_mode=online
 
     
@@ -264,7 +264,7 @@ wandb_mode=online
 dataset_prefix=/scratch/chialiang/dp3_demo
 
 
-torchrun --standalone --nproc_per_node=4 train_ddp.py \
+torchrun --standalone --nproc_per_node=6 train_ddp.py \
     --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     task.dataset.zarr_path="[${dataset_prefix}/${save_data_name_0},${dataset_prefix}/${save_data_name_1},${dataset_prefix}/${save_data_name_2},${dataset_prefix}/${save_data_name_3},${dataset_prefix}/${save_data_name_4},${dataset_prefix}/${save_data_name_5},${dataset_prefix}/${save_data_name_6},${dataset_prefix}/${save_data_name_7},${dataset_prefix}/${save_data_name_8},${dataset_prefix}/${save_data_name_9}, \
     ${dataset_prefix}/${save_data_name_10},${dataset_prefix}/${save_data_name_11},${dataset_prefix}/${save_data_name_12},${dataset_prefix}/${save_data_name_13},${dataset_prefix}/${save_data_name_14},${dataset_prefix}/${save_data_name_15},${dataset_prefix}/${save_data_name_16},${dataset_prefix}/${save_data_name_17},${dataset_prefix}/${save_data_name_18},${dataset_prefix}/${save_data_name_19}, \
@@ -286,13 +286,10 @@ torchrun --standalone --nproc_per_node=4 train_ddp.py \
     ${dataset_prefix}/${save_data_name_170},${dataset_prefix}/${save_data_name_171},${dataset_prefix}/${save_data_name_172},${dataset_prefix}/${save_data_name_173},${dataset_prefix}/${save_data_name_174},${dataset_prefix}/${save_data_name_175},${dataset_prefix}/${save_data_name_176},${dataset_prefix}/${save_data_name_177},${dataset_prefix}/${save_data_name_178},${dataset_prefix}/${save_data_name_179}, \
     ${dataset_prefix}/${save_data_name_180},${dataset_prefix}/${save_data_name_181},${dataset_prefix}/${save_data_name_182},${dataset_prefix}/${save_data_name_183},${dataset_prefix}/${save_data_name_184},${dataset_prefix}/${save_data_name_185},${dataset_prefix}/${save_data_name_186},${dataset_prefix}/${save_data_name_187},${dataset_prefix}/${save_data_name_188},${dataset_prefix}/${save_data_name_189}, \
     ${dataset_prefix}/${save_data_name_190},${dataset_prefix}/${save_data_name_191},${dataset_prefix}/${save_data_name_192},${dataset_prefix}/${save_data_name_193},${dataset_prefix}/${save_data_name_194},${dataset_prefix}/${save_data_name_195},${dataset_prefix}/${save_data_name_196}]" \
-    task.env_runner.demo_experiment_path="[${dataset_prefix}/${save_data_name_0},${dataset_prefix}/${save_data_name_1},${dataset_prefix}/${save_data_name_2},${dataset_prefix}/${save_data_name_3},${dataset_prefix}/${save_data_name_4},${dataset_prefix}/${save_data_name_5},${dataset_prefix}/${save_data_name_6},${dataset_prefix}/${save_data_name_7},${dataset_prefix}/${save_data_name_8},${dataset_prefix}/${save_data_name_9}]" \
+   task.env_runner.demo_experiment_path="[${dataset_prefix}/${save_data_name_0},${dataset_prefix}/${save_data_name_1},${dataset_prefix}/${save_data_name_2},${dataset_prefix}/${save_data_name_3},${dataset_prefix}/${save_data_name_4},${dataset_prefix}/${save_data_name_5},${dataset_prefix}/${save_data_name_6},${dataset_prefix}/${save_data_name_7},${dataset_prefix}/${save_data_name_8},${dataset_prefix}/${save_data_name_9}]" \
     task.env_runner.experiment_name="[${demo_name_0},${demo_name_1}${demo_name_2},${demo_name_3},${demo_name_4},${demo_name_5},${demo_name_6},${demo_name_7},${demo_name_8},${demo_name_9}]" \
     task.env_runner.experiment_folder="[${exp_folder_0},${exp_folder_1},${exp_folder_2},${exp_folder_3},${exp_folder_4},${exp_folder_5},${exp_folder_6},${exp_folder_7},${exp_folder_8},${exp_folder_9}]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
-    task.env_runner.use_joint_angle="${use_joint_angle}" \
-    task.env_runner.use_segmask="${use_segmask}" \
-    task.env_runner.only_handle_points="${only_handle_points}" \
     horizon="${horizon}" n_obs_steps="${n_obs_steps}" \
     task.shape_meta.obs.agent_pos.shape="[${agent_pos_dim}]" \
     task.shape_meta.action.shape="[${action_dim}]" \
@@ -300,26 +297,29 @@ torchrun --standalone --nproc_per_node=4 train_ddp.py \
     policy.act3d_encoder_cfg.in_channels="${pc_channel}" \
     task.env_runner.observation_mode="${observation_mode}" \
     task.dataset.observation_mode="${observation_mode}" \
-    training.num_epochs=40 \
+    training.num_epochs=200 \
     policy.encoder_type=act3d \
     policy.encoder_output_dim=60 \
     task.dataset.enumerate=True \
     training.rollout_every=2000 \
     training.checkpoint_every=2 \
     task.env_runner.max_steps=35 \
-    training.val_every=4 \
+    training.val_every=5 \
     task.dataset.kept_in_disk=true \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=30 \
-    val_dataloader.batch_size=30 \
+    dataloader.batch_size=32 \
+    val_dataloader.batch_size=32 \
     policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     policy.act3d_encoder_cfg.self_attention=true \
     policy.prediction_target="${prediction_target}" \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
-    policy.noise_scheduler.prediction_type=sample \
+    policy.noise_scheduler.prediction_type=epsilon \
     task.dataset.is_pickle=true \
 	policy._target_=diffusion_policy_3d.policy.weighted_diffusion_debug.WeightedDiffusion \
+	policy.use_normalization=true \
+    policy.weight_loss_coef=10 \
 	logging.mode=${wandb_mode} \
+    training.sample_every=1 \
     # load_checkpoint_path=/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0913-200-obj-pred-goal-gripper-pointnet-weighted-diffusion-pretty-small/2024.09.12/21.57.02_train_dp3_robogen_open_door/checkpoints/epoch-16.ckpt

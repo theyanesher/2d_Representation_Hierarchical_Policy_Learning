@@ -30,6 +30,7 @@ def train(args):
         from test_PointNet2.model_invariant import PointNet2_small2
         from test_PointNet2.model_invariant import PointNet2
         from test_PointNet2.model_invariant import PointNet2_super
+        from test_PointNet2.model_invariant import PointNet2_superplus
         if args.model_type == 'pointnet2':
             model = PointNet2_small2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_large':
@@ -38,6 +39,8 @@ def train(args):
             model = PointNet2_super(num_classes=output_dim).to(device)
         elif args.model_type == 'attn':
             model = AttnModel(num_classes=output_dim).to(device)
+        elif args.model_type == 'pointnet2_superplus':
+            model = PointNet2_superplus(num_classes=output_dim).to(device)
         else:
             raise ValueError(f"model_type {args.model_type} not recognized")
     else:
