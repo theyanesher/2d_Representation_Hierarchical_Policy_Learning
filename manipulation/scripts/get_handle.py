@@ -4,6 +4,13 @@ import open3d as o3d
 from cem_policy.utils import save_numpy_as_gif
 from manipulation.utils import add_sphere
 import json
+import xml.etree.ElementTree as ET
+from manipulation.scripts.handle_augmentations.handle_shifting_aug import Handle_Shift
+#from manipulation.scripts.handle_augmentations.handle_scaling import Scale_Handle
+from manipulation.scripts.handle_augmentations.generate_new_handles import Scale_Handle
+from manipulation.scripts.handle_augmentations.random_apply_handle_augmentation import RandomApply
+import io
+import os
 
 def load_obj(fn):
     fin = open(fn, 'r')
@@ -67,26 +74,46 @@ def setup_camera(camera_eye=[-3, 0, 1.2], camera_target=[0, 0, 0], fov=60, camer
     projection_matrix = p.computeProjectionMatrixFOV(fov, camera_width / camera_height, 0.01, 100, physicsClientId=physics_id)
     return view_matrix, projection_matrix
 
-id = p.connect(p.GUI)
+#id = p.connect(p.GUI)
+id = p.connect(p.DIRECT)
 view_matrix, projection_matrix = setup_camera()
 
 # asset_id = 7263 # joint_0
-asset_id = 7310 # joint_0
+asset_id = 40147 # joint_0
 # asset_id = 7167 # joint_0
 # asset_id = 7119 # joint_0
 path = f"data/dataset/{asset_id}/mobility.urdf"
 # load_pos = [0, 0.5, 0.7]
-load_pos = [0, 0, 0]
+load_pos = [0, 0, 0]  
 # orientation = [0, 0, np.pi / 2, 1]
 orientation = [0, 0, 0, 1]
 scaling = 1
-obj_id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=id, useFixedBase=True, globalScaling=scaling)
+#obj_id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=id, useFixedBase=True, globalScaling=scaling)
+
+
+#AUGMENTATION CODE 
+
+import random
+#scaling_factor = random.uniform(0.4, 2)
+scaling_factor = 0.5 # SCALING FACTOR FOR AUGMENTATION
+mesh_output_path = f"data/dataset/{asset_id}/handle_modified_scaled.obj" #SCALED MESH SAVING PATH
+handle_scaling =  Scale_Handle(scaling_factor = scaling_factor, mesh_output_path = mesh_output_path) #DEFINING THE SCALING CLASS
+handle_shifting = Handle_Shift(handle_shift_sigma = np.array([0.2, 0.2, 0]), num_samples_to_generate = 1, max_iters = 100) # DEFINING THE SHIFT CLASS
+transforms_and_probs = [[handle_shifting,0], [handle_scaling, 1]] # (CLASS NAME, PROBABILITY OF THIS AUGMENTATION BEING USED)
+rand_apply= RandomApply(transforms_and_probs)  # DEFINING THE RANDOM APPLY CLASS
+output_urdf_path , final_shift_coeff = rand_apply(asset_id = asset_id, link_name = "link_0") #CALL THE RANDOM APPLY CLASS 
+print("OUTPUT URDF PATH =",output_urdf_path)
+obj_id = p.loadURDF(output_urdf_path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=id, useFixedBase=True, globalScaling=scaling)
+
+
+
+
 
 num_joints = p.getNumJoints(obj_id)
 for j_idx in range(num_joints):
     joint_info = p.getJointInfo(obj_id, j_idx)
     print(joint_info)
-exit()
+#exit()
 
 # axis_body = np.array([-0.6430403380134146, -0.42593899369239807, 0.5477944794777341]) * scaling
 # axis_dir_body = np.array([0, -1, 0])
@@ -111,12 +138,12 @@ T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn
 T_body_to_world[:3, 3] = link_urdf_world_pos
 
 # get the handle points in world frame
-handle_obj_path = "data/dataset/{}/parts_render/handle.obj".format(asset_id)
+handle_obj_path = "data/dataset/{}/parts_render/15handle.obj".format(asset_id)
 handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
 handle_pts = handle_pts * scaling
 # transform this to the world frame using the position and orientation of the link that the handle is on 
 handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
-handle_point_median = np.median(handle_points_world, axis=1)
+handle_point_median = np.median(handle_points_world, axis=1)#ADDED FINAL SHIFT COEFF JUST NOW. (may change)
 
 
 axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
@@ -139,16 +166,16 @@ for rotation_angle in np.linspace(joint_limit_low, joint_limit_high, 90):
     # rotate the handle, in world frame. 
     rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
     rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
-    s_id = add_sphere(rotated_handle_pt)
+    #s_id = add_sphere(rotated_handle_pt)
     w, h, img, depth, segmask = p.getCameraImage(400, 400, 
         view_matrix, projection_matrix, 
         renderer=p.ER_BULLET_HARDWARE_OPENGL, 
         physicsClientId=id)
     imgs.append(img)
-    p.removeBody(s_id)
-    
-save_numpy_as_gif(np.array(imgs), "data/get_handle/{}.mp4".format(asset_id))
-    
+    #p.removeBody(s_id)
+print("SAVING HERE data/get_handle/Shift_Scaling_Augmentation/{}.mp4".format(asset_id))
+save_numpy_as_gif(np.array(imgs), "data/get_handle/Shift_Scaling_Augmentation/{}.mp4".format(asset_id))
+
 # microwave_mesh_data = p.getMeshData(obj_id)
 # print(microwave_mesh_data)
 # microwave_vertices = []
