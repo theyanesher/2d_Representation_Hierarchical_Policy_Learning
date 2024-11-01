@@ -12,7 +12,9 @@ import time
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
 from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
-from diffusion_policy_3d.model.diffusion.conditional_transformers import ConditionalTransformer
+#from diffusion_policy_3d.model.diffusion.conditional_transformers_with_diffuser_3dactor import ConditionalTransformer
+#from diffusion_policy_3d.model.diffusion.conditional_transformers import ConditionalTransformer
+from diffusion_policy_3d.model.diffusion.transformers.create_transformer import create_conditional_transformer
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
@@ -50,6 +52,7 @@ class DP3(BasePolicy):
             prediction_target='action',
             noise_model_type='unet',
             diffusion_attn_embed_dim=120,
+            transformer_type = "default",
             normalize_action=True, # [Chialiang] can remove normilizer for action
             scale_scene_by_pcd=False, # [Chialiang] can remove normilizer for action
             # parameters passed to step
@@ -147,7 +150,14 @@ class DP3(BasePolicy):
                 use_up_condition=use_up_condition,
             )
         elif self.noise_model_type == 'transformer':
-            model = ConditionalTransformer(
+            '''model = ConditionalTransformer(
+                input_dim=input_dim,
+                local_cond_dim=None,
+                global_cond_dim=global_cond_dim,
+                encoder_feature_dim=encoder_output_dim,
+                diffusion_attn_embed_dim=diffusion_attn_embed_dim
+            )'''
+            model = create_conditional_transformer(transformer_type = transformer_type,
                 input_dim=input_dim,
                 local_cond_dim=None,
                 global_cond_dim=global_cond_dim,
@@ -215,7 +225,6 @@ class DP3(BasePolicy):
         for t in scheduler.timesteps:
             # 1. apply conditioning
             trajectory[condition_mask] = condition_data[condition_mask]
-
 
             model_output = model(sample=trajectory,
                                 timestep=t, 
@@ -314,15 +323,16 @@ class DP3(BasePolicy):
                 global_cond=global_cond,
                 **self.kwargs)
         elif self.noise_model_type == 'transformer':
+            #print("CALLING TRANSFORMER", this_nobs['gripper_pcd'].reshape(B, self.n_obs_steps, -1, 3).shape)
             observed_gripper_points = this_nobs['gripper_pcd'].reshape(B, self.n_obs_steps, -1, 3)
             scene_points, scene_features = self.obs_encoder.get_rgb_features()
             scene_points = scene_points.reshape(B, self.n_obs_steps, -1, 3)
             scene_features = scene_features.reshape(scene_points.shape[2], B, self.n_obs_steps, self.encoder_output_dim)
             scene_features = scene_features.permute(1, 2, 0, 3)
+            #local_cond=local_cond,
             nsample = self.conditional_sample(
                 cond_data,
                 cond_mask,
-                local_cond=local_cond,
                 global_cond=global_cond,
                 observed_gripper_points=observed_gripper_points,
                 scene_points=scene_points,
@@ -430,9 +440,6 @@ class DP3(BasePolicy):
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, 
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
-            # print('=======================================================================================')
-            # print('the output of the goal feature: {}'.format(this_nobs['goal_gripper_pcd'].shape))
-            # print('=======================================================================================')
             nobs_features = self.obs_encoder(this_nobs)
 
 
@@ -494,9 +501,9 @@ class DP3(BasePolicy):
             scene_points = scene_points.reshape(batch_size, self.n_obs_steps, -1, 3)
             scene_features = scene_features.reshape(scene_points.shape[2], batch_size, self.n_obs_steps, self.encoder_output_dim)
             scene_features = scene_features.permute(1, 2, 0, 3)
+            #local_cond=local_cond,
             pred = self.model(sample=noisy_trajectory,
                                 timestep=timesteps,
-                                local_cond=local_cond,
                                 global_cond=global_cond,
                                 observed_gripper_points=observed_gripper_points,
                                 scene_points=scene_points,
@@ -525,7 +532,7 @@ class DP3(BasePolicy):
             target = v_t
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
-
+        #import pdb; pdb.set_trace()
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
         loss = reduce(loss, 'b ... -> b (...)', 'mean')

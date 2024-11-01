@@ -94,8 +94,9 @@ policy:
 
   prediction_target: action
 
-  noise_model_type: unet # unet, transformer
+  noise_model_type: unet # unet, transformer (CHANGED FROM UNET FOR INFERENCE => PLEASE REMEMBER)
   diffusion_attn_embed_dim: 240
+  transformer_type: "default"
 
   # weigthed diffusion loss weights
   weight_loss_weight: 1.0
