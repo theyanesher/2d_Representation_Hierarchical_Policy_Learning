@@ -18,7 +18,7 @@ import multiprocessing
 import objaverse
 import trimesh
 from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapaien_cannot_vhacd_part_dict
-
+from typing import List, Optional
 
 # Chialiang
 from scipy.spatial.transform import Rotation as R
@@ -148,7 +148,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config=None, solution_path=None, task_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0, random_object_translation=False, **kwargs,
+                    obj_id=0, random_object_translation: Optional[List]=None, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -429,6 +429,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
     urdf_types = []
     urdf_on_tables = []
     urdf_movables = []
+    urdf_crop_sizes = []
     use_table = False
     articulated_joint_angles = {}
     spatial_relationships = []
@@ -540,7 +541,8 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
         urdf_orientations.append(ori)
         urdf_names.append(obj['name'])
         urdf_on_tables.append(obj.get('on_table', False))
-    return urdf_paths, urdf_sizes, urdf_locations, urdf_orientations, urdf_names, urdf_types, urdf_on_tables, use_table, \
+        urdf_crop_sizes.append(obj.get('is_crop_size', True))
+    return urdf_paths, urdf_sizes, urdf_locations, urdf_orientations, urdf_names, urdf_types, urdf_on_tables, use_table, urdf_crop_sizes, \
         articulated_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, robot_initial_joint_angles
             
         
@@ -1208,11 +1210,11 @@ def piecewise_uniform_sample(low: float, high: float) -> float:
     else:
         return np.random.uniform(low, high)
 
-def radial_shift(x_coord: float, y_coord: float):
+def radial_shift(x_coord: float, y_coord: float, noise_bounds: List[float]):
     theta = np.arctan2(y_coord, x_coord)
     theta_noise = np.random.uniform(-0.1, 0.1)
     dist = np.linalg.norm([x_coord, y_coord])
-    dist_noise = np.random.uniform(-0.02,0.02)
+    dist_noise = np.random.uniform(noise_bounds[0],noise_bounds[1])
     theta += theta_noise
     dist += dist_noise
     perturbed_x = dist * np.cos(theta)

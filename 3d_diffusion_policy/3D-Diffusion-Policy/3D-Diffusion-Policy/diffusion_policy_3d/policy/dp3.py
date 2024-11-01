@@ -291,11 +291,11 @@ class DP3(BasePolicy):
         # handle different ways of passing observation
         local_cond = None
         global_cond = None
+        this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+        nobs_features = self.obs_encoder(this_nobs)
         if self.obs_as_global_cond:
             # condition through global feature
             # reshape from Batch_size, horizon, ... to Batch_size*horizon, ...
-            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
-            nobs_features = self.obs_encoder(this_nobs)
             if "cross_attention" in self.condition_type:
                 # treat as a sequence
                 global_cond = nobs_features.reshape(B, self.n_obs_steps, -1)
@@ -307,8 +307,6 @@ class DP3(BasePolicy):
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         else:
             # condition through impainting
-            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
-            nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, T, Do
             nobs_features = nobs_features.reshape(B, To, -1)
             cond_data = torch.zeros(size=(B, T, Da+Do), device=device, dtype=dtype)
@@ -350,7 +348,7 @@ class DP3(BasePolicy):
 
             # [DebugNormalize] [Chialiang]
             if self.normalize_action:
-                action_pred_backup = copy.deepcopy(action_pred)
+                action_pred_backup = copy.deepcopy(action_pred.detach())
                 action_pred = self.normalizer[self.prediction_target].unnormalize(action_pred)
                 
                 # for rotation augmentation only
@@ -442,10 +440,6 @@ class DP3(BasePolicy):
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, 
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
-            #import pdb; pdb.set_trace()
-            print('=======================================================================================')
-            print('the output of the goal feature: {}'.format(this_nobs['goal_gripper_pcd'].shape))
-            print('=======================================================================================')
             nobs_features = self.obs_encoder(this_nobs)
 
 

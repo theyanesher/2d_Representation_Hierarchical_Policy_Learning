@@ -8,102 +8,12 @@ if [ $# -lt 1 ]; then
     exit
 fi
 
-# demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# # save_data_name=0527-act3d-always-close
-# save_data_name=0626-act3d-obj-41510-displacement-to-handle
-# exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle
-# task_beg_idx=0
-# task_end_idx=1 # for debugging
-# opened_threshold=0.65
 
-# # demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-# # save_data_name=0531-act3d-obj-46462
-# # exp_folder=data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle
-# # task_beg_idx=4
-# # task_end_idx=5
-# # opened_threshold=2.6
-
-# observation_mode=act3d
-# observation_mode=act3d_goal
-# observation_mode=dp3_goal_gripper
-# observation_mode=dp3_goal_gripper
-# observation_mode=act3d_goal_gripper_4
 pointcloud_num=4500
 
 # # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-46462
 # # python 3d_diffusion_policy/filter_simulation_error.py --folder_name data/temp/ --object_name storagefurniture     --save_path "data/dp3_demo/${save_data_name}" --exp_name "${demo_name}"     --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}"     --pointcloud_num "${pointcloud_num}"     --use_extracted 0     --num_experiment 1000     --observation_mode "${observation_mode}"     --parallel 0     --opened_threshold "${opened_threshold}" --demo_folder /project_data/held/yufeiw2/RoboGen_sim2real/data/dp3_demo/0531-act3d-obj-45448
 
-if [ $func = 'collect' ]; then 
-
-    demo_name=0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-    demo_name=0627-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first
-
-    save_data_name=0705-dp3-obj-41510-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-45448-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46462-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46732-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46801-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46874-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46922-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-46966-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-47570-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-47578-goal_dense_gripper_on_pcd
-    save_data_name=0705-dp3-obj-48700-goal_dense_gripper_on_pcd
-
-    task_beg_idx=0
-    task_end_idx=1
-
-    task_beg_idx=2
-    task_end_idx=3
-    
-    task_beg_idx=4
-    task_end_idx=5
-    
-    task_beg_idx=5
-    task_end_idx=6
-    
-    task_beg_idx=6
-    task_end_idx=7
-    
-    task_beg_idx=7
-    task_end_idx=8
-    
-    task_beg_idx=8
-    task_end_idx=9
-    
-    task_beg_idx=9
-    task_end_idx=10
-    
-    task_beg_idx=10
-    task_end_idx=11
-    
-    task_beg_idx=11
-    task_end_idx=12
-    
-    task_beg_idx=12
-    task_end_idx=13
-
-    post_fix='dp3_goal_gripper_dense'
-    observation_mode="${post_fix}"
-
-    python 3d_diffusion_policy/extract_data_from_states_2.py --folder_name data/temp/ --object_name storagefurniture \
-        --save_path "dp3_demo/${save_data_name}" --exp_name "${demo_name}" \
-        --task_beg_idx "${task_beg_idx}" --task_end_idx "${task_end_idx}" \
-        --pointcloud_num "${pointcloud_num}" \
-        --observation_mode "${observation_mode}" \
-        --parallel 1 \
-        --add_distractors 0 \
-        --num_experiment 1000
-fi
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 

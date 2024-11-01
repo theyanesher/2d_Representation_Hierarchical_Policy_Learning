@@ -522,7 +522,9 @@ class TrainDP3Workspace:
         if include_keys is None:
             include_keys = payload['pickles'].keys()
 
+        exclude_keys = ['amp_scaler']
         for key, value in payload['state_dicts'].items():
+            print('loading key in load_payload: ', key)
             if key not in exclude_keys:
                 print('key', key)
                 self.__dict__[key].load_state_dict(value, **kwargs)

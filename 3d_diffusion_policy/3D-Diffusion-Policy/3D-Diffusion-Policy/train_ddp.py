@@ -57,9 +57,9 @@ class TrainDP3Workspace:
         random.seed(seed)
 
         # configure model
-        self.model: DP3 = hydra.utils.instantiate(cfg.policy)
+        self.model = hydra.utils.instantiate(cfg.policy)
 
-        self.ema_model: DP3 = None
+        self.ema_model = None
         if cfg.training.use_ema:
             try:
                 self.ema_model = copy.deepcopy(self.model)
@@ -230,7 +230,7 @@ class TrainDP3Workspace:
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
 
-                    if self.pretrained_goal_model is not None:
+                    if self.pretrained_goal_model is not None and np.random.random() < 0.5:
                         with torch.no_grad():
                             goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
                         goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
@@ -264,7 +264,7 @@ class TrainDP3Workspace:
                     # scaler.update()
                     # opt.zero_grad() # set_to_none=True here can modestly improve performance
                     
-                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.cfg.training.use_amp):
+                    with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.cfg.training.use_amp):
                         raw_loss, loss_dict = self.model(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         
@@ -393,6 +393,20 @@ class TrainDP3Workspace:
             if (self.epoch % cfg.training.sample_every) == 0:
                 with torch.no_grad():
                     # sample trajectory from training set, and evaluate difference
+                    # cprint("test sampling batch {}".format(self.epoch), 'red')
+                    
+                    # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
+                    # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(device, non_blocking=True))
+                    # obs_dict = batch
+                    # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
+                    # result = policy.predict_action(obs_dict)
+                    # pred_action = result['action'][:, 0, :]
+                    # # mse = torch.nn.functional.mse_loss(pred_action, gt_action.reshape(1, 12))
+                    # norm = torch.norm(pred_action.reshape(4, 3) - gt_action.reshape(4, 3), dim=1).mean()
+                    # mse = norm
+                    # cprint(f"epoch {self.epoch} action prediction mse {mse}", "green")
+                    # step_log['train_action_mse_error'] = mse.item()
+                    
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
                     if self.cfg.policy.prediction_target == 'action':
@@ -543,6 +557,16 @@ class TrainDP3Workspace:
         
         del payload
         torch.cuda.empty_cache()
+        
+        # cprint("saving checkpoint path {}".format(str(path.absolute())), 'red')
+        # policy = self.ema_model
+        # policy.eval()
+        # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
+        # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(torch.device("cuda"), non_blocking=True))
+        # obs_dict = batch
+        # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
+        # result = policy.predict_action(obs_dict, pdb=True)
+        
         return str(path.absolute())
     
     def get_checkpoint_path(self, tag='latest'):
@@ -574,14 +598,17 @@ class TrainDP3Workspace:
         if include_keys is None:
             include_keys = payload['pickles'].keys()
         
-        self.gpu_id = int(os.environ["LOCAL_RANK"])
-        device = torch.device(self.gpu_id)
+        if 'LOCAL_RANK' in os.environ:
+            self.gpu_id = int(os.environ["LOCAL_RANK"])
+            device = torch.device(self.gpu_id)
+        else:
+            device = torch.device("cuda")
         
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
                 print(f"loading {key}")
                 if key == 'model':
-                    self.model: DP3 = hydra.utils.instantiate(self.cfg.policy)
+                    self.model = hydra.utils.instantiate(self.cfg.policy)
                     self.model.load_state_dict(value, **kwargs)
                     self.model.to(device)
                 else:
@@ -641,6 +668,37 @@ class TrainDP3Workspace:
         return torch.load(open(path, 'rb'), pickle_module=dill)
 
 
+def initialize_pretrained_high_level_policy():
+    # configure model
+    # on autobot
+    goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+    # on robocluster
+    # goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
+
+    goal_checkpoint_name = 'epoch-30.ckpt'
+    goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+
+    with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
+        recomposed_config = hydra.compose(
+            config_name="dp3.yaml",  # same config_name as used by @hydra.main
+            overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
+        )
+    goal_cfg = recomposed_config
+
+    goal_workspace = TrainDP3Workspace(goal_cfg)
+    goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+    goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
+
+    goal_policy = deepcopy(goal_workspace.model)
+    if goal_workspace.cfg.training.use_ema:
+        goal_policy = deepcopy(goal_workspace.ema_model)
+    goal_policy.eval()
+    goal_policy.reset()
+    device = torch.device(int(os.environ["LOCAL_RANK"]))
+    goal_policy = goal_policy.to(device)
+    pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
+    return pretrained_goal_model
+# pretrained_goal_model = initialize_pretrained_high_level_policy()
 
 @hydra.main(
     version_base=None,
@@ -657,37 +715,7 @@ def main(cfg):
         
         #############################################
         # for loading pre-trained high-level policy #
-        #############################################
-
-        # configure model
-        # on autobot
-        goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
-        # on robocluster
-        goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
-
-        goal_checkpoint_name = 'epoch-30.ckpt'
-        goal_checkpoint_path = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
-
-        with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
-            recomposed_config = hydra.compose(
-                config_name="dp3.yaml",  # same config_name as used by @hydra.main
-                overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
-            )
-        goal_cfg = recomposed_config
-
-        goal_workspace = TrainDP3Workspace(goal_cfg)
-        goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
-        goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
-
-        goal_policy = deepcopy(goal_workspace.model)
-        if goal_workspace.cfg.training.use_ema:
-            goal_policy = deepcopy(goal_workspace.ema_model)
-        goal_policy.eval()
-        goal_policy.reset()
-        device = torch.device(int(os.environ["LOCAL_RANK"]))
-        goal_policy = goal_policy.to(device)
-        pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
-        
+        #############################################        
         workspace = TrainDP3Workspace(cfg, pretrained_goal_model=pretrained_goal_model)
     else :
         workspace = TrainDP3Workspace(cfg, pretrained_goal_model=None)
