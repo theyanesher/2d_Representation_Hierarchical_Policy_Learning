@@ -9,6 +9,9 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.sampler import (get_val_mask, downsample_mask)
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
+from diffusion_policy_3d.dataset.Augmentations.aug_translation_xy import TranslationXY
+from diffusion_policy_3d.dataset.Augmentations.aug_rotation_z import rotationZ
+from diffusion_policy_3d.dataset.Augmentations.random_apply_numpy import RandomApplyNumpy
 from termcolor import cprint
 import random
 import copy
@@ -36,6 +39,16 @@ class RobogenDataset(BaseDataset):
             scale_scene_by_pcd=False,
             use_absolute_waypoint=False,
             augmentation_rot=False,
+            object_augmentation_high_level = False,
+            mean_x_augmentation_high_level = None, 
+            mean_y_augmentation_high_level = None, 
+            std_x_augmentation_high_level = None, 
+            std_y_augmentation_high_level = None,
+            mean_angle_z_augmentation_high_level = None, 
+            std_rot_z_augmentation_high_level = None,
+            prob_x = None,
+            prob_y = None,
+            prob_rot_z = None,
             prediction_target='action',
             **kwargs
             ):
@@ -49,6 +62,7 @@ class RobogenDataset(BaseDataset):
         self.scale_scene_by_pcd = scale_scene_by_pcd
         self.use_absolute_waypoint = use_absolute_waypoint
         self.is_pickle = is_pickle
+        self.object_augmentation_high_level = object_augmentation_high_level
         self.prediction_target = prediction_target
         
         if dataset_keys is None:
@@ -64,7 +78,7 @@ class RobogenDataset(BaseDataset):
         else:
             cprint(f"specifying dataset_keys: {dataset_keys}", "red")
             keys = dataset_keys
-
+        
         self.keys_ = keys
         
         # try to get kept_in_disk from kwargs, if not, set it to False
@@ -164,6 +178,14 @@ class RobogenDataset(BaseDataset):
         self.pad_before = pad_before
         self.pad_after = pad_after 
 
+        if self.object_augmentation_high_level:
+            print("High level Augmentation Setup")
+            trans_x = TranslationXY(mean_x_augmentation_high_level, mean_y_augmentation_high_level, std_x_augmentation_high_level, std_y_augmentation_high_level, True, False)
+            trans_y = TranslationXY(mean_x_augmentation_high_level, mean_y_augmentation_high_level, std_x_augmentation_high_level, std_y_augmentation_high_level, False, True)
+            rot_z = rotationZ(mean_angle_z_augmentation_high_level, std_rot_z_augmentation_high_level)
+            #probs = [0.4, 0.6, 0.3]
+            transforms_and_probs = [[trans_x,prob_x], [trans_y, prob_y], [rot_z, prob_rot_z]]
+            self.rand_apply = RandomApplyNumpy(transforms_and_probs)
         # [Chialiang]   
         cprint('dataset has been loaded', 'green')
             
@@ -263,6 +285,9 @@ class RobogenDataset(BaseDataset):
         agent_pos = copy.deepcopy(sample['state'][:,])
         point_cloud = copy.deepcopy(sample['point_cloud'][:,])
         action = copy.deepcopy(sample['action'])
+        if self.object_augmentation_high_level:
+            gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
+            goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
         agent_pos_old = copy.deepcopy(agent_pos)
 
         # if 'act3d' in self.observation_mode:
@@ -370,6 +395,20 @@ class RobogenDataset(BaseDataset):
                 gripper_pcd = (gripper_pcd_homo @ random_trans.T)[:, :3]
                 gripper_pcd = gripper_pcd_homo.reshape(self.horizon, -1, 3)
 
+        if self.object_augmentation_high_level:
+            #print("APPLYING DATA AUGMENTATION")
+            data = {
+                'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
+                'agent_pos': agent_pos.astype(np.float32), # T, D_pos
+                'gripper_pcd' : gripper_pcd.astype(np.float32),
+                'goal_gripper_pcd': goal_gripper_pcd.astype(np.float32)
+        }
+            data = self.rand_apply(data)
+            point_cloud = data["point_cloud"]
+            gripper_pcd = data["gripper_pcd"]
+            goal_gripper_pcd = data["goal_gripper_pcd"]
+
+
 
         # change to absolute waypoints
         if self.use_absolute_waypoint:
@@ -431,28 +470,41 @@ class RobogenDataset(BaseDataset):
             
             elif 'act3d_pointnet' == self.observation_mode:
                 gripper_pcd[...,:3]  /= max_scale
-
-        # assign to dict
-        data = {
+        if self.object_augmentation_high_level:
+            data = {
             'obs': {
                 'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
                 'agent_pos': agent_pos.astype(np.float32), # T, D_pos
-            },
-            'action': action.astype(np.float32)
-        }
+                'gripper_pcd': gripper_pcd.astype(np.float32),
+                'goal_gripper_pcd': goal_gripper_pcd.astype(np.float32)
+                },
+                'action': action.astype(np.float32)
+            }
+            for key in self.keys_:
+                if key not in ['state', 'action', 'point_cloud', 'gripper_pcd', 'goal_gripper_pcd']:
+                    data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
+        else:
+            # assign to dict
+            data = {
+                'obs': {
+                    'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
+                    'agent_pos': agent_pos.astype(np.float32), # T, D_pos
+                },
+                'action': action.astype(np.float32)
+            }
 
-        # if 'act3d' in self.observation_mode:
-        #     data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
-        #     if 'mlp' not in self.observation_mode:
-        #         data['obs']['feature_map'] = feature_map.astype(np.float32)
-        #         data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
-        #     if 'goal' in self.observation_mode:
-        #         data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
-        #     if 'displacement_gripper_to_object' in self.observation_mode:
-        #         data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
-        for key in self.keys_:
-            if key not in ['state', 'action', 'point_cloud']:
-                data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
+            # if 'act3d' in self.observation_mode:
+            #     data['obs']['gripper_pcd'] = gripper_pcd.astype(np.float32)
+            #     if 'mlp' not in self.observation_mode:
+            #         data['obs']['feature_map'] = feature_map.astype(np.float32)
+            #         data['obs']['pcd_mask'] = pcd_mask.astype(np.uint8)
+            #     if 'goal' in self.observation_mode:
+            #         data['obs']['goal_gripper_pcd'] = goal_gripper_pcd.astype(np.float32)
+            #     if 'displacement_gripper_to_object' in self.observation_mode:
+            #         data['obs']['displacement_gripper_to_object'] = displacement_gripper_to_object.astype(np.float32)
+            for key in self.keys_:
+                if key not in ['state', 'action', 'point_cloud']:
+                    data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
                 
         if self.prediction_target == 'delta_to_goal_gripper':
             data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
