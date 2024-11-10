@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import einops 
 from einops.layers.torch import Rearrange
 from termcolor import cprint
-from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule, FFWRelativeSelfCrossAttentionModule, FFWRelativeSelfAttentionModule
+# from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule, FFWRelativeSelfCrossAttentionModule, FFWRelativeSelfAttentionModule
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
 from diffusion_policy_3d.model.diffusion.positional_embedding import SinusoidalPosEmb
 from diffusion_policy_3d.model.diffusion.conv1d_components import Conv1dBlock
