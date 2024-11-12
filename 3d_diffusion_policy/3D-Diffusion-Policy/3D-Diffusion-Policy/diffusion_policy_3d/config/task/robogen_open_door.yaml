@@ -71,6 +71,7 @@ dataset:
   augmentation_rot: false
   augmentation_scale: false
   scale_scene_by_pcd: false
+  augmentation_goal_gripper_pcd: false
   use_absolute_waypoint: false
   object_augmentation_high_level: False
   mean_x_augmentation_high_level: 0

@@ -67,6 +67,14 @@ class TrainDP3Workspace:
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
 
         self.pretrained_goal_model = pretrained_goal_model
+        if cfg.training.pretrained_weighted_displacement_goal_model is not None:
+            from test_PointNet2.model_invariant import PointNet2_small2, PointNet2, PointNet2_super
+            device = torch.device(int(os.environ["LOCAL_RANK"]))
+            pointnet2_model = PointNet2_super(num_classes=13).to(device)
+            pointnet2_model.load_state_dict(torch.load(cfg.training.pretrained_weighted_displacement_goal_model))
+            pointnet2_model.eval()
+            self.pretrained_weighted_displacement_goal_model = pointnet2_model
+            
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -240,18 +248,45 @@ class TrainDP3Workspace:
 
                         batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
                         
-                        # # for k in batch['obs'].keys():
-                        # #     print('{}: {}'.format(k, batch['obs'][k].shape))
-                        # # print(f'goal_model_output: {goal_model_output.shape}')
-                        # # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
-                        # print(batch['obs']['goal_gripper_pcd'].shape)
-                        # for k in batch['obs'].keys():
-                        #     # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                        #     path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                        #     np.save(path, batch['obs'][k].detach().cpu().numpy())
-                        #     print(f'{path} saved')
-                        # exit(0)
-
+                    # p = np.random.rand()
+                    # if self.pretrained_weighted_displacement_goal_model is not None and p > 0.75:
+                    #     object_pcd = batch['obs']['point_cloud'][:, -1, :, :] # B, 4500, 3
+                    #     gripper_pcd = batch['obs']['gripper_pcd'][:, -1, :, :] # B, 4, 3
+                    #     model_input = torch.cat([object_pcd, gripper_pcd], dim=1)
+                    #     inputs_ = model_input.permute(0, 2, 1)
+                    #     with torch.no_grad():
+                    #         outputs = self.pretrained_weighted_displacement_goal_model(inputs_)
+                    #         weights = outputs[:, :, -1] # B, N
+                    #         outputs = outputs[:, :, :-1] # B, N, 12
+                    #         # use only object weights
+                    #         weights = weights[:, :-4]
+                    #         outputs = outputs[:, :-4, :]
+                    #         inputs = model_input[:, :-4, :]
+                            
+                    #         B, N, _ = outputs.shape
+                    #         outputs = outputs.view(B, N, 4, 3)
+                    #         outputs = outputs + inputs.unsqueeze(2)
+                    #         weights = torch.nn.functional.softmax(weights, dim=1)
+                    #         outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                    #         outputs = outputs.sum(dim=1)
+                    #         outputs = outputs.unsqueeze(1)
+                    #         predicted_goal = outputs.repeat(1, self.cfg.n_obs_steps, 1, 1)
+                    #     batch['obs']['goal_gripper_pcd'] = predicted_goal
+                        
+                    # if self.cfg.training.add_noise_to_goal_gripper_pcd:
+                    #     if p < 0.25:
+                    #         # shift the goal gripper pcd as a whole
+                    #         noise = torch.randn(batch['obs']['goal_gripper_pcd'].shape[0], 4, device=torch.device(self.gpu_id)) * 0.05
+                    #         noise = noise.unsqueeze(1).unsqueeze(-1).repeat(1, batch['obs']['goal_gripper_pcd'].shape[1], 1, 3)
+                    #         batch['obs']['goal_gripper_pcd'] += noise
+                            
+                    #     elif p >= 0.25 and p < 0.5:
+                    #         # shift each point individually
+                    #         noise = torch.randn(batch['obs']['goal_gripper_pcd'].shape[0], 4, 3, device=torch.device(self.gpu_id)) * 0.02
+                    #         noise = noise.unsqueeze(1).repeat(1, batch['obs']['goal_gripper_pcd'].shape[1], 1, 1)
+                    #         batch['obs']['goal_gripper_pcd'] += noise
+                                
+                        
                     # compute loss
                     t1_1 = time.time()
                     
