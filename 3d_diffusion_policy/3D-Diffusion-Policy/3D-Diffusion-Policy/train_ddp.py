@@ -58,6 +58,8 @@ class TrainDP3Workspace:
 
         # configure model
         self.model = hydra.utils.instantiate(cfg.policy)
+        device = torch.device(int(os.environ["LOCAL_RANK"]))
+        # self.model.cuda()
 
         self.ema_model = None
         if cfg.training.use_ema:
@@ -69,7 +71,6 @@ class TrainDP3Workspace:
         self.pretrained_goal_model = pretrained_goal_model
         if cfg.training.pretrained_weighted_displacement_goal_model is not None:
             from test_PointNet2.model_invariant import PointNet2_small2, PointNet2, PointNet2_super
-            device = torch.device(int(os.environ["LOCAL_RANK"]))
             pointnet2_model = PointNet2_super(num_classes=13).to(device)
             pointnet2_model.load_state_dict(torch.load(cfg.training.pretrained_weighted_displacement_goal_model))
             pointnet2_model.eval()
@@ -83,7 +84,7 @@ class TrainDP3Workspace:
         # configure training state
         self.global_step = 0
         self.epoch = 0
-        self.amp_scaler = torch.cuda.amp.GradScaler(enabled=self.cfg.training.use_amp)
+        # self.amp_scaler = torch.cuda.amp.GradScaler(enabled=self.cfg.training.use_amp)
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -303,18 +304,18 @@ class TrainDP3Workspace:
                         raw_loss, loss_dict = self.model(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         
-                    # loss.backward()
-                    self.amp_scaler.scale(loss).backward()    
+                    loss.backward()
+                    # self.amp_scaler.scale(loss).backward()    
                     
                     t1_2 = time.time()
 
                     # step optimizer
                     if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                        # self.optimizer.step()
-                        # self.optimizer.zero_grad()
-                        self.amp_scaler.step(self.optimizer)
-                        self.amp_scaler.update()
+                        self.optimizer.step()
                         self.optimizer.zero_grad()
+                        # self.amp_scaler.step(self.optimizer)
+                        # self.amp_scaler.update()
+                        # self.optimizer.zero_grad()
                         lr_scheduler.step()
                         
                     t1_3 = time.time()
@@ -659,7 +660,7 @@ class TrainDP3Workspace:
         # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys='pretrained_goal_model', 
+            exclude_keys=['pretrained_goal_model', "amp_scaler"],
             include_keys=None, 
             **kwargs):
         if path is None:
