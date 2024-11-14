@@ -69,7 +69,10 @@ class TrainDP3Workspace:
         self.pretrained_goal_model = pretrained_goal_model
         if cfg.training.pretrained_weighted_displacement_goal_model is not None:
             from test_PointNet2.model_invariant import PointNet2_small2, PointNet2, PointNet2_super
-            device = torch.device(int(os.environ["LOCAL_RANK"]))
+            if "LOCAL_RANK" in os.environ:
+                device = torch.device(int(os.environ["LOCAL_RANK"]))
+            else:
+                device = torch.device("cuda")
             pointnet2_model = PointNet2_super(num_classes=13).to(device)
             pointnet2_model.load_state_dict(torch.load(cfg.training.pretrained_weighted_displacement_goal_model))
             pointnet2_model.eval()
@@ -659,7 +662,7 @@ class TrainDP3Workspace:
         # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys='pretrained_goal_model', 
+            exclude_keys=['pretrained_goal_model', "pretrained_weighted_displacement_goal_model"], 
             include_keys=None, 
             **kwargs):
         if path is None:
