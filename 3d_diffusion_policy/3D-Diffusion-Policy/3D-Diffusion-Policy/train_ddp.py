@@ -57,9 +57,11 @@ class TrainDP3Workspace:
         random.seed(seed)
 
         # configure model
-        self.model: DP3 = hydra.utils.instantiate(cfg.policy)
+        self.model = hydra.utils.instantiate(cfg.policy)
+        device = torch.device(int(os.environ["LOCAL_RANK"]))
+        # self.model.cuda()
 
-        self.ema_model: DP3 = None
+        self.ema_model = None
         if cfg.training.use_ema:
             try:
                 self.ema_model = copy.deepcopy(self.model)
@@ -67,6 +69,13 @@ class TrainDP3Workspace:
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
 
         self.pretrained_goal_model = pretrained_goal_model
+        if cfg.training.pretrained_weighted_displacement_goal_model is not None:
+            from test_PointNet2.model_invariant import PointNet2_small2, PointNet2, PointNet2_super
+            pointnet2_model = PointNet2_super(num_classes=13).to(device)
+            pointnet2_model.load_state_dict(torch.load(cfg.training.pretrained_weighted_displacement_goal_model))
+            pointnet2_model.eval()
+            self.pretrained_weighted_displacement_goal_model = pointnet2_model
+            
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -75,7 +84,7 @@ class TrainDP3Workspace:
         # configure training state
         self.global_step = 0
         self.epoch = 0
-        self.amp_scaler = torch.cuda.amp.GradScaler(enabled=self.cfg.training.use_amp)
+        # self.amp_scaler = torch.cuda.amp.GradScaler(enabled=self.cfg.training.use_amp)
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -240,18 +249,45 @@ class TrainDP3Workspace:
 
                         batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
                         
-                        # # for k in batch['obs'].keys():
-                        # #     print('{}: {}'.format(k, batch['obs'][k].shape))
-                        # # print(f'goal_model_output: {goal_model_output.shape}')
-                        # # print(f'reshaped_goal_model_output: {reshaped_goal_model_output.shape}')
-                        # print(batch['obs']['goal_gripper_pcd'].shape)
-                        # for k in batch['obs'].keys():
-                        #     # path = f'/project_data/held/chialiak/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                        #     path = f'/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/one_traj/2024-0823/overwrite_{k}.npy'
-                        #     np.save(path, batch['obs'][k].detach().cpu().numpy())
-                        #     print(f'{path} saved')
-                        # exit(0)
-
+                    # p = np.random.rand()
+                    # if self.pretrained_weighted_displacement_goal_model is not None and p > 0.75:
+                    #     object_pcd = batch['obs']['point_cloud'][:, -1, :, :] # B, 4500, 3
+                    #     gripper_pcd = batch['obs']['gripper_pcd'][:, -1, :, :] # B, 4, 3
+                    #     model_input = torch.cat([object_pcd, gripper_pcd], dim=1)
+                    #     inputs_ = model_input.permute(0, 2, 1)
+                    #     with torch.no_grad():
+                    #         outputs = self.pretrained_weighted_displacement_goal_model(inputs_)
+                    #         weights = outputs[:, :, -1] # B, N
+                    #         outputs = outputs[:, :, :-1] # B, N, 12
+                    #         # use only object weights
+                    #         weights = weights[:, :-4]
+                    #         outputs = outputs[:, :-4, :]
+                    #         inputs = model_input[:, :-4, :]
+                            
+                    #         B, N, _ = outputs.shape
+                    #         outputs = outputs.view(B, N, 4, 3)
+                    #         outputs = outputs + inputs.unsqueeze(2)
+                    #         weights = torch.nn.functional.softmax(weights, dim=1)
+                    #         outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                    #         outputs = outputs.sum(dim=1)
+                    #         outputs = outputs.unsqueeze(1)
+                    #         predicted_goal = outputs.repeat(1, self.cfg.n_obs_steps, 1, 1)
+                    #     batch['obs']['goal_gripper_pcd'] = predicted_goal
+                        
+                    # if self.cfg.training.add_noise_to_goal_gripper_pcd:
+                    #     if p < 0.25:
+                    #         # shift the goal gripper pcd as a whole
+                    #         noise = torch.randn(batch['obs']['goal_gripper_pcd'].shape[0], 4, device=torch.device(self.gpu_id)) * 0.05
+                    #         noise = noise.unsqueeze(1).unsqueeze(-1).repeat(1, batch['obs']['goal_gripper_pcd'].shape[1], 1, 3)
+                    #         batch['obs']['goal_gripper_pcd'] += noise
+                            
+                    #     elif p >= 0.25 and p < 0.5:
+                    #         # shift each point individually
+                    #         noise = torch.randn(batch['obs']['goal_gripper_pcd'].shape[0], 4, 3, device=torch.device(self.gpu_id)) * 0.02
+                    #         noise = noise.unsqueeze(1).repeat(1, batch['obs']['goal_gripper_pcd'].shape[1], 1, 1)
+                    #         batch['obs']['goal_gripper_pcd'] += noise
+                                
+                        
                     # compute loss
                     t1_1 = time.time()
                     
@@ -264,22 +300,22 @@ class TrainDP3Workspace:
                     # scaler.update()
                     # opt.zero_grad() # set_to_none=True here can modestly improve performance
                     
-                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.cfg.training.use_amp):
+                    with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.cfg.training.use_amp):
                         raw_loss, loss_dict = self.model(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         
-                    # loss.backward()
-                    self.amp_scaler.scale(loss).backward()    
+                    loss.backward()
+                    # self.amp_scaler.scale(loss).backward()    
                     
                     t1_2 = time.time()
 
                     # step optimizer
                     if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                        # self.optimizer.step()
-                        # self.optimizer.zero_grad()
-                        self.amp_scaler.step(self.optimizer)
-                        self.amp_scaler.update()
+                        self.optimizer.step()
                         self.optimizer.zero_grad()
+                        # self.amp_scaler.step(self.optimizer)
+                        # self.amp_scaler.update()
+                        # self.optimizer.zero_grad()
                         lr_scheduler.step()
                         
                     t1_3 = time.time()
@@ -393,6 +429,20 @@ class TrainDP3Workspace:
             if (self.epoch % cfg.training.sample_every) == 0:
                 with torch.no_grad():
                     # sample trajectory from training set, and evaluate difference
+                    # cprint("test sampling batch {}".format(self.epoch), 'red')
+                    
+                    # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
+                    # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(device, non_blocking=True))
+                    # obs_dict = batch
+                    # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
+                    # result = policy.predict_action(obs_dict)
+                    # pred_action = result['action'][:, 0, :]
+                    # # mse = torch.nn.functional.mse_loss(pred_action, gt_action.reshape(1, 12))
+                    # norm = torch.norm(pred_action.reshape(4, 3) - gt_action.reshape(4, 3), dim=1).mean()
+                    # mse = norm
+                    # cprint(f"epoch {self.epoch} action prediction mse {mse}", "green")
+                    # step_log['train_action_mse_error'] = mse.item()
+                    
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
                     if self.cfg.policy.prediction_target == 'action':
@@ -543,6 +593,16 @@ class TrainDP3Workspace:
         
         del payload
         torch.cuda.empty_cache()
+        
+        # cprint("saving checkpoint path {}".format(str(path.absolute())), 'red')
+        # policy = self.ema_model
+        # policy.eval()
+        # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
+        # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(torch.device("cuda"), non_blocking=True))
+        # obs_dict = batch
+        # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
+        # result = policy.predict_action(obs_dict, pdb=True)
+        
         return str(path.absolute())
     
     def get_checkpoint_path(self, tag='latest'):
@@ -574,14 +634,17 @@ class TrainDP3Workspace:
         if include_keys is None:
             include_keys = payload['pickles'].keys()
         
-        self.gpu_id = int(os.environ["LOCAL_RANK"])
-        device = torch.device(self.gpu_id)
+        if 'LOCAL_RANK' in os.environ:
+            self.gpu_id = int(os.environ["LOCAL_RANK"])
+            device = torch.device(self.gpu_id)
+        else:
+            device = torch.device("cuda")
         
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
                 print(f"loading {key}")
                 if key == 'model':
-                    self.model: DP3 = hydra.utils.instantiate(self.cfg.policy)
+                    self.model = hydra.utils.instantiate(self.cfg.policy)
                     self.model.load_state_dict(value, **kwargs)
                     self.model.to(device)
                 else:
@@ -597,7 +660,7 @@ class TrainDP3Workspace:
         # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys='pretrained_goal_model', 
+            exclude_keys=['pretrained_goal_model', "amp_scaler"],
             include_keys=None, 
             **kwargs):
         if path is None:
@@ -671,7 +734,7 @@ def initialize_pretrained_high_level_policy():
     goal_policy = goal_policy.to(device)
     pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
     return pretrained_goal_model
-pretrained_goal_model = initialize_pretrained_high_level_policy()
+# pretrained_goal_model = initialize_pretrained_high_level_policy()
 
 @hydra.main(
     version_base=None,

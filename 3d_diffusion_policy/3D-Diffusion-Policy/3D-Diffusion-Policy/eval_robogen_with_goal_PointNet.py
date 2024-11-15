@@ -22,9 +22,11 @@ from multiprocessing import Pool
 import time
 import yaml
 import pickle as pkl
-from test_PointNet2.model import PointNet2_small2
+import argparse
+from typing import List, Optional
+from collections import deque
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
+def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -35,6 +37,7 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file):
                     randomize=False,
                     obj_id=0,
                     horizon=600,
+                    random_object_translation=obj_translation,
             )
             
     object_name = "StorageFurniture".lower()
@@ -169,8 +172,9 @@ def wrap_obs(list_of_obs):
 
 
             
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, 
-                          num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None, dataset_index=None, calculate_distance_from_gt=False):
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, exp_beg_idx=0,
+                          exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
+                          dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -280,7 +284,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file)
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -288,30 +292,69 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
 
             initial_info = info
             all_rgbs = [rgb]
+            goal_stage = 'first'
+            first_step_outputs = None
+            gripper_close_accumulation_buffer = deque(maxlen=5)
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
                 
+                # print("step: ", t)
                 
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                 
-                with torch.no_grad():
-                    pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
-                    gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                    inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
-                    inputs = inputs.to('cuda')
-                    inputs_ = inputs.permute(0, 2, 1)
-                    outputs = goal_prediction_model(inputs_)
-                    weights = outputs[:, :, -1] # B, N
-                    outputs = outputs[:, :, :-1] # B, N, 12
-                    B, N, _ = outputs.shape
-                    outputs = outputs.view(B, N, 4, 3)
+                if t == 1 or (not args.predict_two_goals):
+                    with torch.no_grad():
+                        pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
+                        gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                        if not args.predict_two_goals:
+                            inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
+                        else:
+                            inputs = pointcloud
+                        inputs = inputs.to('cuda')
+                        inputs_ = inputs.permute(0, 2, 1)
+                        outputs = goal_prediction_model(inputs_)
+                        weights = outputs[:, :, -1] # B, N
+                        outputs = outputs[:, :, :-1] # B, N, 12
+                        if output_obj_pcd_only:
+                            cprint("using only obj pcd output!", "red")
+                            weights = weights[:, :-4]
+                            outputs = outputs[:, :-4, :]
+                            inputs = inputs[:, :-4, :]
+
+                        B, N, _ = outputs.shape
+                        if not args.predict_two_goals:
+                            outputs = outputs.view(B, N, 4, 3)
+                        else:
+                            outputs = outputs.view(B, N, 8, 3)
+                            if first_step_outputs is None:
+                                first_step_outputs = deepcopy(outputs)
+                                
+                            if goal_stage == 'first':
+                                outputs = outputs[:, :, :4, :]
+                            elif goal_stage == 'second':
+                                outputs = outputs[:, :, 4:, :]
+                                
+                        outputs = outputs + inputs.unsqueeze(2)
+                        weights = torch.nn.functional.softmax(weights, dim=1)
+                        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                        outputs = outputs.sum(dim=1)
+                        outputs = outputs.unsqueeze(1)
+                        
+                else:
+                    outputs = first_step_outputs
+                    if goal_stage == 'first':
+                        outputs = outputs[:, :, :4, :]
+                    elif goal_stage == 'second':
+                        outputs = outputs[:, :, 4:, :]
+                            
                     outputs = outputs + inputs.unsqueeze(2)
                     weights = torch.nn.functional.softmax(weights, dim=1)
                     outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
                     outputs = outputs.sum(dim=1)
                     outputs = outputs.unsqueeze(1)
+                    
                 np_predicted_goal = outputs.detach().to('cpu').numpy()
                 
                 predicted_goal = outputs.repeat(1, 2, 1, 1)
@@ -320,6 +363,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
 
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
+                    gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
+                    gripper_close_accumulation_buffer.append(np.sum(gripper_close_actions))
+                    if np.sum(gripper_close_accumulation_buffer) < -0.006:
+                        # cprint("changing goal!", 'red')
+                        goal_stage = 'second'
                     
                     
                 np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
@@ -329,6 +377,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
                 if calculate_distance_from_gt:
                     predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
                     gt_goal = env.env.goal_gripper_pcd
+                    import pdb; pdb.set_trace()
                     distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
                     all_distances.append(distance)
                     grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
@@ -372,16 +421,33 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model,
 
     if calculate_distance_from_gt:
         print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
-        
+
 if __name__ == "__main__":
     
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--low_level_exp_dir', type=str, default=None)
+    parser.add_argument('--low_level_ckpt_name', type=str, default=None)
+    parser.add_argument("--high_level_ckpt_name", type=str, default=None)
+    parser.add_argument("--pointnet_class", type=str, default="PointNet2")
+    parser.add_argument("--eval_exp_name", type=str, default=None)
+    parser.add_argument("--use_predicted_goal", type=bool, default=True)
+    parser.add_argument("--test_cross_category", type=bool, default=False)
+    parser.add_argument("--model_invariant", type=bool, default=False)
+    parser.add_argument('--predict_two_goals', action='store_true')
+    parser.add_argument('--output_obj_pcd_only', action='store_true')
+    parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
+    args = parser.parse_args()
+    
     num_worker = 30
-    # pool = Pool(processes=num_worker)
     pool=None
 
-    # 50 objects
-    exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
-    checkpoint_name = 'latest.ckpt'
+    if args.low_level_exp_dir is None:
+        # best 50 objects
+        exp_dir = "/project_data/held/chialiak/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/07201526-act3d_goal_mlp-horizon-8-num_load_episodes-1000/2024.07.20/15.26.54_train_dp3_robogen_open_door"
+        checkpoint_name = 'latest.ckpt'
+    else:
+        exp_dir = args.low_level_exp_dir
+        checkpoint_name = args.low_level_ckpt_name
 
     with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
         recomposed_config = hydra.compose(
@@ -401,45 +467,90 @@ if __name__ == "__main__":
     policy.reset()
     policy = policy.to('cuda')
     
-    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-    cfg.task.env_runner.experiment_folder = [
-        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+    if not args.test_cross_category:
+        cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+        cfg.task.env_runner.experiment_folder = [
+            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+            ]
+        cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+    else:
+        cprint("testing cross category", "red")
+        cfg.task.env_runner.experiment_name = ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
+        cfg.task.env_runner.experiment_folder = [
+            "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
+            "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
         ]
-    cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+        cfg.task.env_runner.demo_experiment_path = [None for _ in range(6)]
     
-    load_model_path = "/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/model_9.pth"
-    pointnet2_model = PointNet2_small2(num_classes=13).to('cuda')
+    load_model_path = args.high_level_ckpt_name
+        
+    
+    num_class = 13 if not args.predict_two_goals else 25
+    if not args.model_invariant:
+        from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
+        if args.pointnet_class == "PointNet2":
+            pointnet2_model = PointNet2_small2(num_classes=num_class).to('cuda')
+        elif args.pointnet_class == "PointNet2_large":
+            pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
+        elif args.pointnet_class == "PointNet2_super":
+            pointnet2_model = PointNet2_super(num_classes=num_class).to("cuda")
+            
+    else:
+        from test_PointNet2.model_invariant import PointNet2, PointNet2_super
+        if args.pointnet_class == 'PointNet2_large':
+            pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
+        elif args.pointnet_class == 'PointNet2_super':
+            pointnet2_model = PointNet2_super(num_classes=num_class).to("cuda")
+        
+        
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
     
-    for run_idx in range(1):
-        save_path = "data/eval_200_obj_pointnet_goal_predictor_testing/{}/{}".format(checkpoint_dir[checkpoint_name_start_idx:].replace("/", "_"), run_idx)
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        
-        cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
-        cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
-        run_eval_non_parallel(
-                cfg, policy, pointnet2_model,
-                num_worker, save_path, 
-                pool=pool, 
-                horizon=35,
-                exp_beg_idx=0,
-                exp_end_idx=25,
-                # dataset_index=9，
-                # exp_beg_ratio=0.9,
-                # exp_end_ratio=1,
-                # calculate_distance_from_gt=True,
-        )
+    save_path = "data/{}".format(args.eval_exp_name)
+    if args.noise is not None:
+        save_path = "data/{}_{}_{}".format(args.eval_exp_name, args.noise[0], args.noise[1])
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    checkpoint_info = {
+        "low_level_policy": checkpoint_dir,
+        "low_level_policy_checkpoint": checkpoint_name,
+        "high_level_policy_checkpoint": args.high_level_ckpt_name,
+    }
+    checkpoint_info.update(args.__dict__)
+    with open("{}/checkpoint_info.json".format(save_path), "w") as f:
+        json.dump(checkpoint_info, f, indent=4)
+    
+    cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
+    cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
+    run_eval_non_parallel(
+            cfg, policy, pointnet2_model,
+            num_worker, save_path, 
+            pool=pool, 
+            horizon=35,
+            exp_beg_idx=0,
+            exp_end_idx=25,
+            obj_translation=args.noise,
+            output_obj_pcd_only=args.output_obj_pcd_only,
+            # dataset_index=9，
+            # exp_beg_ratio=0.9,
+            # exp_end_ratio=1,
+            # calculate_distance_from_gt=True,
+    )
+
+
+# python eval_robogen_with_goal_PointNet.py --high_level_ckpt_name /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2024-09-30_use_75_episodes_200-obj/model_39.pth --eval_exp_name eval_yufei_weighted_displacement_pointnet_large_200_invariant_reproduce --pointnet_class PointNet2_super --model_invariant True

@@ -47,6 +47,7 @@ env_runner:
   only_object: true
   use_absolute_waypoint: false
   dense_pcd_for_goal: false 
+  point_cloud_mean_centered: False
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robogen_dataset.RobogenDataset
@@ -70,5 +71,16 @@ dataset:
   augmentation_rot: false
   augmentation_scale: false
   scale_scene_by_pcd: false
+  augmentation_goal_gripper_pcd: false
   use_absolute_waypoint: false
+  object_augmentation_high_level: False
+  mean_x_augmentation_high_level: 0
+  std_x_augmentation_high_level: 2
+  mean_y_augmentation_high_level: 0
+  std_y_augmentation_high_level: 2
+  mean_angle_z_augmentation_high_level: 0 
+  std_rot_z_augmentation_high_level: 10
+  prob_x: 0.3
+  prob_y: 0.3
+  prob_rot_z: 0.3
   prediction_target: 'action'

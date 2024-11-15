@@ -60,6 +60,10 @@ policy:
   use_pc_color: false
   pointnet_type: "pointnet"
 
+  ### weighted diffusion params
+  use_normalization: false
+  weight_loss_coef: 1
+  load_pretrained_pointnet: false
 
   pointcloud_encoder_cfg:
     # in_channels: 6
@@ -90,8 +94,11 @@ policy:
 
   prediction_target: action
 
-  noise_model_type: unet # unet, transformer
+  ### transformer diffusion parameters
+  noise_model_type: unet # unet, transformer (CHANGED FROM UNET FOR INFERENCE => PLEASE REMEMBER)
   diffusion_attn_embed_dim: 240
+  transformer_type: "default"
+  policy_type: high_level
 
   # weigthed diffusion loss weights
   weight_loss_weight: 1.0
@@ -145,6 +152,8 @@ training:
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
+  pretrained_weighted_displacement_goal_model: null
+  add_noise_to_goal_gripper_pcd: false
 
 logging:
   group: ${exp_name}
