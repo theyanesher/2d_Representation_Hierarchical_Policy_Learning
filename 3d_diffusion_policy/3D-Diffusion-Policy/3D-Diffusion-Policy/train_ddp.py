@@ -58,8 +58,6 @@ class TrainDP3Workspace:
 
         # configure model
         self.model = hydra.utils.instantiate(cfg.policy)
-        device = torch.device(int(os.environ["LOCAL_RANK"]))
-        # self.model.cuda()
 
         self.ema_model = None
         if cfg.training.use_ema:
