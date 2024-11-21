@@ -15,7 +15,7 @@ class Scale_Handle():
             urdf_file = f"data/dataset/{asset_id}/mobility_modified.urdf"
         else:
             urdf_file = f"data/dataset/{asset_id}/mobility.urdf"
-        link_name = 'link_0'  # The link whose data you want to extract
+        #link_name = 'link_0'  # The link whose data you want to extract
         link_dict = self.extract_link_data(urdf_file, link_name)
         visual_data_list = link_dict["visual"]
         global_coordinates_max_list = []
@@ -65,6 +65,7 @@ class Scale_Handle():
                 #break
         global_max_xyz = np.max(global_coordinates_max_list, axis = 0)
         global_min_xyz = np.min(global_coordinates_min_list, axis = 0)
+        print("DIFFFFFFFFFF BETWEEN MIN AND MAX COORDINATE IMP HERE", (scaled_global_coordinates_max_handle - scaled_global_coordinates_min_handle))
         #print("global check", global_max_xyz, global_min_xyz, scaled_global_coordinates_max_handle, scaled_global_coordinates_min_handle, len(scaled_global_coordinates_handle_list), scaled_global_coordinates_handle_list[0][:,:2].shape, scaled_global_coordinates_handle_list[1].shape, scaled_global_coordinates_handle_list[2].shape, scaled_global_coordinates_handle.shape)
         unsucessful_augmentation = True
         overflow_cond = True
@@ -97,7 +98,7 @@ class Scale_Handle():
         print("SELF SCALING FACTOR", self.scaling_factor)
         mesh_output_path = f"data/dataset/{asset_id}/handle_modified_scaled.obj"
         self.save_modified_handle_obj(mesh_path_list, mean_handle_list)
-        root = self.modify_urdf(urdf_file, link_name)
+        root = self.modify_urdf(urdf_file, self.link_name)
         return root, None
 
     def find_number_coordinates(self,s):
