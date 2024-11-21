@@ -126,14 +126,14 @@ class MultiStepWrapper(gym.Wrapper):
     
     def reset(self, **kwargs):
         """Resets the environment using kwargs."""
-        obs = super().reset(**kwargs)
+        obs , point_mean = super().reset(**kwargs)
         self.obs = deque([obs], maxlen=self.n_obs_steps+1)
         self.reward = list()
         self.done = list()
         self.info = defaultdict(lambda : deque(maxlen=self.n_obs_steps+1))
 
         obs = self._get_obs(self.n_obs_steps)
-        return obs
+        return obs, point_mean
 
     def step(self, action, **kwrags):
         """
