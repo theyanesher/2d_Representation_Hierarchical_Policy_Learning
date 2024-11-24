@@ -5,8 +5,11 @@ from collections import defaultdict
 
 workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_dir = os.path.join(workspace, "data")
-with open(f"{data_dir}/partnet_mobility_dict.json", 'r') as f:
-    partnet_mobility_dict = json.load(f)
+if os.path.exists(f"{data_dir}/partnet_mobility_dict.json"):
+    with open(f"{data_dir}/partnet_mobility_dict.json", 'r') as f:
+        partnet_mobility_dict = json.load(f)
+else:
+    partnet_mobility_dict = {}
 
 if os.path.exists("objaverse_utils/text_to_uid.json"):
     with open("objaverse_utils/text_to_uid.json", 'r') as f:

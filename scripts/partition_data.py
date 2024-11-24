@@ -63,7 +63,7 @@ import glob
 import os
 
 # Specify the base directory to search
-base_directory = '/scratch/yufeiw2/dp3_demo/'
+base_directory = 'data/dp3_demo/'
 
 # Use glob.glob to find all matching directories recursively
 matching_directories = glob.glob(os.path.join(base_directory, '**/*-obj-*'), recursive=True)
@@ -83,6 +83,7 @@ for directory in matching_directories:
                 break
         if not is_test:
             all_training_directories.append(directory)
+# print(len(all_training_directories))
 
 import random
 random.shuffle(all_training_directories)
@@ -90,9 +91,10 @@ random.shuffle(all_training_directories)
 num_train_objs = [10, 50, 100, 200, len(all_training_directories)]
 for num_train_obj in num_train_objs:
     train_directories = all_training_directories[:num_train_obj]
-    with open(f"scripts/train_dataset_{num_train_obj}.sh", 'w') as f:
+    with open(f"scripts/datasets/train_dataset_{num_train_obj}.sh", 'w') as f:
         for idx, directory in enumerate(train_directories):
-            f.write(f"save_data_name_{idx}='{directory}'\n")
+            obj_name = directory.split("/")[-1]
+            f.write(f"save_data_name_{idx}='{obj_name}'\n")
             
 
             
