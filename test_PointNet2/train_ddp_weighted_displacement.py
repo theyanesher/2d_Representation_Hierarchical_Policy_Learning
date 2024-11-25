@@ -219,7 +219,7 @@ def train(args):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--all_zarr_path', type=str, default=None)
-    parser.add_argument('--num_train_objects', type=int, default=200)
+    parser.add_argument('--num_train_objects', default=200)
     parser.add_argument('--dataset_prefix', type=str, default=None)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--beg_ratio', type=float, default=0)

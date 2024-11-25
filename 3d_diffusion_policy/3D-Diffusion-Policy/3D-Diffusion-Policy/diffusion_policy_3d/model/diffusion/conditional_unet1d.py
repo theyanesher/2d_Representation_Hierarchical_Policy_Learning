@@ -168,6 +168,7 @@ class ConditionalUnet1D(nn.Module):
         use_mid_condition=True,
         use_up_condition=True,
         use_group_norm=True,
+        horizon=4,
         ):
         super().__init__()
         self.condition_type = condition_type
@@ -224,6 +225,10 @@ class ConditionalUnet1D(nn.Module):
         ])
 
         down_modules = nn.ModuleList([])
+        if horizon > 2:
+            ds_kernel_size, ds_stride, ds_padding = 3, 2, 1 
+        else:
+            ds_kernel_size, ds_stride, ds_padding = 2, 2, 1
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (len(in_out) - 1)
             down_modules.append(nn.ModuleList([
@@ -235,9 +240,13 @@ class ConditionalUnet1D(nn.Module):
                     dim_out, dim_out, cond_dim=cond_dim, 
                     kernel_size=kernel_size, n_groups=n_groups,
                     condition_type=condition_type, use_group_norm=use_group_norm),
-                Downsample1d(dim_out) if not is_last else nn.Identity()
+                Downsample1d(dim_out, ds_kernel_size, ds_stride, ds_padding) if not is_last else nn.Identity()
             ]))
 
+        if horizon > 2:
+            up_kernel_size, up_stride, up_padding = 4, 2, 1
+        else:
+            up_kernel_size, up_stride, up_padding = 1, 1, 0
         up_modules = nn.ModuleList([])
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
             is_last = ind >= (len(in_out) - 1)
@@ -250,7 +259,7 @@ class ConditionalUnet1D(nn.Module):
                     dim_in, dim_in, cond_dim=cond_dim,
                     kernel_size=kernel_size, n_groups=n_groups,
                     condition_type=condition_type, use_group_norm=use_group_norm),
-                Upsample1d(dim_in) if not is_last else nn.Identity()
+                Upsample1d(dim_in, up_kernel_size, up_stride, up_padding) if not is_last else nn.Identity()
             ]))
         
         final_conv = nn.Sequential(

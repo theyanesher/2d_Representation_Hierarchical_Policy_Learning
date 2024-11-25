@@ -46,6 +46,7 @@ class RobogenDataset(BaseDataset):
             std_y_augmentation_high_level = None,
             mean_angle_z_augmentation_high_level = None, 
             std_rot_z_augmentation_high_level = None,
+            augmentation_goal_gripper_pcd=False,
             prob_x = None,
             prob_y = None,
             prob_rot_z = None,
@@ -59,6 +60,7 @@ class RobogenDataset(BaseDataset):
         self.augmentation_rot = augmentation_rot
         self.augmentation_pcd = augmentation_pcd
         self.augmentation_scale = augmentation_scale
+        self.augmentation_goal_gripper_pcd = augmentation_goal_gripper_pcd
         self.scale_scene_by_pcd = scale_scene_by_pcd
         self.use_absolute_waypoint = use_absolute_waypoint
         self.is_pickle = is_pickle
@@ -290,21 +292,6 @@ class RobogenDataset(BaseDataset):
             goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
         agent_pos_old = copy.deepcopy(agent_pos)
 
-        # if 'act3d' in self.observation_mode:
-        #     gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
-        #     if 'mlp' not in self.observation_mode:
-
-        #         pcd_mask = copy.deepcopy(sample['pcd_mask'][:,])
-        #         feature_map = copy.deepcopy(sample['feature_map'][:,])
-
-        #     if 'goal' in self.observation_mode:
-        #         goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
-            
-        #     if 'displacement_gripper_to_object' in self.observation_mode:
-        #         displacement_gripper_to_object = copy.deepcopy(sample['displacement_gripper_to_object'][:,])
-        
-        # elif 'act3d_pointnet' == self.observation_mode:
-        #     gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
 
         # augmentation
         ###########################################
@@ -322,6 +309,19 @@ class RobogenDataset(BaseDataset):
 
         if self.augmentation_pcd:
             point_cloud = point_cloud + np.random.normal(0, 0.003, point_cloud.shape) # [AugTODO] add more 
+            
+        # if self.augmentation_goal_gripper_pcd:
+        #     p = np.random.rand()
+        #     print((point_cloud.shape[0], 2, 4))
+        #     print(sample['goal_gripper_pcd'][:,].shape)
+        #     if p < 0.33:
+        #         random_noise = np.random.normal(0, 0.05, (point_cloud.shape[0], 2, 4))
+        #         sample['goal_gripper_pcd'][:,] += random_noise
+        #     if p >= 0.33 and p < 0.66:
+        #         random_noise = np.random.normal(0, 0.02, (point_cloud.shape[0], 2, 4, 3))
+        #         sample['goal_gripper_pcd'][:,] += random_noise
+            
+                
 
         if self.augmentation_rot:
             # random rotation

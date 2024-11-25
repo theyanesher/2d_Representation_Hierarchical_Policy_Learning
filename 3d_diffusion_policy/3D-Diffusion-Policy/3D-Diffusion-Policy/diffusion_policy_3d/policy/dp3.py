@@ -55,6 +55,7 @@ class DP3(BasePolicy):
             transformer_type = "default",
             normalize_action=True, # [Chialiang] can remove normilizer for action
             scale_scene_by_pcd=False, # [Chialiang] can remove normilizer for action
+            policy_type='high_level',
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -162,7 +163,8 @@ class DP3(BasePolicy):
                 local_cond_dim=None,
                 global_cond_dim=global_cond_dim,
                 encoder_feature_dim=encoder_output_dim,
-                diffusion_attn_embed_dim=diffusion_attn_embed_dim
+                diffusion_attn_embed_dim=diffusion_attn_embed_dim,
+                policy_type=policy_type,
             )
 
         if self.encoder_type == "act3d":
@@ -330,14 +332,8 @@ class DP3(BasePolicy):
             scene_features = scene_features.reshape(scene_points.shape[2], B, self.n_obs_steps, self.encoder_output_dim)
             scene_features = scene_features.permute(1, 2, 0, 3)
             #local_cond=local_cond,
-            nsample = self.conditional_sample(
-                cond_data,
-                cond_mask,
-                global_cond=global_cond,
-                observed_gripper_points=observed_gripper_points,
-                scene_points=scene_points,
-                scene_features=scene_features,
-                **self.kwargs)
+            # import pdb; pdb.set_trace()
+            nsample = self.conditional_sample(cond_data, cond_mask, global_cond=global_cond, observed_gripper_points=observed_gripper_points, scene_points=scene_points, scene_features=scene_features, goal_gripper_points=this_nobs['goal_gripper_pcd'].reshape(B, self.n_obs_steps, -1, 3), **self.kwargs)
 
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
@@ -507,7 +503,8 @@ class DP3(BasePolicy):
                                 global_cond=global_cond,
                                 observed_gripper_points=observed_gripper_points,
                                 scene_points=scene_points,
-                                scene_features=scene_features)
+                                scene_features=scene_features,
+                                goal_gripper_points=this_nobs['goal_gripper_pcd'].reshape(batch_size, self.n_obs_steps, -1, 3))
 
 
         pred_type = self.noise_scheduler.config.prediction_type 

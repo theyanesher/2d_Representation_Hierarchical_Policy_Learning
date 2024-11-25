@@ -64,6 +64,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                           dataset_index=None, calculate_distance_from_gt=False,
                           obj_translation: Optional[list]= None,
                           use_predicted_goal: bool = True,
+                          update_goal_freq=1,
                           ):
     
     if calculate_distance_from_gt:
@@ -177,14 +178,15 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
 
             initial_info = info
             all_rgbs = [rgb]
-            closed=False
+            closed = False
+            last_goal = None 
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
                 
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
-                if use_predicted_goal:
+                if use_predicted_goal and (t == 1 or t % update_goal_freq == 0):
                     high_level_parallel_input_dict = deepcopy(parallel_input_dict)
                     if goal_cfg.n_obs_steps == 1:
                         for key in high_level_parallel_input_dict:
@@ -199,6 +201,9 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                         current_gripper_pcd = parallel_input_dict['gripper_pcd'].detach()
                         delta_pcd = predicted_goal['action'][:, :2, :]
                         parallel_input_dict['goal_gripper_pcd'] = current_gripper_pcd + delta_pcd.view(1, 2, 4, 3).detach()
+                    last_goal = parallel_input_dict['goal_gripper_pcd']
+                else:
+                    parallel_input_dict['goal_gripper_pcd'] = last_goal
                         
                 if cfg.task.env_runner.dense_pcd_for_goal:
                     parallel_input_dict['point_cloud'] = parallel_input_dict['dense_point_cloud']
@@ -281,6 +286,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument("--calculate_distance_from_gt", type=bool, default=False)
+    parser.add_argument("--update_goal_freq", type=int, default=1)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
 
     args = parser.parse_args()
@@ -316,36 +322,32 @@ if __name__ == "__main__":
     policy = policy.to('cuda')
 
     ### these are the test objects
-    if not args.test_cross_category:
-        cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-        # cfg.task.env_runner.experiment_name = ["0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first"]
-        cfg.task.env_runner.experiment_folder = [
-            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
-            
-            # "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle"
-        ]
-        cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    else:
-        cprint("testing cross category", "red")
-        cfg.task.env_runner.experiment_name = ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
-        cfg.task.env_runner.experiment_folder = [
-            "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        ]
-        cfg.task.env_runner.demo_experiment_path = [None for _ in range(6)]
+    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+    cfg.task.env_runner.experiment_folder = [
+        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+        
+        # "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle"
+    ]
+    cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+    cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
+    cfg.task.env_runner.experiment_folder += [
+        "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    ]
+    cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
 
     ### load the high-level policy
     goal_exp_dir = args.high_level_exp_dir
@@ -404,4 +406,5 @@ if __name__ == "__main__":
             obj_translation=args.noise,
             use_predicted_goal=args.use_predicted_goal,
             calculate_distance_from_gt=args.calculate_distance_from_gt,
+            update_goal_freq=args.update_goal_freq,
     )

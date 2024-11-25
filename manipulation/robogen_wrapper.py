@@ -23,6 +23,8 @@ import json
 import pickle
 import cv2
 import scipy
+from scipy.interpolate import RectBivariateSpline
+from scipy.spatial.distance import cdist
 
 class RobogenPointCloudWrapper:
     def __init__(self, 
@@ -51,11 +53,15 @@ class RobogenPointCloudWrapper:
                  elevation=30,
                  only_object=True,
                  record_all_observation=False,
+                 noise_real_world_pcd=False,
+                 real_world_camera=False,
             ):
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
             np.random.seed(seed)
-
+            
+        self.noise_real_world_pcd = noise_real_world_pcd
+        self.real_world_camera = real_world_camera
 
         self._env = env
         self._object_name = object_name
@@ -92,8 +98,6 @@ class RobogenPointCloudWrapper:
             'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
             'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
         })
         if 'goal' in observation_mode:
             self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
@@ -122,8 +126,6 @@ class RobogenPointCloudWrapper:
                 'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
 
             if 'goal' in observation_mode:
@@ -171,6 +173,8 @@ class RobogenPointCloudWrapper:
             self.camera_height = 256
             self.camera_width = 256
 
+        self.depth_near = 0.01
+        self.depth_far = 100
         self.view_matrices = []
         self.project_matrices = []
 
@@ -183,10 +187,47 @@ class RobogenPointCloudWrapper:
             distance = self.mean_distance
 
             view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=env.id)
-            project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=0.01, farVal=100, physicsClientId=env.id)
+            project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=1 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=env.id)
             self.view_matrices.append(view_matrix)
             self.project_matrices.append(project_matrix)
-            # cprint(f"view_matrix: {view_matrix}, project_matrix: {project_matrix}", 'green')
+            
+        # self._env.view_matrix = self.view_matrices[0]
+        # self._env.projection_matrix = self.project_matrices[0] 
+            
+        if self.real_world_camera:
+            # TODO: make the camera at real-world pose
+            self.camera_width = 640
+            self.camera_height = 576
+            
+            camera_ids = [0, 3]
+            view_matrices = []
+            project_matrices = []
+            camera_calibration_folder = os.path.join(os.environ["PROJECT_DIR"], 'data/real_world')
+            self.camera_eyes = []
+            for camera_id in camera_ids:
+                camera_parameter_file = os.path.join(camera_calibration_folder, "cam{}_calibration.npz".format(camera_id))
+                data = np.load(camera_parameter_file)
+                camera_extrinsic = data['T'] # 4x4
+
+
+                camera_eye = camera_extrinsic[:3, 3]
+                camera_eye[2] = 1.0
+                camera_target = [0.7, 0, 0.4]
+                camera_eye = camera_eye + np.random.normal(0, 0.1, 3)
+                camera_target = camera_target + np.random.normal(0, 0.1, 3)
+                self.camera_eyes.append(camera_eye)
+
+                view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1])
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/576 ,nearVal=self.depth_near, 
+                                                              farVal=self.depth_far, physicsClientId=self._env.id)
+                view_matrices.append(view_matrix)
+                project_matrices.append(project_matrix)
+
+            self.view_matrices = view_matrices
+            self.project_matrices = project_matrices
+            
+            self._env.view_matrix = self.view_matrices[0]
+            self._env.projection_matrix = self.project_matrices[0]
 
         self.time_step = 0
         
@@ -270,28 +311,12 @@ class RobogenPointCloudWrapper:
                 else:
                     rpy[2] = np.random.uniform(-20, -70)
                 view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=self._env.id)
-                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=0.01, farVal=100, physicsClientId=self._env.id)
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=self._env.id)
                 view_matrices.append(view_matrix)
                 project_matrices.append(project_matrix)
             self.view_matrices = view_matrices
             self.project_matrices = project_matrices
-            pcs = []
-            rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
-                                                return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width,
-                                                only_object=False)
-            for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
-                pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
-                pcs.append(pc)
-            # check there are some handle points in the point cloud
-            pcs = np.concatenate(pcs, axis=0)
-            device = torch.device('cpu')
-            
-            handle_pc_torch = torch.from_numpy(handle_pc).to(device)
-            pcs_torch = torch.from_numpy(pcs).to(device)
-            pcd_distance = torch.norm(pcs_torch.unsqueeze(1) - handle_pc_torch.unsqueeze(0), dim=-1)
-            min_distance = torch.min(pcd_distance, dim=-1)[0]
-            min_distance = min_distance[min_distance < 0.05]
-            if min_distance.shape[0] > 3:
+            if self.check_handle_observed_in_pc(handle_pc=handle_pc) > 3:
                 break
             # import pdb; pdb.set_trace()
         if try_times >= 1000:
@@ -307,6 +332,60 @@ class RobogenPointCloudWrapper:
             self.grasped_handle = False
         self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
         return self._get_observation(only_object=self.only_object)
+    
+    def check_handle_observed_in_pc(self, handle_pc=None):
+        # given the current camera view, check if the handle is observed in the point cloud
+        # return the number of points that are close to the handle
+        if handle_pc is None:
+            # get handle point cloud
+            link_pc = get_link_pc(self._env, self._object_name, 'link_0')
+            all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name, return_median=False)
+            # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
+            handle_pc = np.concatenate(all_handle_pos, axis=0)
+        pcs = []
+        rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
+                                            return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width,
+                                            only_object=True)
+        for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
+            pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
+            
+            segmask_obj_id = segmask & ((1 << 24) - 1)
+            object_mask = np.zeros_like(depth).astype(np.float32)
+            object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
+            object_mask_ = np.flatnonzero(object_mask.flatten())
+            pcs.append(pc[object_mask_])
+            
+        pcs = np.concatenate(pcs, axis=0)
+
+        ### visualize the point cloud
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(pcs)
+        # o3d.visualization.draw_geometries([pcd])
+
+        # check there are some handle points in the point cloud
+        # device = torch.device('cpu')
+        
+        # handle_pc_torch = torch.from_numpy(handle_pc).to(device)
+        # pcs_torch = torch.from_numpy(pcs).to(device)
+        # pcd_distance = torch.norm(pcs_torch.unsqueeze(1) - handle_pc_torch.unsqueeze(0), dim=-1)
+        # min_distance = torch.min(pcd_distance, dim=-1)[0]
+        # min_distance = min_distance[min_distance < 0.02]
+        
+        ### use scipy to compute the distance
+        # handle_pc: (N, D), pcs: (M, D)
+
+        # import pdb; pdb.set_trace()
+        # Calculate pairwise distances
+        pcd_distance = cdist(pcs, handle_pc)  # Shape: (M, N)
+
+        # Find the minimum distance for each point in pcs
+        min_distance = np.min(pcd_distance, axis=1)  # Shape: (M,)
+
+        # Filter the distances that are less than 0.02
+        min_distance = min_distance[min_distance < 0.02]
+        
+        
+        return min_distance.shape[0]
 
     # some util function to generate dense waypoints
     def nth_root_rotation_matrix(self, A, n):
@@ -489,7 +568,6 @@ class RobogenPointCloudWrapper:
             pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
                 
         
-            pcs.append(pc)
             gripper_pc = self.get_gripper_pc()
             gripper_pcd.append(gripper_pc)
             
@@ -499,6 +577,8 @@ class RobogenPointCloudWrapper:
             object_mask = np.zeros_like(depth).astype(np.float32)
             object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
 
+            object_mask_ = np.flatnonzero(object_mask.flatten())
+            pcs.append(pc[object_mask_])
             if not only_object:
                 ret_object_mask = np.zeros_like(depth).astype(np.float32)
                 # get the bounding box of the object mask
@@ -555,21 +635,51 @@ class RobogenPointCloudWrapper:
                     goal_gripper_pcd = self.grasping_goal
                 self.goal_gripper_pcd = goal_gripper_pcd
             
-        masked_pc = []
-        all_masked_indices = []
-        base_idx = 0
-        for pc, pcd_mask_indices in zip(pcs, pcd_mask_indices):
-            mask_indices = base_idx + pcd_mask_indices
-            all_masked_indices.append(mask_indices)
-            masked_pc.append(pc[pcd_mask_indices])
-            base_idx += pc.shape[0]
-        point_cloud = np.concatenate(masked_pc, axis=0)
-        all_masked_indices = np.concatenate(all_masked_indices)
+        point_cloud = np.concatenate(pcs, axis=0)
         
-        # check
-        before_fps_pc = point_cloud.copy()
-        all_pc = np.concatenate(pcs, axis=0)
-        assert np.all(all_pc[all_masked_indices] == point_cloud), "Masked point cloud is not the same as the original point cloud"
+        ### perform whatever we do in the real world 
+        if self.noise_real_world_pcd:
+            ### use open3d to visualize the point cloud
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(point_cloud)
+            # o3d.visualization.draw_geometries([pcd])    
+            
+            ### NOTE: check these values
+            real_world_radius = 0.02
+            real_world_nb_neighbors = 20
+            real_world_std_ratio = np.random.uniform(0.4, 0.6)
+            real_world_voxel_size = 0.002
+            ratio = np.random.uniform(0.3, 0.95)
+            real_world_nb_points = int(((real_world_radius / real_world_voxel_size) ** 2) * ratio)
+
+            beg = time.time()
+            pcd = pcd.voxel_down_sample(real_world_voxel_size)
+            # print("voxel down sample time: ", time.time() - beg)
+            
+            beg = time.time()
+            pcd2, indices = pcd.remove_radius_outlier(nb_points=real_world_nb_points, radius=real_world_radius)
+            # self.display_inlier_outlier(pcd, indices)
+            # print("remove radius outlier time: ", time.time() - beg)
+            
+            # pcd2_py, indices_py = remove_radius_outliers_vectorized(np.array(pcd.points), real_world_nb_points, real_world_radius)
+            # self.display_inlier_outlier(pcd, indices_py)
+            
+            beg = time.time()
+            pcd3, indices = pcd2.remove_statistical_outlier(nb_neighbors=real_world_nb_neighbors, std_ratio=real_world_std_ratio)
+            # self.display_inlier_outlier(pcd2, indices)
+            # print("remove statistical outlier time: ", time.time() - beg)
+            # o3d.visualization.draw_geometries([pcd3])
+                    
+            point_cloud = np.array(pcd3.points)
+            distance_to_camera_eye_1 = np.linalg.norm(self.camera_eyes[0] - point_cloud, axis=1)
+            distance_to_camera_eye_2 = np.linalg.norm(self.camera_eyes[1] - point_cloud, axis=1)
+            point_cloud = point_cloud[distance_to_camera_eye_1 > 0.1]
+            point_cloud = point_cloud[distance_to_camera_eye_2 > 0.1]
+            
+            # pcd_o3d = o3d.geometry.PointCloud()
+            # pcd_o3d.points = o3d.utility.Vector3dVector(point_cloud)
+            # o3d.visualization.draw_geometries([pcd_o3d])
+            
         
         num_points = self.num_points
         if using_torch:
@@ -659,20 +769,6 @@ class RobogenPointCloudWrapper:
         obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
         obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
         
-        if 'mlp' not in self.observation_mode:
-        
-            new_input_mask = np.zeros((sum([pc.shape[0] for pc in pcs]),), dtype=np.uint8)
-            new_input_mask[all_masked_indices[kdline_fps_samples_idx]] = 1
-            
-            # check
-            assert np.all(point_cloud == all_pc[new_input_mask==1]), "Masked point cloud is not the same as the original point cloud"
-
-            obs_dict_input['feature_map'] = np.stack(feature_maps, axis=0).astype(np.float32)
-            obs_dict_input['pcd_mask'] = new_input_mask.astype(np.float32)
-            pointcloud = obs_dict_input['point_cloud']
-            pointcloud_rgb = obs_dict_input['feature_map'].reshape(-1, 5)[:, 2:][obs_dict_input['pcd_mask'].flatten() == 1]
-            assert np.all(pointcloud == pointcloud_rgb)
-           
         obs_dict_input['gripper_pcd'] = gripper_pcd[0].astype(np.float32)
         if 'goal' in self.observation_mode:
             obs_dict_input['goal_gripper_pcd'] = goal_gripper_pcd
@@ -915,12 +1011,128 @@ class RobogenPointCloudWrapper:
             
         return obs_dict_input
             
+    def add_edge_artifacts(self, depth_map):
+        """
+        Apply edge artifacts to a depth map using correlated depth noise via bilinear interpolation.
+        
+        Args:
+            depth_map (numpy.ndarray): The input depth map of size (H, W).
+        
+        Returns:
+            numpy.ndarray: The depth map with edge artifacts applied.
+        """
+        H, W = depth_map.shape
+        grid_x, grid_y = np.meshgrid(np.arange(W), np.arange(H))
+
+        # Generate random shifts for each grid point
+        shifts_x = np.random.normal(0, 0.5, size=(H, W))
+        shifts_y = np.random.normal(0, 0.5, size=(H, W))
+        
+        # Apply shifts with a probability of 0.8
+        mask = np.random.rand(H, W) < 0.8
+        shifted_x = grid_x + shifts_x * mask
+        shifted_y = grid_y + shifts_y * mask
+        
+        # Ensure shifted coordinates stay within valid bounds
+        shifted_x = np.clip(shifted_x, 0, W - 1)
+        shifted_y = np.clip(shifted_y, 0, H - 1)
+        
+        # Perform bilinear interpolation between original depth values and shifted grid
+        interpolator = RectBivariateSpline(np.arange(H), np.arange(W), depth_map)
+        adjusted_depth_map = interpolator(shifted_y, shifted_x, grid=False)
+
+        return adjusted_depth_map
+
+    def add_random_holes(self, depth_map):
+        """
+        Add random holes to a depth map to simulate irregularities in real-world depth maps.
+        
+        Args:
+            depth_map (numpy.ndarray): The input depth map of size (H, W).
+        
+        Returns:
+            numpy.ndarray: The depth map with random holes applied.
+        """
+        if np.random.rand() > 0.5:
+            # Skip random hole generation with probability 0.5
+            return depth_map
+
+        H, W = depth_map.shape
+        
+        # Create a random mask from U(0,1)
+        random_mask = np.random.uniform(0, 1, size=(H, W))
+        
+        # Apply Gaussian blur to smooth the mask
+        smoothed_mask = cv2.GaussianBlur(random_mask, (5, 5), sigmaX=1, sigmaY=1)
+        
+        # Normalize the mask to the range [0, 1]
+        smoothed_mask = (smoothed_mask - smoothed_mask.min()) / (smoothed_mask.max() - smoothed_mask.min())
+        
+        # Randomly sample a threshold from U(0.6, 0.9)
+        threshold = np.random.uniform(0.6, 0.9)
+        
+        # Zero out pixels where mask values exceed the threshold
+        depth_map_with_holes = np.copy(depth_map)
+        depth_map_with_holes[smoothed_mask > threshold] = self.depth_near
+        
+        return depth_map_with_holes
+
+            
+    def augment_depth_image(self, depth_images):
+        final_images = []
+        for image in depth_images:
+            
+            real_depth = self.get_real_depth(image)
+            
+            max_depth = np.max(real_depth[real_depth < self.depth_far * 0.9])
+            real_depth[real_depth > self.depth_far * 0.9] = max_depth
+            beg = time.time()
+            edge_augmented_image = self.add_edge_artifacts(real_depth)
+            # print("add edge artifacts time: ", time.time() - beg)
+            beg = time.time()
+            hole_augmented_image = self.add_random_holes(edge_augmented_image)
+            # print("add random holes time: ", time.time() - beg)
+            bullet_depth = self.get_bullet_depth(hole_augmented_image)
+            
+            
+            # ax = plt.subplot(1, 4, 1)
+            # ax.imshow(image)
+            # ax = plt.subplot(1, 4, 2)
+            # ax.imshow(real_depth)
+            # ax = plt.subplot(1, 4, 3)
+            # ax.imshow(edge_augmented_image)
+            # ax = plt.subplot(1, 4, 4)
+            # ax.imshow(hole_augmented_image)
+            # plt.show()
+            
+            final_images.append(bullet_depth)
+        
+        return final_images
+    
     def _get_observation(self, render=True, using_torch=False, only_object=True):
         if render:
             rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
-                                                only_object=only_object)
+                                                only_object=False)
+            
+            if self.noise_real_world_pcd:
+                depths = self.augment_depth_image(depths)
+            # print("augment depth time: ", time.time() - beg)
+            
+            if only_object:
+                segmented_depths = []
+                for depth, segmask in zip(depths, segmasks):
+                    segmask_obj_id = segmask & ((1 << 24) - 1)
+                    object_mask = np.zeros_like(depth).astype(np.float32)
+                    object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name.lower()]] = 1
+                    object_mask = object_mask.reshape(self.camera_height, self.camera_width)
+                    # let the object point cloud be the only point cloud
+                    depth = depth * object_mask
+                    depth[depth == 0] = self.depth_far
+                    
+                    segmented_depths.append(depth)
+                depths = segmented_depths
 
             
             if not self.record_all_observation:
@@ -984,8 +1196,8 @@ class RobogenPointCloudWrapper:
         # [TODO] Chialiang: It may need to be changed
         feature_maps = []
         for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
-            near = 0.01
-            far = 100
+            near = self.depth_near
+            far = self.depth_far
             depth = far * near / (far - (far - near) * depth)
             depth = depth.reshape(self.camera_height, self.camera_width, 1)
             feature = np.concatenate([rgb, depth], axis=2)
@@ -995,8 +1207,20 @@ class RobogenPointCloudWrapper:
         ret_dict['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
         ret_dict['pcd_mask'] = np.zeros((1, 1, 1)).astype(np.uint8)
         return ret_dict
-            
-        
+    
+    
+    def get_real_depth(self, depth):
+        near = self.depth_near
+        far = self.depth_far
+        depth = far * near / (far - (far - near) * depth)
+        return depth
+    
+    def get_bullet_depth(self, real_depth):
+        near = self.depth_near
+        far = self.depth_far
+        depth = (far - far * near / real_depth) / (far - near)
+        return depth
+    
     
     def _transfer_point_cloud_to_gripper_frame(self, point_cloud):
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
@@ -1069,7 +1293,7 @@ class RobogenPointCloudWrapper:
                 # let the object point cloud be the only point cloud
                 # other depth values are set to be 1000
                 depth = depth * object_mask
-                depth[depth == 0] = 1000
+                depth[depth == 0] = self.depth_far
 
             rgbs.append(img)
             depths.append(depth)

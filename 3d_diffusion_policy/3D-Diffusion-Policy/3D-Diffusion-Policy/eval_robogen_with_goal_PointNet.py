@@ -4,7 +4,7 @@ import torch
 import dill
 from omegaconf import OmegaConf
 import pathlib
-from train import TrainDP3Workspace
+from train_ddp import TrainDP3Workspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from manipulation.utils import build_up_env, save_numpy_as_gif, save_env
 import pybullet as p
@@ -26,7 +26,7 @@ import argparse
 from typing import List, Optional
 from collections import deque
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
+def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -49,6 +49,8 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, o
                                                 use_segmask=cfg.task.env_runner.use_segmask,
                                                 only_handle_points=cfg.task.env_runner.only_handle_points,
                                                 observation_mode=cfg.task.env_runner.observation_mode,
+                                                real_world_camera=real_world_camera,
+                                                noise_real_world_pcd=noise_real_world_pcd,
                                                 )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
@@ -174,7 +176,8 @@ def wrap_obs(list_of_obs):
             
 def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, exp_beg_idx=0,
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
-                          dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None):
+                          dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
+                          update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -284,7 +287,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation)
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -295,6 +298,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             goal_stage = 'first'
             first_step_outputs = None
             gripper_close_accumulation_buffer = deque(maxlen=5)
+            last_goal = None
             for t in range(1, horizon):
                 parallel_input_dict = obs
                 parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
@@ -305,42 +309,46 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                 
                 if t == 1 or (not args.predict_two_goals):
-                    with torch.no_grad():
-                        pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
-                        gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                        if not args.predict_two_goals:
-                            inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
-                        else:
-                            inputs = pointcloud
-                        inputs = inputs.to('cuda')
-                        inputs_ = inputs.permute(0, 2, 1)
-                        outputs = goal_prediction_model(inputs_)
-                        weights = outputs[:, :, -1] # B, N
-                        outputs = outputs[:, :, :-1] # B, N, 12
-                        if output_obj_pcd_only:
-                            cprint("using only obj pcd output!", "red")
-                            weights = weights[:, :-4]
-                            outputs = outputs[:, :-4, :]
-                            inputs = inputs[:, :-4, :]
+                    if t == 1 or t % update_goal_freq == 0:
+                        with torch.no_grad():
+                            pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
+                            gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                            if not args.predict_two_goals:
+                                inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
+                            else:
+                                inputs = pointcloud
+                            inputs = inputs.to('cuda')
+                            inputs_ = inputs.permute(0, 2, 1)
+                            outputs = goal_prediction_model(inputs_)
+                            weights = outputs[:, :, -1] # B, N
+                            outputs = outputs[:, :, :-1] # B, N, 12
+                            if output_obj_pcd_only:
+                                cprint("using only obj pcd output!", "red")
+                                weights = weights[:, :-4]
+                                outputs = outputs[:, :-4, :]
+                                inputs = inputs[:, :-4, :]
 
-                        B, N, _ = outputs.shape
-                        if not args.predict_two_goals:
-                            outputs = outputs.view(B, N, 4, 3)
-                        else:
-                            outputs = outputs.view(B, N, 8, 3)
-                            if first_step_outputs is None:
-                                first_step_outputs = deepcopy(outputs)
-                                
-                            if goal_stage == 'first':
-                                outputs = outputs[:, :, :4, :]
-                            elif goal_stage == 'second':
-                                outputs = outputs[:, :, 4:, :]
-                                
-                        outputs = outputs + inputs.unsqueeze(2)
-                        weights = torch.nn.functional.softmax(weights, dim=1)
-                        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-                        outputs = outputs.sum(dim=1)
-                        outputs = outputs.unsqueeze(1)
+                            B, N, _ = outputs.shape
+                            if not args.predict_two_goals:
+                                outputs = outputs.view(B, N, 4, 3)
+                            else:
+                                outputs = outputs.view(B, N, 8, 3)
+                                if first_step_outputs is None:
+                                    first_step_outputs = deepcopy(outputs)
+                                    
+                                if goal_stage == 'first':
+                                    outputs = outputs[:, :, :4, :]
+                                elif goal_stage == 'second':
+                                    outputs = outputs[:, :, 4:, :]
+                                    
+                            outputs = outputs + inputs.unsqueeze(2)
+                            weights = torch.nn.functional.softmax(weights, dim=1)
+                            outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                            outputs = outputs.sum(dim=1)
+                            outputs = outputs.unsqueeze(1)
+                        last_goal = outputs
+                    else:
+                        outputs = last_goal
                         
                 else:
                     outputs = first_step_outputs
@@ -435,6 +443,9 @@ if __name__ == "__main__":
     parser.add_argument("--model_invariant", type=bool, default=False)
     parser.add_argument('--predict_two_goals', action='store_true')
     parser.add_argument('--output_obj_pcd_only', action='store_true')
+    parser.add_argument("--update_goal_freq", type=int, default=1)
+    parser.add_argument("--noise_real_world_pcd", type=int, default=0)
+    parser.add_argument("--real_world_camera", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
     args = parser.parse_args()
     
@@ -458,7 +469,7 @@ if __name__ == "__main__":
     
     workspace = TrainDP3Workspace(cfg)
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
-    workspace.load_checkpoint(path=checkpoint_dir)
+    workspace.load_checkpoint(path=checkpoint_dir, )
 
     policy = deepcopy(workspace.model)
     if workspace.cfg.training.use_ema:
@@ -467,33 +478,30 @@ if __name__ == "__main__":
     policy.reset()
     policy = policy.to('cuda')
     
-    if not args.test_cross_category:
-        cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-        cfg.task.env_runner.experiment_folder = [
-            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
-            ]
-        cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    else:
-        cprint("testing cross category", "red")
-        cfg.task.env_runner.experiment_name = ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
-        cfg.task.env_runner.experiment_folder = [
-            "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
-            "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+    cfg.task.env_runner.experiment_folder = [
+        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
         ]
-        cfg.task.env_runner.demo_experiment_path = [None for _ in range(6)]
+    cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+    cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
+    cfg.task.env_runner.experiment_folder += [
+        "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
+        "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    ]
+    cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
     
     load_model_path = args.high_level_ckpt_name
         
@@ -546,6 +554,9 @@ if __name__ == "__main__":
             exp_end_idx=25,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
+            update_goal_freq=args.update_goal_freq,
+            real_world_camera=args.real_world_camera,
+            noise_real_world_pcd=args.noise_real_world_pcd,
             # dataset_index=9，
             # exp_beg_ratio=0.9,
             # exp_end_ratio=1,

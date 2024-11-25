@@ -103,6 +103,8 @@ class SimpleEnv(gym.Env):
         self.grasped_handle = False
         self.seed()
         self.set_scene()
+        self.view_matrix = None
+        self.projection_matrix = None
         self.setup_camera_rpy()
         self.scene_lower, self.scene_upper = self.get_scene_bounds()
         self.scene_center = (self.scene_lower + self.scene_upper) / 2
