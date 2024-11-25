@@ -39,7 +39,9 @@ class CrossAttention(nn.Module):
         attn_output = torch.matmul(attn_weights, value)  # [batch_size, horizon, out_dim]
         
         return attn_output
-    
+
+
+
 
 class ConditionalResidualBlock1D(nn.Module):
 
@@ -117,6 +119,7 @@ class ConditionalResidualBlock1D(nn.Module):
         out = self.blocks[0](x)  
         if cond is not None:      
             if self.condition_type == 'film':
+                #import pdb; pdb.set_trace()
                 embed = self.cond_encoder(cond)
                 embed = embed.reshape(embed.shape[0], 2, self.out_channels, 1)
                 scale = embed[:, 0, ...]
@@ -145,8 +148,10 @@ class ConditionalResidualBlock1D(nn.Module):
             else:
                 raise NotImplementedError(f"condition_type {self.condition_type} not implemented")
         out = self.blocks[1](out)
+        #import pdb; pdb.set_trace()
         out = out + self.residual_conv(x)
         return out
+    
 
 
 class ConditionalUnet1D(nn.Module):
@@ -297,10 +302,13 @@ class ConditionalUnet1D(nn.Module):
         timesteps = timesteps.expand(sample.shape[0])
 
         timestep_embed = self.diffusion_step_encoder(timesteps)
+        #import pdb; pdb.set_trace()
         if global_cond is not None:
             if self.condition_type == 'cross_attention':
                 timestep_embed = timestep_embed.unsqueeze(1).expand(-1, global_cond.shape[1], -1)
+                #import pdb; pdb.set_trace()
             global_feature = torch.cat([timestep_embed, global_cond], axis=-1)
+            #import pdb; pdb.set_trace()
 
 
         # encode local features
@@ -357,4 +365,3 @@ class ConditionalUnet1D(nn.Module):
         x = einops.rearrange(x, 'b t h -> b h t')
 
         return x
-

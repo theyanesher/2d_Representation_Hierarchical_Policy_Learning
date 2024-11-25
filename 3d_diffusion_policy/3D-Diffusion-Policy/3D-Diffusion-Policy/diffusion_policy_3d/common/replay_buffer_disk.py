@@ -137,13 +137,10 @@ class ReplayBuffer:
                     # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
                     episode_lengths.append(len(src_root['data'][keys[0]][:]))
 
-                    action = None
                     if target_action == 'action':
                         action = src_root['data']['action'][:]
                     elif target_action == 'delta_to_goal_gripper':
                         action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).flatten()
-                    elif target_action == 'goal_gripper_pcd':
-                        action = data['goal_gripper_pcd'][:]
                     action_welford.add(action)
             else:
                 
@@ -167,8 +164,9 @@ class ReplayBuffer:
                             action = data['action'][:]  
                         elif target_action == 'delta_to_goal_gripper':
                             action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).reshape(1, -1)
-                        elif target_action == 'goal_gripper_pcd':
-                            action = data['goal_gripper_pcd'][:]
+                        else:
+                            action = (data['goal_gripper_pcd'][:]).reshape(1, -1)
+                        # import pdb; pdb.set_trace()
 
                         current_goal = data['goal_gripper_pcd'][:]
                         if first_goal is None:

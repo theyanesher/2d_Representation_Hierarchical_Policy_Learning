@@ -2,7 +2,6 @@
 # Trying to implement PointNet++
 # Borrowed from: https://github.com/yanx27/Pointnet_Pointnet2_pytorch
 
-from diffusion_policy_3d.model.diffusion.positional_embedding import SinusoidalPosEmb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -210,6 +209,7 @@ class PointNetSetAbstraction(nn.Module):
 class PointNetSetAbstractionMsg(nn.Module):
     def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list, use_batch_norm=True):
         super(PointNetSetAbstractionMsg, self).__init__()
+        print("USE BATCH NORM IN THE ENCODERRRRRRRRRRRRRR", use_batch_norm)
         self.npoint = npoint
         self.radius_list = radius_list
         self.nsample_list = nsample_list
@@ -347,7 +347,7 @@ class PointNet2(nn.Module):
         self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
         self.conv1 = nn.Conv1d(128, 128, 1)
         self.bn1 = nn.BatchNorm1d(128)
-        # self.drop1 = nn.Dropout(0.5)
+        self.drop1 = nn.Dropout(0.5)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
 
     def forward(self, xyz):
@@ -363,106 +363,12 @@ class PointNet2(nn.Module):
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
         l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
 
-        x = F.relu(self.bn1(self.conv1(l0_points)))
+        x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
         x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
+        x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes
     
-class PointNet2_no_batch_norm(nn.Module):
-    def __init__(self, num_classes, diffusion=False, global_cond_dim=0, sample_dim=0, time_embedding_dim=0):
-        super(PointNet2_no_batch_norm, self).__init__()
-        input_dim = global_cond_dim + sample_dim + time_embedding_dim
-        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=input_dim, mlp_list=[[16, 16, 32], [32, 32, 64]], use_batch_norm=False)
-        self.sa2 = PointNetSetAbstractionMsg(npoint=256, radius_list=[0.1, 0.2], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], use_batch_norm=False)
-        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], use_batch_norm=False)
-        self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], use_batch_norm=False)
-        self.fp4 = PointNetFeaturePropagation(512+512+256+256, [256, 256], use_batch_norm=False)
-        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], use_batch_norm=False)
-        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], use_batch_norm=False)
-        self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], use_batch_norm=False)
-        self.conv1 = nn.Conv1d(128, 128, 1)
-        # self.drop1 = nn.Dropout(0.5)
-        self.conv2 = nn.Conv1d(128, num_classes, 1)
-        
-        if diffusion:
-            dsed = time_embedding_dim
-            self.diffusion_step_encoder = nn.Sequential(
-                SinusoidalPosEmb(dsed),
-                nn.Linear(dsed, dsed * 4),
-                nn.Mish(),
-                nn.Linear(dsed * 4, dsed),
-            )
-
-    def forward(self, xyz, feature=None):
-        l0_points = xyz
-        l0_xyz = xyz[:, :3, :]
-        l1_xyz, l1_points = self.sa1(l0_xyz, feature) # (B, 3, 1024) (B, 96, 1024)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 256) (B, 256, 256)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 64) (B, 512, 64)
-        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 16) (B, 1024, 16)
-
-        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points) # (B, 512, 64)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points) # (B, 256, 256)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
-        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
-
-        x = F.relu(self.conv1(l0_points))
-        x = self.conv2(x)
-        x = x.permute(0, 2, 1)
-        return x # x shape: B, N, num_classes
-    
-    def forward_diffusion(self, sample, timestep, global_cond, xyz):
-        # import pdb; pdb.set_trace()
-        batch_size, _, num_points = xyz.shape
-        timesteps = timestep
-        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        # timesteps2 = timesteps.expand(sample.shape[0])
-        timestep_embed = self.diffusion_step_encoder(timesteps)
-        timestep_embed = timestep_embed.reshape(batch_size, num_points, -1)
-        
-        global_feature = torch.cat([timestep_embed, global_cond, sample.reshape(batch_size, num_points, -1)], dim=-1).permute(0, 2, 1)
-        return self.forward(xyz, global_feature)
-        
-class PointNet2_super_no_batch_norm(nn.Module):
-    def __init__(self, num_classes):
-        super(PointNet2_super_no_batch_norm, self).__init__()
-        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=0, mlp_list=[[16, 16, 32], [32, 32, 64]], use_batch_norm=False)
-        self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], use_batch_norm=False)
-        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], use_batch_norm=False)
-        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], use_batch_norm=False)
-        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], use_batch_norm=False)
-        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], use_batch_norm=False)
-        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512], use_batch_norm=False)
-        self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512], use_batch_norm=False)
-        self.fp4 = PointNetFeaturePropagation(1024, [256, 256], use_batch_norm=False)
-        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], use_batch_norm=False)
-        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], use_batch_norm=False)
-        self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], use_batch_norm=False)
-        self.conv1 = nn.Conv1d(128, 128, 1)
-        self.conv2 = nn.Conv1d(128, num_classes, 1)
-
-    def forward(self, xyz):
-        l0_points = xyz
-        l0_xyz = xyz[:, :3, :]
-        l1_xyz, l1_points = self.sa1(l0_xyz, None) # (B, 3, 1024) (B, 96, 1024)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 512) (B, 256, 512)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 256) (B, 512, 256)
-        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 128) (B, 1024, 16)
-        l5_xyz, l5_points = self.sa5(l4_xyz, l4_points) # (B, 3, 64) (B , 1024, 64)
-        l6_xyz, l6_points = self.sa6(l5_xyz, l5_points) # (B, 3, 16) (B, 1024, 16)
-
-        l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points) # (B, 512, 64)
-        l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points) # (B, 512, 128)
-        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points) # (B, 256, 256)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points) # (B, 256, 512)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
-        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points) # (B, 128, num_point)
-
-        x = F.relu(self.conv1(l0_points))
-        x = self.conv2(x)
-        x = x.permute(0, 2, 1)
-        return x # x shape: B, N, num_classes
 
 class PointNet2ssg(nn.Module):
     def __init__(self, num_classes):
@@ -498,6 +404,7 @@ class PointNet2ssg(nn.Module):
         x = self.conv2(x)
         x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
+        # import pdb; pdb.set_trace()
         return x
     
 class SimpleMLP(nn.Module):
@@ -616,6 +523,42 @@ class PointNet2ssg_small(nn.Module):
         # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x
+    
+
+
+class PointNet2_no_batch_norm(nn.Module):
+    def __init__(self, num_classes):
+        super(PointNet2_no_batch_norm, self).__init__()
+        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=0, mlp_list=[[16, 16, 32], [32, 32, 64]], use_batch_norm=False)
+        self.sa2 = PointNetSetAbstractionMsg(npoint=256, radius_list=[0.1, 0.2], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], use_batch_norm=False)
+        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], use_batch_norm=False)
+        self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], use_batch_norm=False)
+        self.fp4 = PointNetFeaturePropagation(512+512+256+256, [256, 256], use_batch_norm=False)
+        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], use_batch_norm=False)
+        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], use_batch_norm=False)
+        self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], use_batch_norm=False)
+        self.conv1 = nn.Conv1d(128, 128, 1)
+        # self.drop1 = nn.Dropout(0.5)
+        self.conv2 = nn.Conv1d(128, num_classes, 1)
+
+    def forward(self, xyz):
+        l0_points = xyz
+        l0_xyz = xyz[:, :3, :]
+        l1_xyz, l1_points = self.sa1(l0_xyz, None) # (B, 3, 1024) (B, 96, 1024)
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 256) (B, 256, 256)
+        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 64) (B, 512, 64)
+        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 16) (B, 1024, 16)
+
+        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points) # (B, 512, 64)
+        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points) # (B, 256, 256)
+        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
+        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
+
+        x = F.relu(self.conv1(l0_points))
+        x = self.conv2(x)
+        # x = F.log_softmax(x, dim=1)
+        x = x.permute(0, 2, 1)
+        return x # x shape: B, N, num_classes
 
 if __name__ == '__main__':
 
@@ -630,3 +573,4 @@ if __name__ == '__main__':
         points = torch.randn(10, 3, 4500).cuda()
         ret = model(points)
     model = replace_bn_with_gn(model, features_per_group=4)
+    import pdb; pdb.set_trace()

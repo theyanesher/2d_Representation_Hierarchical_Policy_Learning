@@ -9,7 +9,7 @@ from termcolor import cprint
 import copy
 import time
 import einops
-from torch.nn.init import xavier_uniform_, calculate_gain
+from diffusion_policy_3d.model.diffusion.models_for_weighted_diffusion.create_weighted_diffusion_model import create_weighted_diffusion_model
 
 from diffusion_policy_3d.policy.base_policy import BasePolicy
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
@@ -44,27 +44,31 @@ class WeightedDiffusion(BasePolicy):
             use_up_condition=True, # true
             pointnet_type="pointnet",
             prediction_target='action',
-            noise_model_type='unet',
+            noise_model_type_weighted_diffusion='unet',
+            diffusion_attn_embed_dim=120,
             normalize_action=True, # [Chialiang] can remove normilizer for action
             # parameters passed to step
             load_pretrained_pointnet=False,
             use_normalization=False,
             weight_loss_coef=1,
-            pointnet_encoder_output_dim=129,
-            pointnet_class='pointnet2_large', 
+            num_classes_encoder = 128,
+            model_invariant = True,
+
             **kwargs
         ):
         cprint("Using WeightedDiffusion", "yellow")
         super().__init__()
-
+        print("USE NORMALIZATION !!!!!!!!!!!!!!!!!!!!!!!!!!!", use_normalization) 
         self.condition_type = condition_type
         self.prediction_target = prediction_target
         self.normalize_action = normalize_action
         self.load_pretrained_pointnet = load_pretrained_pointnet
         self.weight_loss_coef = weight_loss_coef
-
+        self.model_invariant = model_invariant
+        #self.noise_model_type = "pointnet2"
+        self.input_channels = (num_classes_encoder-1) + 1 + horizon * 12 #(127 + 1 + 48) 
         
-
+        #import pdb; pdb.set_trace()
         action_shape = shape_meta[self.prediction_target]['shape']
         self.action_shape = action_shape
         if len(action_shape) == 1:
@@ -86,39 +90,40 @@ class WeightedDiffusion(BasePolicy):
             self.obs_encoder_pointnet = obs_encoder_pointnet
             self.encoder_output_dim = encoder_output_dim
 
-        self.noise_model_type = noise_model_type
-
-        if not use_normalization:
-            if pointnet_class == 'pointnet2_large':
-                obs_separate_encoder_pointnet = PointNet2_no_batch_norm(num_classes=pointnet_encoder_output_dim)
-            elif pointnet_class == 'pointnet2_super':
-                obs_separate_encoder_pointnet = PointNet2_super_no_batch_norm(num_classes=pointnet_encoder_output_dim)
-                
+        #self.noise_model_type = noise_model_type
+        self.noise_model_type = noise_model_type_weighted_diffusion
+        if self.noise_model_type == "unet":
+            if not use_normalization:
+                obs_separate_encoder_pointnet = PointNet2_no_batch_norm(num_classes=129)
+            else:
+                obs_separate_encoder_pointnet = PointNet2(num_classes=129)
+            self.separate_obs_encoder_pointnet = obs_separate_encoder_pointnet  
+            self.separate_encoder_output_dim = 128
         else:
-            obs_separate_encoder_pointnet = PointNet2(num_classes=pointnet_encoder_output_dim)
-        self.separate_obs_encoder_pointnet = obs_separate_encoder_pointnet  
-        self.separate_encoder_output_dim = pointnet_encoder_output_dim - 1
+            if not use_normalization:
+                obs_separate_encoder_pointnet = PointNet2_no_batch_norm(num_classes=num_classes_encoder)
+            else:
+                #import pdb; pdb.set_trace()
+                obs_separate_encoder_pointnet = PointNet2(num_classes=num_classes_encoder)
+            self.separate_obs_encoder_pointnet = obs_separate_encoder_pointnet  
+            self.separate_encoder_output_dim = num_classes_encoder - 1
 
+        obs_feature_dim = encoder_output_dim
+        cprint("Using down_dims= (128, 128, 128)", "yellow")
+        '''model = ConditionalUnet1D(
+            input_dim=input_dim, # 12
+            global_cond_dim=encoder_output_dim-1 + self.separate_encoder_output_dim if self.load_pretrained_pointnet else self.separate_encoder_output_dim, # for every point, use its own feature
+            diffusion_step_embed_dim=diffusion_step_embed_dim, 
+            down_dims=(128,128,128),
+            kernel_size=kernel_size,
+            n_groups=n_groups,
+            use_group_norm=use_normalization,
+        )'''
+        #import pdb; pdb.set_trace()
+        model = create_weighted_diffusion_model(model_invariant=self.model_invariant, model_type=self.noise_model_type, input_channels=self.input_channels, device=self.device, input_dim=input_dim, encoder_output_dim=encoder_output_dim, separate_encoder_output_dim=self.separate_encoder_output_dim, load_pretrained_pointnet=self.load_pretrained_pointnet, diffusion_step_embed_dim=diffusion_step_embed_dim, kernel_size=kernel_size, use_normalization=use_normalization, n_groups=n_groups)
+        global_cond_dim = 0
 
-        obs_feature_dim = encoder_output_dim if self.load_pretrained_pointnet else self.separate_encoder_output_dim
-        if self.noise_model_type == 'unet':        
-            model = ConditionalUnet1D(
-                input_dim=input_dim, # 12
-                global_cond_dim=encoder_output_dim-1 + self.separate_encoder_output_dim if self.load_pretrained_pointnet else self.separate_encoder_output_dim, # for every point, use its own feature
-                diffusion_step_embed_dim=diffusion_step_embed_dim, 
-                down_dims=down_dims,
-                kernel_size=kernel_size,
-                n_groups=n_groups,
-                use_group_norm=use_normalization,
-                horizon=horizon,
-            )
-            global_cond_dim = 0
-            model = replace_bn_with_gn(model)
-        elif self.noise_model_type == 'pointnet':
-            model = PointNet2_no_batch_norm(num_classes=input_dim * horizon, diffusion=True, 
-                                global_cond_dim=self.separate_encoder_output_dim, sample_dim=input_dim * horizon, time_embedding_dim=diffusion_step_embed_dim)
-            # initialize_network(model)
-
+        #model = replace_bn_with_gn(model)
         # self.obs_encoder_pointnet = replace_bn_with_gn(self.obs_encoder_pointnet, features_per_group=4)
         if self.load_pretrained_pointnet:
             self.obs_encoder_pointnet.load_state_dict(torch.load("/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps/pointnet2_large_2024-09-19_use_75_episodes_300-obj/model_39.pth"))
@@ -159,9 +164,7 @@ class WeightedDiffusion(BasePolicy):
             condition_data, condition_mask,
             condition_data_pc=None, condition_mask_pc=None,
             local_cond=None, global_cond=None,
-            generator=None,
-            pcd=None,
-            gt_trajectory=None,
+            generator=None, batch_size = 1, num_scene_points = 4504, 
             # keyword arguments to scheduler.step
             **kwargs
             ):
@@ -177,28 +180,24 @@ class WeightedDiffusion(BasePolicy):
 
         for t in scheduler.timesteps:
             # 1. apply conditioning
+            #import pdb; pdb.set_trace()
             trajectory[condition_mask] = condition_data[condition_mask]
 
-
-            if self.noise_model_type == 'unet':
+            #pred = self.model(sample=noisy_trajectory, timestep=timesteps, local_cond=None, global_cond=global_cond) # B*(N+4), T, 12
+            if self.noise_model_type == "unet":
                 model_output = model(sample=trajectory,
-                                    timestep=t, 
-                                    local_cond=local_cond, global_cond=global_cond, **kwargs)
-            elif self.noise_model_type == 'pointnet':
-                # cond_data = torch.zeros(batch_size*num_scene_points, horizon, 12, device=value.device)
-                batch_size, num_scene_points = pcd.shape[0], pcd.shape[1]
-                input_trajectory = trajectory.reshape(batch_size, num_scene_points, self.horizon, -1)
-                input_global_cond = global_cond.reshape(batch_size, num_scene_points, -1)
-                t_input = t[None].to(condition_data.device)
-                t_input = t_input.expand(batch_size * num_scene_points)   
-                model_output = model.forward_diffusion(sample=input_trajectory, timestep=t_input, global_cond=input_global_cond, xyz=pcd.permute(0, 2, 1))
-                model_output = model_output.reshape(batch_size * num_scene_points, self.horizon, -1)
-                # import pdb; pdb.set_trace()
-                
-                with torch.no_grad():
-                    loss = F.mse_loss(model_output, gt_trajectory)
-                    print("denoising step {} loss {}".format(t, loss.item()))
-                
+                                timestep=t, 
+                                local_cond=local_cond, global_cond=global_cond, **kwargs)
+            else:
+                trajectory_use = trajectory.reshape(batch_size, -1, num_scene_points)
+                timesteps = t.repeat(batch_size*num_scene_points).to(condition_data.device)
+                timesteps = timesteps.reshape(batch_size,-1, num_scene_points)
+                point_net_input = torch.cat((global_cond, timesteps, trajectory_use), dim = 1).to(condition_data.device)
+                model_output = self.model(xyz = point_net_input) 
+                model_output = model_output.reshape(batch_size*num_scene_points, -1, self.action_dim) # B*(N+4), T, 12
+
+            
+            
             # 3. compute previous image: x_t -> x_t-1
             trajectory = scheduler.step(
                 model_output, t, trajectory, ).prev_sample
@@ -249,27 +248,6 @@ class WeightedDiffusion(BasePolicy):
             if pdb:
                 import pdb; pdb.set_trace()
                 
-            ### get the pretrained pointnet++ prediction
-            # outputs = global_cond
-            # weights = outputs[:, :, -1] # B, N
-            # outputs = outputs[:, :, :-1] # B, N, 12
-
-            # B, N, _ = outputs.shape
-            # outputs = outputs.view(B, N, 4, 3)
-                
-            # inputs = diffuse_point_cloud
-            # outputs = outputs + inputs.unsqueeze(2)
-            # weights = torch.nn.functional.softmax(weights, dim=1)
-            # outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-            # outputs = outputs.sum(dim=1)
-            
-            # labels = this_nobs['goal_gripper_pcd'].reshape(B, 2, 12)[:, 0]
-            # outputs = outputs.reshape(B, -1)
-            # outputs = outputs.reshape(B, 4, 3)
-            # labels = labels.reshape(B, 4 ,3)
-            # error = torch.linalg.norm(outputs - labels, dim=-1).mean()
-            # cprint("in predict action, pretrained pointnet++ prediction loss is {}".format(error), 'yellow')
-            #######
             
             weights = global_cond[:, :, -1] # B, N+4
             global_cond = global_cond[:, :, :-1]
@@ -285,16 +263,23 @@ class WeightedDiffusion(BasePolicy):
         else:
             global_cond = separate_global_cond[:, :, :-1].reshape(batch_size*num_scene_points, -1)
             weights = separate_global_cond[:, :, -1]
+
+    
+        if self.noise_model_type != "unet":
+            global_cond = global_cond.reshape(batch_size, -1, num_scene_points)
         ###
         
         if pdb:
             import pdb; pdb.set_trace()
-
-        cond_data = torch.zeros(batch_size*num_scene_points, horizon, 12, device=value.device) # B*(N+4), T, 12
-        cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
-        denoised_trajectory = self.conditional_sample(condition_data=cond_data, condition_mask=cond_mask, local_cond=None, global_cond=global_cond, 
-                                    pcd=diffuse_point_cloud, gt_trajectory=trajectory, **self.kwargs) # B*N, T, 12
-        
+        if self.noise_model_type == "unet":
+            cond_data = torch.zeros(batch_size*num_scene_points, horizon, 12, device=value.device) # B*(N+4), T, 12
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+        else:
+            '''cond_data = torch.zeros(batch_size, horizon*12, num_scene_points, device=value.device)
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)'''
+            cond_data = torch.zeros(batch_size*num_scene_points, horizon, 12, device=value.device) # B*(N+4), T, 12
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+        denoised_trajectory = self.conditional_sample(condition_data=cond_data, condition_mask=cond_mask, local_cond=None, global_cond=global_cond, batch_size=batch_size, num_scene_points=num_scene_points, **self.kwargs) # B*N, T, 12
 
 
         denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, horizon, 12)
@@ -366,8 +351,9 @@ class WeightedDiffusion(BasePolicy):
         num_scene_points = diffuse_point_cloud.shape[1]
 
         if self.load_pretrained_pointnet:
+            #import pdb; pdb.set_trace()
             global_cond = self.obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1)) # B, N+4, 13
-            
+            #import pdb; pdb.set_trace()
             ### perform an infer using the pointnet++ output here
             # import pdb; pdb.set_trace()
             # outputs = global_cond
@@ -399,9 +385,15 @@ class WeightedDiffusion(BasePolicy):
             global_cond = torch.cat([global_cond, separate_global_cond], dim=-1)
             ### 
         else:
+            #import pdb; pdb.set_trace()
             separate_global_cond = self.separate_obs_encoder_pointnet(diffuse_point_cloud.permute(0, 2, 1))
+            #import pdb; pdb.set_trace()
             weights = separate_global_cond[:, :, -1]
-            global_cond = separate_global_cond[:, :, :-1].reshape(batch_size*num_scene_points, -1)
+            if self.noise_model_type == "unet":
+                global_cond = separate_global_cond[:, :, :-1].reshape(batch_size*num_scene_points, -1)
+            else:
+                #import pdb; pdb.set_trace()
+                global_cond = separate_global_cond[:, :, :-1].reshape(batch_size, -1, num_scene_points)
         
         ori_diffuse_point_cloud = diffuse_point_cloud.permute(0, 2 ,1)
         action = batch['obs'][self.prediction_target]
@@ -409,35 +401,37 @@ class WeightedDiffusion(BasePolicy):
         action = action.unsqueeze(1).repeat(1, diffuse_point_cloud.shape[1], 1, 1) # B, N+4, T*4, 3
         diffuse_point_cloud = diffuse_point_cloud.unsqueeze(2).repeat(1, 1, action.shape[2], 1) # B, N, T*4, 3
         displacement = action - diffuse_point_cloud # B, N+4, T*4, 3
-        displacement = displacement.reshape(batch_size, num_scene_points, prediction_horizon, 4, 3) # B, N, T, 4, 3
-        trajectory = displacement.reshape(batch_size*num_scene_points, prediction_horizon, 4, 3) # B*(N+4), T, 4, 3
-        trajectory = trajectory.reshape(batch_size*num_scene_points, prediction_horizon, -1) # B*(N+4), T, 12
-
+        displacement = displacement.reshape(batch_size, num_scene_points, horizon, 4, 3) # B, N, T, 4, 3
+        trajectory = displacement.reshape(batch_size*num_scene_points, horizon, 4, 3) # B*(N+4), T, 4, 3
+        trajectory = trajectory.reshape(batch_size*num_scene_points, horizon, -1) # B*(N+4), T, 12
+        
         cond_data = trajectory
         condition_mask = self.mask_generator(trajectory.shape)
         loss_mask = ~condition_mask
         noise = torch.randn(trajectory.shape, device=trajectory.device)
 
         bsz = trajectory.shape[0]
-
-
-        if self.noise_model_type == 'unet':
+        
+        if self.noise_model_type == "unet":
             timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (bsz,), device=trajectory.device).long()
-            noisy_trajectory = self.noise_scheduler.add_noise(trajectory, noise, timesteps)
-            # import pdb; pdb.set_trace()
+        else:
+            #import pdb; pdb.set_trace()
+            random_number = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (1,), device=trajectory.device)
+            timesteps = random_number.repeat(bsz)
+            timesteps = timesteps.reshape(batch_size,-1, num_scene_points)
+
+        noisy_trajectory = self.noise_scheduler.add_noise(trajectory, noise, timesteps)
+        
+        if self.noise_model_type == "unet":
+            #import pdb; pdb.set_trace()
             pred = self.model(sample=noisy_trajectory, timestep=timesteps, local_cond=None, global_cond=global_cond) # B*(N+4), T, 12
-        elif self.noise_model_type == "pointnet":
-            global_cond = global_cond.reshape(batch_size, num_scene_points, -1)
-            bsz = batch_size
-            timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (bsz,), device=trajectory.device).long()
-            timesteps = timesteps.unsqueeze(1).repeat(1, num_scene_points).flatten()            
-            noisy_trajectory = self.noise_scheduler.add_noise(trajectory, noise, timesteps)
-            noisy_trajectory = noisy_trajectory.reshape(batch_size, num_scene_points, prediction_horizon, -1)
-            pred = self.model.forward_diffusion(sample=noisy_trajectory, timestep=timesteps, global_cond=global_cond, xyz=ori_diffuse_point_cloud)
-            # import pdb; pdb.set_trace()
-            pred = pred.reshape(batch_size * num_scene_points, prediction_horizon, -1)
-            noisy_trajectory = noisy_trajectory.reshape(batch_size * num_scene_points, prediction_horizon, -1)
-
+        else:
+            #import pdb; pdb.set_trace()
+            noisy_trajectory = noisy_trajectory.reshape(batch_size, -1, num_scene_points)
+            point_net_input = torch.cat((global_cond, timesteps, noisy_trajectory), dim = 1)
+            pred = self.model(xyz = point_net_input) 
+            pred = pred.reshape(batch_size*num_scene_points, -1, self.action_dim) # B*(N+4), T, 12
+        #import pdb; pdb.set_trace()
         pred_type = self.noise_scheduler.config.prediction_type 
         if pred_type == 'epsilon':
             target = noise
@@ -448,78 +442,53 @@ class WeightedDiffusion(BasePolicy):
             target = v_t
         else:
             raise NotImplementedError(f"Prediction type {pred_type} not implemented")
-
+        #import pdb; pdb.set_trace()
         diffusion_loss = F.mse_loss(pred, target, reduction='none')
         diffusion_loss = diffusion_loss * loss_mask.type(diffusion_loss.dtype)
         diffusion_loss = reduce(diffusion_loss, 'b ... -> b (...)', 'mean')
         diffusion_loss = diffusion_loss.mean()
-
+        #import pdb; pdb.set_trace()
         if pred_type == 'epsilon':
+            #import pdb; pdb.set_trace()
             alphas_cumprod = self.noise_scheduler.alphas_cumprod.to(trajectory.device)
             timesteps = timesteps.to(trajectory.device)
-
+            #import pdb; pdb.set_trace()
             sqrt_alpha_prod = alphas_cumprod[timesteps] ** 0.5
             sqrt_alpha_prod = sqrt_alpha_prod.flatten()
             while len(sqrt_alpha_prod.shape) < len(noisy_trajectory.shape):
                 sqrt_alpha_prod = sqrt_alpha_prod.unsqueeze(-1)
-
+            #import pdb; pdb.set_trace()
             sqrt_one_minus_alpha_prod = (1 - alphas_cumprod[timesteps]) ** 0.5
             sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.flatten()
             while len(sqrt_one_minus_alpha_prod.shape) < len(noisy_trajectory.shape):
                 sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.unsqueeze(-1)
-
+            #import pdb; pdb.set_trace()
             # known noisy_trajectory = sqrt_alpha_prod * denoised_trajectory + sqrt_one_minus_alpha_prod * noise
+            if self.noise_model_type != "unet":
+                noisy_trajectory = noisy_trajectory.reshape(batch_size*num_scene_points, -1, self.action_dim)
+            #import pdb; pdb.set_trace()
             denoised_trajectory = (noisy_trajectory - sqrt_one_minus_alpha_prod * pred) / sqrt_alpha_prod # B*N, T, 12
         elif pred_type == 'sample':
             denoised_trajectory = pred # B*N, T, 12
-
-        denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, prediction_horizon, 12)
-        denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, prediction_horizon, 4, 3) # B, N+4, T, 4, 3
-        pred_goal_gripper_pcd = denoised_trajectory + diffuse_point_cloud.reshape(batch_size, num_scene_points, prediction_horizon, 4, 3) # B, N+4, T, 4, 3
-
+        #import pdb; pdb.set_trace()
+        denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, horizon, 12)
+        denoised_trajectory = denoised_trajectory.reshape(batch_size, num_scene_points, horizon, 4, 3) # B, N+4, T, 4, 3
+        pred_goal_gripper_pcd = denoised_trajectory + diffuse_point_cloud.reshape(batch_size, num_scene_points, horizon, 4, 3) # B, N+4, T, 4, 3
+        #import pdb; pdb.set_trace()
         pred_goal_gripper_pcd = pred_goal_gripper_pcd.reshape(batch_size, num_scene_points, -1) # B, N+4, T*4*3
-
+        #import pdb; pdb.set_trace()
         weights = torch.nn.functional.softmax(weights, dim=1) # B, N+4
         pred_goal_gripper = (pred_goal_gripper_pcd * weights.unsqueeze(-1)).sum(dim=1) # B, T*4*3
         pred_goal_gripper = pred_goal_gripper.reshape(batch_size, prediction_horizon, 4, 3) # B, T, 4, 3
         label = batch['obs'][self.prediction_target] # B, T, 4, 3
         weighting_loss = F.mse_loss(pred_goal_gripper, label)
-
+        #import pdb; pdb.set_trace()
         loss = diffusion_loss + weighting_loss * self.weight_loss_coef
         loss = loss.mean()
-
+        #import pdb; pdb.set_trace()
         loss_dict = {
             'bc_loss': loss.item(),
             'diffusion_loss': diffusion_loss.item(),
             'weighting_loss': weighting_loss.item() * self.weight_loss_coef,
         }
         return loss, loss_dict
-    
-def custom_weight_init(module, scale=0.01):
-    if isinstance(module, nn.Conv2d) or isinstance(module, nn.Conv1d):
-        # Xavier initialization with a custom scale
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
-        gain = calculate_gain('relu')  # Assuming ReLU activations
-        std = (2.0 / (fan_in + fan_out)) ** 0.5 * scale ** 0.5
-        with torch.no_grad():
-            module.weight.normal_(0, std)
-            if module.bias is not None:
-                module.bias.zero_()
-
-    elif isinstance(module, nn.Linear):
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
-        gain = calculate_gain('relu')  # Adjust gain for activation function
-        std = (2.0 / (fan_in + fan_out)) ** 0.5 * scale ** 0.5
-        with torch.no_grad():
-            module.weight.normal_(0, std)
-            if module.bias is not None:
-                module.bias.zero_()
-
-    elif isinstance(module, nn.BatchNorm2d) or isinstance(module, nn.BatchNorm1d):
-        with torch.no_grad():
-            module.weight.data.fill_(1.0)
-            module.bias.data.zero_()
-
-# Apply initialization to the entire network
-def initialize_network(network, scale=1.5):
-    network.apply(lambda module: custom_weight_init(module, scale))
