@@ -185,6 +185,8 @@ checkpoint:
   save_last_snapshot: True
 
 load_checkpoint_path: null
+load_policy_path: null
+load_exclude_keys: []
 
 multi_run:
   run_dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}

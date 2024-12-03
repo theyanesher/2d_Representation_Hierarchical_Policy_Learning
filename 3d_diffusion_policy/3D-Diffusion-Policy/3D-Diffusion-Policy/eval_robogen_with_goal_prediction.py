@@ -28,7 +28,8 @@ import cv2
 import argparse
 from typing import Optional, List
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation):
+def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, 
+                  real_world_camera=False, noise_real_world_pcd=False,):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -52,7 +53,9 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, o
                                                 only_handle_points=cfg.task.env_runner.only_handle_points,
                                                 observation_mode=cfg.task.env_runner.observation_mode,
                                                 dense_pcd_for_goal=cfg.task.env_runner.dense_pcd_for_goal,
-                                                )
+                                                real_world_camera=real_world_camera,
+                                                noise_real_world_pcd=noise_real_world_pcd,
+    )
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
@@ -65,6 +68,8 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                           obj_translation: Optional[list]= None,
                           use_predicted_goal: bool = True,
                           update_goal_freq=1,
+                          real_world_camera=False,
+                          noise_real_world_pcd=False,
                           ):
     
     if calculate_distance_from_gt:
@@ -170,7 +175,8 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation)
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, 
+                                real_world_camera, noise_real_world_pcd)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -287,6 +293,8 @@ if __name__ == "__main__":
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument("--calculate_distance_from_gt", type=bool, default=False)
     parser.add_argument("--update_goal_freq", type=int, default=1)
+    parser.add_argument("--noise_real_world_pcd", type=int, default=0)
+    parser.add_argument("--real_world_camera", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
 
     args = parser.parse_args()
@@ -407,4 +415,6 @@ if __name__ == "__main__":
             use_predicted_goal=args.use_predicted_goal,
             calculate_distance_from_gt=args.calculate_distance_from_gt,
             update_goal_freq=args.update_goal_freq,
+            real_world_camera=args.real_world_camera,
+            noise_real_world_pcd=args.noise_real_world_pcd,
     )

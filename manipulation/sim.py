@@ -1110,7 +1110,8 @@ class SimpleEnv(gym.Env):
                 
                 end = time.time()
             else:
-                cprint("IK failed, not doing anything", "red")
+                pass
+                # cprint("IK failed, not doing anything", "red")
             # cprint("control time: {}".format(end - beg), "red")
     
     def take_joint_action(self, action):
