@@ -15,6 +15,7 @@ from diffusion_policy_3d.dataset.Augmentations.random_apply_numpy import RandomA
 from termcolor import cprint
 import random
 import copy
+from test_PointNet2.all_data import *
 
 import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
@@ -110,7 +111,35 @@ class RobogenDataset(BaseDataset):
 
             # if type(zarr_path) != list:
             #     zarr_path = [zarr_path]
-            all_zarr_paths = copy.deepcopy(zarr_path)
+            
+            if type(zarr_path) == list:
+                all_zarr_paths = copy.deepcopy(zarr_path)
+            if zarr_path == "mixed_old_and_real_world_noisy_1119": # for low-level
+                dataset_prefix_1 = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+                dataset_prefix_2 = '/scratch/yufeiw2/dp3_demo_real_world_noise_pcd_combined_2_step_0'
+            
+                old_list = [i for i in range(50)]
+                all_old_obj_paths = ["{}/{}".format(dataset_prefix_1, globals()["save_data_name_{}".format(i)]) for i in old_list]
+                
+                all_new_obj_paths = os.listdir(dataset_prefix_2)
+                all_new_obj_paths = sorted(all_new_obj_paths)
+                all_new_obj_paths = [os.path.join(dataset_prefix_2, x) for x in all_new_obj_paths]
+                
+                all_obj_paths = all_old_obj_paths + all_new_obj_paths
+                all_zarr_paths = all_obj_paths
+            if zarr_path == "mixed_old_and_real_world_noisy_1119_high_level":
+                dataset_prefix_1 = '/scratch/yufeiw2/dp3_demo'
+                dataset_prefix_2 = '/scratch/yufeiw2/dp3_demo_real_world_noise_pcd'
+                
+                old_list = [i * 3 for i in range(150)]
+                all_old_obj_paths = ["{}/{}".format(dataset_prefix_1, globals()["save_data_name_{}".format(i)]) for i in old_list]
+                
+                all_new_obj_paths = os.listdir(dataset_prefix_2)
+                all_new_obj_paths = sorted(all_new_obj_paths)
+                all_new_obj_paths = [os.path.join(dataset_prefix_2, x) for x in all_new_obj_paths]
+                
+                all_obj_paths = all_old_obj_paths + all_new_obj_paths
+                all_zarr_paths = all_obj_paths
             
             all_paths = []
             train_masks = []
