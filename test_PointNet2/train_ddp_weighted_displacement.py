@@ -23,6 +23,8 @@ def train(args):
     gpu_id = int(os.environ["LOCAL_RANK"])
     device = torch.device(gpu_id)
 
+    input_channel = 5 if args.add_one_hot_encoding else 3
+
     if not args.predict_two_goals: output_dim = 13 
     else: output_dim = 25
 
@@ -36,7 +38,7 @@ def train(args):
         elif args.model_type == 'pointnet2_large':
             model = PointNet2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_super':
-            model = PointNet2_super(num_classes=output_dim).to(device)
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
         elif args.model_type == 'attn':
             model = AttnModel(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_superplus':
@@ -93,6 +95,15 @@ def train(args):
     if args.output_obj_pcd_only:
         output_dir = output_dir + "_output_obj_only"
         
+    if args.only_first_stage:
+        output_dir = output_dir + "_only_first_stage"
+        
+    if args.keep_gripper_in_fps:
+        output_dir = output_dir + "_keep_gripper_in_fps"
+        
+    if args.add_one_hot_encoding:
+        output_dir = output_dir + "_one_hot"
+        
     output_dir += args.exp_name
     
     args.exp_path = os.path.join(args.exp_path, output_dir)
@@ -118,6 +129,14 @@ def train(args):
                 "batch_size": args.batch_size
             }
         )
+        
+        config_dict = args.__dict__
+        wandb.config.update(config_dict)
+
+        # save the config file
+        with open(os.path.join(args.exp_path, "config.txt"), "w") as f:
+            for key, value in config_dict.items():
+                f.write(f"{key}: {value}\n")
 
     print("trying to load dataset")
     dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, num_train_objects=args.num_train_objects, predict_two_goals=args.predict_two_goals)
@@ -144,11 +163,22 @@ def train(args):
             gripper_points = goal_gripper_pcd
             
             if not args.predict_two_goals:
-                inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
+                if args.add_one_hot_encoding:
+                    # for pointcloud, we add (1, 0)
+                    # for gripper_pcd, we add (0, 1)
+                    pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2)
+                    pointcloud_one_hot[:, :, 0] = 1
+                    pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
+                    gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2)
+                    gripper_pcd_one_hot[:, :, 1] = 1
+                    gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
+                    inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
+                else:
+                    inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
             else:
                 inputs = pointcloud
 
-            labels = gripper_points.unsqueeze(1) - inputs.unsqueeze(2)
+            labels = gripper_points.unsqueeze(1) - inputs[:, :, :3].unsqueeze(2)
             B, N, _, _ = labels.shape
             labels = labels.view(B, N, -1) # B, N, 12
 
@@ -173,7 +203,7 @@ def train(args):
                 outputs = outputs.view(B, N, 4, 3)
             else:
                 outputs = outputs.view(B, N, 8, 3)
-            outputs = outputs + inputs.unsqueeze(2) # B, N, 4, 3
+            outputs = outputs + inputs[:, :, :3].unsqueeze(2) # B, N, 4, 3
 
             # softmax the weights
             weights = torch.nn.functional.softmax(weights, dim=1)
@@ -237,6 +267,8 @@ def parse_args():
     parser.add_argument('--use_combined_action', action='store_true')
     parser.add_argument('--model_invariant', action='store_true')
     parser.add_argument('--predict_two_goals', action='store_true')
+    parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
+    parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--exp_name', type=str, default="")
     return parser.parse_args()
 

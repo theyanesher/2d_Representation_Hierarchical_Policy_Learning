@@ -317,13 +317,25 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                                 inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
                             else:
                                 inputs = pointcloud
+                                
+                            if args.add_one_hot_encoding:
+                                # for pointcloud, we add (1, 0)
+                                # for gripper_pcd, we add (0, 1)
+                                pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2).float().to(pointcloud.device)
+                                pointcloud_one_hot[:, :, 0] = 1
+                                pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
+                                gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2).float().to(pointcloud.device)
+                                gripper_pcd_one_hot[:, :, 1] = 1
+                                gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
+                                inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
+                                
                             inputs = inputs.to('cuda')
                             inputs_ = inputs.permute(0, 2, 1)
                             outputs = goal_prediction_model(inputs_)
                             weights = outputs[:, :, -1] # B, N
                             outputs = outputs[:, :, :-1] # B, N, 12
                             if output_obj_pcd_only:
-                                cprint("using only obj pcd output!", "red")
+                                # cprint("using only obj pcd output!", "red")
                                 weights = weights[:, :-4]
                                 outputs = outputs[:, :-4, :]
                                 inputs = inputs[:, :-4, :]
@@ -341,7 +353,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                                 elif goal_stage == 'second':
                                     outputs = outputs[:, :, 4:, :]
                                     
-                            outputs = outputs + inputs.unsqueeze(2)
+                            outputs = outputs + inputs[:, :, :3].unsqueeze(2)
                             weights = torch.nn.functional.softmax(weights, dim=1)
                             outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
                             outputs = outputs.sum(dim=1)
@@ -447,6 +459,8 @@ if __name__ == "__main__":
     parser.add_argument("--noise_real_world_pcd", type=int, default=0)
     parser.add_argument("--real_world_camera", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
+    parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
+    parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     args = parser.parse_args()
     
     num_worker = 30
@@ -507,6 +521,8 @@ if __name__ == "__main__":
         
     
     num_class = 13 if not args.predict_two_goals else 25
+    input_channel = 5 if args.add_one_hot_encoding else 3
+
     if not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
         if args.pointnet_class == "PointNet2":
@@ -514,14 +530,14 @@ if __name__ == "__main__":
         elif args.pointnet_class == "PointNet2_large":
             pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == "PointNet2_super":
-            pointnet2_model = PointNet2_super(num_classes=num_class).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
             
     else:
         from test_PointNet2.model_invariant import PointNet2, PointNet2_super
         if args.pointnet_class == 'PointNet2_large':
             pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == 'PointNet2_super':
-            pointnet2_model = PointNet2_super(num_classes=num_class).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
         
         
     pointnet2_model.load_state_dict(torch.load(load_model_path))
