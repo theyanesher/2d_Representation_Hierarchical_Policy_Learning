@@ -236,6 +236,8 @@ class ReplayBuffer:
                 if not only_reach_stage:
                     episode_lengths.append(len(all_substeps))
                     
+        # exit()
+        
         self.episode_lengths = np.array(episode_lengths)
         self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
         

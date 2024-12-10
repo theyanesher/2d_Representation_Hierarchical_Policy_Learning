@@ -1,5 +1,4 @@
 pointcloud_num=4500
-source scripts/datasets/train_dataset_10.sh
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
@@ -17,7 +16,7 @@ training_epoches=100
 train_ratio=0.9 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=400 #######
+batch_size=100 #######
 encoder_type=act3d
 use_mlp=1
 use_lightweight_unet=0
@@ -40,7 +39,7 @@ use_pretrained_high_level_policy_as_low_level_input=false
 
 time_stamp=$(date +%m%d%H%M)
 # exp_name="1107-200-combined-low-level-unet-diffusion-chialiang-hyper-parameter"
-exp_name="1121-no-hierrachical-10-training-objs"
+exp_name="paper-no-hierrachical-10-training-objs-1209"
 
 
 action_dim=10
@@ -49,31 +48,8 @@ agent_pos_dim=10
 torchrun --standalone --nproc_per_node=1 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path="[\
-        ${source_dir}/${save_data_name_0},\
-        ${source_dir}/${save_data_name_1},\
-        ${source_dir}/${save_data_name_2},\
-        ${source_dir}/${save_data_name_3},\
-        ${source_dir}/${save_data_name_4},\
-        ${source_dir}/${save_data_name_5},\
-        ${source_dir}/${save_data_name_6},\
-        ${source_dir}/${save_data_name_7},\
-        ${source_dir}/${save_data_name_8},\
-        ${source_dir}/${save_data_name_9}\
-        ]" \
-    task.env_runner.demo_experiment_path="[\
-        ${source_dir}/${save_data_name_0},\
-        ${source_dir}/${save_data_name_1},\
-        ${source_dir}/${save_data_name_2},\
-        ${source_dir}/${save_data_name_3},\
-        ${source_dir}/${save_data_name_4},\
-        ${source_dir}/${save_data_name_5},\
-        ${source_dir}/${save_data_name_6},\
-        ${source_dir}/${save_data_name_7},\
-        ${source_dir}/${save_data_name_8},\
-        ${source_dir}/${save_data_name_9},\
-        ${source_dir}/${save_data_name_10}\
-    ]" \
+    task.dataset.zarr_path=10_object_low_level \
+    task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \

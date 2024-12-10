@@ -1,12 +1,11 @@
 pointcloud_num=4500
-source scripts/datasets/train_dataset_50.sh
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
 source_dir="/home/yufei/projects/RoboGen-sim2real/data/dp3_demo_combined_2_step_0"
 
 
-observation_mode="act3d"
+observation_mode="act3d_goal_mlp"
 encoding_mode="keep_position_feature_in_attention_feature"
 
 horizon=8
@@ -39,81 +38,17 @@ use_pretrained_high_level_policy_as_low_level_input=false
 ##########
 
 time_stamp=$(date +%m%d%H%M)
-# exp_name="1107-200-combined-low-level-unet-diffusion-chialiang-hyper-parameter"
-exp_name="1121-no-hierrachical-50-training-objs"
+exp_name="paper-hierarchical-low-level-unet-diffusion-10-training-objs-1209"
 
 
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=3 \
+torchrun --standalone --nproc_per_node=1 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path="[\
-        ${source_dir}/${save_data_name_0},\
-        ${source_dir}/${save_data_name_1},\
-        ${source_dir}/${save_data_name_2},\
-        ${source_dir}/${save_data_name_3},\
-        ${source_dir}/${save_data_name_4},\
-        ${source_dir}/${save_data_name_5},\
-        ${source_dir}/${save_data_name_6},\
-        ${source_dir}/${save_data_name_7},\
-        ${source_dir}/${save_data_name_8},\
-        ${source_dir}/${save_data_name_9},\
-        ${source_dir}/${save_data_name_10},\
-        ${source_dir}/${save_data_name_11},\
-        ${source_dir}/${save_data_name_12},\
-        ${source_dir}/${save_data_name_13},\
-        ${source_dir}/${save_data_name_14},\
-        ${source_dir}/${save_data_name_15},\
-        ${source_dir}/${save_data_name_16},\
-        ${source_dir}/${save_data_name_17},\
-        ${source_dir}/${save_data_name_18},\
-        ${source_dir}/${save_data_name_19},\
-        ${source_dir}/${save_data_name_20},\
-        ${source_dir}/${save_data_name_21},\
-        ${source_dir}/${save_data_name_22},\
-        ${source_dir}/${save_data_name_23},\
-        ${source_dir}/${save_data_name_24},\
-        ${source_dir}/${save_data_name_25},\
-        ${source_dir}/${save_data_name_26},\
-        ${source_dir}/${save_data_name_27},\
-        ${source_dir}/${save_data_name_28},\
-        ${source_dir}/${save_data_name_29},\
-        ${source_dir}/${save_data_name_30},\
-        ${source_dir}/${save_data_name_31},\
-        ${source_dir}/${save_data_name_32},\
-        ${source_dir}/${save_data_name_33},\
-        ${source_dir}/${save_data_name_34},\
-        ${source_dir}/${save_data_name_35},\
-        ${source_dir}/${save_data_name_36},\
-        ${source_dir}/${save_data_name_37},\
-        ${source_dir}/${save_data_name_38},\
-        ${source_dir}/${save_data_name_39},\
-        ${source_dir}/${save_data_name_40},\
-        ${source_dir}/${save_data_name_41},\
-        ${source_dir}/${save_data_name_42},\
-        ${source_dir}/${save_data_name_43},\
-        ${source_dir}/${save_data_name_44},\
-        ${source_dir}/${save_data_name_45},\
-        ${source_dir}/${save_data_name_46},\
-        ${source_dir}/${save_data_name_47},\
-        ${source_dir}/${save_data_name_48},\
-        ${source_dir}/${save_data_name_49}\
-        ]" \
-    task.env_runner.demo_experiment_path="[\
-        ${source_dir}/${save_data_name_0},\
-        ${source_dir}/${save_data_name_1},\
-        ${source_dir}/${save_data_name_2},\
-        ${source_dir}/${save_data_name_3},\
-        ${source_dir}/${save_data_name_4},\
-        ${source_dir}/${save_data_name_5},\
-        ${source_dir}/${save_data_name_6},\
-        ${source_dir}/${save_data_name_7},\
-        ${source_dir}/${save_data_name_8},\
-        ${source_dir}/${save_data_name_9},\
-        ${source_dir}/${save_data_name_10}\
-    ]" \
+    task.dataset.zarr_path=10_object_low_level \
+    task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
     task.env_runner.num_point_in_pc="${pointcloud_num}" \
@@ -127,7 +62,7 @@ torchrun --standalone --nproc_per_node=3 \
     policy.encoder_output_dim=60 \
     policy.normalize_action=${normalize_action} \
     policy.act3d_encoder_cfg.in_channels=${in_channels} \
-    policy.act3d_encoder_cfg.goal_mode=null \
+    policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
     policy.act3d_encoder_cfg.mode="${encoding_mode}" \
     policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
     policy.act3d_encoder_cfg.self_attention="${self_attention}" \
