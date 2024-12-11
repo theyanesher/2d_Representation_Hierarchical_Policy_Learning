@@ -296,7 +296,7 @@ class RobogenPointCloudWrapper:
         all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name, return_median=False)
         # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
         handle_pc = np.concatenate(all_handle_pos, axis=0)
-        while try_times < 1000:
+        while try_times < 5000:
             view_matrices = []
             project_matrices = []
             try_times += 1
@@ -316,10 +316,13 @@ class RobogenPointCloudWrapper:
                 project_matrices.append(project_matrix)
             self.view_matrices = view_matrices
             self.project_matrices = project_matrices
-            if self.check_handle_observed_in_pc(handle_pc=handle_pc) > 3:
+            if self.check_handle_observed_in_pc(handle_pc=handle_pc) > 5:
+                self._env.projection_matrix = project_matrices[0]
+                self._env.view_matrix = view_matrices[0]
+                # import pdb; pdb.set_trace()
                 break
             # import pdb; pdb.set_trace()
-        if try_times >= 1000:
+        if try_times >= 5000:
             raise ValueError("Cannot find a camera view that has handle points in the point cloud")
 
     def reset(self, **kwargs):

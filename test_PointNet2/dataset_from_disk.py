@@ -54,7 +54,11 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                         break
 
                     substep_path = os.path.join(zarr_path, substep)
-                    data = pickle.load(open(substep_path, 'rb'))
+                    with open(substep_path, 'rb') as f:
+                        try:
+                            data = pickle.load(f)
+                        except:
+                            print(substep_path)
                     action = data['action'][:]
 
                     current_goal = data['goal_gripper_pcd'][:]
@@ -93,6 +97,8 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
 
             if not only_first_stage and eval_episode is None:
                 self.episode_lengths.append(len(all_substeps))
+                
+        # exit()
 
         self.episode_lengths = np.array(self.episode_lengths)
         self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
@@ -110,7 +116,8 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
 
         if self.is_pickle:
             step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
-            data = pickle.load(open(step_path, 'rb'))
+            with open(step_path, 'rb') as f:
+                data = pickle.load(f)
             pointcloud = data['point_cloud'][:][0].astype(np.float32)
             gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
             goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
@@ -173,7 +180,8 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
                         break
 
                     substep_path = os.path.join(zarr_path, substep)
-                    data = pickle.load(open(substep_path, 'rb'))
+                    with open(substep_path, 'rb') as f:
+                        data = pickle.load(f)
                     action = data['action'][:]
 
                     current_goal = data['goal_gripper_pcd'][:]
@@ -227,13 +235,15 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
 
         if self.is_pickle:
             step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
-            data = pickle.load(open(step_path, 'rb'))
+            with open(step_path, 'rb') as f:
+                data = pickle.load(f)
             pointcloud = data['point_cloud'][:][0]
             gripper_pcd = data['gripper_pcd'][:][0]
             goal_gripper_pcd = data['goal_gripper_pcd'][:][0]
 
             step_path_end = os.path.join(self.all_zarr_paths[episode_idx], str(end_idx) + '.pkl')
-            data_end = pickle.load(open(step_path_end, 'rb'))
+            with open(step_path_end, 'rb') as f:
+                data_end = pickle.load(f)
             goal_gripper_pcd_end = data_end['goal_gripper_pcd'][:][0]
         else:
             zarr_path = self.all_zarr_paths[episode_idx]
