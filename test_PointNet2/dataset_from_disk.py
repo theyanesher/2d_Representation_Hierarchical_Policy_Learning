@@ -319,7 +319,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
             all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
             all_obj_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
-
+            
         elif num_train_objects == '300_old':
             
             all_obj_paths = [f'{dataset_prefix}/{save_data_name_0}', f'{dataset_prefix}/{save_data_name_1}', f'{dataset_prefix}/{save_data_name_2}', f'{dataset_prefix}/{save_data_name_3}', f'{dataset_prefix}/{save_data_name_4}', f'{dataset_prefix}/{save_data_name_5}', f'{dataset_prefix}/{save_data_name_6}', f'{dataset_prefix}/{save_data_name_7}', f'{dataset_prefix}/{save_data_name_8}', f'{dataset_prefix}/{save_data_name_9}', 
@@ -428,7 +428,13 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_new_obj_paths = [os.path.join(dataset_prefix_2, x) for x in all_new_obj_paths]
             
             all_obj_paths = all_old_obj_paths + all_new_obj_paths
-            print(all_obj_paths)
+            
+        elif num_train_objects == 'real_world_noisy_pcd_clean_distorted_goal_all':
+            dataset_prefix = '/scratch/yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal'
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+            
             
         else:
             raise ValueError('num_train_objects not supported')

@@ -26,7 +26,8 @@ import argparse
 from typing import List, Optional
 from collections import deque
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,):
+def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,
+                  randomize_camera=False):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -52,6 +53,9 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, o
                                                 real_world_camera=real_world_camera,
                                                 noise_real_world_pcd=noise_real_world_pcd,
                                                 )
+        
+    if randomize_camera:
+        pointcloud_env.reset_random_cameras()
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
@@ -177,7 +181,8 @@ def wrap_obs(list_of_obs):
 def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, exp_beg_idx=0,
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
-                          update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False):
+                          update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
+                          randomize_camera=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -287,7 +292,8 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd)
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
+                                randomize_camera)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -457,6 +463,7 @@ if __name__ == "__main__":
     parser.add_argument('--output_obj_pcd_only', action='store_true')
     parser.add_argument("--update_goal_freq", type=int, default=1)
     parser.add_argument("--noise_real_world_pcd", type=int, default=0)
+    parser.add_argument("--randomize_camera", type=int, default=0)
     parser.add_argument("--real_world_camera", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
@@ -573,10 +580,7 @@ if __name__ == "__main__":
             update_goal_freq=args.update_goal_freq,
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
-            # dataset_index=9，
-            # exp_beg_ratio=0.9,
-            # exp_end_ratio=1,
-            # calculate_distance_from_gt=True,
+            randomize_camera=args.randomize_camera
     )
 
 

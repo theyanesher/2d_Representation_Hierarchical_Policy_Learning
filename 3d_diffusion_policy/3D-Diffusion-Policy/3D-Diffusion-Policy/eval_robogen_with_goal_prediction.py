@@ -29,7 +29,7 @@ import argparse
 from typing import Optional, List
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, 
-                  real_world_camera=False, noise_real_world_pcd=False,):
+                  real_world_camera=False, noise_real_world_pcd=False, randomize_camera=False):
     env, _ = build_up_env(
                     config_file,
                     solution_path,
@@ -56,6 +56,9 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, o
                                                 real_world_camera=real_world_camera,
                                                 noise_real_world_pcd=noise_real_world_pcd,
     )
+    
+    if randomize_camera:
+        pointcloud_env.reset_random_cameras()
         
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
@@ -70,6 +73,8 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                           update_goal_freq=1,
                           real_world_camera=False,
                           noise_real_world_pcd=False,
+                          randomize_camera=False,
+                          use_high_level=True,
                           ):
     
     if calculate_distance_from_gt:
@@ -176,7 +181,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 task_name = first_step.replace(" ", "_")
             
             env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, 
-                                real_world_camera, noise_real_world_pcd)
+                                real_world_camera, noise_real_world_pcd, randomize_camera)
             
             obs = env.reset()
             rgb = env.env.render()
@@ -192,24 +197,26 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
-                if use_predicted_goal and (t == 1 or t % update_goal_freq == 0):
-                    high_level_parallel_input_dict = deepcopy(parallel_input_dict)
-                    if goal_cfg.n_obs_steps == 1:
-                        for key in high_level_parallel_input_dict:
-                            high_level_parallel_input_dict[key] = high_level_parallel_input_dict[key][:, -1, ...].unsqueeze(1) # take the most recent observation
                     
-                    with torch.no_grad():
-                        predicted_goal = goal_policy.predict_action(high_level_parallel_input_dict)
-                    
-                    if goal_cfg.policy.prediction_target == 'goal_gripper_pcd':
-                        parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
-                    elif goal_cfg.policy.prediction_target == 'delta_to_goal_gripper':
-                        current_gripper_pcd = parallel_input_dict['gripper_pcd'].detach()
-                        delta_pcd = predicted_goal['action'][:, :2, :]
-                        parallel_input_dict['goal_gripper_pcd'] = current_gripper_pcd + delta_pcd.view(1, 2, 4, 3).detach()
-                    last_goal = parallel_input_dict['goal_gripper_pcd']
-                else:
-                    parallel_input_dict['goal_gripper_pcd'] = last_goal
+                if use_high_level:
+                    if use_predicted_goal and (t == 1 or t % update_goal_freq == 0):
+                        high_level_parallel_input_dict = deepcopy(parallel_input_dict)
+                        if goal_cfg.n_obs_steps == 1:
+                            for key in high_level_parallel_input_dict:
+                                high_level_parallel_input_dict[key] = high_level_parallel_input_dict[key][:, -1, ...].unsqueeze(1) # take the most recent observation
+                        
+                        with torch.no_grad():
+                            predicted_goal = goal_policy.predict_action(high_level_parallel_input_dict)
+                        
+                        if goal_cfg.policy.prediction_target == 'goal_gripper_pcd':
+                            parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
+                        elif goal_cfg.policy.prediction_target == 'delta_to_goal_gripper':
+                            current_gripper_pcd = parallel_input_dict['gripper_pcd'].detach()
+                            delta_pcd = predicted_goal['action'][:, :2, :]
+                            parallel_input_dict['goal_gripper_pcd'] = current_gripper_pcd + delta_pcd.view(1, 2, 4, 3).detach()
+                        last_goal = parallel_input_dict['goal_gripper_pcd']
+                    else:
+                        parallel_input_dict['goal_gripper_pcd'] = last_goal
                         
                 if cfg.task.env_runner.dense_pcd_for_goal:
                     parallel_input_dict['point_cloud'] = parallel_input_dict['dense_point_cloud']
@@ -240,9 +247,13 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                         # save image
                         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
                         # cv2.imwrite(f'data/debug/{dataset_idx}_{exp_idx}.png', image)
-
                     break
-                env.env.goal_gripper_pcd = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[0].reshape(4, 3)
+
+                if use_high_level:
+                    env.env.goal_gripper_pcd = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[0].reshape(4, 3)
+                else:
+                    env.env.goal_gripper_pcd = None
+                    
                 rgb = env.env.render()
                 all_rgbs.append(rgb)
             
@@ -295,6 +306,8 @@ if __name__ == "__main__":
     parser.add_argument("--update_goal_freq", type=int, default=1)
     parser.add_argument("--noise_real_world_pcd", type=int, default=0)
     parser.add_argument("--real_world_camera", type=int, default=0)
+    parser.add_argument("--randomize_camera", type=int, default=0)
+    parser.add_argument("--use_high_level", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
 
     args = parser.parse_args()
@@ -343,7 +356,6 @@ if __name__ == "__main__":
         'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
         
-        # "data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle"
     ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
@@ -358,31 +370,37 @@ if __name__ == "__main__":
     cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
 
     ### load the high-level policy
-    goal_exp_dir = args.high_level_exp_dir
-    if args.high_level_exp_dir is None:
-        goal_exp_dir = '/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
-    goal_checkpoint_name = args.high_level_ckpt_name
-    if args.high_level_ckpt_name is None:
-        goal_checkpoint_name = 'epoch-30.ckpt'
-    
-    with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
-        recomposed_config = hydra.compose(
-            config_name="dp3.yaml",  # same config_name as used by @hydra.main
-            overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
-        )
-    goal_cfg = recomposed_config
-    
-    goal_workspace = TrainDP3Workspace(goal_cfg)
-    goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
-    goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
+    if args.use_high_level:
+        goal_exp_dir = args.high_level_exp_dir
+        if args.high_level_exp_dir is None:
+            goal_exp_dir = '/home/mino/Software/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+        goal_checkpoint_name = args.high_level_ckpt_name
+        if args.high_level_ckpt_name is None:
+            goal_checkpoint_name = 'epoch-30.ckpt'
+        
+        with hydra.initialize(config_path='diffusion_policy_3d/config'):  # same config_path as used by @hydra.main
+            recomposed_config = hydra.compose(
+                config_name="dp3.yaml",  # same config_name as used by @hydra.main
+                overrides=OmegaConf.load("{}/.hydra/overrides.yaml".format(goal_exp_dir)),
+            )
+        goal_cfg = recomposed_config
+        
+        goal_workspace = TrainDP3Workspace(goal_cfg)
+        goal_checkpoint_dir = "{}/checkpoints/{}".format(goal_exp_dir, goal_checkpoint_name)
+        goal_workspace.load_checkpoint(path=goal_checkpoint_dir)
 
-    goal_policy = deepcopy(goal_workspace.model)
-    if goal_workspace.cfg.training.use_ema:
-        goal_policy = deepcopy(goal_workspace.ema_model)
-    goal_policy.eval()
-    goal_policy.reset()
-    goal_policy = goal_policy.to('cuda')
-    
+        goal_policy = deepcopy(goal_workspace.model)
+        if goal_workspace.cfg.training.use_ema:
+            goal_policy = deepcopy(goal_workspace.ema_model)
+        goal_policy.eval()
+        goal_policy.reset()
+        goal_policy = goal_policy.to('cuda')
+    else:
+        goal_policy = None
+        goal_cfg = None
+        goal_exp_dir = None
+        goal_checkpoint_name = None
+        
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     checkpoint_name_start_idx = checkpoint_dir.find("3D-Diffusion-Policy/data/")  + len("3D-Diffusion-Policy/data/")
@@ -417,4 +435,6 @@ if __name__ == "__main__":
             update_goal_freq=args.update_goal_freq,
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
+            randomize_camera=args.randomize_camera,
+            use_high_level=args.use_high_level,
     )
