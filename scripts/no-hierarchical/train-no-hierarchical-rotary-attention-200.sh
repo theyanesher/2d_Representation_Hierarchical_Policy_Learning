@@ -5,7 +5,7 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 source_dir="/home/yufei/projects/RoboGen-sim2real/data/dp3_demo_combined_2_step_0"
 
 
-observation_mode="dp3"
+observation_mode="act3d"
 encoding_mode="keep_position_feature_in_attention_feature"
 
 horizon=8
@@ -16,8 +16,8 @@ training_epoches=100
 train_ratio=0.9 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=100 #######
-encoder_type=dp3
+batch_size=400 #######
+encoder_type=act3d
 use_mlp=1
 use_lightweight_unet=0
 in_channels=3 ####
@@ -39,7 +39,8 @@ use_pretrained_high_level_policy_as_low_level_input=false
 
 time_stamp=$(date +%m%d%H%M)
 # exp_name="1107-200-combined-low-level-unet-diffusion-chialiang-hyper-parameter"
-exp_name="paper-dp3-300-training-objs-1211"
+exp_name="paper-no-hierrachical-200-training-objs-1213"
+
 
 action_dim=10
 agent_pos_dim=10
@@ -47,7 +48,7 @@ agent_pos_dim=10
 torchrun --standalone --nproc_per_node=4 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=300_object_low_level \
+    task.dataset.zarr_path=200_object_low_level \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
@@ -58,7 +59,6 @@ torchrun --standalone --nproc_per_node=4 \
     task.shape_meta.action.shape="[${action_dim}]" \
     policy.pointcloud_encoder_cfg.in_channels="${pc_channel}" \
     task.dataset.observation_mode="${observation_mode}" \
-    task.dataset.dp3=true \
     policy.encoder_type="${encoder_type}" \
     policy.encoder_output_dim=60 \
     policy.normalize_action=${normalize_action} \
@@ -73,7 +73,6 @@ torchrun --standalone --nproc_per_node=4 \
     policy.act3d_encoder_cfg.final_attention="${final_attention}" \
     task.dataset.enumerate=True \
     training.num_epochs="${training_epoches}" \
-    training.resume=True \
     training.rollout_every=2000 \
     training.checkpoint_every=4 \
     task.env_runner.max_steps=35 \
