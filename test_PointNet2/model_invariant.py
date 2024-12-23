@@ -64,7 +64,7 @@ def index_points(points, idx):
     return new_points
 
 
-def farthest_point_sample(xyz, npoint):
+def farthest_point_sample(xyz_, npoint, keep_gripper_in_fps=False):
     """
     Input:
         xyz: pointcloud data, [B, N, 3]
@@ -72,6 +72,12 @@ def farthest_point_sample(xyz, npoint):
     Return:
         centroids: sampled pointcloud index, [B, npoint]
     """
+    if keep_gripper_in_fps: ### NOTE: assuming there are 4 gripper points
+        xyz = xyz_[:, :-4, :]
+        npoint = npoint - 4
+    else:
+        xyz = xyz_
+    
     device = xyz.device
     B, N, C = xyz.shape
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
@@ -86,6 +92,11 @@ def farthest_point_sample(xyz, npoint):
         mask = dist < distance
         distance[mask] = dist[mask]
         farthest = torch.max(distance, -1)[1]
+    
+    if keep_gripper_in_fps:
+        gripper_indices = torch.Tensor([N, N+1, N+2, N+3]).long().to(device)
+        gripper_indices = gripper_indices.unsqueeze(0).repeat(B, 1)
+        centroids = torch.cat([centroids, gripper_indices], dim=1)
     return centroids
 
 
@@ -208,8 +219,9 @@ class PointNetSetAbstraction(nn.Module):
 
 
 class PointNetSetAbstractionMsg(nn.Module):
-    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list):
+    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list, keep_gripper_in_fps=False):
         super(PointNetSetAbstractionMsg, self).__init__()
+        self.keep_gripper_in_fps = keep_gripper_in_fps
         self.npoint = npoint
         self.radius_list = radius_list
         self.nsample_list = nsample_list
@@ -241,7 +253,7 @@ class PointNetSetAbstractionMsg(nn.Module):
 
         B, N, C = xyz.shape
         S = self.npoint
-        new_xyz = index_points(xyz, farthest_point_sample(xyz, S))
+        new_xyz = index_points(xyz, farthest_point_sample(xyz, S, self.keep_gripper_in_fps))
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
             K = self.nsample_list[i]
@@ -390,14 +402,14 @@ class PointNet2_small2(nn.Module):
         return x # x shape: B, N, num_classes: outputing logtis
 
 class PointNet2_super(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False):
         super(PointNet2_super, self).__init__()
-        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=0, mlp_list=[[16, 16, 32], [32, 32, 64]])
-        self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]])
-        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]])
-        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]])
-        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]])
-        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]])
+        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512])
         self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512])
         self.fp4 = PointNetFeaturePropagation(1024, [256, 256])
@@ -412,7 +424,12 @@ class PointNet2_super(nn.Module):
     def forward(self, xyz):
         l0_points = xyz
         l0_xyz = xyz[:, :3, :]
-        l1_xyz, l1_points = self.sa1(l0_xyz, None) # (B, 3, 1024) (B, 96, 1024)
+        
+        if xyz.shape[1] > 3:
+            l1_xyz, l1_points = self.sa1(l0_xyz, xyz[:, 3:, :])
+        else:
+            l1_xyz, l1_points = self.sa1(l0_xyz, None) # (B, 3, 1024) (B, 96, 1024)
+        
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 512) (B, 256, 512)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 256) (B, 512, 256)
         l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 128) (B, 1024, 16)

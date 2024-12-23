@@ -58,8 +58,6 @@ class TrainDP3Workspace:
 
         # configure model
         self.model = hydra.utils.instantiate(cfg.policy)
-        device = torch.device(int(os.environ["LOCAL_RANK"]))
-        # self.model.cuda()
 
         self.ema_model = None
         if cfg.training.use_ema:
@@ -71,6 +69,10 @@ class TrainDP3Workspace:
         self.pretrained_goal_model = pretrained_goal_model
         if cfg.training.pretrained_weighted_displacement_goal_model is not None:
             from test_PointNet2.model_invariant import PointNet2_small2, PointNet2, PointNet2_super
+            if "LOCAL_RANK" in os.environ:
+                device = torch.device(int(os.environ["LOCAL_RANK"]))
+            else:
+                device = torch.device("cuda")
             pointnet2_model = PointNet2_super(num_classes=13).to(device)
             pointnet2_model.load_state_dict(torch.load(cfg.training.pretrained_weighted_displacement_goal_model))
             pointnet2_model.eval()
@@ -118,6 +120,8 @@ class TrainDP3Workspace:
         if cfg.load_checkpoint_path is not None:
             print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
             self.load_checkpoint(path=cfg.load_checkpoint_path)
+        if cfg.load_policy_path is not None:
+            self.load_policy(path=cfg.load_policy_path)
 
         # configure dataset
         dataset: BaseDataset
@@ -626,13 +630,28 @@ class TrainDP3Workspace:
         else:
             raise NotImplementedError(f"tag {tag} not implemented")
             
+    def load_policy(self, path):
+        path = pathlib.Path(path)
+        payload = torch.load(path.open('rb'), pickle_module=dill, map_location='cpu')
+        if 'LOCAL_RANK' in os.environ:
+            self.gpu_id = int(os.environ["LOCAL_RANK"])
+            device = torch.device(self.gpu_id)
+        else:
+            device = torch.device("cuda")
             
+        self.model = hydra.utils.instantiate(self.cfg.policy)
+        self.model.load_state_dict(payload['state_dicts']['model'])
+        self.model.to(device)
+        
+        self.ema_model.load_state_dict(payload['state_dicts']['ema_model'])
+    
 
     def load_payload(self, payload, exclude_keys=None, include_keys=None, **kwargs):
         if exclude_keys is None:
             exclude_keys = tuple()
         if include_keys is None:
             include_keys = payload['pickles'].keys()
+        exclude_keys += self.cfg.load_exclude_keys
         
         if 'LOCAL_RANK' in os.environ:
             self.gpu_id = int(os.environ["LOCAL_RANK"])
@@ -660,7 +679,7 @@ class TrainDP3Workspace:
         # self.ema_model.to(device)
     
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys=['pretrained_goal_model', "amp_scaler"],
+            exclude_keys=['pretrained_goal_model', "pretrained_weighted_displacement_goal_model", "amp_scaler"], 
             include_keys=None, 
             **kwargs):
         if path is None:

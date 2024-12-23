@@ -1,10 +1,92 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np 
 
 # [Debug]
 # from .multihead_custom_attention import MultiheadCustomAttention
 from diffusion_policy_3d.model.vision.multihead_custom_attention import MultiheadCustomAttention
+
+class FFWRelativeSelfAttentionModule(nn.Module):
+
+    def __init__(self, embedding_dim, num_attn_heads, num_layers):
+        super().__init__()
+        #print("DEFINEDDDDDDDDDDDDDDDDDDDDDDD SELF ATTENTION")
+        self.num_layers = num_layers
+        self.attn_layers = nn.ModuleList()
+        self.ffw_layers = nn.ModuleList()
+        for _ in range(num_layers):
+            self.attn_layers.append(RelativeCrossAttentionLayer(
+                embedding_dim, num_attn_heads
+            ))
+            self.ffw_layers.append(FeedforwardLayer(
+                embedding_dim, embedding_dim
+            ))
+
+    def forward(self, query, diff_ts=None,
+                query_pos=None, context=None, context_pos=None):
+        #print("calledddddddddddddddddddddd self attention", query, query_pos)
+        output = []
+        for i in range(self.num_layers):
+            query, _ = self.attn_layers[i](
+                query = query, value = query, query_pos=query_pos, value_pos = query_pos
+            )
+            query = self.ffw_layers[i](query, diff_ts)
+            output.append(query)
+        return output
+
+
+class FFWRelativeSelfCrossAttentionModule(nn.Module):
+
+    def __init__(self, embedding_dim, num_attn_heads,
+                 num_self_attn_layers, num_cross_attn_layers):
+        super().__init__()
+
+        self.num_layers = num_self_attn_layers
+        self.self_attn_layers = nn.ModuleList()
+        self.cross_attn_layers = nn.ModuleList()
+        self.ffw_layers = nn.ModuleList()
+
+        cross_inds = np.linspace(
+            0,
+            num_self_attn_layers,
+            num_cross_attn_layers + 1,
+            dtype=np.int32
+        ).tolist()
+        for ind in range(num_self_attn_layers):
+            self.self_attn_layers.append(RelativeCrossAttentionLayer(
+                embedding_dim, num_attn_heads
+            ))
+            if ind in cross_inds:
+                self.cross_attn_layers.append(RelativeCrossAttentionLayer(
+                    embedding_dim, num_attn_heads
+                ))
+            else:
+                self.cross_attn_layers.append(None)
+            self.ffw_layers.append(FeedforwardLayer(
+                embedding_dim, embedding_dim
+            ))
+
+    def forward(self, query, context, diff_ts=None,
+                query_pos=None, context_pos=None):
+        output = []
+        for i in range(self.num_layers):
+            # Cross attend to the context first
+            if self.cross_attn_layers[i] is not None:
+                if context_pos is None:
+                    cur_query_pos = None
+                else:
+                    cur_query_pos = query_pos
+                query, _ = self.cross_attn_layers[i](
+                    query, context, diff_ts, cur_query_pos, context_pos
+                )
+            # Self attend next
+            query, _ = self.self_attn_layers[i](
+                query, query, diff_ts, query_pos, query_pos
+            )
+            query = self.ffw_layers[i](query, diff_ts)
+            output.append(query)
+        return output
 
 class CrossAttentionLayer(nn.Module):
     def __init__(self, embedding_dim, num_heads, dropout=0.0):
@@ -33,11 +115,17 @@ class CrossAttentionLayer(nn.Module):
 class RelativeCrossAttentionLayer(nn.Module):
     def __init__(self, embedding_dim, num_heads, dropout=0.0):
         super().__init__()
+        #print("Defined RelativeCRossAttentionLayer")
         self.multihead_attn = MultiheadCustomAttention(embedding_dim, num_heads, dropout=dropout)
         self.norm = nn.LayerNorm(embedding_dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, query, value, query_pos=None, value_pos=None, pad_mask=None):
+        #print("Called RelativeCRossAttentionLayer")
+        rotary_pe=(query_pos, value_pos) if query_pos is not None else None
+        '''print("ROTARY PEEEEEEEEEEEE", rotary_pe)
+        print("QUERY PEEEEEEEEEEEE", query_pos)
+        print("value PEEEEEEEEEEEE", value_pos)'''
         attn_output, attn_output_weights = self.multihead_attn(
             query=query,
             key=value,
@@ -51,13 +139,15 @@ class RelativeCrossAttentionLayer(nn.Module):
 
 
 class FeedforwardLayer(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, dropout=0.0):
+    def __init__(self, embedding_dim, hidden_dim, dropout=0.0, use_adaln = False):
         super().__init__()
         self.linear1 = nn.Linear(embedding_dim, hidden_dim)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(hidden_dim, embedding_dim)
         self.norm = nn.LayerNorm(embedding_dim)
         self.activation = F.relu
+        if use_adaln:
+            self.adaln = AdaLN(embedding_dim)
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -65,7 +155,9 @@ class FeedforwardLayer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, x):
+    def forward(self, x, diff_ts = None):
+        if diff_ts is not None:
+            x = self.adaln(x, diff_ts)
         output = self.linear2(self.dropout(self.activation(self.linear1(x))))
         output = x + self.dropout(output)
         output = self.norm(output)
@@ -494,11 +586,11 @@ if __name__ == '__main__':
     from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
     
     # TODO: chech the rotarty relative embedding is translation invariant
-    encoder_output_dim = 18
+    encoder_output_dim = 20
     bs = 100
     relative_pe_layer = RotaryPositionEncoding3D(encoder_output_dim)
     
-    num_heads = 6
+    num_heads = 4
     num_gripper_points = 5
     attn_layers = RelativeCrossAttentionModule(encoder_output_dim, num_heads, 1)
     attn_layers = replace_bn_with_gn(attn_layers)

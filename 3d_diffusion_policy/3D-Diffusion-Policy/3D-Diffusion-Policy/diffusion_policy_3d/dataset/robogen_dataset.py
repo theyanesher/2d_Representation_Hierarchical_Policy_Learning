@@ -15,9 +15,109 @@ from diffusion_policy_3d.dataset.Augmentations.random_apply_numpy import RandomA
 from termcolor import cprint
 import random
 import copy
+from test_PointNet2.all_data import *
+from scripts.datasets.randomize_partition_50_obj import *
+from scripts.datasets.randomize_partition_100_obj import *
+from scripts.datasets.randomize_partition_200_obj import *
 
 import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
+
+def get_zarry_paths(zarr_path):
+    if zarr_path == '10_object_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
+    if zarr_path == '50_object_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(50)]
+    if zarr_path == '100_object_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(100)]
+    if zarr_path == "200_object_high_level":
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(200)]
+    if zarr_path == "300_object_high_level": 
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+        all_subfolders = sorted(os.listdir(dataset_prefix))
+        object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+        all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+        all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
+        
+    if zarr_path == '10_object_low_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
+    if zarr_path == '50_object_low_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(50)]
+    if zarr_path == '100_object_low_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(100)]
+    if zarr_path == "200_object_low_level":
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(200)]
+    if zarr_path == "300_object_low_level": 
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+        all_subfolders = sorted(os.listdir(dataset_prefix))
+        object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+        all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+        all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
+        
+    if zarr_path == 'camera_random_50_obj_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_50_save_data_name_{}".format(i)]) for i in range(87)]
+    if zarr_path == 'camera_random_100_obj_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_100_save_data_name_{}".format(i)]) for i in range(175)]
+    if zarr_path == 'camera_random_200_obj_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_200_save_data_name_{}".format(i)]) for i in range(350)]
+    if zarr_path == 'camera_random_500_obj_high_level' or zarr_path == "500_object_high_level":
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(462)]
+        
+    if zarr_path == "mixed_old_and_real_world_noisy_1119": # for low-level
+        dataset_prefix_1 = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        dataset_prefix_2 = '/scratch/yufeiw2/dp3_demo_real_world_noise_pcd_combined_2_step_0'
+    
+        old_list = [i for i in range(50)]
+        all_old_obj_paths = ["{}/{}".format(dataset_prefix_1, globals()["save_data_name_{}".format(i)]) for i in old_list]
+        
+        all_new_obj_paths = os.listdir(dataset_prefix_2)
+        all_new_obj_paths = sorted(all_new_obj_paths)
+        all_new_obj_paths = [os.path.join(dataset_prefix_2, x) for x in all_new_obj_paths]
+        
+        all_obj_paths = all_old_obj_paths + all_new_obj_paths
+        all_zarr_paths = all_obj_paths
+    if zarr_path == "mixed_old_and_real_world_noisy_1119_high_level":
+        dataset_prefix_1 = '/scratch/yufeiw2/dp3_demo'
+        dataset_prefix_2 = '/scratch/yufeiw2/dp3_demo_real_world_noise_pcd'
+        
+        old_list = [i * 3 for i in range(150)]
+        all_old_obj_paths = ["{}/{}".format(dataset_prefix_1, globals()["save_data_name_{}".format(i)]) for i in old_list]
+        
+        all_new_obj_paths = os.listdir(dataset_prefix_2)
+        all_new_obj_paths = sorted(all_new_obj_paths)
+        all_new_obj_paths = [os.path.join(dataset_prefix_2, x) for x in all_new_obj_paths]
+        
+        all_obj_paths = all_old_obj_paths + all_new_obj_paths
+        all_zarr_paths = all_obj_paths
+    if zarr_path == '50_plus_1026_gripper_closed_at_beginning_low_level':
+        dataset_prefix_1 = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+        dataset_prefix_2 = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+    
+        old_list = [i for i in range(50)] # first 50 objects
+        new_list = [i for i in range(463, 569)] # all other cases where the gripper starts closed
+        all_old_obj_paths = ["{}/{}".format(dataset_prefix_1, globals()["save_data_name_{}".format(i)]) for i in old_list]
+        all_new_obj_paths = ["{}/{}".format(dataset_prefix_1, globals()["save_data_name_{}".format(i)]) for i in new_list]
+        
+        all_obj_paths = all_old_obj_paths + all_new_obj_paths
+        all_zarr_paths = all_obj_paths
+    if zarr_path == '500_plus_normal_other_cat':
+        pass
+    
+    return all_zarr_paths
 
 class RobogenDataset(BaseDataset):
     def __init__(self,
@@ -51,6 +151,7 @@ class RobogenDataset(BaseDataset):
             prob_y = None,
             prob_rot_z = None,
             prediction_target='action',
+            dp3=False,
             **kwargs
             ):
         super().__init__()
@@ -66,6 +167,7 @@ class RobogenDataset(BaseDataset):
         self.is_pickle = is_pickle
         self.object_augmentation_high_level = object_augmentation_high_level
         self.prediction_target = prediction_target
+        self.dp3 = dp3
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -110,7 +212,12 @@ class RobogenDataset(BaseDataset):
 
             # if type(zarr_path) != list:
             #     zarr_path = [zarr_path]
-            all_zarr_paths = copy.deepcopy(zarr_path)
+            
+            if type(zarr_path) == list:
+                all_zarr_paths = copy.deepcopy(zarr_path)
+            else:
+                all_zarr_paths = get_zarry_paths(zarr_path)
+            
             
             all_paths = []
             train_masks = []
@@ -147,8 +254,10 @@ class RobogenDataset(BaseDataset):
                 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
                 self.replay_buffer = ReplayBuffer.copy_from_multiple_path(all_paths, keys=keys, load_per_step=self.load_per_step, 
                                                                         only_reach_stage=self.only_reach_stage, is_pickle=self.is_pickle,
-                                                                        target_action=self.prediction_target)
+                                                                        target_action=self.prediction_target, dp3=dp3)
                 self.action_welford = self.replay_buffer.action_welford
+                self.pcd_welford = self.replay_buffer.pcd_welford
+                self.agent_pos_welford = self.replay_buffer.agent_pos_welford
             
             # self.val_mask = np.zeros(self.replay_buffer.n_episodes, dtype=bool)
             # self.val_mask[-int(self.replay_buffer.n_episodes*val_ratio):] = True
@@ -235,34 +344,48 @@ class RobogenDataset(BaseDataset):
             return normalizer
         else:
             normalizer = LinearNormalizer()
-            input_min = self.action_welford.get_min()
-            input_max = self.action_welford.get_max()
-            input_mean = self.action_welford.get_mean()
-            input_std = self.action_welford.get_std()
-            input_range = input_max - input_min
-            range_eps = 1e-4
-            output_min = -1
-            output_max = 1
-            ignore_dim = input_range < range_eps
-            input_range[ignore_dim] = output_max - output_min
-            scale = (output_max - output_min) / input_range
-            offset = output_min - scale * input_min
-            offset[ignore_dim] = (output_max + output_min) / 2 - input_min[ignore_dim]
-            scale = torch.from_numpy(scale).float()
-            offset = torch.from_numpy(offset).float()
-            this_params = torch.nn.ParameterDict({
-                'scale': scale,
-                'offset': offset,
-                'input_stats': torch.nn.ParameterDict({
-                    'min': input_min,
-                    'max': input_max,
-                    'mean': input_mean,
-                    'std': input_std
+            if self.dp3: keys = ['action', 'point_cloud', 'gripper_pcd', 'agent_pos']
+            else: keys = ['action']
+            for key in keys:
+                if key == 'action':
+                    welford = self.action_welford
+                if key == 'point_cloud' or key == 'gripper_pcd':
+                    welford = self.pcd_welford
+                if key == 'agent_pos':
+                    welford = self.agent_pos_welford
+                
+                input_min = welford.get_min()
+                input_max = welford.get_max()
+                input_mean = welford.get_mean()
+                input_std = welford.get_std()
+                input_range = input_max - input_min
+                range_eps = 1e-4
+                output_min = -1
+                output_max = 1
+                ignore_dim = input_range < range_eps
+                input_range[ignore_dim] = output_max - output_min
+                scale = (output_max - output_min) / input_range
+                offset = output_min - scale * input_min
+                offset[ignore_dim] = (output_max + output_min) / 2 - input_min[ignore_dim]
+                scale = torch.from_numpy(scale).float()
+                offset = torch.from_numpy(offset).float()
+                this_params = torch.nn.ParameterDict({
+                    'scale': scale,
+                    'offset': offset,
+                    'input_stats': torch.nn.ParameterDict({
+                        'min': input_min,
+                        'max': input_max,
+                        'mean': input_mean,
+                        'std': input_std
+                    })
                 })
-            })
-            for p in this_params.values():
-                p.requires_grad = False
-            normalizer.params_dict[self.prediction_target] = this_params
+                for p in this_params.values():
+                    p.requires_grad = False
+                    
+                if key == 'action':
+                    normalizer.params_dict[self.prediction_target] = this_params
+                else:
+                    normalizer.params_dict[key] = this_params
 
             # [DebugNormalize] [Chialiang]
             if self.augmentation_rot:
@@ -276,7 +399,7 @@ class RobogenDataset(BaseDataset):
 
                 normalizer.params_dict['additional_params'] = additional_params
 
-        return normalizer
+            return normalizer
     
     def __len__(self) -> int:
         return len(self.sampler)

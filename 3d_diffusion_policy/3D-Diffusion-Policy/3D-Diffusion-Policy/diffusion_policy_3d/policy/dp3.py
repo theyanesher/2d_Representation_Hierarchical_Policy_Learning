@@ -251,7 +251,12 @@ class DP3(BasePolicy):
         """
         # normalize input
         if "act3d" not in self.encoder_type:
-            nobs = self.normalizer.normalize(obs_dict)
+            nobs = {
+                "point_cloud": obs_dict['point_cloud'],
+                "gripper_pcd": obs_dict['gripper_pcd'],
+                "agent_pos": obs_dict['agent_pos'],
+            }
+            nobs = self.normalizer.normalize(nobs)
         else:
             nobs = obs_dict
 
@@ -388,7 +393,12 @@ class DP3(BasePolicy):
         # normalize input
 
         if 'act3d' not in self.encoder_type:
-            nobs = self.normalizer.normalize(batch['obs'])
+            nobs = {
+                "point_cloud": batch['obs']['point_cloud'],
+                "gripper_pcd": batch['obs']['gripper_pcd'],
+                "agent_pos": batch['obs']['agent_pos'],
+            }
+            nobs = self.normalizer.normalize(nobs)
 
         else:
             nobs = batch['obs']

@@ -103,6 +103,8 @@ class SimpleEnv(gym.Env):
         self.grasped_handle = False
         self.seed()
         self.set_scene()
+        self.view_matrix = None
+        self.projection_matrix = None
         self.setup_camera_rpy()
         self.scene_lower, self.scene_upper = self.get_scene_bounds()
         self.scene_center = (self.scene_lower + self.scene_upper) / 2
@@ -1108,7 +1110,8 @@ class SimpleEnv(gym.Env):
                 
                 end = time.time()
             else:
-                cprint("IK failed, not doing anything", "red")
+                pass
+                # cprint("IK failed, not doing anything", "red")
             # cprint("control time: {}".format(end - beg), "red")
     
     def take_joint_action(self, action):

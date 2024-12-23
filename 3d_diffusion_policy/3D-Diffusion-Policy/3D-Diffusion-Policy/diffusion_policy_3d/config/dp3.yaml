@@ -60,10 +60,14 @@ policy:
   use_pc_color: false
   pointnet_type: "pointnet"
 
+
   ### weighted diffusion params
   use_normalization: false
   weight_loss_coef: 1
   load_pretrained_pointnet: false
+  noise_model_type_weighted_diffusion: "pointnet2"
+  num_classes_encoder: 128
+  model_invariant: True
 
   pointcloud_encoder_cfg:
     # in_channels: 6
@@ -103,6 +107,8 @@ policy:
   # weigthed diffusion loss weights
   weight_loss_weight: 1.0
   diffusion_loss_weight: 1.0
+  pointnet_encoder_output_dim: 129
+  pointnet_class: pointnet2_super
 
 
 ema:
@@ -179,6 +185,8 @@ checkpoint:
   save_last_snapshot: True
 
 load_checkpoint_path: null
+load_policy_path: null
+load_exclude_keys: []
 
 multi_run:
   run_dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
