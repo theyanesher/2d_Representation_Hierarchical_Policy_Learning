@@ -40,21 +40,20 @@ def get_zarry_paths(zarr_path):
         object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
-        
+    
+    # dataset_prefix = '/home/mino/Software/RoboGen-sim2real/data/dp3_demo_combined_2_step_0'
+    # dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+    dataset_prefix = '/local/'
+    
     if zarr_path == '10_object_low_level':
-        dataset_prefix = '/home/mino/Software/RoboGen-sim2real/data/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
     if zarr_path == '50_object_low_level':
-        dataset_prefix = '/home/mino/Software/RoboGen-sim2real/data/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(50)]
     if zarr_path == '100_object_low_level':
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(100)]
     if zarr_path == "200_object_low_level":
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(200)]
     if zarr_path == "300_object_low_level": 
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
         all_subfolders = sorted(os.listdir(dataset_prefix))
         object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
