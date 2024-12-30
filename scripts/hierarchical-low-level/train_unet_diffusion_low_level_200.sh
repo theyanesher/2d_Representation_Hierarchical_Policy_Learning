@@ -38,7 +38,7 @@ use_pretrained_high_level_policy_as_low_level_input=false
 ##########
 
 time_stamp=$(date +%m%d%H%M)
-exp_name="paper-hierarchical-low-level-unet-diffusion-200-training-objs-1227"
+exp_name="paper-hierarchical-low-level-unet-diffusion-200-training-objs-1229"
 
 
 action_dim=10

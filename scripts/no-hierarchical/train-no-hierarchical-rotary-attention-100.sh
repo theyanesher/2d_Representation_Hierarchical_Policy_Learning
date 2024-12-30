@@ -39,13 +39,13 @@ use_pretrained_high_level_policy_as_low_level_input=false
 
 time_stamp=$(date +%m%d%H%M)
 # exp_name="1107-200-combined-low-level-unet-diffusion-chialiang-hyper-parameter"
-exp_name="paper-no-hierrachical-100-training-objs-1215"
+exp_name="paper-no-hierrachical-100-training-objs-1230"
 
 
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=2 \
+torchrun --standalone --nproc_per_node=8 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
     task.dataset.zarr_path=100_object_low_level \
