@@ -41,8 +41,8 @@ def get_zarry_paths(zarr_path):
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
     
-    # dataset_prefix = '/home/mino/Software/RoboGen-sim2real/data/dp3_demo_combined_2_step_0'
-    dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+    dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
+    # dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
     # dataset_prefix = '/local/'
     
     if zarr_path == '10_object_low_level':
