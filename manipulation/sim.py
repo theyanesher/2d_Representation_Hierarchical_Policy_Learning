@@ -1401,7 +1401,7 @@ class SimpleEnv(gym.Env):
                 min_distance_left = np.min(left_distance)
                 min_distance_right = np.min(right_distance)
                 # if min_distance_left < 0.015 and min_distance_right < 0.015:
-                if min_distance_left < 0.01 or min_distance_right < 0.01:
+                if min_distance_left < 0.02 or min_distance_right < 0.02:
                     grasped_handle = True
                     self.grasped_handle = self.grasped_handle or grasped_handle
         
