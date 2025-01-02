@@ -103,6 +103,9 @@ def train(args):
         
     if args.add_one_hot_encoding:
         output_dir = output_dir + "_one_hot"
+    
+    if not args.using_weight:
+        output_dir = output_dir + "_no_weight"
         
     output_dir += args.exp_name
     
@@ -197,24 +200,24 @@ def train(args):
             loss = criterion(outputs, labels)
             accumulated_displacement_loss += loss.item()
 
-            # import pdb; pdb.set_trace()
-            inputs = inputs.permute(0, 2, 1)
-            if not args.predict_two_goals:
-                outputs = outputs.view(B, N, 4, 3)
-            else:
-                outputs = outputs.view(B, N, 8, 3)
-            outputs = outputs + inputs[:, :, :3].unsqueeze(2) # B, N, 4, 3
+            if args.using_weight:
+                inputs = inputs.permute(0, 2, 1)
+                if not args.predict_two_goals:
+                    outputs = outputs.view(B, N, 4, 3)
+                else:
+                    outputs = outputs.view(B, N, 8, 3)
+                outputs = outputs + inputs[:, :, :3].unsqueeze(2) # B, N, 4, 3
 
-            # softmax the weights
-            weights = torch.nn.functional.softmax(weights, dim=1)
-            
-            # sum the displacement of the predicted gripper point cloud according to the weights
-            outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-            outputs = outputs.sum(dim=1)
-            avg_loss = criterion(outputs, gripper_points.to(device))
+                # softmax the weights
+                weights = torch.nn.functional.softmax(weights, dim=1)
+                
+                # sum the displacement of the predicted gripper point cloud according to the weights
+                outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                outputs = outputs.sum(dim=1)
+                avg_loss = criterion(outputs, gripper_points.to(device))
 
-            loss = loss + avg_loss * args.weight_loss_weight
-            accumulated_weighting_loss += (avg_loss * args.weight_loss_weight).item()
+                loss = loss + avg_loss * args.weight_loss_weight
+                accumulated_weighting_loss += (avg_loss * args.weight_loss_weight).item()
 
             loss.backward()
             optimizer.step()
@@ -255,7 +258,7 @@ def parse_args():
     parser.add_argument('--beg_ratio', type=float, default=0)
     parser.add_argument('--end_ratio', type=float, default=1)
     parser.add_argument('--num_epochs', type=int, default=100)
-    parser.add_argument('--save_freq', type=int, default=3)
+    parser.add_argument('--save_freq', type=int, default=2)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--only_first_stage', action='store_true')
     parser.add_argument('--exp_path', type=str, default="/project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps")
@@ -269,6 +272,7 @@ def parse_args():
     parser.add_argument('--predict_two_goals', action='store_true')
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
+    parser.add_argument('--using_weight', type=int, default=1)
     parser.add_argument('--exp_name', type=str, default="")
     return parser.parse_args()
 
