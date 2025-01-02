@@ -513,16 +513,16 @@ if __name__ == "__main__":
         'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
         ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
-    cfg.task.env_runner.experiment_folder += [
-        "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    ]
-    cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
+    # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
+    # cfg.task.env_runner.experiment_folder += [
+    #     "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    # ]
+    # cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
     
     load_model_path = args.high_level_ckpt_name
         
@@ -538,14 +538,16 @@ if __name__ == "__main__":
             pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == "PointNet2_super":
             pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
-            
+        
     else:
-        from test_PointNet2.model_invariant import PointNet2, PointNet2_super
+        from test_PointNet2.model_invariant import PointNet2, PointNet2_super, PointNet2_superplus
         if args.pointnet_class == 'PointNet2_large':
             pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == 'PointNet2_super':
             pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
-        
+        elif args.pointnet_class == "PointNet2_superplus":
+            pointnet2_model = PointNet2_superplus(num_classes=13).to("cuda")
+            
         
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
