@@ -74,7 +74,7 @@ def get_eval_dataset_paths():
     return experiment_folder 
 
 def load_train_dataset():
-    dataset_paths = Path('/data/minon/dp3_demo')
+    dataset_paths = Path('/data/minon/dp3_demo_combined_2_step_0/')
     dataset_paths = list(dataset_paths.iterdir())
     dataset_paths = list(filter(lambda x: x.is_dir(), dataset_paths))
     dataset_paths = dataset_paths[:5] # don't need all data

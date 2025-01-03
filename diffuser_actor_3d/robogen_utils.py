@@ -2,6 +2,7 @@ import pybullet as p
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import torch
+from manipulation.utils import rotation_transfer_matrix_to_6D_batch
 
 original_gripper_pcd = np.array([[ 0.10432111,  0.00228697,  0.8474241 ],
        [ 0.12816067, -0.04368229,  0.8114649 ],
@@ -162,3 +163,20 @@ def get_gripper_pos_orient_from_4_points_torch(gripper_pcd):
     gripper_orn = rotation_matrix_to_quaternion_torch(R)
     return gripper_pos, gripper_orn
 
+def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
+    device = gripper_pcd.device
+    all_representations = []
+    for pcd in gripper_pcd:
+        gripper_pos, gripper_orn = get_gripper_pos_orient_from_4_points_torch(pcd)
+        vec_shape = tuple(gripper_pos.shape)
+        vec_shape = (*vec_shape[:-1], 1)
+        if is_open:
+            grip_state = torch.zeros(vec_shape, device=device)
+        else: 
+            grip_state = torch.ones(vec_shape, device=device)
+        gripper_rot_matrix = quaternion_to_rotation_matrix_torch(gripper_orn.cpu())
+        gripper_6d_pose = rotation_transfer_matrix_to_6D_batch(gripper_rot_matrix)
+        representation = torch.concatenate([gripper_pos.cuda(), gripper_6d_pose.cuda(), grip_state.cuda()], axis=-1)
+        all_representations.append(representation)
+    all_representations = torch.stack(all_representations)
+    return all_representations
