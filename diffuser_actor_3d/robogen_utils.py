@@ -2,7 +2,7 @@ import pybullet as p
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import torch
-from manipulation.utils import rotation_transfer_matrix_to_6D_batch
+from manipulation.utils import rotation_transfer_matrix_to_6D, rotation_transfer_matrix_to_6D_batch
 
 original_gripper_pcd = np.array([[ 0.10432111,  0.00228697,  0.8474241 ],
        [ 0.12816067, -0.04368229,  0.8114649 ],
@@ -163,8 +163,9 @@ def get_gripper_pos_orient_from_4_points_torch(gripper_pcd):
     gripper_orn = rotation_matrix_to_quaternion_torch(R)
     return gripper_pos, gripper_orn
 
-def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
+def gripper_pcd_to_10d_vector_torch(gripper_pcd, is_open=False):
     device = gripper_pcd.device
+    gripper_pcd = gripper_pcd.cpu()
     all_representations = []
     for pcd in gripper_pcd:
         gripper_pos, gripper_orn = get_gripper_pos_orient_from_4_points_torch(pcd)
@@ -174,9 +175,26 @@ def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
             grip_state = torch.zeros(vec_shape, device=device)
         else: 
             grip_state = torch.ones(vec_shape, device=device)
-        gripper_rot_matrix = quaternion_to_rotation_matrix_torch(gripper_orn.cpu())
+        gripper_rot_matrix = quaternion_to_rotation_matrix_torch(gripper_orn)
         gripper_6d_pose = rotation_transfer_matrix_to_6D_batch(gripper_rot_matrix)
-        representation = torch.concatenate([gripper_pos.cuda(), gripper_6d_pose.cuda(), grip_state.cuda()], axis=-1)
+        representation = torch.concatenate([gripper_pos, gripper_6d_pose, grip_state], axis=-1)
         all_representations.append(representation)
-    all_representations = torch.stack(all_representations)
+    all_representations = torch.stack(all_representations, device=device)
     return all_representations
+
+def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
+    all_representations = []
+    for pcd in gripper_pcd:
+        gripper_pos, gripper_orn = get_gripper_pos_orient_from_4_points(pcd)
+        vec_shape = gripper_pos.shape
+        vec_shape = (*vec_shape[:-1], 1)
+        if is_open:
+            grip_state = np.zeros(vec_shape)
+        else: 
+            grip_state = np.ones(vec_shape)
+        gripper_rot_matrix = quaternion_to_rotation_matrix(gripper_orn)
+        gripper_6d_pose = rotation_transfer_matrix_to_6D(gripper_rot_matrix)
+        representation = np.concatenate([gripper_pos, gripper_6d_pose, grip_state], axis=-1)
+        all_representations.append(representation)
+    all_representations = np.stack(all_representations)
+    return representation

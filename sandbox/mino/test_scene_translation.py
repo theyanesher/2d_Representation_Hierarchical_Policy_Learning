@@ -81,7 +81,7 @@ def load_train_dataset():
     train_dataset = RobogenDataset(dataset_paths, enumerate=True, horizon=2,
                                    observation_mode="act3d_goal_displacement_gripper_to_object",
                                    kept_in_disk=True, load_per_step=True, num_load_episodes=50,
-                                   prediction_target='action', is_pickle=True, pad_before=1, pad_after=3,
+                                   prediction_target='action', is_pickle=True, pad_before=1, pad_after=3, use_repr_10d=True,
                                    dataset_keys=['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd'])
     return train_dataset
 

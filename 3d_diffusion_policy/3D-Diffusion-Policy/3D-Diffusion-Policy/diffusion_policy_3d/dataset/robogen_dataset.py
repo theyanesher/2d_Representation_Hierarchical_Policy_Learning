@@ -19,6 +19,7 @@ from test_PointNet2.all_data import *
 
 import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
+from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
 
 def get_zarry_paths(zarr_path):
     if zarr_path == '10_object_high_level':
@@ -134,6 +135,7 @@ class RobogenDataset(BaseDataset):
             prob_y = None,
             prob_rot_z = None,
             prediction_target='action',
+            use_repr_10d=False,
             dp3=False,
             **kwargs
             ):
@@ -150,7 +152,10 @@ class RobogenDataset(BaseDataset):
         self.is_pickle = is_pickle
         self.object_augmentation_high_level = object_augmentation_high_level
         self.prediction_target = prediction_target
+        self.use_repr_10d=use_repr_10d
         self.dp3 = dp3
+
+        cprint(f"Using 10D representation {self.use_repr_10d}", "red")
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -614,7 +619,10 @@ class RobogenDataset(BaseDataset):
                 
         if self.prediction_target == 'delta_to_goal_gripper':
             data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
-            
+        
+        if self.use_repr_10d:
+            data['obs']['goal_gripper_pcd'] = gripper_pcd_to_10d_vector(data['obs']['goal_gripper_pcd'])
+            print('HELLOOOO')
         return data
 
     
