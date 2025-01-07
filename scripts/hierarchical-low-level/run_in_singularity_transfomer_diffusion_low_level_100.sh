@@ -28,7 +28,7 @@ training_epoches=100
 train_ratio=0.9 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=20 #######
+batch_size=1000 #######
 encoder_type=act3d
 use_mlp=1
 use_lightweight_unet=0
@@ -50,7 +50,7 @@ use_pretrained_high_level_policy_as_low_level_input=false
 ##########
 
 time_stamp=$(date +%m%d%H%M)
-exp_name="paper-hierarchical-low-level-transformer-diffusion-100-training-objs-0102"
+exp_name="paper-hierarchical-low-level-transformer-diffusion-100-training-objs-0107"
 
 
 action_dim=10

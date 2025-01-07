@@ -2,9 +2,9 @@
 
 
 #SBATCH -N 1 # Number of nodes
-#SBATCH -n 12
+#SBATCH -n 24
 #SBATCH -p ROBO
-#SBATCH --gpus=h100:1 #GPU specification. H100
+#SBATCH --gpus=h100:2 #GPU specification. H100
 #SBATCH -t 150:00:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name 100-low-level-transformer-diffusion
 #SBATCH -o job_%j.out
@@ -252,4 +252,4 @@ echo "Total time taken: $(($total_time / 60)) minutes and $(($total_time % 60)) 
 
 
 #### start training
-singularity exec --bind /ocean/projects/cis240052p/nakurafa/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/scripts/hierarchical-low-level/run_in_singularity_unet_diffusion_low_level_200.sh
+singularity exec --bind /ocean/projects/cis240052p/nakurafa/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --bind /local/:/local/ --nv /ocean/projects/cis240052p/ywang59/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/scripts/hierarchical-low-level/run_in_singularity_transfomer_diffusion_low_level_100.sh
