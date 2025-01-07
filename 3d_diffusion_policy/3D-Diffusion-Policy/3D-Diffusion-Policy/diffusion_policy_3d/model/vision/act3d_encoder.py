@@ -72,6 +72,7 @@ class Act3dEncoder(nn.Module):
                  final_attention=False,
                  attention_num_heads=3,
                  attention_num_layers=2,
+                 use_repr_10d=False,
                  **kwargs
                  ):
         super(Act3dEncoder, self).__init__()
@@ -80,10 +81,12 @@ class Act3dEncoder(nn.Module):
         self.point_cloud_key = 'point_cloud'
         self.feature_map_key = 'feature_map'
         self.gripper_pcd_key = 'gripper_pcd'
+        self.repr_10d_key = 'goal_gripper_10d_repr'
         self.num_gripper_points = num_gripper_points
         self.encoder_output_dim = encoder_output_dim
         self.state_shape = observation_space[self.state_key]
         self.goal_mode = goal_mode
+        self.use_repr_10d = use_repr_10d
 
         # [Chialiang]
         self.use_mlp = use_mlp
@@ -161,12 +164,14 @@ class Act3dEncoder(nn.Module):
         
         if self.mode in ['keep_position_feature_in_attention_feature', 
                          "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
-            input_dim = 3
+            if self.use_repr_10d:
+                input_dim = 10
+            else:
+                input_dim = 3
             if self.goal_mode is not None:
                 input_dim += 3
             if self.mode == "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object":
                 input_dim += 3
-                
             position_embedding_mlp = nn.Sequential(
                 nn.Linear(input_dim, 128), nn.ReLU(),
                 nn.Linear(128, 256), nn.ReLU(),
@@ -340,22 +345,38 @@ class Act3dEncoder(nn.Module):
             point_cloud = observation[self.point_cloud_key]
         
         point_cloud_rel_pos_embedding = nets['relative_pe_layer'](point_cloud) # shape B N encoder_output_dim
-                       
-        num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3
+        if self.use_repr_10d:
+            num_gripper_points = 1
+        else:
+            num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3
         assert num_gripper_points == self.num_gripper_points, f"Expected {self.num_gripper_points} gripper points, got {num_gripper_points}"
-        gripper_pcd = observation[self.gripper_pcd_key]
-        gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](gripper_pcd) # shape B num_gripper_points encoder_output_dim
+        # num_gripper_points = observation['gripper_pcd'].shape[1] # gripper pcd is B num_gripper_points 3
+        # assert num_gripper_points == self.num_gripper_points, f"Expected {self.num_gripper_points} gripper points, got {num_gripper_points}"
+        if self.use_repr_10d:
+            agent_pos_input = observation['agent_pos'].unsqueeze(1)
+            gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](agent_pos_input) # shape B num_gripper_points encoder_output_dim
+        else:
+            gripper_pcd = observation[self.gripper_pcd_key]
+            gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](gripper_pcd) # shape B num_gripper_points encoder_output_dim
         gripper_pcd_features = nets['embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
         if self.mode in ['keep_position_feature_in_attention_feature', "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
             if self.goal_mode is not None:
-                displacement_to_goal = observation['goal_gripper_pcd'] - observation['gripper_pcd']
-                input_to_position_embedding = torch.cat([gripper_pcd, displacement_to_goal], dim=-1)
-                if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
-                    # print("Keep position feature in attention feature with gripper displacement to closest object")
-                    displacement_to_closest_object = observation['displacement_gripper_to_object']
-                    input_to_position_embedding = torch.cat([input_to_position_embedding, displacement_to_closest_object], dim=-1)
-                input_to_position_embedding = einops.rearrange(input_to_position_embedding, "B num_gripper_points c -> (B num_gripper_points) c", B=B, num_gripper_points=self.num_gripper_points)
-                gripper_pcd_position_embedding = nets['gripper_pcd_position_embedding_mlp'](input_to_position_embedding)
+                if self.use_repr_10d:
+                    displacement_to_goal = observation[self.repr_10d_key][:,:3] - observation['agent_pos'][:,:3]
+                    input_to_position_embedding = torch.cat([observation['agent_pos'], displacement_to_goal], dim=-1) # B x 6
+                    if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
+                        displacement_to_closest_object = observation['displacement_gripper_to_object']
+                        input_to_position_embedding = torch.cat([input_to_position_embedding, displacement_to_closest_object], dim=-1)
+                    gripper_pcd_position_embedding = nets['gripper_pcd_position_embedding_mlp'](input_to_position_embedding)
+                else:
+                    displacement_to_goal = observation['goal_gripper_pcd'] - observation['gripper_pcd']
+                    input_to_position_embedding = torch.cat([gripper_pcd, displacement_to_goal], dim=-1)
+                    if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
+                        # print("Keep position feature in attention feature with gripper displacement to closest object")
+                        displacement_to_closest_object = observation['displacement_gripper_to_object']
+                        input_to_position_embedding = torch.cat([input_to_position_embedding, displacement_to_closest_object], dim=-1)
+                    input_to_position_embedding = einops.rearrange(input_to_position_embedding, "B num_gripper_points c -> (B num_gripper_points) c", B=B, num_gripper_points=self.num_gripper_points)
+                    gripper_pcd_position_embedding = nets['gripper_pcd_position_embedding_mlp'](input_to_position_embedding)
             else:
                 gripper_pcd_position = einops.rearrange(gripper_pcd, "B num_gripper_points c -> (B num_gripper_points) c", B=B, num_gripper_points=self.num_gripper_points)
                 if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
@@ -364,7 +385,7 @@ class Act3dEncoder(nn.Module):
                     gripper_pcd_position = torch.cat([gripper_pcd_position, displacement_to_closest_object], dim=-1)
                 gripper_pcd_position_embedding = nets['gripper_pcd_position_embedding_mlp'](gripper_pcd_position) # shape B*num_gripper_points encoder_output_dim//3
 
-            gripper_pcd_position_embedding = einops.rearrange(gripper_pcd_position_embedding, "(B num_gripper_points) encoder_output_dim -> num_gripper_points B encoder_output_dim", B=B, num_gripper_points=self.num_gripper_points)
+            gripper_pcd_position_embedding = einops.rearrange(gripper_pcd_position_embedding, "(B num_gripper_points) encoder_output_dim -> num_gripper_points B encoder_output_dim", B=B, num_gripper_points=num_gripper_points)
             gripper_pcd_features = torch.cat([gripper_pcd_features, gripper_pcd_position_embedding], dim=-1)
 
         if self.use_attn_for_point_features == "large_self_attention":
@@ -387,7 +408,6 @@ class Act3dEncoder(nn.Module):
 
         self._rgb_features = rgb_features
         self._point_cloud = point_cloud
-
         attn_output = nets['attn_layers'](
             query=gripper_pcd_features, value=rgb_features,
             query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
@@ -408,19 +428,32 @@ class Act3dEncoder(nn.Module):
         obs_features = torch.cat([rgb_features, state_feat], dim=-1)
 
         if self.goal_mode in ['cross_attention_to_goal', "cross_attention_to_goal_not_concat_and_self_attention"]:
-            goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation['goal_gripper_pcd']) # shape B num_gripper_points encoder_output_dim
+            if self.use_repr_10d:
+                goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation[self.repr_10d_key].unsqueeze(1))
+            else:
+                goal_gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](observation['goal_gripper_pcd']) # shape B num_gripper_points encoder_output_dim
             goal_gripper_pcd_features = nets['goal_embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
             if self.mode in ['keep_position_feature_in_attention_feature', "keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object"]:
-                displacement_to_goal = observation['goal_gripper_pcd'] - observation['gripper_pcd']
-                input_to_position_embedding = torch.cat([observation['goal_gripper_pcd'], displacement_to_goal], dim=-1)
-                if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
-                    displacement_to_closest_object = observation['displacement_gripper_to_object']
-                    input_to_position_embedding = torch.cat([input_to_position_embedding, displacement_to_closest_object], dim=-1)
-                goal_gripper_pcd_position = einops.rearrange(input_to_position_embedding, "B num_gripper_points c -> (B num_gripper_points) c", B=B, num_gripper_points=self.num_gripper_points)
-                goal_gripper_pcd_position_embedding = nets['goal_pcd_position_embedding_mlp'](goal_gripper_pcd_position)
-                goal_gripper_pcd_position_embedding = einops.rearrange(goal_gripper_pcd_position_embedding, "(B num_gripper_points) encoder_output_dim -> num_gripper_points B encoder_output_dim", B=B, num_gripper_points=self.num_gripper_points)
-                goal_gripper_pcd_features = torch.cat([goal_gripper_pcd_features, goal_gripper_pcd_position_embedding], dim=-1)
-            
+                if self.use_repr_10d:
+                    displacement_to_goal = observation[self.repr_10d_key][:,:3] - observation['agent_pos'][:,:3]
+                    input_to_position_embedding = torch.cat([observation[self.repr_10d_key], displacement_to_goal], dim=-1) # B x 6
+                    if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
+                        displacement_to_closest_object = observation['displacement_gripper_to_object']
+                        input_to_position_embedding = torch.cat([input_to_position_embedding, displacement_to_closest_object], dim=-1)
+                    goal_gripper_pcd_position_embedding = nets['goal_pcd_position_embedding_mlp'](input_to_position_embedding)
+                    goal_gripper_pcd_position_embedding = einops.rearrange(goal_gripper_pcd_position_embedding, "(B num_gripper_points) encoder_output_dim -> num_gripper_points B encoder_output_dim", B=B, num_gripper_points=num_gripper_points)
+                    goal_gripper_pcd_features = torch.cat([goal_gripper_pcd_features, goal_gripper_pcd_position_embedding], dim=-1)
+                else:
+                    displacement_to_goal = observation['goal_gripper_pcd'] - observation['gripper_pcd']
+                    input_to_position_embedding = torch.cat([observation['goal_gripper_pcd'], displacement_to_goal], dim=-1)
+                    if self.mode == 'keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object':
+                        displacement_to_closest_object = observation['displacement_gripper_to_object']
+                        input_to_position_embedding = torch.cat([input_to_position_embedding, displacement_to_closest_object], dim=-1)
+                    goal_gripper_pcd_position = einops.rearrange(input_to_position_embedding, "B num_gripper_points c -> (B num_gripper_points) c", B=B, num_gripper_points=self.num_gripper_points)
+                    goal_gripper_pcd_position_embedding = nets['goal_pcd_position_embedding_mlp'](goal_gripper_pcd_position)
+                    goal_gripper_pcd_position_embedding = einops.rearrange(goal_gripper_pcd_position_embedding, "(B num_gripper_points) encoder_output_dim -> num_gripper_points B encoder_output_dim", B=B, num_gripper_points=self.num_gripper_points)
+                    goal_gripper_pcd_features = torch.cat([goal_gripper_pcd_features, goal_gripper_pcd_position_embedding], dim=-1)
+                    
             if self.goal_mode == 'cross_attention_to_goal': # using original gripper pcd features for cross attention to goal and concat it with features from gripper object cross attention
                 goal_attn_output = nets['goal_attn_layers'](query=gripper_pcd_features, value=goal_gripper_pcd_features,
                     query_pos=gripper_pcd_rel_pos_embedding, value_pos=goal_gripper_pcd_rel_pos_embedding,

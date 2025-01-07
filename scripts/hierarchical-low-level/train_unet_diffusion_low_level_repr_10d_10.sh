@@ -44,7 +44,7 @@ exp_name="mino-experimenting"
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=2 \
+torchrun --standalone --nproc_per_node=1 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
     task.dataset.zarr_path=10_object_low_level \
@@ -70,6 +70,8 @@ torchrun --standalone --nproc_per_node=2 \
     policy.act3d_encoder_cfg.pointcloud_backbone="${pointcloud_backbone}" \
     policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
     policy.act3d_encoder_cfg.final_attention="${final_attention}" \
+    policy.act3d_encoder_cfg.use_repr_10d=true \
+    policy.act3d_encoder_cfg.num_gripper_points=1 \
     task.dataset.enumerate=True \
     training.num_epochs="${training_epoches}" \
     training.rollout_every=2000 \

@@ -196,5 +196,5 @@ def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
         gripper_6d_pose = rotation_transfer_matrix_to_6D(gripper_rot_matrix)
         representation = np.concatenate([gripper_pos, gripper_6d_pose, grip_state], axis=-1)
         all_representations.append(representation)
-    all_representations = np.stack(all_representations)
-    return representation
+    all_representations = np.stack(all_representations).astype(np.float32)
+    return all_representations

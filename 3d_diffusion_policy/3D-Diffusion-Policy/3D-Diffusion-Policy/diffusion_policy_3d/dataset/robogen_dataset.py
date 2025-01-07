@@ -42,9 +42,9 @@ def get_zarry_paths(zarr_path):
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
     
-    # dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
+    dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
     # dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
-    dataset_prefix = '/local/'
+    # dataset_prefix = '/local/'
     
     if zarr_path == '10_object_low_level':
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
@@ -621,8 +621,7 @@ class RobogenDataset(BaseDataset):
             data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
         
         if self.use_repr_10d:
-            data['obs']['goal_gripper_pcd'] = gripper_pcd_to_10d_vector(data['obs']['goal_gripper_pcd'])
-            print('HELLOOOO')
+            data['obs']['goal_gripper_10d_repr'] = gripper_pcd_to_10d_vector(data['obs']['goal_gripper_pcd'])
         return data
 
     
