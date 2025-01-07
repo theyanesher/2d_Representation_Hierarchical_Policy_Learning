@@ -84,4 +84,5 @@ dataset:
   prob_y: 0.3
   prob_rot_z: 0.3
   prediction_target: 'action'
+  use_repr_10d: false
   dp3: false
