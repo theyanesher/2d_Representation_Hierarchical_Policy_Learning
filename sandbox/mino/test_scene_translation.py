@@ -74,14 +74,14 @@ def get_eval_dataset_paths():
     return experiment_folder 
 
 def load_train_dataset():
-    dataset_paths = Path('/data/minon/dp3_demo')
+    dataset_paths = Path('/data/minon/dp3_demo_combined_2_step_0/')
     dataset_paths = list(dataset_paths.iterdir())
     dataset_paths = list(filter(lambda x: x.is_dir(), dataset_paths))
     dataset_paths = dataset_paths[:5] # don't need all data
     train_dataset = RobogenDataset(dataset_paths, enumerate=True, horizon=2,
                                    observation_mode="act3d_goal_displacement_gripper_to_object",
                                    kept_in_disk=True, load_per_step=True, num_load_episodes=50,
-                                   prediction_target='action', is_pickle=True, pad_before=1, pad_after=3,
+                                   prediction_target='action', is_pickle=True, pad_before=1, pad_after=3, use_repr_10d=True,
                                    dataset_keys=['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd'])
     return train_dataset
 

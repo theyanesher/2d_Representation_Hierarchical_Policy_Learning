@@ -1248,7 +1248,7 @@ class RobogenPointCloudWrapper:
 
     
     def render(self):
-        if 'goal' not in self.observation_mode or 'dp3' in self.observation_mode:
+        if 'goal' not in self.observation_mode or 'dp3' in self.observation_mode or self.goal_gripper_pcd is None:
             return self._env.render()
         else:
             image = self._env.render()
