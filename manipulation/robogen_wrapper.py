@@ -195,39 +195,7 @@ class RobogenPointCloudWrapper:
         # self._env.projection_matrix = self.project_matrices[0] 
             
         if self.real_world_camera:
-            # TODO: make the camera at real-world pose
-            self.camera_width = 640
-            self.camera_height = 576
-            
-            camera_ids = [0, 3]
-            view_matrices = []
-            project_matrices = []
-            camera_calibration_folder = os.path.join(os.environ["PROJECT_DIR"], 'data/real_world')
-            self.camera_eyes = []
-            for camera_id in camera_ids:
-                camera_parameter_file = os.path.join(camera_calibration_folder, "cam{}_calibration.npz".format(camera_id))
-                data = np.load(camera_parameter_file)
-                camera_extrinsic = data['T'] # 4x4
-
-
-                camera_eye = camera_extrinsic[:3, 3]
-                camera_eye[2] = 1.0
-                camera_target = [0.7, 0, 0.4]
-                camera_eye = camera_eye + np.random.normal(0, 0.1, 3)
-                camera_target = camera_target + np.random.normal(0, 0.1, 3)
-                self.camera_eyes.append(camera_eye)
-
-                view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1])
-                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/576 ,nearVal=self.depth_near, 
-                                                              farVal=self.depth_far, physicsClientId=self._env.id)
-                view_matrices.append(view_matrix)
-                project_matrices.append(project_matrix)
-
-            self.view_matrices = view_matrices
-            self.project_matrices = project_matrices
-            
-            self._env.view_matrix = self.view_matrices[0]
-            self._env.projection_matrix = self.project_matrices[0]
+            self.randomize_real_world_camera()
 
         self.time_step = 0
         
@@ -287,6 +255,41 @@ class RobogenPointCloudWrapper:
             self.goal_gripper_pcd = None
 
         self.only_object = only_object
+        
+    def randomize_real_world_camera(self):
+        # TODO: make the camera at real-world pose
+        self.camera_width = 640
+        self.camera_height = 576
+        
+        camera_ids = [0, 3]
+        view_matrices = []
+        project_matrices = []
+        camera_calibration_folder = os.path.join(os.environ["PROJECT_DIR"], 'data/real_world')
+        self.camera_eyes = []
+        for camera_id in camera_ids:
+            camera_parameter_file = os.path.join(camera_calibration_folder, "cam{}_calibration.npz".format(camera_id))
+            data = np.load(camera_parameter_file)
+            camera_extrinsic = data['T'] # 4x4
+
+
+            camera_eye = camera_extrinsic[:3, 3]
+            camera_eye[2] = 1.0
+            camera_target = [0.7, 0, 0.4]
+            camera_eye = camera_eye + np.random.normal(0, 0.1, 3)
+            camera_target = camera_target + np.random.normal(0, 0.1, 3)
+            self.camera_eyes.append(camera_eye)
+
+            view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1])
+            project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/576 ,nearVal=self.depth_near, 
+                                                            farVal=self.depth_far, physicsClientId=self._env.id)
+            view_matrices.append(view_matrix)
+            project_matrices.append(project_matrix)
+
+        self.view_matrices = view_matrices
+        self.project_matrices = project_matrices
+        
+        self._env.view_matrix = self.view_matrices[0]
+        self._env.projection_matrix = self.project_matrices[0]
 
     def reset_random_cameras(self):
         # do a while loop to sample a new camera view
