@@ -2,9 +2,9 @@
 
 
 #SBATCH -N 1 # Number of nodes
-#SBATCH -n 24
+#SBATCH -n 12
 #SBATCH -p ROBO
-#SBATCH --gpus=h100:2 #GPU specification. H100
+#SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 150:00:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name 100-low-level-transformer-diffusion
 #SBATCH -o job_%j.out
