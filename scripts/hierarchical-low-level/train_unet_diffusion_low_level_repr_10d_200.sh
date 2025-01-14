@@ -16,7 +16,7 @@ training_epoches=100
 train_ratio=0.9 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=100 #######
+batch_size=400 #######
 encoder_type=act3d
 use_mlp=1
 use_lightweight_unet=0
@@ -44,10 +44,10 @@ exp_name="mino-experimenting"
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=1 \
+torchrun --standalone --nproc_per_node=2 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=10_object_low_level \
+    task.dataset.zarr_path=200_object_low_level \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \

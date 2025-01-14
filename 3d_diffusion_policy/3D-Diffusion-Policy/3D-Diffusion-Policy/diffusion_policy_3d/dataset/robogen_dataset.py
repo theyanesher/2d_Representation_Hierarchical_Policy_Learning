@@ -16,6 +16,9 @@ from termcolor import cprint
 import random
 import copy
 from test_PointNet2.all_data import *
+from scripts.datasets.randomize_partition_50_obj import *
+from scripts.datasets.randomize_partition_100_obj import *
+from scripts.datasets.randomize_partition_200_obj import *
 
 import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
@@ -42,9 +45,9 @@ def get_zarry_paths(zarr_path):
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
     
-    # dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
+    dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
     # dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
-    dataset_prefix = '/local/'
+    # dataset_prefix = '/local/'
     
     if zarr_path == '10_object_low_level':
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
@@ -60,6 +63,19 @@ def get_zarry_paths(zarr_path):
         object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
+        
+    if zarr_path == 'camera_random_50_obj_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_50_save_data_name_{}".format(i)]) for i in range(87)]
+    if zarr_path == 'camera_random_100_obj_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_100_save_data_name_{}".format(i)]) for i in range(175)]
+    if zarr_path == 'camera_random_200_obj_high_level':
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_200_save_data_name_{}".format(i)]) for i in range(350)]
+    if zarr_path == 'camera_random_500_obj_high_level' or zarr_path == "500_object_high_level":
+        dataset_prefix = '/scratch/yufeiw2/dp3_demo'
+        all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(462)]
         
     if zarr_path == "mixed_old_and_real_world_noisy_1119": # for low-level
         dataset_prefix_1 = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
@@ -205,7 +221,7 @@ class RobogenDataset(BaseDataset):
                 all_zarr_paths = copy.deepcopy(zarr_path)
             else:
                 all_zarr_paths = get_zarry_paths(zarr_path)
-                
+            
             
             all_paths = []
             train_masks = []
@@ -621,8 +637,7 @@ class RobogenDataset(BaseDataset):
             data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
         
         if self.use_repr_10d:
-            data['obs']['goal_gripper_pcd'] = gripper_pcd_to_10d_vector(data['obs']['goal_gripper_pcd'])
-            print('HELLOOOO')
+            data['obs']['goal_gripper_10d_repr'] = gripper_pcd_to_10d_vector(data['obs']['goal_gripper_pcd'])
         return data
 
     

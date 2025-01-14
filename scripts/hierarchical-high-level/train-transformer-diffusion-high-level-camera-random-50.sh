@@ -14,11 +14,11 @@ pc_channel=3
 prediction_target=goal_gripper_pcd
 
 use_mlp=0
-exp_name="paper-transformer-diffusion-high-level-10-obj-1209"
+exp_name="paper-transformer-diffusion-high-level-50-obj-camera-random-1217"
 
-torchrun --standalone --nproc_per_node=2 train_ddp.py \
+torchrun --standalone --nproc_per_node=8 train_ddp.py \
     --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path=10_object_high_level  \
+    task.dataset.zarr_path=camera_random_50_obj_high_level  \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
@@ -45,8 +45,8 @@ torchrun --standalone --nproc_per_node=2 train_ddp.py \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=40 \
-    val_dataloader.batch_size=40 \
+    dataloader.batch_size=20 \
+    val_dataloader.batch_size=20 \
     policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     policy.act3d_encoder_cfg.self_attention=true \
     policy.prediction_target="${prediction_target}" \

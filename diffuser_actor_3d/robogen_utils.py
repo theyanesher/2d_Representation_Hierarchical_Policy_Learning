@@ -43,7 +43,8 @@ def rotation_matrix_from_vectors(v1, v2):
     axis_len = np.linalg.norm(axis)
     if axis_len != 0:
         axis = axis / axis_len
-    angle = np.arccos(np.dot(v1, v2))
+    dot_prod = np.clip(np.dot(v1,v2),-1,1)
+    angle = np.arccos(dot_prod)
 
     K = np.array([[0, -axis[2], axis[1]],
                   [axis[2], 0, -axis[0]],
@@ -196,5 +197,5 @@ def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
         gripper_6d_pose = rotation_transfer_matrix_to_6D(gripper_rot_matrix)
         representation = np.concatenate([gripper_pos, gripper_6d_pose, grip_state], axis=-1)
         all_representations.append(representation)
-    all_representations = np.stack(all_representations)
-    return representation
+    all_representations = np.stack(all_representations).astype(np.float32)
+    return all_representations

@@ -167,6 +167,7 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
 
         cprint('Preparing all zarr paths', 'green')
         self.episode_lengths = []
+
         for idx, zarr_path in enumerate(tqdm(self.all_zarr_paths)):
             if is_pickle:
                 all_substeps = os.listdir(zarr_path)
@@ -267,7 +268,9 @@ def get_dataloader(all_obj_paths=None, batch_size=32, beg_ratio=0, end_ratio=0.9
 
 
 from test_PointNet2.all_data import *
-
+from scripts.datasets.randomize_partition_50_obj import *
+from scripts.datasets.randomize_partition_100_obj import *
+from scripts.datasets.randomize_partition_200_obj import *
 
 def get_dataloader_from_pickle(all_obj_paths=None, batch_size=32, beg_ratio=0, end_ratio=0.9, shuffle=True, eval_episode=None, only_first_stage=False):
     dataset_prefix='/scratch/chialiang/dp3_demo'
@@ -319,6 +322,15 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
             all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
             all_obj_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
+            
+        elif num_train_objects == 'camera_random_50_obj_high_level':
+            all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_50_save_data_name_{}".format(i)]) for i in range(87)]
+        elif num_train_objects == 'camera_random_100_obj_high_level':
+            all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_100_save_data_name_{}".format(i)]) for i in range(175)]
+        elif num_train_objects == 'camera_random_200_obj_high_level':
+            all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["camera_random_200_save_data_name_{}".format(i)]) for i in range(350)]
+        elif num_train_objects == 'camera_random_500_obj_high_level' or num_train_objects == "500_object_high_level":
+            all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(462)]
             
         elif num_train_objects == '300_old':
             
@@ -434,7 +446,25 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
             all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+        
+        if num_train_objects == '500_plus_all_real_world':
+            non_real_world_camera_500_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(463)]
+            real_world_camera_500_paths = os.listdir("/scratch/yufeiw2/dp3_demo_real_world_noise_pcd")
+            real_world_camera_500_paths = sorted(real_world_camera_500_paths)
+            real_world_camera_500_paths = [os.path.join("/scratch/yufeiw2/dp3_demo_real_world_noise_pcd", x) for x in real_world_camera_500_paths]
+            all_obj_paths = non_real_world_camera_500_paths + real_world_camera_500_paths
+            # all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+            print(all_obj_paths)
             
+        if num_train_objects == '500_plus_all_real_world_clean_distorted_goal':
+            dataset_prefix = "/scratch/yufeiw2/dp3_demo_clean_distorted_goal"
+            non_real_world_camera_500_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(463)]
+            real_world_camera_500_paths = os.listdir("/scratch/yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal")
+            real_world_camera_500_paths = sorted(real_world_camera_500_paths)
+            real_world_camera_500_paths = [os.path.join("/scratch/yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal", x) for x in real_world_camera_500_paths]
+            all_obj_paths = non_real_world_camera_500_paths + real_world_camera_500_paths
+            # all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+            print(all_obj_paths)
             
         else:
             raise ValueError('num_train_objects not supported')
