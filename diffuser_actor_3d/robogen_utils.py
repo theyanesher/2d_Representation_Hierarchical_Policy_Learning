@@ -43,7 +43,8 @@ def rotation_matrix_from_vectors(v1, v2):
     axis_len = np.linalg.norm(axis)
     if axis_len != 0:
         axis = axis / axis_len
-    angle = np.arccos(np.dot(v1, v2))
+    dot_prod = np.clip(np.dot(v1,v2),-1,1)
+    angle = np.arccos(dot_prod)
 
     K = np.array([[0, -axis[2], axis[1]],
                   [axis[2], 0, -axis[0]],

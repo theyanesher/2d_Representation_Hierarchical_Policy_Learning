@@ -1,15 +1,3 @@
-#!/bin/bash
-cd /mnt/RoboGen_sim2real
-export PATH=/opt/conda/bin:$PATH
-source /opt/conda/etc/profile.d/conda.sh
-conda activate unisim
-export PYTHONPATH=${PWD}:$PYTHONPATH
-export PYTHONPATH=${PWD}/rl_games:$PYTHONPATH
-export PYTHONPATH=${PWD}/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy:$PYTHONPATH
-export PROJECT_DIR=${PWD}
-source prepare.sh
-export YUFEI_OPENAI_API_KEY="xxx" # TODO: embed this in singularity
-export WANDB_API_KEY=b9581e36f183c201980d085f0a5493926e1edbf2
 pointcloud_num=4500
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
@@ -28,7 +16,7 @@ training_epoches=100
 train_ratio=0.9 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=100 #######
+batch_size=400 #######
 encoder_type=act3d
 use_mlp=1
 use_lightweight_unet=0
@@ -50,16 +38,16 @@ use_pretrained_high_level_policy_as_low_level_input=false
 ##########
 
 time_stamp=$(date +%m%d%H%M)
-exp_name="paper-hierarchical-low-level-transformer-diffusion-100-training-objs-0107"
-
+# exp_name="paper-hierarchical-low-level-unet-diffusion-10-training-objs-1231"
+exp_name="mino-experimenting"
 
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=1 \
+torchrun --standalone --nproc_per_node=2 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=100_object_low_level \
+    task.dataset.zarr_path=200_object_low_level \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
@@ -82,6 +70,8 @@ torchrun --standalone --nproc_per_node=1 \
     policy.act3d_encoder_cfg.pointcloud_backbone="${pointcloud_backbone}" \
     policy.act3d_encoder_cfg.use_lightweight_unet="${use_lightweight_unet}" \
     policy.act3d_encoder_cfg.final_attention="${final_attention}" \
+    policy.act3d_encoder_cfg.use_repr_10d=true \
+    policy.act3d_encoder_cfg.num_gripper_points=1 \
     task.dataset.enumerate=True \
     training.num_epochs="${training_epoches}" \
     training.rollout_every=2000 \
@@ -89,6 +79,7 @@ torchrun --standalone --nproc_per_node=1 \
     task.env_runner.max_steps=35 \
     task.dataset.train_ratio="${train_ratio}" \
     task.dataset.num_load_episodes=${num_load_episodes} \
+    task.dataset.use_repr_10d=true \
     task.dataset.kept_in_disk=true \
     task.dataset.load_per_step=true \
     task.dataset.augmentation_rot="${augmentation_rot}" \
@@ -98,5 +89,9 @@ torchrun --standalone --nproc_per_node=1 \
     dataloader.batch_size="${batch_size}" \
     val_dataloader.batch_size="${batch_size}" \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
-    policy.noise_model_type=transformer \
+    policy.noise_model_type=unet \
     policy.policy_type=low_level
+
+
+
+    

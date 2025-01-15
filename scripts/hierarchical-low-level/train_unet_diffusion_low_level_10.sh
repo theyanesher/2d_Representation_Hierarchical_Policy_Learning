@@ -87,7 +87,3 @@ torchrun --standalone --nproc_per_node=2 \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
     policy.noise_model_type=unet \
     policy.policy_type=low_level
-
-
-
-    
