@@ -89,10 +89,6 @@ class Act3dEncoder(nn.Module):
         self.goal_mode = goal_mode
         self.use_repr_10d = use_repr_10d #10D representation for Low Level Policy enabled
         self.pos_ori_imp = pos_ori_imp #10D representation for HIgh Level Policy enabled
-        if self.use_repr_10d:
-            self.pos_ori_imp = False #10D representation for HIgh Level Policy enabled
-        else:
-            self.pos_ori_imp = True
         # [Chialiang]
         self.use_mlp = use_mlp
         self.use_lightweight_unet = use_lightweight_unet
