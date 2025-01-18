@@ -25,6 +25,8 @@ import pickle as pkl
 import argparse
 from typing import List, Optional
 from collections import deque
+from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
+
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
@@ -385,8 +387,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 
                 predicted_goal = outputs.repeat(1, 2, 1, 1)
 
-                parallel_input_dict['goal_gripper_pcd'] = predicted_goal
-
+                #parallel_input_dict['goal_gripper_pcd'] = predicted_goal
+                from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector_torch
+                #predicted_goal = predicted_goal.reshape(-1,4,3)
+                predicted_goal = gripper_pcd_to_10d_vector_torch(predicted_goal).to(torch.float32)
+                parallel_input_dict['goal_gripper_10d_repr'] = predicted_goal
+                import pdb; pdb.set_trace()
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
                     gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
@@ -492,25 +498,26 @@ if __name__ == "__main__":
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     workspace.load_checkpoint(path=checkpoint_dir, )
 
+    #Low level policy loading 
     policy = deepcopy(workspace.model)
     if workspace.cfg.training.use_ema:
         policy = deepcopy(workspace.ema_model)
     policy.eval()
     policy.reset()
     policy = policy.to('cuda')
-    
-    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-    cfg.task.env_runner.experiment_folder = [
-        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    ''''data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle', 
+        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle', '''
+    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+    cfg.task.env_runner.experiment_folder = [
+        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        
         ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
@@ -548,7 +555,7 @@ if __name__ == "__main__":
         elif args.pointnet_class == "PointNet2_superplus":
             pointnet2_model = PointNet2_superplus(num_classes=13).to("cuda")
             
-        
+    #High Level Policy Loading    
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
     

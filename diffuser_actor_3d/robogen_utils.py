@@ -151,14 +151,14 @@ def get_gripper_pos_orient_from_4_points_torch(gripper_pcd):
     normal = compute_plane_normal_torch(gripper_pcd).float()
     original_gripper_normal = compute_plane_normal(original_gripper_pcd)
     original_gripper_normal = torch.tensor(original_gripper_normal).unsqueeze(0).repeat(gripper_pcd.shape[0], 1).cuda().float()
-    R1 = rotation_matrix_from_vectors_torch(original_gripper_normal, normal)
+    R1 = rotation_matrix_from_vectors_torch(original_gripper_normal, normal.cuda())
     v1 = gripper_pcd[:, 3] - gripper_pcd[:, 0]
     v2 = original_gripper_pcd[3] - original_gripper_pcd[0]
     v2 = torch.tensor(v2).unsqueeze(0).repeat(gripper_pcd.shape[0], 1).cuda().float()
-    v1_prime = torch.matmul(R1, v1.unsqueeze(-1)).squeeze(-1)
+    v1_prime = torch.matmul(R1, v1.unsqueeze(-1).cuda()).squeeze(-1)
     R2 = rotation_matrix_from_vectors_torch(v1_prime, v2)
     R = torch.matmul(R2, R1)
-    gripper_pos = torch.tensor(original_gripper_pos).unsqueeze(0).repeat(gripper_pcd.shape[0], 1).cuda().float() + gripper_pcd[:, 3] - torch.tensor(original_gripper_pcd[3]).unsqueeze(0).repeat(gripper_pcd.shape[0], 1).cuda().float()
+    gripper_pos = torch.tensor(original_gripper_pos).unsqueeze(0).repeat(gripper_pcd.shape[0], 1).cuda().float() + gripper_pcd[:, 3].cuda() - torch.tensor(original_gripper_pcd[3]).unsqueeze(0).repeat(gripper_pcd.shape[0], 1).cuda().float()
     original_R = quaternion_to_rotation_matrix_torch(original_gripper_orn).cuda().float()
     R = torch.matmul(R, original_R)
     gripper_orn = rotation_matrix_to_quaternion_torch(R)
@@ -176,11 +176,12 @@ def gripper_pcd_to_10d_vector_torch(gripper_pcd, is_open=False):
             grip_state = torch.zeros(vec_shape, device=device)
         else: 
             grip_state = torch.ones(vec_shape, device=device)
-        gripper_rot_matrix = quaternion_to_rotation_matrix_torch(gripper_orn)
+        gripper_rot_matrix = quaternion_to_rotation_matrix_torch(gripper_orn.cpu()).cuda()
         gripper_6d_pose = rotation_transfer_matrix_to_6D_batch(gripper_rot_matrix)
         representation = torch.concatenate([gripper_pos, gripper_6d_pose, grip_state], axis=-1)
         all_representations.append(representation)
-    all_representations = torch.stack(all_representations, device=device)
+    #all_representations = torch.stack(all_representations, device=device)
+    all_representations = torch.stack(all_representations).to(device)
     return all_representations
 
 def gripper_pcd_to_10d_vector(gripper_pcd, is_open=False):
