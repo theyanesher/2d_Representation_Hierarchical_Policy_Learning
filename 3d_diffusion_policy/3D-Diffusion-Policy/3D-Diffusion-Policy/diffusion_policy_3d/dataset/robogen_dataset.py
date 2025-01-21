@@ -22,6 +22,7 @@ from scripts.datasets.randomize_partition_200_obj import *
 
 import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
+from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
 
 def get_zarry_paths(zarr_path):
     if zarr_path == '10_object_high_level':
@@ -43,21 +44,20 @@ def get_zarry_paths(zarr_path):
         object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
-        
+    
+    dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
+    # dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+    # dataset_prefix = '/local/'
+    
     if zarr_path == '10_object_low_level':
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
     if zarr_path == '50_object_low_level':
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(50)]
     if zarr_path == '100_object_low_level':
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(100)]
     if zarr_path == "200_object_low_level":
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(200)]
     if zarr_path == "300_object_low_level": 
-        dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
         all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
         all_subfolders = sorted(os.listdir(dataset_prefix))
         object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
@@ -151,6 +151,7 @@ class RobogenDataset(BaseDataset):
             prob_y = None,
             prob_rot_z = None,
             prediction_target='action',
+            use_repr_10d=False,
             dp3=False,
             **kwargs
             ):
@@ -167,7 +168,10 @@ class RobogenDataset(BaseDataset):
         self.is_pickle = is_pickle
         self.object_augmentation_high_level = object_augmentation_high_level
         self.prediction_target = prediction_target
+        self.use_repr_10d=use_repr_10d
         self.dp3 = dp3
+
+        cprint(f"Using 10D representation {self.use_repr_10d}", "red")
         
         if dataset_keys is None:
             keys = ['state', 'action', 'point_cloud']
@@ -631,7 +635,9 @@ class RobogenDataset(BaseDataset):
                 
         if self.prediction_target == 'delta_to_goal_gripper':
             data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
-            
+        
+        if self.use_repr_10d:
+            data['obs']['goal_gripper_10d_repr'] = gripper_pcd_to_10d_vector(data['obs']['goal_gripper_pcd'])
         return data
 
     

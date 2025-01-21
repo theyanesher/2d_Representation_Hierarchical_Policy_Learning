@@ -95,6 +95,7 @@ policy:
     final_attention: false
     attention_num_heads: 3 # there was a bug with 4, should use 3 instead
     attention_num_layers: 2
+    use_repr_10d: false
 
   prediction_target: action
 

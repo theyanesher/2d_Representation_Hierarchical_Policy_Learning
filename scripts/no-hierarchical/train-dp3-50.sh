@@ -5,7 +5,7 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 source_dir="/home/yufei/projects/RoboGen-sim2real/data/dp3_demo_combined_2_step_0"
 
 
-observation_mode="act3d_goal_mlp"
+observation_mode="dp3"
 encoding_mode="keep_position_feature_in_attention_feature"
 
 horizon=8
@@ -16,8 +16,8 @@ training_epoches=100
 train_ratio=0.9 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=20 #######
-encoder_type=act3d
+batch_size=100 #######
+encoder_type=dp3
 use_mlp=1
 use_lightweight_unet=0
 in_channels=3 ####
@@ -39,16 +39,15 @@ use_pretrained_high_level_policy_as_low_level_input=false
 
 time_stamp=$(date +%m%d%H%M)
 # exp_name="1107-200-combined-low-level-unet-diffusion-chialiang-hyper-parameter"
-exp_name="paper-hierarchical-low-level-transformer-diffusion-10-training-objs-11"
-
+exp_name="paper-dp3-50-training-objs-1211"
 
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=2 \
+torchrun --standalone --nproc_per_node=1 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=10_object_low_level \
+    task.dataset.zarr_path=50_object_low_level \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
@@ -59,11 +58,12 @@ torchrun --standalone --nproc_per_node=2 \
     task.shape_meta.action.shape="[${action_dim}]" \
     policy.pointcloud_encoder_cfg.in_channels="${pc_channel}" \
     task.dataset.observation_mode="${observation_mode}" \
+    task.dataset.dp3=true \
     policy.encoder_type="${encoder_type}" \
     policy.encoder_output_dim=60 \
     policy.normalize_action=${normalize_action} \
     policy.act3d_encoder_cfg.in_channels=${in_channels} \
-    policy.act3d_encoder_cfg.goal_mode=cross_attention_to_goal \
+    policy.act3d_encoder_cfg.goal_mode=null \
     policy.act3d_encoder_cfg.mode="${encoding_mode}" \
     policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
     policy.act3d_encoder_cfg.self_attention="${self_attention}" \
@@ -87,7 +87,7 @@ torchrun --standalone --nproc_per_node=2 \
     dataloader.batch_size="${batch_size}" \
     val_dataloader.batch_size="${batch_size}" \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
-    policy.noise_model_type=transformer \
+    policy.noise_model_type=unet \
     policy.policy_type=low_level
 
 
