@@ -1,6 +1,6 @@
 import torch
 import einops
-import torch_cluster
+# import torch_cluster
 '''import torch_cluster'''
 '''def run_fps(context_features, context_pos, fps_subsampling_factor):
         # context_features (Np, B, F)
