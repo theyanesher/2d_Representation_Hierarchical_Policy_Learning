@@ -22,7 +22,7 @@
 
 
 # ### trained on 100 objs with randomized cameras
-cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/ 
+# cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/ 
 # python eval_robogen_with_goal_PointNet.py \
 #     --low_level_exp_dir  /project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/1121-50-combined-low-level-unet-diffusion-no-dense-step-around-goal/2024.11.21/02.55.41_train_dp3_robogen_open_door/ \
 #     --low_level_ckpt_name epoch-96.ckpt \
@@ -33,15 +33,15 @@ cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/
 #     --eval_exp_name  paper_eval_high_level_weighted-displacement_100_obj_train_random_camera_eval_real_world_camera_trial_2 \
 #     --real_world_camera 1
 
-python eval_robogen_with_goal_PointNet.py \
-    --low_level_exp_dir  /project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/1121-50-combined-low-level-unet-diffusion-no-dense-step-around-goal/2024.11.21/02.55.41_train_dp3_robogen_open_door/ \
-    --low_level_ckpt_name epoch-96.ckpt \
-    --high_level_ckpt_name  /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2024-12-13_use_75_episodes_camera_random_100_obj_high_level-obj_paper_1211/model_60.pth \
-    --pointnet_class PointNet2_super \
-    --model_invariant true \
-    --output_obj_pcd_only \
-    --eval_exp_name  paper_eval_high_level_weighted-displacement_100_obj_train_random_camera_eval_real_world_camera_trial_3 \
-    --real_world_camera 1
+# python eval_robogen_with_goal_PointNet.py \
+#     --low_level_exp_dir  /project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/1121-50-combined-low-level-unet-diffusion-no-dense-step-around-goal/2024.11.21/02.55.41_train_dp3_robogen_open_door/ \
+#     --low_level_ckpt_name epoch-96.ckpt \
+#     --high_level_ckpt_name  /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2024-12-13_use_75_episodes_camera_random_100_obj_high_level-obj_paper_1211/model_60.pth \
+#     --pointnet_class PointNet2_super \
+#     --model_invariant true \
+#     --output_obj_pcd_only \
+#     --eval_exp_name  paper_eval_high_level_weighted-displacement_100_obj_train_random_camera_eval_real_world_camera_trial_3 \
+#     --real_world_camera 1
 
 
 
@@ -89,3 +89,38 @@ python eval_robogen_with_goal_PointNet.py \
 #     --output_obj_pcd_only \
 #     --eval_exp_name  paper_eval_high_level_weighted-displacement_200_obj_train_random_camera_real_world_camera_trial_3 \
 #     --real_world_camera 1
+
+
+
+### trained on 10 random camera
+cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/ 
+python eval_robogen_with_goal_PointNet.py \
+    --low_level_exp_dir  /project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/1121-50-combined-low-level-unet-diffusion-no-dense-step-around-goal/2024.11.21/02.55.41_train_dp3_robogen_open_door/ \
+    --low_level_ckpt_name epoch-96.ckpt \
+    --high_level_ckpt_name  /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2025-01-21_use_75_episodes_camera_random_10_obj_high_level-obj_paper_0121/model_60.pth \
+    --pointnet_class PointNet2_super \
+    --model_invariant true \
+    --output_obj_pcd_only \
+    --eval_exp_name  paper_eval_high_level_weighted-displacement_10_obj_train_rand_cam_real_cam \
+    --real_world_camera 1
+
+python eval_robogen_with_goal_PointNet.py \
+    --low_level_exp_dir  /project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/1121-50-combined-low-level-unet-diffusion-no-dense-step-around-goal/2024.11.21/02.55.41_train_dp3_robogen_open_door/ \
+    --low_level_ckpt_name epoch-96.ckpt \
+    --high_level_ckpt_name  /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2025-01-21_use_75_episodes_camera_random_10_obj_high_level-obj_paper_0121/model_60.pth \
+    --pointnet_class PointNet2_super \
+    --model_invariant true \
+    --output_obj_pcd_only \
+    --eval_exp_name  paper_eval_high_level_weighted-displacement_10_obj_train_rand_cam_real_cam_trial_2 \
+    --real_world_camera 1
+
+
+python eval_robogen_with_goal_PointNet.py \
+    --low_level_exp_dir  /project_data/held/yufeiw2/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/1121-50-combined-low-level-unet-diffusion-no-dense-step-around-goal/2024.11.21/02.55.41_train_dp3_robogen_open_door/ \
+    --low_level_ckpt_name epoch-96.ckpt \
+    --high_level_ckpt_name  /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2025-01-21_use_75_episodes_camera_random_10_obj_high_level-obj_paper_0121/model_60.pth \
+    --pointnet_class PointNet2_super \
+    --model_invariant true \
+    --output_obj_pcd_only \
+    --eval_exp_name  paper_eval_high_level_weighted-displacement_10_obj_train_rand_cam_real_cam_trial_3 \
+    --real_world_camera 1

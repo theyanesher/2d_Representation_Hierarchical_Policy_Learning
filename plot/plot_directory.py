@@ -5,8 +5,10 @@ import argparse
 
 def plot_open_door_results(directory, num_exps=3, num_objs=10, start_idx=0):
     json_results = []
+    json_results_grasping = []
     for i in range(num_exps):
         one_exp_results = []
+        one_exp_grasping_results = []
         for j in range(start_idx, num_objs):
             json_file = os.path.join(directory, str(i), f"opened_joint_angles_{j}.json")
             # print(json_file)
@@ -29,25 +31,43 @@ def plot_open_door_results(directory, num_exps=3, num_objs=10, start_idx=0):
                 normalized_performance[normalized_performance > 1] = 1
                 normalized_performance = normalized_performance[~np.isnan(normalized_performance)]
                 normalized_performance = normalized_performance[~np.isinf(normalized_performance)]
+                grasping_performance = normalized_performance > 0
                 # print(normalized_performance)
                 normalized_performance = np.mean(normalized_performance)
+                # print(normalized_performance)
+                grasping_performance = np.mean(grasping_performance)
                 one_exp_results.append(normalized_performance)
+                one_exp_grasping_results.append(grasping_performance)
         json_results.append(one_exp_results)
+        json_results_grasping.append(one_exp_grasping_results)
 
     json_results = np.array(json_results)
     mean_result = np.mean(json_results, axis=0)
     std_result = np.std(json_results, axis=0)
-    return mean_result, std_result
+
+    json_results_grasping = np.array(json_results_grasping)
+    mean_result_grasping = np.mean(json_results_grasping, axis=0)
+    std_result_grasping = np.mean(json_results_grasping, axis=0)
+    
+    
+    return mean_result, std_result, mean_result_grasping, std_result_grasping
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--directory", type=str, required=True)
+    parser.add_argument("--d", type=str, required=True)
     parser.add_argument("--num_exps", type=int, default=1)
     parser.add_argument("--num_objs", type=int, default=10)
     parser.add_argument("--start_idx", type=int, default=0)
     args = parser.parse_args()
-    mean_result, std_result = plot_open_door_results(args.directory, args.num_exps, args.num_objs, args.start_idx)
+    mean_result, std_result, mean_result_grasping, std_result_grasping = plot_open_door_results(args.d, args.num_exps, args.num_objs, args.start_idx)
+    print("============== normalized performance ==================")
     print(np.round(mean_result, 3))
     print(std_result)
     print("mean: ", np.mean(mean_result))
+    print("============== grasping ==================")
+    print(np.round(mean_result_grasping, 3))
+    print(std_result_grasping)
+    print("mean grasping: ", np.mean(mean_result_grasping))
+    
+    
