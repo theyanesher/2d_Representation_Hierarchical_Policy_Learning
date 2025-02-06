@@ -97,7 +97,8 @@ def find_first_stage(traj_path, num_steps):
     for i in range(num_steps):
         substep_path = os.path.join(traj_path, str(i) + ".pkl")
 
-        data = pickle.load(open(substep_path, 'rb'))
+        with open(substep_path, 'rb') as f:
+            data = pickle.load(f)
         action = data['action'][:]
 
         current_goal = data['goal_gripper_pcd'][:]
@@ -108,31 +109,33 @@ def find_first_stage(traj_path, num_steps):
         
 def restore_second_stage(traj_path, total_steps, second_stage_start_idx, new_goal_idx):
     new_goal_pickle_path = os.path.join(traj_path, f"{new_goal_idx}.pkl")
-    data = pickle.load(open(new_goal_pickle_path, 'rb'))
+    with open(new_goal_pickle_path, 'rb') as f:
+        data = pickle.load(f)
     new_goal_gripper_pcd = data['gripper_pcd'][:]
     
     for idx in range(second_stage_start_idx, new_goal_idx + 1):
         pickle_path = os.path.join(traj_path, f"{idx}.pkl")
-        data = pickle.load(open(pickle_path, 'rb'))
+        with open(pickle_path, 'rb') as f:
+            data = pickle.load(f)
         data['goal_gripper_pcd'] = new_goal_gripper_pcd
         with open(pickle_path, 'wb') as f:
             pickle.dump(data, f)
             
     for idx in range(new_goal_idx + 1, total_steps):
         path = os.path.join(traj_path, f"{idx}.pkl")
-        cmd = f"rm {path}"
-        print(cmd)
-        # import pdb; pdb.set_trace()
-        # os.system(cmd)
+        if os.path.exists(path):
+            cmd = f"rm {path}"
+            print(cmd)
+            # import pdb; pdb.set_trace()
+            os.system(cmd)
 
 keys = ['state', 'action', 'point_cloud']
 keys += ['feature_map', 'gripper_pcd', 'pcd_mask', "goal_gripper_pcd"]
 
+# data_path = "/scratch/yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
 data_path = "/scratch/yufeiw2/dp3_demo_clean_distorted_goal"
 all_obj_dirs = os.listdir(data_path)
 all_obj_dirs = sorted(all_obj_dirs)
-
-all_obj_dirs = [x for x in all_obj_dirs if "1121-other" in x]
 
 for obj_folder in tqdm(all_obj_dirs):
     all_traj_dirs = os.listdir(os.path.join(data_path, obj_folder))
@@ -141,12 +144,17 @@ for obj_folder in tqdm(all_obj_dirs):
         os.system(cmd)
     
     all_traj_dirs = sorted(all_traj_dirs)
+    for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
+        if s in all_traj_dirs:
+            all_traj_dirs.remove(s)
     
     for traj_path in all_traj_dirs:
         traj_path = os.path.join(data_path, obj_folder, traj_path)
 
         all_pickle_files = os.listdir(traj_path)
         num_steps = len(all_pickle_files)
+        
+        # import pdb; pdb.set_trace()
 
         first_stage_num = find_first_stage(traj_path, num_steps)
         second_stage_num = num_steps - first_stage_num
@@ -172,7 +180,8 @@ for obj_folder in tqdm(all_obj_dirs):
             # print(f"{idx} distance between cur_gripper and analytic gripper: {distance}")
 
 
-            if distance > 0.02 and idx > num_steps - 10:
+            if distance > 0.02 and idx > num_steps - 20:
                 # print(f"{traj_path} gripper distorted at step {idx} with distortion {distance}")
                 restore_second_stage(traj_path, num_steps, second_stage_start_idx, idx-1)
+                break
 

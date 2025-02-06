@@ -5,3 +5,4 @@ torchrun --standalone --nproc_per_node=8 train_ddp_weighted_displacement.py --ba
     --num_train_objects 100 \
     --dataset_prefix /scratch/yufeiw2/dp3_demo \
     --exp_name _paper_1215
+
