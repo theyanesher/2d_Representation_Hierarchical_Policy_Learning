@@ -7,8 +7,8 @@ import torch
 import matplotlib.pyplot as plt
 
 # data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-08-25-01-46-57/70.pkl"
-# data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-11-03-09-49-31/80.pkl"
-data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-11-03-09-49-31/40.pkl"
+data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-11-03-09-49-31/80.pkl"
+# data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-11-03-09-49-31/40.pkl"
 # data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-07-30-00-31-18/0.pkl"
 # data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-08-02-19-00-50/0.pkl"
 # data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/2024-08-21-15-36-49/0.pkl"
@@ -19,14 +19,24 @@ obj_pcd_np = data['point_cloud'].reshape(-1, 3)
 gripper_pcd_np = data['gripper_pcd'].reshape(-1, 3)
 goal_gripper_pcd_np = data['goal_gripper_pcd'].reshape(-1, 3)
 
-### use matplotlib
-# ax = plt.axes(projection='3d')
-# ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c='grey', s=1)
-# ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='grey', s=30)
-# # ax.scatter(goal_gripper_pcd_np[:,0], goal_gripper_pcd_np[:,1], goal_gripper_pcd_np[:,2], c='blue', s=30)
-# ax.axis('equal')
-# ax.axis('off')
-# plt.show()
+### use matplotlib to show the low-level input
+ax = plt.axes(projection='3d')
+ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c='grey', s=1)
+ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='blue', s=30)
+ax.scatter(goal_gripper_pcd_np[:,0], goal_gripper_pcd_np[:,1], goal_gripper_pcd_np[:,2], c='red', s=30)
+ax.axis('equal')
+ax.axis('off')
+plt.show()
+
+
+### show input of high-level policy
+ax = plt.axes(projection='3d')
+ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c='grey', s=1)
+ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='grey', s=30)
+# ax.scatter(goal_gripper_pcd_np[:,0], goal_gripper_pcd_np[:,1], goal_gripper_pcd_np[:,2], c='blue', s=30)
+ax.axis('equal')
+ax.axis('off')
+plt.show()
 
 
 ### load model
@@ -91,12 +101,12 @@ print("prediction_numpy", prediction_numpy.shape)
 # plt.show()
 
 ### plot the final prediction
-ax = plt.axes(projection='3d')
-ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c='grey', s=1)
-ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='grey', s=30)
-ax.scatter(prediction_numpy[:,0], prediction_numpy[:,1], prediction_numpy[:,2], c='red', s=30)
-ax.axis('equal')
-ax.axis('off')
-plt.show()
+# ax = plt.axes(projection='3d')
+# ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c='grey', s=1)
+# ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='grey', s=30)
+# ax.scatter(prediction_numpy[:,0], prediction_numpy[:,1], prediction_numpy[:,2], c='red', s=30)
+# ax.axis('equal')
+# ax.axis('off')
+# plt.show()
 
 

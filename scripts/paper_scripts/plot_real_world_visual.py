@@ -7,9 +7,9 @@ import os
 
 ### load data
 ### Chialiang's data
-data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/chialiang-real-world-results/formal-high-8_low-96-green_cabinat/2025-01-13-20-32-49-formal4"
-step = 3
-step = 8
+# data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/chialiang-real-world-results/formal-high-8_low-96-green_cabinat/2025-01-13-20-32-49-formal4"
+# step = 3
+# step = 8
 
 ### mobile base data
 # data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/real_world/2025-01-19-21-38-14-good-20250122T024000Z-001/2025-01-19-21-38-14-good"
@@ -19,7 +19,7 @@ step = 8
 ### our lab
 data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/real_world/2025-01-09-21-54-55-trial-1-20250122T071434Z-001/2025-01-09-21-54-55-trial-1"
 step = 1
-step = 8
+# step = 8
 
 
 pkl_path = os.path.join(data_path, f"step_{step}.pkl")
@@ -71,7 +71,7 @@ gripper_pcd_np = high_level_gripper_pcd.squeeze(0)[-1].cpu().detach().numpy()
 
 ### load model
 load_model_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/model_8.pth"
-load_model_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/model_36.pth"
+# load_model_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/RoboGen-sim2real/data/debug/model_36.pth"
 from test_PointNet2.model_invariant import PointNet2_super
 pointnet2_model = PointNet2_super(num_classes=13).to("cuda")
 pointnet2_model.load_state_dict(torch.load(load_model_path))
@@ -127,8 +127,8 @@ plt.close("all")
 ax = plt.axes(projection='3d')
 # ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c=colors, s=1, zorder=1, depthshade=True)
 ax.scatter(obj_pcd_np[:,0], obj_pcd_np[:,1], obj_pcd_np[:,2], c="grey", s=1, zorder=1, depthshade=False)
-ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='green', s=16)
-ax.scatter(prediction_numpy[:, 0], prediction_numpy[:, 1], prediction_numpy[:, 2], c='red', s=32, zorder=10, depthshade=False)
+ax.scatter(gripper_pcd_np[:,0], gripper_pcd_np[:,1], gripper_pcd_np[:,2], c='green', s=100)
+ax.scatter(prediction_numpy[:, 0], prediction_numpy[:, 1], prediction_numpy[:, 2], c='red', s=100, zorder=10, depthshade=False)
 ax.axis('equal')
 ax.axis('off')
 plt.show()

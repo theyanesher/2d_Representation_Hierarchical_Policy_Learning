@@ -75,4 +75,8 @@ timestamp = '0:0'  # Replace with your desired timestamp
 # timestamp = '2:55'  # Replace with your desired timestamp
 output_dir = './data/real_world/video_frames'  # Replace with your desired output directory
 
+video_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e52/yufei/projects/chialiang-real-world-results/formal-high-8_low-96-red_storage_box-videos/demo-red_storage_box-formal4.MOV"
+name = 'red box'
+timestamp = "1:10"
+
 save_frame_at_timestamp(video_path, timestamp, output_dir, name)
