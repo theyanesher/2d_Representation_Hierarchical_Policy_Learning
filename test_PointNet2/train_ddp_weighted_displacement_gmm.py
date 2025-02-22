@@ -12,6 +12,7 @@ import os
 from torch.utils.data import DataLoader
 from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 import wandb
+import numpy as np
 
 def ddp_setup():
     os.environ["NCCL_P2P_LEVEL"] = "NVL"
@@ -24,25 +25,18 @@ def train(args):
     device = torch.device(gpu_id)
 
     input_channel = 5 if args.add_one_hot_encoding else 3
+    if args.conditioning_on_demo:
+        input_channel += args.demo_attn_embedding_dim
 
-    if not args.predict_two_goals: output_dim = 13 
-    else: output_dim = 25
+    output_dim = 13 
 
     if args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
         from test_PointNet2.model_invariant import PointNet2
         from test_PointNet2.model_invariant import PointNet2_super
         from test_PointNet2.model_invariant import PointNet2_superplus
-        if args.model_type == 'pointnet2':
-            model = PointNet2_small2(num_classes=output_dim).to(device)
-        elif args.model_type == 'pointnet2_large':
-            model = PointNet2(num_classes=output_dim).to(device)
-        elif args.model_type == 'pointnet2_super':
+        if args.model_type == 'pointnet2_super':
             model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
-        elif args.model_type == 'attn':
-            model = AttnModel(num_classes=output_dim).to(device)
-        elif args.model_type == 'pointnet2_superplus':
-            model = PointNet2_superplus(num_classes=output_dim).to(device)
         else:
             raise ValueError(f"model_type {args.model_type} not recognized")
     else:
@@ -65,14 +59,27 @@ def train(args):
         print("Successfully load model from: ", args.load_model_path)
     
     model.train()
+    to_optimize_parameters = model.parameters()
+    
+    if args.conditioning_on_demo:
+        from test_PointNet2.model_condition import Demo_processing_model
+        demo_transformer = Demo_processing_model(
+            pn_input_channel=2, 
+            attn_embedding_dim=args.demo_attn_embedding_dim,
+            use_attn=args.demo_use_attn,
+            use_cur_obs=args.demo_use_cur_obs,
+        ).to(device)
+        demo_transformer.train()
+        to_optimize_parameters = list(to_optimize_parameters) + list(demo_transformer.parameters())
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(to_optimize_parameters, lr=args.lr)
     criterion = torch.nn.MSELoss()
 
-    # dataloader = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
-    # dataloader = get_dataloader_from_pickle(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
+    output_dir = "GMM_" 
+    if args.conditioning_on_demo:
+        output_dir += 'cond_on_demo_'
     
-    output_dir = "GMM_" + args.model_type 
+    output_dir += args.model_type 
 
     if args.model_invariant:
         output_dir = output_dir + "_model_invariant"
@@ -89,9 +96,6 @@ def train(args):
     
     output_dir = output_dir + "_" + str(args.num_train_objects) + "-obj"
     
-    if args.predict_two_goals:
-        output_dir = output_dir + "_predict_two_goals"
-        
     if args.output_obj_pcd_only:
         output_dir = output_dir + "_output_obj_only"
         
@@ -103,6 +107,12 @@ def train(args):
         
     if args.add_one_hot_encoding:
         output_dir = output_dir + "_one_hot"
+        
+    if not args.demo_use_attn:
+        output_dir += "_no_demo_attn"
+    if not args.demo_use_cur_obs:
+        output_dir += "_no_demo_cur_obs"
+        
     
     if not args.using_weight:
         output_dir = output_dir + "_no_weight"
@@ -142,12 +152,15 @@ def train(args):
                 f.write(f"{key}: {value}\n")
 
     print("trying to load dataset")
-    dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, num_train_objects=args.num_train_objects, predict_two_goals=args.predict_two_goals)
+    dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, 
+                                      only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, 
+                                      use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, 
+                                      num_train_objects=args.num_train_objects, conditioning_on_demo=args.conditioning_on_demo)
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
                 batch_size=args.batch_size,
-                num_workers=4,
+                num_workers=6, 
                 pin_memory=True,
                 )
 
@@ -157,28 +170,43 @@ def train(args):
         running_loss = 0.0
         accumulated_displacement_loss = 0.0
         for i, data in enumerate(tqdm(dataloader)):
-            pointcloud, gripper_pcd, goal_gripper_pcd = data
+            if not args.conditioning_on_demo:
+                pointcloud, gripper_pcd, goal_gripper_pcd = data
+            else:
+                data = {k: v.to('cuda') for k, v in data.items()}
+                pointcloud, gripper_pcd, goal_gripper_pcd = data['pointcloud'], data['gripper_pcd'], data['goal_gripper_pcd']
+                
             # inputs: B, N, 3
             # gripper_pcd: B, 4, 3
             # goal_gripper_points: B, 4, 3
             # calculate the displacement from every point to the gripper to get the labels with shape B, N, 4, 3
             gripper_points = goal_gripper_pcd
             
-            if not args.predict_two_goals:
-                if args.add_one_hot_encoding:
-                    # for pointcloud, we add (1, 0)
-                    # for gripper_pcd, we add (0, 1)
-                    pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2)
-                    pointcloud_one_hot[:, :, 0] = 1
-                    pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
-                    gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2)
-                    gripper_pcd_one_hot[:, :, 1] = 1
-                    gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
-                    inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
-                else:
-                    inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
+            if args.add_one_hot_encoding:
+                # for pointcloud, we add (1, 0)
+                # for gripper_pcd, we add (0, 1)
+                pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2)
+                pointcloud_one_hot[:, :, 0] = 1
+                pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
+                gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2)
+                gripper_pcd_one_hot[:, :, 1] = 1
+                gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
+                inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
             else:
-                inputs = pointcloud
+                inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
+                
+            ### do demonstration conditioning processing here
+            if args.conditioning_on_demo :
+                if np.random.rand() > 0.5: ### train with conditioning and without conditioning randomly
+                    demo_conditioning_feature = demo_transformer(data)
+                    B, N, _ = pointcloud.shape
+                    demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
+                    inputs = torch.cat([pointcloud, demo_conditioning_feature], dim=-1)
+                else:
+                    B, N, _ = pointcloud.shape
+                    demo_conditioning_feature = torch.zeros((B, N, args.demo_attn_embedding_dim), dtype=inputs.dtype, device=inputs.device)
+                    inputs = torch.cat([pointcloud, demo_conditioning_feature], dim=-1)
+            
 
             labels = gripper_points.unsqueeze(1) - inputs[:, :, :3].unsqueeze(2)
             B, N, _, _ = labels.shape
@@ -196,9 +224,7 @@ def train(args):
                 labels = labels[:, :-4, :]
                 inputs = inputs[:, :, :-4]
                 N = N - 4
-                
-            ### TODO: change the loss to be GMM here
-            
+                        
             
             # import pdb; pdb.set_trace()
             diff = outputs - labels  # Shape: (B, N, 12)
@@ -266,12 +292,15 @@ def parse_args():
     parser.add_argument('--use_all_data', action='store_true')
     parser.add_argument('--use_combined_action', action='store_true')
     parser.add_argument('--model_invariant', action='store_true')
-    parser.add_argument('--predict_two_goals', action='store_true')
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--using_weight', type=int, default=1)
     parser.add_argument('--exp_name', type=str, default="")
     parser.add_argument('--fixed_variance', type=float, default=0.05)
+    parser.add_argument('--conditioning_on_demo', type=int, default=0)
+    parser.add_argument('--demo_attn_embedding_dim', type=int, default=60)
+    parser.add_argument('--demo_use_attn', type=int, default=1)
+    parser.add_argument('--demo_use_cur_obs', type=int, default=1)
     return parser.parse_args()
 
 

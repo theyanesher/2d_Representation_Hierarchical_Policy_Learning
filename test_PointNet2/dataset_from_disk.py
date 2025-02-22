@@ -7,14 +7,17 @@ from termcolor import cprint
 import numpy as np
 from tqdm import tqdm
 import pickle
+import random
 
 class PointNetDatasetFromDisk(torch.utils.data.Dataset):
-    def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False):
+    def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False, 
+                 conditioning_on_demo=False):
         self.all_obj_paths = all_obj_paths
         self.beg_ratio = beg_ratio
         self.end_ratio = end_ratio
         self.is_pickle = is_pickle
         self.use_all_data = use_all_data
+        self.conditioning_on_demo = conditioning_on_demo
         
         if only_first_stage:
             cprint('======= ONLY FIRST STAGE =======', 'red')
@@ -22,8 +25,14 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         if eval_episode is not None:
             cprint('======= EVAL MODE =======', 'red')
             cprint(f'Only evaluating the first observation of {eval_episode} episodes', 'red')
+            
+        # TODO for conditioning
+        # for each trajectory of the object, record the grasping pose and opening pose. Store as a dictionary maybe, key is object_traj-id
 
         self.all_zarr_paths = []
+        self.episode_idx_to_obj_id = {}
+        self.obj_id_to_all_episodes_indices = {}
+        episode_idx = 0
         for obj_path in all_obj_paths:
             all_subfolder = os.listdir(obj_path)
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
@@ -38,9 +47,17 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                 end = beg + eval_episode
             all_subfolder = all_subfolder[beg:end]
             self.all_zarr_paths += [os.path.join(obj_path, s) for s in all_subfolder]
+            this_obj_episode_beg = episode_idx
+            for s in all_subfolder:
+                self.episode_idx_to_obj_id[episode_idx] = obj_path
+                episode_idx += 1
+            this_obj_episode_end = episode_idx
+            self.obj_id_to_all_episodes_indices[obj_path] = [i for i in range(this_obj_episode_beg, this_obj_episode_end)]            
 
         cprint('Preparing all zarr paths', 'green')
         self.episode_lengths = []
+        self.episode_idx_to_grasp_frame_idx = {}
+        self.episode_idx_to_open_frame_idx = {}
         for idx, zarr_path in enumerate(tqdm(self.all_zarr_paths)):
             if is_pickle:
                 all_substeps = os.listdir(zarr_path)
@@ -67,6 +84,12 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                     elif only_first_stage and not np.allclose(first_goal, current_goal):
                         self.episode_lengths.append(i)
                         break
+                    
+                    if not np.allclose(first_goal, current_goal):
+                        self.episode_idx_to_grasp_frame_idx[idx] = i
+                
+                # assume -10 erases all the distorted goal. This is just an approximation. 
+                self.episode_idx_to_open_frame_idx[idx] = len(all_substeps) - 10
 
             
             else:
@@ -106,21 +129,50 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.accumulated_episode_lengths[-1]
+    
+    def read_pickle_data(self, episode_idx, step_idx):
+        step_path = os.path.join(self.all_zarr_paths[episode_idx], str(step_idx) + '.pkl')
+        with open(step_path, 'rb') as f:
+            data = pickle.load(f)
+        pointcloud = data['point_cloud'][:][0].astype(np.float32)
+        gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
+        goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
+        return pointcloud, gripper_pcd, goal_gripper_pcd
 
     def __getitem__(self, idx):
+        # TODO for conditioning:
+        # after we gete episode_idx, figure out which object this episode is from, and randomly sample another episode from this same object.
+        # return additionally the grasping and opening pose of this other trajectory for this object. 
+        
         episode_idx = np.searchsorted(self.accumulated_episode_lengths, idx, side='right')
         start_idx = idx - self.accumulated_episode_lengths[episode_idx]
 
         if start_idx < 0:
             start_idx += self.episode_lengths[episode_idx]
-
+            
         if self.is_pickle:
-            step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
-            with open(step_path, 'rb') as f:
-                data = pickle.load(f)
-            pointcloud = data['point_cloud'][:][0].astype(np.float32)
-            gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
-            goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
+            # step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
+            # with open(step_path, 'rb') as f:
+            #     data = pickle.load(f)
+            # pointcloud = data['point_cloud'][:][0].astype(np.float32)
+            # gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
+            # goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
+            pointcloud, gripper_pcd, goal_gripper_pcd = self.read_pickle_data(episode_idx, start_idx)
+            
+            if self.conditioning_on_demo:
+                obj_id = self.episode_idx_to_obj_id[episode_idx]
+                this_obj_episodes = self.obj_id_to_all_episodes_indices[obj_id]
+                random_other_traj_idx = random.choice(this_obj_episodes)
+                while random_other_traj_idx == episode_idx:
+                    random_other_traj_idx = random.choice(this_obj_episodes)
+                grasp_frame_idx, open_frame_idx = self.episode_idx_to_grasp_frame_idx[random_other_traj_idx], self.episode_idx_to_open_frame_idx[random_other_traj_idx]
+                # import pdb; pdb.set_trace()
+                # this actually reads the first frame
+                demo_grasp_pcd, demo_grasp_gripper_pcd, demo_grasp_goal_gripper_pcd = self.read_pickle_data(random_other_traj_idx, 0)
+
+                # and this reads the last -10 frame
+                demo_open_pcd, demo_open_gripper_pcd, demo_open_goal_gripper_pcd = self.read_pickle_data(random_other_traj_idx, open_frame_idx)
+                    
         else:
             zarr_path = self.all_zarr_paths[episode_idx]
             
@@ -132,7 +184,20 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             gripper_pcd = src_root['data']['gripper_pcd'][:][0]
             goal_gripper_pcd = src_root['data']['goal_gripper_pcd'][:][0]
 
-        return pointcloud, gripper_pcd, goal_gripper_pcd
+        if not self.conditioning_on_demo:
+            return pointcloud, gripper_pcd, goal_gripper_pcd
+        else:
+            return {
+                "pointcloud": pointcloud,
+                "gripper_pcd": gripper_pcd,
+                "goal_gripper_pcd": goal_gripper_pcd, 
+                "demo_grasp_pcd": demo_grasp_pcd,
+                "demo_grasp_gripper_pcd": demo_grasp_gripper_pcd,
+                "demo_grasp_goal_gripper_pcd": demo_grasp_goal_gripper_pcd,
+                "demo_open_pcd": demo_open_pcd,
+                "demo_open_gripper_pcd": demo_open_gripper_pcd,
+                "demo_open_goal_gripper_pcd": demo_open_goal_gripper_pcd,
+            }
     
 class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
     def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False):
@@ -298,7 +363,9 @@ def get_dataloader_from_pickle(all_obj_paths=None, batch_size=32, beg_ratio=0, e
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True)    
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, predict_two_goals=False):
+def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, 
+                            use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, 
+                            predict_two_goals=False, conditioning_on_demo=False):
     
     if dataset_prefix is None:
         dataset_prefix='/scratch/chialiang/dp3_demo'
@@ -312,7 +379,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         if num_train_objects == 'debug':
-            all_obj_paths = [f'{dataset_prefix}/{save_data_name_0}']
+            all_obj_paths = [f'{dataset_prefix}/0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1']
         elif num_train_objects == '10':
             all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
         elif num_train_objects == '50':
@@ -475,7 +542,8 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             raise ValueError('num_train_objects not supported')
         
     if not predict_two_goals:
-        dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True, use_all_data=use_all_data)    
+        dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
+                                          is_pickle=True, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo)    
     else:
         dataset = PredictTwoGoalsDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True, use_all_data=use_all_data)
     return dataset

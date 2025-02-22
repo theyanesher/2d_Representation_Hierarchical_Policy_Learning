@@ -14,44 +14,5 @@ source prepare.sh
 export YUFEI_OPENAI_API_KEY="xxx" # TODO: embed this in singularity
 
 singularity shell --bind ./:/mnt/ch/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif
-#
-# Objects 48700
-# Objects 45526
-# Objects 45661
-# Objects 45694
-# Objects 45780
-# Objects 45910
-# Objects 45961
-# Objects 46408
-# Objects 46417
-# Objects 46440
-# Objects 46490
-# Objects 46762
-# Objects 46825
-# Objects 46893
-# Objects 47235
-# Objects 47281
-# Objects 47315
-# Objects 47529
-# Objects 47669
-# Objects 47944
-# Objects 48063
-# Objects 48177
-# Objects 48356
-# Objects 48623
-# Objects 48876
-# Objects 49025
-# Objects 49062
-# Objects 49132
-# Objects 49133
-# Objects 40417
-# Objects 41085
-# Objects 41452
-# Objects 45162
-# Objects 45176
-# Objects 45194
-# Objects 45203
-# Objects 45248
-# Objects 45271
-# Objects 45290
-# Objects 45305
+
+torchrun --standalone --nproc_per_node=8 train_ddp_weighted_displacement_gmm.py --batch_size 50     --num_epochs 61 --model_type pointnet2_super --model_invariant     --exp_path /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/GMM/     --num_train_objects 50     --dataset_prefix /scratch/yufeiw2/dp3_demo     --exp_name _fixed_variance_0.001 --fixed_variance 0.001
