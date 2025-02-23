@@ -68,11 +68,15 @@ def train(args):
             attn_embedding_dim=args.demo_attn_embedding_dim,
             use_attn=args.demo_use_attn,
             use_cur_obs=args.demo_use_cur_obs,
+            pn_type=args.demo_pn_type,
         ).to(device)
         demo_transformer.train()
         to_optimize_parameters = list(to_optimize_parameters) + list(demo_transformer.parameters())
 
-    optimizer = torch.optim.Adam(to_optimize_parameters, lr=args.lr)
+    if args.optimizer == 'adam':
+        optimizer = torch.optim.Adam(to_optimize_parameters, lr=args.lr)
+    elif args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW(to_optimize_parameters, lr=args.lr)
     criterion = torch.nn.MSELoss()
 
     output_dir = "GMM_" 
@@ -112,6 +116,8 @@ def train(args):
         output_dir += "_no_demo_attn"
     if not args.demo_use_cur_obs:
         output_dir += "_no_demo_cur_obs"
+    output_dir += "_demo_pn_" + args.demo_pn_type
+    output_dir += args.optimizer
         
     
     if not args.using_weight:
@@ -301,6 +307,8 @@ def parse_args():
     parser.add_argument('--demo_attn_embedding_dim', type=int, default=60)
     parser.add_argument('--demo_use_attn', type=int, default=1)
     parser.add_argument('--demo_use_cur_obs', type=int, default=1)
+    parser.add_argument('--demo_pn_type', type=str, default='large')
+    parser.add_argument('--optimizer', type=str, default='adam')
     return parser.parse_args()
 
 

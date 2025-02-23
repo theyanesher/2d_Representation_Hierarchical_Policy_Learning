@@ -517,6 +517,7 @@ class Demo_processing_model(nn.Module):
                  pn_input_channel=2,
                  pn_output_channel=60,
                  pn_keep_gripper_in_fps=False,
+                 pn_type='large',
                  attn_embedding_dim=60,
                  attn_num_heads=3,
                  attn_num_layers=2,
@@ -524,9 +525,13 @@ class Demo_processing_model(nn.Module):
                  use_cur_obs=True):
         super(Demo_processing_model, self).__init__()
         
-        # self.pointnet_encoder = PointNet2_super_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
-        self.pointnet_encoder = PointNet2_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
-        
+        if pn_type == 'super':
+            self.pointnet_encoder = PointNet2_super_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+        elif pn_type == 'large':
+            self.pointnet_encoder = PointNet2_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+        elif pn_type == 'small':
+            self.pointnet_encoder = PointNet2_small2_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+            
         self.use_attn = use_attn
         self.use_cur_obs = use_cur_obs
         if self.use_attn:
@@ -638,6 +643,37 @@ class PointNet2_no_feature_prop(nn.Module):
         x = F.relu(self.bn2(self.fc2(x)))
         x = self.fc3(x)
         return x # x shape: B, N, num_classes
+    
+class PointNet2_small2_no_feature_prop(nn.Module):
+    def __init__(self, num_classes=60, input_channel=3, keep_gripper_in_fps=False):
+        super(PointNet2_small2_no_feature_prop, self).__init__()
+        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=input_channel, mlp_list=[[16, 16, 32], [32, 32, 64]])
+        self.sa2 = PointNetSetAbstractionMsg(npoint=256, radius_list=[0.1, 0.2], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 64], [64, 96, 128]])
+        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128+64, [[128, 196, 128], [128, 196, 128]])
+        self.sa_final = PointNetSetAbstraction(None, None, None, 128 + 128 + 3, [128, 128, 256], True)
+
+        self.fc1 = nn.Linear(256, 128)
+        self.bn1 = nn.BatchNorm1d(128)
+        self.fc2 = nn.Linear(128, 64)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.fc3 = nn.Linear(64, num_classes)
+
+    def forward(self, xyz, feature):
+        l0_points = feature
+        l0_xyz = xyz[:, :3, :]
+        B, _, _ = xyz.shape
+
+        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points) # (B, 3, 512) (B, 96, 512)
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 128) (B, 256, 128)
+        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 32) (B, 512, 32)
+
+        final_xyz, final_points = self.sa_final(l3_xyz, l3_points)
+
+        x = final_points.view(B, 256)
+        x = F.relu(self.bn1(self.fc1(x)))
+        x = F.relu(self.bn2(self.fc2(x)))
+        x = self.fc3(x)
+        return x # x shape: B, N, num_classes: outputing logtis
         
 class PointNet2_superplus(nn.Module):
     def __init__(self, num_classes):
