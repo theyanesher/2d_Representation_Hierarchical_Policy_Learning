@@ -14,11 +14,11 @@ pc_channel=3
 prediction_target=goal_gripper_pcd
 
 use_mlp=0
-exp_name="paper-transformer-diffusion-high-level-10-obj-1229"
+exp_name="paper-transformer-diffusion-high-level-100-obj-camera-random-1212"
 
 torchrun --standalone --nproc_per_node=4 train_ddp.py \
     --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path=10_object_high_level  \
+    task.dataset.zarr_path=camera_random_100_obj_high_level  \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \

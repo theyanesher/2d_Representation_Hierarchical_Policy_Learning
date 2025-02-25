@@ -14,9 +14,9 @@ pc_channel=3
 prediction_target=goal_gripper_pcd
 
 use_mlp=0
-exp_name="paper-unet-diffusion-high-level-10-obj-1209"
+exp_name="paper-unet-diffusion-high-level-10-obj-1229"
 
-torchrun --standalone --nproc_per_node=2 train_ddp.py \
+torchrun --standalone --nproc_per_node=4 train_ddp.py \
     --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     task.dataset.zarr_path=10_object_high_level  \
     task.env_runner.demo_experiment_path="[]" \
@@ -36,17 +36,17 @@ torchrun --standalone --nproc_per_node=2 train_ddp.py \
     policy.encoder_type=act3d \
     policy.encoder_output_dim=60 \
     task.dataset.enumerate=True \
-    training.num_epochs=100 \
+    training.num_epochs=61 \
     training.rollout_every=2000 \
-    training.checkpoint_every=2 \
+    training.checkpoint_every=5 \
     task.env_runner.max_steps=35 \
-    training.val_every=2 \
+    training.val_every=5 \
     task.dataset.kept_in_disk=true \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=80 \
-    val_dataloader.batch_size=80 \
+    dataloader.batch_size=40 \
+    val_dataloader.batch_size=40 \
     policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     policy.act3d_encoder_cfg.self_attention=true \
     policy.prediction_target="${prediction_target}" \
