@@ -25,20 +25,22 @@ def train(args):
     device = torch.device(gpu_id)
 
     input_channel = 5 if args.add_one_hot_encoding else 3
-    if args.conditioning_on_demo:
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck:
         input_channel += args.demo_attn_embedding_dim
 
     output_dim = 13 
 
     if args.model_invariant:
-        from test_PointNet2.model_invariant import PointNet2_small2
-        from test_PointNet2.model_invariant import PointNet2
-        from test_PointNet2.model_invariant import PointNet2_super
-        from test_PointNet2.model_invariant import PointNet2_superplus
-        if args.model_type == 'pointnet2_super':
-            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+        if args.conditioning_on_demo:
+            from test_PointNet2.model_condition import PointNet2_super
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, 
+                                    input_channel=input_channel, 
+                                    cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
+                                    ).to(device)
         else:
-            raise ValueError(f"model_type {args.model_type} not recognized")
+            from test_PointNet2.model_invariant import PointNet2_super
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+            
     else:
         from test_PointNet2.model import PointNet2_small2
         from test_PointNet2.model import PointNet2
@@ -117,6 +119,8 @@ def train(args):
     if not args.demo_use_cur_obs:
         output_dir += "_no_demo_cur_obs"
     output_dir += "_demo_pn_" + args.demo_pn_type
+    if args.demo_cross_attn_bottleneck:
+        output_dir += "_demo_attn_bottleneck"
     output_dir += args.optimizer
         
     
@@ -206,12 +210,16 @@ def train(args):
                 if np.random.rand() > 0.5: ### train with conditioning and without conditioning randomly
                     demo_conditioning_feature = demo_transformer(data)
                     B, N, _ = pointcloud.shape
-                    demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
-                    inputs = torch.cat([pointcloud, demo_conditioning_feature], dim=-1)
+                    if not args.demo_cross_attn_bottleneck:
+                        demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
+                    else:
+                        demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
                 else:
                     B, N, _ = pointcloud.shape
-                    demo_conditioning_feature = torch.zeros((B, N, args.demo_attn_embedding_dim), dtype=inputs.dtype, device=inputs.device)
-                    inputs = torch.cat([pointcloud, demo_conditioning_feature], dim=-1)
+                    if not args.demo_cross_attn_bottleneck:
+                        demo_conditioning_feature = torch.zeros((B, N, args.demo_attn_embedding_dim), dtype=inputs.dtype, device=inputs.device)
+                    else:
+                        demo_conditioning_feature = torch.zeros((B, 1, args.demo_attn_embedding_dim), dtype=inputs.dtype, device=inputs.device)
             
 
             labels = gripper_points.unsqueeze(1) - inputs[:, :, :3].unsqueeze(2)
@@ -221,7 +229,11 @@ def train(args):
             inputs, labels = inputs.to(device), labels.to(device)
             inputs = inputs.permute(0, 2, 1)
             optimizer.zero_grad()
-            outputs = model(inputs) # B, N, 13
+            if not args.conditioning_on_demo:
+                outputs = model(inputs) # B, N, 13
+            else:
+                demo_conditioning_feature = demo_conditioning_feature.permute(0, 2, 1)
+                outputs = model(inputs, demo_conditioning_feature)
             weights = outputs[:, :, -1] # B, N
             outputs = outputs[:, :, :-1] # B, N, 12 ### now the outputs is a per-point Gaussian
             if args.output_obj_pcd_only:
@@ -308,6 +320,7 @@ def parse_args():
     parser.add_argument('--demo_use_attn', type=int, default=1)
     parser.add_argument('--demo_use_cur_obs', type=int, default=1)
     parser.add_argument('--demo_pn_type', type=str, default='large')
+    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=0)
     parser.add_argument('--optimizer', type=str, default='adam')
     return parser.parse_args()
 

@@ -403,7 +403,8 @@ class PointNet2_small2(nn.Module):
         return x # x shape: B, N, num_classes: outputing logtis
 
 class PointNet2_super(nn.Module):
-    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False):
+    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, cross_attn_bottleneck=False, 
+                 attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -421,21 +422,33 @@ class PointNet2_super(nn.Module):
         self.bn1 = nn.BatchNorm1d(128)
         # self.drop1 = nn.Dropout(0.5)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
+        
+        self.cross_attn_bottleneck = cross_attn_bottleneck
+        if self.cross_attn_bottleneck:
+            self.cross_attention_layers = CrossAttentionModule(attn_embedding_dim, attn_num_heads, attn_num_layers)
+            self.linear_down = nn.Linear(1024, attn_embedding_dim)
+            self.linear_up = nn.Linear(attn_embedding_dim, 1024)
 
-    def forward(self, xyz):
-        l0_points = xyz
+    def forward(self, xyz, condition_feature):
         l0_xyz = xyz[:, :3, :]
         
-        if xyz.shape[1] > 3:
-            l1_xyz, l1_points = self.sa1(l0_xyz, xyz[:, 3:, :])
+        if not self.cross_attn_bottleneck:
+            feature = torch.cat([xyz[:, 3:, :], condition_feature], dim=1) if xyz.shape[1] > 3 else condition_feature
+            l1_xyz, l1_points = self.sa1(l0_xyz, feature)
         else:
-            l1_xyz, l1_points = self.sa1(l0_xyz, None) # (B, 3, 1024) (B, 96, 1024)
-        
+            feature = xyz[:, 3:, :] if xyz.shape[1] > 3 else None
+            l1_xyz, l1_points = self.sa1(l0_xyz, feature)
+    
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 512) (B, 256, 512)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 256) (B, 512, 256)
         l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 128) (B, 1024, 16)
         l5_xyz, l5_points = self.sa5(l4_xyz, l4_points) # (B, 3, 64) (B , 1024, 64)
         l6_xyz, l6_points = self.sa6(l5_xyz, l5_points) # (B, 3, 16) (B, 1024, 16)
+        
+        if self.cross_attn_bottleneck:
+            l6_points_attn = self.cross_attention_layers(self.linear_down(l6_points.permute(0, 2, 1)), 
+                                                condition_feature.permute(0, 2, 1), condition_feature.permute(0, 2, 1))
+            l6_points = F.relu(l6_points + self.linear_up(l6_points_attn).permute(0, 2, 1))
 
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points) # (B, 512, 64)
         l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points) # (B, 512, 128)
@@ -446,7 +459,6 @@ class PointNet2_super(nn.Module):
 
         x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
-        # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes
 
@@ -463,6 +475,23 @@ class SelfAttentionLayer(nn.Module):
             query=query,
             key=query,
             value=query,
+        )
+        output = query + self.dropout(attn_output)
+        output = self.norm(output)
+        return output, attn_output_weights.mean(dim=1)
+    
+class CrossAttentionLayer(nn.Module):
+    def __init__(self, embedding_dim, num_heads, dropout=0.0):
+        super().__init__()
+        self.multihead_attn = nn.MultiheadAttention(embedding_dim, num_heads, dropout=dropout, batch_first=True)
+        self.norm = nn.LayerNorm(embedding_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, query, key, value):
+        attn_output, attn_output_weights = self.multihead_attn(
+            query=query,
+            key=key,
+            value=value,
         )
         output = query + self.dropout(attn_output)
         output = self.norm(output)
@@ -508,6 +537,27 @@ class SelfAttentionModule(nn.Module):
         output = []
         for i in range(len(self.attn_layers)):
             query, _ = self.attn_layers[i](query)
+            query = self.ffw_layers[i](query)
+            output.append(query)
+        return output[-1]
+    
+class CrossAttentionModule(nn.Module):
+    def __init__(self, embedding_dim, num_attn_heads, num_layers, hidden_dim=None):
+        super().__init__()
+
+        if hidden_dim is None:
+            hidden_dim = embedding_dim
+
+        self.attn_layers = nn.ModuleList()
+        self.ffw_layers = nn.ModuleList()
+        for _ in range(num_layers):
+            self.attn_layers.append(CrossAttentionLayer(embedding_dim, num_attn_heads))
+            self.ffw_layers.append(FeedforwardLayer(embedding_dim, hidden_dim))
+
+    def forward(self, query, key, value):
+        output = []
+        for i in range(len(self.attn_layers)):
+            query, _ = self.attn_layers[i](query, key, value)
             query = self.ffw_layers[i](query)
             output.append(query)
         return output[-1]
