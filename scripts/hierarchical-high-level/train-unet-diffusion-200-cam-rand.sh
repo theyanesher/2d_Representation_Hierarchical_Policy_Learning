@@ -14,11 +14,11 @@ pc_channel=3
 prediction_target=goal_gripper_pcd
 
 use_mlp=0
-exp_name="paper-transformer-diffusion-high-level-10-obj-1229"
+exp_name="paper-unet-diffusion-high-level-200-obj-camera-random-0111"
 
 torchrun --standalone --nproc_per_node=4 train_ddp.py \
     --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
-    task.dataset.zarr_path=10_object_high_level  \
+    task.dataset.zarr_path=camera_random_200_obj_high_level  \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
@@ -45,17 +45,17 @@ torchrun --standalone --nproc_per_node=4 train_ddp.py \
     task.dataset.load_per_step=true \
     task.dataset.num_load_episodes="${num_load_episodes}" \
     task.dataset.train_ratio="${train_ratio}" \
-    dataloader.batch_size=35 \
-    val_dataloader.batch_size=35 \
+    dataloader.batch_size=55 \
+    val_dataloader.batch_size=55 \
     policy.act3d_encoder_cfg.mode=keep_position_feature_in_attention_feature_with_gripper_displacement_to_closest_object \
     policy.act3d_encoder_cfg.self_attention=true \
     policy.prediction_target="${prediction_target}" \
     task.dataset.prediction_target="${prediction_target}" \
     policy.act3d_encoder_cfg.use_mlp="${use_mlp}" \
     policy.act3d_encoder_cfg.pointcloud_backbone=pointnet2 \
-    policy.noise_model_type=transformer \
-    policy.transformer_type="default" \
+    policy.noise_model_type=unet \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
     policy.noise_scheduler.prediction_type=epsilon \
     task.dataset.is_pickle=true \
+    task.dataset.augmentation_pcd=false \
 
