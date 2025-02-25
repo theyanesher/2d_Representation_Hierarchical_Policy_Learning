@@ -36,10 +36,15 @@ def train(args):
             model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, 
                                     input_channel=input_channel, 
                                     cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
+                                    attn_embedding_dim=args.demo_attn_embedding_dim,
+                                    demo_use_attn=args.demo_use_attn,
+                                    demo_pn_type=args.demo_pn_type,
+                                    demo_use_cur_obs=args.demo_use_cur_obs
                                     ).to(device)
         else:
             from test_PointNet2.model_invariant import PointNet2_super
-            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel,
+                                    ).to(device)
             
     else:
         from test_PointNet2.model import PointNet2_small2
@@ -62,18 +67,6 @@ def train(args):
     
     model.train()
     to_optimize_parameters = model.parameters()
-    
-    if args.conditioning_on_demo:
-        from test_PointNet2.model_condition import Demo_processing_model
-        demo_transformer = Demo_processing_model(
-            pn_input_channel=2, 
-            attn_embedding_dim=args.demo_attn_embedding_dim,
-            use_attn=args.demo_use_attn,
-            use_cur_obs=args.demo_use_cur_obs,
-            pn_type=args.demo_pn_type,
-        ).to(device)
-        demo_transformer.train()
-        to_optimize_parameters = list(to_optimize_parameters) + list(demo_transformer.parameters())
 
     if args.optimizer == 'adam':
         optimizer = torch.optim.Adam(to_optimize_parameters, lr=args.lr)
@@ -133,7 +126,7 @@ def train(args):
 
 
     gpu_id = int(os.environ["LOCAL_RANK"])
-    model = DDP(model, device_ids=[gpu_id])
+    model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
 
     if os.environ['LOCAL_RANK'] == '0':
         if not os.path.exists(args.exp_path):
@@ -204,23 +197,6 @@ def train(args):
                 inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
             else:
                 inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
-                
-            ### do demonstration conditioning processing here
-            if args.conditioning_on_demo :
-                if np.random.rand() > 0.5: ### train with conditioning and without conditioning randomly
-                    demo_conditioning_feature = demo_transformer(data)
-                    B, N, _ = pointcloud.shape
-                    if not args.demo_cross_attn_bottleneck:
-                        demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
-                    else:
-                        demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
-                else:
-                    B, N, _ = pointcloud.shape
-                    if not args.demo_cross_attn_bottleneck:
-                        demo_conditioning_feature = torch.zeros((B, N, args.demo_attn_embedding_dim), dtype=inputs.dtype, device=inputs.device)
-                    else:
-                        demo_conditioning_feature = torch.zeros((B, 1, args.demo_attn_embedding_dim), dtype=inputs.dtype, device=inputs.device)
-            
 
             labels = gripper_points.unsqueeze(1) - inputs[:, :, :3].unsqueeze(2)
             B, N, _, _ = labels.shape
@@ -232,8 +208,7 @@ def train(args):
             if not args.conditioning_on_demo:
                 outputs = model(inputs) # B, N, 13
             else:
-                demo_conditioning_feature = demo_conditioning_feature.permute(0, 2, 1)
-                outputs = model(inputs, demo_conditioning_feature)
+                outputs = model(inputs, data)
             weights = outputs[:, :, -1] # B, N
             outputs = outputs[:, :, :-1] # B, N, 12 ### now the outputs is a per-point Gaussian
             if args.output_obj_pcd_only:

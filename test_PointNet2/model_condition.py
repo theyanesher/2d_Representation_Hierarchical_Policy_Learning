@@ -404,7 +404,7 @@ class PointNet2_small2(nn.Module):
 
 class PointNet2_super(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, cross_attn_bottleneck=False, 
-                 attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2):
+                 attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2, demo_use_attn=True, demo_pn_type='large', demo_use_cur_obs=True):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -428,8 +428,34 @@ class PointNet2_super(nn.Module):
             self.cross_attention_layers = CrossAttentionModule(attn_embedding_dim, attn_num_heads, attn_num_layers)
             self.linear_down = nn.Linear(1024, attn_embedding_dim)
             self.linear_up = nn.Linear(attn_embedding_dim, 1024)
+            
+        self.demo_transformer = Demo_processing_model(
+            pn_input_channel=2, 
+            attn_embedding_dim=attn_embedding_dim,
+            use_attn=demo_use_attn,
+            use_cur_obs=demo_use_cur_obs,
+            pn_type=demo_pn_type,
+        )
+        
+        self.attn_embedding_dim = attn_embedding_dim
 
-    def forward(self, xyz, condition_feature):
+    def forward(self, xyz, demo_data):
+        ### do demonstration conditioning processing here
+        if np.random.rand() > 0.5: ### train with conditioning and without conditioning randomly
+            demo_conditioning_feature = self.demo_transformer(demo_data)
+            B, N, _ = xyz.shape
+            if not self.cross_attn_bottleneck:
+                demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
+            else:
+                demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
+        else:
+            B, N, _ = xyz.shape
+            if not self.cross_attn_bottleneck:
+                demo_conditioning_feature = torch.zeros((B, N, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
+            else:
+                demo_conditioning_feature = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
+        condition_feature = demo_conditioning_feature.permute(0, 2, 1)
+        
         l0_xyz = xyz[:, :3, :]
         
         if not self.cross_attn_bottleneck:

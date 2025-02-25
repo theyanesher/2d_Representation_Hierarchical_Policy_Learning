@@ -25,6 +25,7 @@ import pickle as pkl
 import argparse
 from typing import List, Optional
 from collections import deque
+from manipulation.utils import load_env
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
@@ -182,7 +183,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False):
+                          randomize_camera=False, demo_transformer=None):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -195,7 +196,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         # if dataset_idx == 0:
         #     continue
 
-        after_reaching_init_state_files = []
+        opening_state_files = []
         init_state_files = []
         config_files = []
         experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
@@ -255,32 +256,62 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             if 'stage' in stage_lengths:
                 reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
             else:
-                reaching_phase = stage_lengths['reach_handle']
+                # This is actually the -10 timestep which we used for the demo conditioning
+                reaching_phase = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 10
                 
-            after_init_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
-            after_reaching_init_state_files.append(after_init_state_file)
+            opening_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
+            opening_state_files.append(opening_state_file)
             init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
             config_files.append(config_file)
                     
-        after_reaching_init_state_files = after_reaching_init_state_files
-        config_files = config_files
-
         opened_joint_angles = {}
 
         if exp_end_ratio is not None:
             exp_end_idx = int(exp_end_ratio * len(config_files))
         if exp_beg_ratio is not None:
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
-
+            
+        if conditioning_on_demo: # construct the env using the last episode as demo
+            config_file = config_files[exp_end_idx]
+            init_state_file = init_state_files[exp_end_idx]
+            opening_state_file = opening_state_files[exp_end_idx]
+            with open(config_file, 'r') as f:
+                config = yaml.safe_load(f)
+            solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
+            all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
+            with open(all_substeps_path, "r") as f:
+                substeps = f.readlines()
+                first_step = substeps[0].lstrip().rstrip()
+                task_name = first_step.replace(" ", "_")
+            
+            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
+                                randomize_camera)
+            
+            obs = env.reset()
+            
+            demo_data = {
+                "demo_grasp_pcd": torch.from_numpy(obs['point_cloud'][:, -1, :, :]).to("cuda").unsqueeze(0),
+                "demo_grasp_goal_gripper_pcd": torch.from_numpy(obs['goal_gripper_pcd'][:, -1, :]).to("cuda").unsqueeze(0),
+            }
+            
+            load_env(env.env._env, opening_state_file)
+            obs = env.env._get_observation()
+            
+            demo_data['demo_open_pcd'] = torch.from_numpy(obs['point_cloud']).to("cuda").unsqueeze(0)
+            demo_data['demo_open_gripper_pcd'] = torch.from_numpy(obs['gripper_pcd']).to("cuda").unsqueeze(0)
+            
+            
         config_files = config_files[exp_beg_idx:exp_end_idx]
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
         expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
-        # import pdb; pdb.set_trace()
+        opening_state_files = opening_state_files[exp_beg_idx:exp_end_idx]
+        
         all_distances = []
         all_grasp_distances = []
 
+        
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
                 
             with open(config_file, 'r') as f:
@@ -298,12 +329,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             obs = env.reset()
             rgb = env.env.render()
             info = env.env._env._get_info()
-
+            
             initial_info = info
             all_rgbs = [rgb]
-            goal_stage = 'first'
             first_step_outputs = None
-            gripper_close_accumulation_buffer = deque(maxlen=5)
             last_goal = None
             for t in range(1, horizon):
                 parallel_input_dict = obs
@@ -313,8 +342,14 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
-                
+                    
+              
                 if t == 1 or t % update_goal_freq == 0:
+                    
+                    if args.conditioning_on_demo:
+                        demo_data['point_cloud'] = parallel_input_dict['point_cloud'][:, -1, :, :]
+                        demo_data['gripper_pcd'] = parallel_input_dict['gripper_pcd'][:, -1, :]
+                    
                     with torch.no_grad():
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
@@ -337,7 +372,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         fixed_variance = args.fixed_variance
                         inputs = inputs.to('cuda')
                         inputs_ = inputs.permute(0, 2, 1)
-                        outputs = goal_prediction_model(inputs_)
+                        if not args.conditioning_on_demo:
+                            outputs = goal_prediction_model(inputs_)
+                        else:
+                            outputs = model(inputs_, demo_data)
+
                         weights = outputs[:, :, -1] # B, N
                         outputs = outputs[:, :, :-1] # B, N, 12
                         if output_obj_pcd_only:
@@ -347,17 +386,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                             inputs = inputs[:, :-4, :]
 
                         B, N, _ = outputs.shape
-                        if not args.predict_two_goals:
-                            outputs = outputs.view(B, N, 4, 3)
-                        else:
-                            outputs = outputs.view(B, N, 8, 3)
-                            if first_step_outputs is None:
-                                first_step_outputs = deepcopy(outputs)
-                                
-                            if goal_stage == 'first':
-                                outputs = outputs[:, :, :4, :]
-                            elif goal_stage == 'second':
-                                outputs = outputs[:, :, 4:, :]
+                        outputs = outputs.view(B, N, 4, 3)
                         
                         ### sample an displacement according to the weight
                         # import pdb; pdb.set_trace()
@@ -389,10 +418,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
                     gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
-                    gripper_close_accumulation_buffer.append(np.sum(gripper_close_actions))
-                    if np.sum(gripper_close_accumulation_buffer) < -0.006:
-                        # cprint("changing goal!", 'red')
-                        goal_stage = 'second'
                     
                     
                 np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
@@ -469,6 +494,12 @@ if __name__ == "__main__":
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--fixed_variance', type=float, default=0.05)
     parser.add_argument('--argmax', type=int, default=0)
+    parser.add_argument('--conditioning_on_demo', type=int, default=0)
+    parser.add_argument('--demo_attn_embedding_dim', type=int, default=60)
+    parser.add_argument('--demo_use_attn', type=int, default=1)
+    parser.add_argument('--demo_use_cur_obs', type=int, default=1)
+    parser.add_argument('--demo_pn_type', type=str, default='large')
+    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=0)
     args = parser.parse_args()
     
     num_worker = 30
@@ -530,6 +561,8 @@ if __name__ == "__main__":
     
     num_class = 13 if not args.predict_two_goals else 25
     input_channel = 5 if args.add_one_hot_encoding else 3
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck:
+        input_channel += args.demo_attn_embedding_dim
 
     if not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
@@ -541,18 +574,24 @@ if __name__ == "__main__":
             pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
         
     else:
-        from test_PointNet2.model_invariant import PointNet2, PointNet2_super, PointNet2_superplus
-        if args.pointnet_class == 'PointNet2_large':
-            pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
-        elif args.pointnet_class == 'PointNet2_super':
-            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
-        elif args.pointnet_class == "PointNet2_superplus":
-            pointnet2_model = PointNet2_superplus(num_classes=13).to("cuda")
+        if args.conditioning_on_demo:
+            from test_PointNet2.model_condition import PointNet2_super
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, 
+                                    input_channel=input_channel, 
+                                    cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
+                                    attn_embedding_dim=args.demo_attn_embedding_dim,
+                                    demo_use_attn=args.demo_use_attn,
+                                    demo_pn_type=args.demo_pn_type,
+                                    demo_use_cur_obs=args.demo_use_cur_obs
+                                    ).to(device)
+        else:
+            from test_PointNet2.model_invariant import PointNet2_super
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
             
         
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
-    
+        
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     
     save_path = "data/{}".format(args.eval_exp_name)
@@ -583,7 +622,8 @@ if __name__ == "__main__":
             update_goal_freq=args.update_goal_freq,
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
-            randomize_camera=args.randomize_camera
+            randomize_camera=args.randomize_camera,
+            demo_transformer=demo_transformer
     )
 
 
