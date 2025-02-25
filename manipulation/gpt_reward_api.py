@@ -476,6 +476,7 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
             parent_joint_idx = get_joint_id_from_name(simulator, obj_name, parent_joint_name) # this is the joint id in pybullet
             
             parent_link_state = p.getLinkState(obj_id, parent_joint_idx, physicsClientId=simulator.id) # NOTE: the handle link id should be dependent on the object urdf.
+            # parent_link_state = p.getLinkState(obj_id, joint_idx, physicsClientId=simulator.id) # NOTE: the handle link id should be dependent on the object urdf.
             link_urdf_world_pos, link_urdf_world_orn = parent_link_state[0], parent_link_state[1]
             # this is the transformation from the parent frame to the world frame. 
             T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
@@ -507,7 +508,7 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
                     temp = max(0, s*(s-a)*(s-b)*(s-c))
                     surface = np.sqrt(temp)
                     num_points = surface * 1e6
-                    num_points = int(num_points)            
+                    num_points = int(num_points)
                     num_points = np.clip(num_points, 0, 5)
                     added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
 
@@ -533,9 +534,19 @@ def get_handle_pos(simulator, obj_name, return_median=True, handle_pts_obj_frame
             # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
 
             # TODO: GPT can parse the mobility.json to get the joint name. 
-            rotation_angle = p.getJointState(obj_id, joint_idx, physicsClientId=simulator.id)[0] # NOTE: this joint id should be dependent on the object urdf.
-            rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
-            rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
+            joint_info = p.getJointInfo(obj_id, joint_idx, physicsClientId=simulator.id)
+            joint_type = joint_info[2]
+            
+            if joint_type == p.JOINT_REVOLUTE:
+                rotation_angle = p.getJointState(obj_id, joint_idx, physicsClientId=simulator.id)[0] # NOTE: this joint id should be dependent on the object urdf.
+                rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
+                rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
+            elif joint_type == p.JOINT_PRISMATIC:
+                translation = p.getJointState(obj_id, joint_idx, physicsClientId=simulator.id)[0]
+                rotated_handle_pt = handle_point_median + axis_dir_world * translation
+                
+            # import pdb; pdb.set_trace()
+            # rotated_handle_pt = handle_points_world.T
 
             if return_median:
                 ret_handle_pt_list.append(rotated_handle_pt.flatten())

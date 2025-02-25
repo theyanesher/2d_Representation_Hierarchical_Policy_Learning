@@ -75,6 +75,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                           noise_real_world_pcd=False,
                           randomize_camera=False,
                           use_high_level=True,
+                          heuristic_goal_switching=False,
                           ):
     
     if calculate_distance_from_gt:
@@ -198,7 +199,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
                     
-                if use_high_level:
+                if use_high_level and not heuristic_goal_switching:
                     if use_predicted_goal and (t == 1 or t % update_goal_freq == 0):
                         high_level_parallel_input_dict = deepcopy(parallel_input_dict)
                         if goal_cfg.n_obs_steps == 1:
@@ -251,7 +252,8 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
 
                 if use_high_level:
                     env.env.goal_gripper_pcd = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[0].reshape(4, 3)
-                else:
+            
+                if not use_high_level and not heuristic_goal_switching:
                     env.env.goal_gripper_pcd = None
                     
                 rgb = env.env.render()
@@ -307,7 +309,8 @@ if __name__ == "__main__":
     parser.add_argument("--noise_real_world_pcd", type=int, default=0)
     parser.add_argument("--real_world_camera", type=int, default=0)
     parser.add_argument("--randomize_camera", type=int, default=0)
-    parser.add_argument("--use_high_level", type=int, default=0)
+    parser.add_argument("--use_high_level", type=int, default=1)
+    parser.add_argument("--heuristic_goal_switching", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
 
     args = parser.parse_args()
@@ -358,16 +361,16 @@ if __name__ == "__main__":
         
     ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
-    cfg.task.env_runner.experiment_folder += [
-        "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
-        "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    ]
-    cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
+    # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
+    # cfg.task.env_runner.experiment_folder += [
+    #     "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    #     "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
+    # ]
+    # cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
 
     ### load the high-level policy
     if args.use_high_level:
@@ -416,6 +419,7 @@ if __name__ == "__main__":
         "high_level_policy": goal_exp_dir,
         "high_level_policy_checkpoint": goal_checkpoint_name,
     }
+    checkpoint_info.update(args.__dict__)
     with open("{}/checkpoint_info.json".format(save_path), "w") as f:
         json.dump(checkpoint_info, f, indent=4)
     
@@ -437,4 +441,5 @@ if __name__ == "__main__":
             noise_real_world_pcd=args.noise_real_world_pcd,
             randomize_camera=args.randomize_camera,
             use_high_level=args.use_high_level,
+            heuristic_goal_switching=args.heuristic_goal_switching,
     )
