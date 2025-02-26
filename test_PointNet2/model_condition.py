@@ -404,7 +404,8 @@ class PointNet2_small2(nn.Module):
 
 class PointNet2_super(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, cross_attn_bottleneck=False, 
-                 attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2, demo_use_attn=True, demo_pn_type='large', demo_use_cur_obs=True):
+                 attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2, demo_use_attn=True, demo_pn_type='large', demo_use_cur_obs=True, 
+                 use_flow_in_demo=False, separate_demo_feature=False):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -428,16 +429,22 @@ class PointNet2_super(nn.Module):
             self.cross_attention_layers = CrossAttentionModule(attn_embedding_dim, attn_num_heads, attn_num_layers)
             self.linear_down = nn.Linear(1024, attn_embedding_dim)
             self.linear_up = nn.Linear(attn_embedding_dim, 1024)
-            
+
+        
+        pn_fc_layers = [128, 64] if attn_embedding_dim < 255 else [256, 256]
         self.demo_transformer = Demo_processing_model(
-            pn_input_channel=2, 
+            pn_input_channel=2 if not use_flow_in_demo else 12, 
             attn_embedding_dim=attn_embedding_dim,
             use_attn=demo_use_attn,
             use_cur_obs=demo_use_cur_obs,
             pn_type=demo_pn_type,
+            use_flow_in_demo=use_flow_in_demo,
+            separate_demo_feature=separate_demo_feature,
+            pn_fc_layers=pn_fc_layers,
         )
         
         self.attn_embedding_dim = attn_embedding_dim
+        self.separate_demo_feature = separate_demo_feature
 
     def forward(self, xyz, demo_data):
         ### do demonstration conditioning processing here
@@ -447,14 +454,21 @@ class PointNet2_super(nn.Module):
             if not self.cross_attn_bottleneck:
                 demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
             else:
-                demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
+                if not self.separate_demo_feature:
+                    demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
+                else:
+                    demo_conditioning_feature_1, demo_conditioning_feature_2 = demo_conditioning_feature
+                    demo_conditioning_feature_1 = demo_conditioning_feature_1.unsqueeze(1)
+                    demo_conditioning_feature_2 = demo_conditioning_feature_2.unsqueeze(1)
         else:
             B, N, _ = xyz.shape
             if not self.cross_attn_bottleneck:
                 demo_conditioning_feature = torch.zeros((B, N, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
             else:
-                demo_conditioning_feature = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
-        condition_feature = demo_conditioning_feature.permute(0, 2, 1)
+                if not self.separate_demo_feature:
+                    demo_conditioning_feature = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
+                else:
+                    demo_conditioning_feature_1, demo_conditioning_feature_2 = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device), torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
         
         l0_xyz = xyz[:, :3, :]
         
@@ -472,8 +486,15 @@ class PointNet2_super(nn.Module):
         l6_xyz, l6_points = self.sa6(l5_xyz, l5_points) # (B, 3, 16) (B, 1024, 16)
         
         if self.cross_attn_bottleneck:
-            l6_points_attn = self.cross_attention_layers(self.linear_down(l6_points.permute(0, 2, 1)), 
-                                                condition_feature.permute(0, 2, 1), condition_feature.permute(0, 2, 1))
+            if not self.separate_demo_feature:
+                l6_points_attn = self.cross_attention_layers(self.linear_down(l6_points.permute(0, 2, 1)), 
+                                                    condition_feature, condition_feature)
+            else:
+                l6_points_attn_features = self.linear_down(l6_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                query = torch.cat([l6_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+                l6_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+                l6_points_attn = l6_points_attn[:, :16, :]
+                
             l6_points = F.relu(l6_points + self.linear_up(l6_points_attn).permute(0, 2, 1))
 
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points) # (B, 512, 64)
@@ -594,36 +615,51 @@ class Demo_processing_model(nn.Module):
                  pn_output_channel=60,
                  pn_keep_gripper_in_fps=False,
                  pn_type='large',
+                 pn_fc_layers=[128, 64],
                  attn_embedding_dim=60,
                  attn_num_heads=3,
                  attn_num_layers=2,
                  use_attn=True,
-                 use_cur_obs=True):
+                 use_cur_obs=True,
+                 use_flow_in_demo=False,
+                 separate_demo_feature=False,
+                ):
         super(Demo_processing_model, self).__init__()
         
         if pn_type == 'super':
-            self.pointnet_encoder = PointNet2_super_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+            self.pointnet_encoder = PointNet2_super_no_feature_prop(num_classes=attn_embedding_dim, input_channel=pn_input_channel, keep_gripper_in_fps=False)
         elif pn_type == 'large':
-            self.pointnet_encoder = PointNet2_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+            self.pointnet_encoder = PointNet2_no_feature_prop(num_classes=attn_embedding_dim, input_channel=pn_input_channel, fc_layers=pn_fc_layers, keep_gripper_in_fps=False)
         elif pn_type == 'small':
-            self.pointnet_encoder = PointNet2_small2_no_feature_prop(num_classes=pn_output_channel, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+            self.pointnet_encoder = PointNet2_small2_no_feature_prop(num_classes=attn_embedding_dim, input_channel=pn_input_channel, keep_gripper_in_fps=False)
             
         self.use_attn = use_attn
         self.use_cur_obs = use_cur_obs
         if self.use_attn:
             self.self_attn_layers = SelfAttentionModule(attn_embedding_dim, attn_num_heads, attn_num_layers)
         else:
-            self.linear = nn.Linear(2 * pn_output_channel, pn_output_channel)
+            if not separate_demo_feature:
+                self.linear = nn.Linear(2 * attn_embedding_dim, attn_embedding_dim)
+            
+        self.use_flow_in_demo = use_flow_in_demo
+        self.separate_demo_feature = separate_demo_feature
         
     def construct_pn_input(self, pcd, gripper_pcd):
-        # first concat all points together
-        B, N, _ = pcd.shape
-        # import pdb; pdb.set_trace()
-        all_points_xyz = torch.cat([pcd, gripper_pcd], dim=1) # B, (N+4), 3
-        features = torch.zeros((B, N + 4, 2), device=all_points_xyz.device)
-        features[:, :N, 0] = 1 # object points
-        features[:, N:N+4, 1] = 1 # cur gripper points
-        return all_points_xyz.permute(0, 2, 1), features.permute(0, 2, 1)
+        if not self.use_flow_in_demo:
+            # first concat all points together
+            B, N, _ = pcd.shape
+            # import pdb; pdb.set_trace()
+            all_points_xyz = torch.cat([pcd, gripper_pcd], dim=1) # B, (N+4), 3
+            features = torch.zeros((B, N + 4, 2), device=all_points_xyz.device)
+            features[:, :N, 0] = 1 # object points
+            features[:, N:N+4, 1] = 1 # cur gripper points
+            return all_points_xyz.permute(0, 2, 1), features.permute(0, 2, 1)
+        else:
+            B, N, _ = pcd.shape
+            labels = gripper_pcd.unsqueeze(1) - pcd.unsqueeze(2) # B, N, 4, 3
+            labels = labels.view(B, N, -1) # B, N, 12
+            return pcd.permute(0, 2, 1), labels.permute(0, 2, 1)
+            
     
     def forward(self, data_dict):
         if self.use_cur_obs:
@@ -645,8 +681,11 @@ class Demo_processing_model(nn.Module):
             return attn_output[:, 0, :] # use updated cur_obs_embedding
         
         else:
-            concat_grasp_and_open = torch.cat([demo_grasp_embedding, demo_open_embedding], dim=-1)
-            return self.linear(concat_grasp_and_open)
+            if not self.separate_demo_feature:
+                concat_grasp_and_open = torch.cat([demo_grasp_embedding, demo_open_embedding], dim=-1)
+                return self.linear(concat_grasp_and_open)
+            else:
+                return demo_grasp_embedding, demo_open_embedding
     
 class PointNet2_super_no_feature_prop(nn.Module):
     def __init__(self, num_classes=128, input_channel=3, keep_gripper_in_fps=False):
@@ -687,7 +726,7 @@ class PointNet2_super_no_feature_prop(nn.Module):
         return x # x shape: B, num_classes
     
 class PointNet2_no_feature_prop(nn.Module):
-    def __init__(self, num_classes=60, input_channel=3, keep_gripper_in_fps=False):
+    def __init__(self, num_classes=60, input_channel=3, keep_gripper_in_fps=False, fc_layers=[128, 64]):
         super(PointNet2_no_feature_prop, self).__init__()
         # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=3, mlp_list=[[16, 16, 32], [32, 32, 64]])
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=input_channel, mlp_list=[[16, 16, 32], [32, 32, 64]])
@@ -696,11 +735,11 @@ class PointNet2_no_feature_prop(nn.Module):
         self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256+256, [[256, 256, 256], [256, 256, 256]])
         self.sa_final = PointNetSetAbstraction(None, None, None, 512 + 3, [256, 256, 256], True)
         
-        self.fc1 = nn.Linear(256, 128)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.fc2 = nn.Linear(128, 64)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.fc3 = nn.Linear(64, num_classes)
+        self.fc1 = nn.Linear(256, fc_layers[0])
+        self.bn1 = nn.BatchNorm1d(fc_layers[0])
+        self.fc2 = nn.Linear(fc_layers[0], fc_layers[1])
+        self.bn2 = nn.BatchNorm1d(fc_layers[1])
+        self.fc3 = nn.Linear(fc_layers[1], num_classes)
 
     def forward(self, xyz, feature):
         l0_points = feature

@@ -39,7 +39,9 @@ def train(args):
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
-                                    demo_use_cur_obs=args.demo_use_cur_obs
+                                    demo_use_cur_obs=args.demo_use_cur_obs,
+                                    use_flow_in_demo=args.demo_use_flow,
+                                    separate_demo_feature=args.separate_demo_feature,
                                     ).to(device)
         else:
             from test_PointNet2.model_invariant import PointNet2_super
@@ -291,12 +293,14 @@ def parse_args():
     parser.add_argument('--exp_name', type=str, default="")
     parser.add_argument('--fixed_variance', type=float, default=0.05)
     parser.add_argument('--conditioning_on_demo', type=int, default=0)
-    parser.add_argument('--demo_attn_embedding_dim', type=int, default=60)
-    parser.add_argument('--demo_use_attn', type=int, default=1)
-    parser.add_argument('--demo_use_cur_obs', type=int, default=1)
+    parser.add_argument('--demo_attn_embedding_dim', type=int, default=255)
+    parser.add_argument('--demo_use_attn', type=int, default=0)
+    parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
-    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=0)
-    parser.add_argument('--optimizer', type=str, default='adam')
+    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--separate_demo_feature', type=int, default=1)
+    parser.add_argument('--demo_use_flow', type=int, default=1)
+    parser.add_argument('--optimizer', type=str, default='adamw')
     return parser.parse_args()
 
 

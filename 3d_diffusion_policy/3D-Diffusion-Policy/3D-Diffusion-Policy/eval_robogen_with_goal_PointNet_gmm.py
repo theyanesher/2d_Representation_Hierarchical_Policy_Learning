@@ -183,7 +183,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False, demo_transformer=None):
+                          randomize_camera=False, conditioning_on_demo=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -291,9 +291,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             
             obs = env.reset()
             
+            # import pdb; pdb.set_trace()
             demo_data = {
-                "demo_grasp_pcd": torch.from_numpy(obs['point_cloud'][:, -1, :, :]).to("cuda").unsqueeze(0),
-                "demo_grasp_goal_gripper_pcd": torch.from_numpy(obs['goal_gripper_pcd'][:, -1, :]).to("cuda").unsqueeze(0),
+                "demo_grasp_pcd": torch.from_numpy(obs['point_cloud'][-1, :, :]).to("cuda").unsqueeze(0),
+                "demo_grasp_goal_gripper_pcd": torch.from_numpy(obs['goal_gripper_pcd'][-1, :, :]).to("cuda").unsqueeze(0),
             }
             
             load_env(env.env._env, opening_state_file)
@@ -347,7 +348,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 if t == 1 or t % update_goal_freq == 0:
                     
                     if args.conditioning_on_demo:
-                        demo_data['point_cloud'] = parallel_input_dict['point_cloud'][:, -1, :, :]
+                        demo_data['pointcloud'] = parallel_input_dict['point_cloud'][:, -1, :, :]
                         demo_data['gripper_pcd'] = parallel_input_dict['gripper_pcd'][:, -1, :]
                     
                     with torch.no_grad():
@@ -375,7 +376,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         if not args.conditioning_on_demo:
                             outputs = goal_prediction_model(inputs_)
                         else:
-                            outputs = model(inputs_, demo_data)
+                            outputs = goal_prediction_model(inputs_, demo_data)
 
                         weights = outputs[:, :, -1] # B, N
                         outputs = outputs[:, :, :-1] # B, N, 12
@@ -499,7 +500,7 @@ if __name__ == "__main__":
     parser.add_argument('--demo_use_attn', type=int, default=1)
     parser.add_argument('--demo_use_cur_obs', type=int, default=1)
     parser.add_argument('--demo_pn_type', type=str, default='large')
-    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=0)
+    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
     args = parser.parse_args()
     
     num_worker = 30
@@ -576,17 +577,17 @@ if __name__ == "__main__":
     else:
         if args.conditioning_on_demo:
             from test_PointNet2.model_condition import PointNet2_super
-            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, 
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, 
                                     input_channel=input_channel, 
                                     cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
                                     demo_use_cur_obs=args.demo_use_cur_obs
-                                    ).to(device)
+                                    ).to("cuda")
         else:
             from test_PointNet2.model_invariant import PointNet2_super
-            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
             
         
     pointnet2_model.load_state_dict(torch.load(load_model_path))
@@ -623,7 +624,7 @@ if __name__ == "__main__":
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
             randomize_camera=args.randomize_camera,
-            demo_transformer=demo_transformer
+            conditioning_on_demo=args.conditioning_on_demo,
     )
 
 
