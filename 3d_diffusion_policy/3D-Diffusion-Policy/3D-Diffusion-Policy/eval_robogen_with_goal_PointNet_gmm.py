@@ -501,6 +501,8 @@ if __name__ == "__main__":
     parser.add_argument('--demo_use_cur_obs', type=int, default=1)
     parser.add_argument('--demo_pn_type', type=str, default='large')
     parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--separate_demo_feature', type=int, default=0)
+    parser.add_argument('--demo_use_flow', type=int, default=0)
     args = parser.parse_args()
     
     num_worker = 30

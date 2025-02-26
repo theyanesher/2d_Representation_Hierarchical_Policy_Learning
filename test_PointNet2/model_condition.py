@@ -488,7 +488,7 @@ class PointNet2_super(nn.Module):
         if self.cross_attn_bottleneck:
             if not self.separate_demo_feature:
                 l6_points_attn = self.cross_attention_layers(self.linear_down(l6_points.permute(0, 2, 1)), 
-                                                    condition_feature, condition_feature)
+                                                    demo_conditioning_feature, demo_conditioning_feature)
             else:
                 l6_points_attn_features = self.linear_down(l6_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
                 query = torch.cat([l6_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
