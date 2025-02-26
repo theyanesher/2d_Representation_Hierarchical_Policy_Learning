@@ -257,7 +257,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
             else:
                 # This is actually the -10 timestep which we used for the demo conditioning
-                reaching_phase = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 10
+                reaching_phase = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 1
                 
             opening_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
             opening_state_files.append(opening_state_file)
@@ -277,6 +277,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             config_file = config_files[exp_end_idx]
             init_state_file = init_state_files[exp_end_idx]
             opening_state_file = opening_state_files[exp_end_idx]
+            from termcolor import cprint
+            cprint(f"exp_end_idx {exp_end_idx}", "red")
+            cprint(f"demo config file {config_file}", "red")
+            cprint(f"demo init state file {init_state_file}", "red")
+            cprint(f"demo opening state file {opening_state_file}", "red")
             with open(config_file, 'r') as f:
                 config = yaml.safe_load(f)
             solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
@@ -303,7 +308,9 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             demo_data['demo_open_pcd'] = torch.from_numpy(obs['point_cloud']).to("cuda").unsqueeze(0)
             demo_data['demo_open_gripper_pcd'] = torch.from_numpy(obs['gripper_pcd']).to("cuda").unsqueeze(0)
             
-            
+            env.env._env.close()
+            del env
+
         config_files = config_files[exp_beg_idx:exp_end_idx]
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
         expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
@@ -324,6 +331,8 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 first_step = substeps[0].lstrip().rstrip()
                 task_name = first_step.replace(" ", "_")
             
+            cprint(f"eval config file {config_file}", "red")
+            cprint(f"eval init state file {init_state_file}", "red")
             env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                 randomize_camera)
             
@@ -350,7 +359,38 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     if args.conditioning_on_demo:
                         demo_data['pointcloud'] = parallel_input_dict['point_cloud'][:, -1, :, :]
                         demo_data['gripper_pcd'] = parallel_input_dict['gripper_pcd'][:, -1, :]
-                    
+
+                        if False:
+                            from matplotlib import pyplot as plt
+                            fig = plt.figure(figsize=(12, 4))
+                            ax1 = fig.add_subplot(131, projection='3d')
+                            ax2 = fig.add_subplot(132, projection='3d')
+                            ax3 = fig.add_subplot(133, projection='3d')
+
+                            pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :].cpu().numpy()[0]
+                            gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :].cpu().numpy()[0]
+                            goal_gripper_pcd = parallel_input_dict['goal_gripper_pcd'][:, -1, :].cpu().numpy()[0]
+                            ax1.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], color='grey')
+                            ax1.scatter(gripper_pcd[:, 0], gripper_pcd[:, 1], gripper_pcd[:, 2], s=20, color='blue')
+                            ax1.scatter(goal_gripper_pcd[:, 0], goal_gripper_pcd[:, 1], goal_gripper_pcd[:, 2], s=20, color='red')
+
+                            demo_grasp_pcd = demo_data['demo_grasp_pcd'].cpu().numpy()[0]
+                            demo_grasp_goal_gripper_pcd = demo_data["demo_grasp_goal_gripper_pcd"].cpu().numpy()[0]
+                            ax2.scatter(demo_grasp_pcd[:, 0], demo_grasp_pcd[:, 1], demo_grasp_pcd[:, 2], color='grey')
+                            # ax2.scatter(demo_grasp_gripper_pcd[:, 0], demo_grasp_gripper_pcd[:, 1], demo_grasp_gripper_pcd[:, 2], s=20, color='blue')
+                            ax2.scatter(demo_grasp_goal_gripper_pcd[:, 0], demo_grasp_goal_gripper_pcd[:, 1], demo_grasp_goal_gripper_pcd[:, 2], s=20, color='red')
+
+                            pcd_diff = np.linalg.norm(pointcloud - demo_grasp_pcd)
+                            cprint(f"pcd diff {pcd_diff}", 'red')
+
+                            demo_open_pcd = demo_data['demo_open_pcd'].cpu().numpy()[0]
+                            demo_open_gripper_pcd = demo_data['demo_open_gripper_pcd'].cpu().numpy()[0]
+                            ax3.scatter(demo_grasp_pcd[:, 0], demo_grasp_pcd[:, 1], demo_grasp_pcd[:, 2], color='grey')
+                            ax3.scatter(demo_open_gripper_pcd[:, 0], demo_open_gripper_pcd[:, 1], demo_open_gripper_pcd[:, 2], s=20, color='blue')
+                            # ax3.scatter(demo_open_goal_gripper_pcd[:, 0], demo_open_goal_gripper_pcd[:, 1], demo_open_goal_gripper_pcd[:, 2], s=20, color='red')
+
+                            plt.show()
+                                
                     with torch.no_grad():
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
@@ -496,11 +536,13 @@ if __name__ == "__main__":
     parser.add_argument('--fixed_variance', type=float, default=0.05)
     parser.add_argument('--argmax', type=int, default=0)
     parser.add_argument('--conditioning_on_demo', type=int, default=0)
-    parser.add_argument('--demo_attn_embedding_dim', type=int, default=60)
-    parser.add_argument('--demo_use_attn', type=int, default=1)
-    parser.add_argument('--demo_use_cur_obs', type=int, default=1)
+    parser.add_argument('--demo_attn_embedding_dim', type=int, default=255)
+    parser.add_argument('--demo_use_attn', type=int, default=0)
+    parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
     parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--separate_demo_feature', type=int, default=1)
+    parser.add_argument('--demo_use_flow', type=int, default=1)
     args = parser.parse_args()
     
     num_worker = 30
@@ -583,7 +625,9 @@ if __name__ == "__main__":
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
-                                    demo_use_cur_obs=args.demo_use_cur_obs
+                                    demo_use_cur_obs=args.demo_use_cur_obs,
+                                    use_flow_in_demo=args.demo_use_flow,
+                                    separate_demo_feature=args.separate_demo_feature,
                                     ).to("cuda")
         else:
             from test_PointNet2.model_invariant import PointNet2_super

@@ -79,6 +79,9 @@ def train(args):
     output_dir = "GMM_" 
     if args.conditioning_on_demo:
         output_dir += 'cond_on_demo_'
+
+    if args.separate_demo_feature:
+        output_dir += 'separate_demo_feature_'
     
     output_dir += args.model_type 
 
@@ -165,7 +168,7 @@ def train(args):
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
                 batch_size=args.batch_size,
-                num_workers=6, 
+                num_workers=8, 
                 pin_memory=True,
                 )
 

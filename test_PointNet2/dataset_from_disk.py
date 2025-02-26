@@ -89,7 +89,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                         self.episode_idx_to_grasp_frame_idx[idx] = i
                 
                 # assume -10 erases all the distorted goal. This is just an approximation. 
-                self.episode_idx_to_open_frame_idx[idx] = len(all_substeps) - 10
+                self.episode_idx_to_open_frame_idx[idx] = len(all_substeps) - 1 #- 10
 
             
             else:
@@ -187,6 +187,27 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         if not self.conditioning_on_demo:
             return pointcloud, gripper_pcd, goal_gripper_pcd
         else:
+            if False:
+                from matplotlib import pyplot as plt
+                fig = plt.figure(figsize=(12, 4))
+                ax1 = fig.add_subplot(131, projection='3d')
+                ax2 = fig.add_subplot(132, projection='3d')
+                ax3 = fig.add_subplot(133, projection='3d')
+
+                ax1.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], color='grey')
+                ax1.scatter(gripper_pcd[:, 0], gripper_pcd[:, 1], gripper_pcd[:, 2], s=20, color='blue')
+                ax1.scatter(goal_gripper_pcd[:, 0], goal_gripper_pcd[:, 1], goal_gripper_pcd[:, 2], s=20, color='red')
+
+                ax2.scatter(demo_grasp_pcd[:, 0], demo_grasp_pcd[:, 1], demo_grasp_pcd[:, 2], color='grey')
+                ax2.scatter(demo_grasp_gripper_pcd[:, 0], demo_grasp_gripper_pcd[:, 1], demo_grasp_gripper_pcd[:, 2], s=20, color='blue')
+                ax2.scatter(demo_grasp_goal_gripper_pcd[:, 0], demo_grasp_goal_gripper_pcd[:, 1], demo_grasp_goal_gripper_pcd[:, 2], s=20, color='red')
+
+                ax3.scatter(demo_open_pcd[:, 0], demo_open_pcd[:, 1], demo_open_pcd[:, 2], color='grey')
+                ax3.scatter(demo_open_gripper_pcd[:, 0], demo_open_gripper_pcd[:, 1], demo_open_gripper_pcd[:, 2], s=20, color='blue')
+                ax3.scatter(demo_open_goal_gripper_pcd[:, 0], demo_open_goal_gripper_pcd[:, 1], demo_open_goal_gripper_pcd[:, 2], s=20, color='red')
+
+                plt.show()
+
             return {
                 "pointcloud": pointcloud,
                 "gripper_pcd": gripper_pcd,

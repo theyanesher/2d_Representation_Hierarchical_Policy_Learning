@@ -666,7 +666,8 @@ class Demo_processing_model(nn.Module):
             cur_obs_points, cur_obs_features = self.construct_pn_input(data_dict['pointcloud'], data_dict['gripper_pcd'])
 
         demo_grasp_points, demo_grasp_features = self.construct_pn_input(data_dict['demo_grasp_pcd'], data_dict['demo_grasp_goal_gripper_pcd']) # first frame
-        demo_open_points, demo_open_features = self.construct_pn_input(data_dict['demo_open_pcd'], data_dict['demo_open_gripper_pcd']) # -10 frame
+        # demo_open_points, demo_open_features = self.construct_pn_input(data_dict['demo_open_pcd'], data_dict['demo_open_gripper_pcd']) # -10 frame
+        demo_open_points, demo_open_features = self.construct_pn_input(data_dict['demo_grasp_pcd'], data_dict['demo_open_gripper_pcd']) # -10 frame
 
         if self.use_cur_obs:
             cur_obs_embedding = self.pointnet_encoder(cur_obs_points, cur_obs_features) # B, pn_output_channel
