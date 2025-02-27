@@ -277,7 +277,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             config_file = config_files[exp_end_idx]
             init_state_file = init_state_files[exp_end_idx]
             opening_state_file = opening_state_files[exp_end_idx]
-            from termcolor import cprint
+            # from termcolor import cprint
             cprint(f"exp_end_idx {exp_end_idx}", "red")
             cprint(f"demo config file {config_file}", "red")
             cprint(f"demo init state file {init_state_file}", "red")
@@ -416,7 +416,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         if not args.conditioning_on_demo:
                             outputs = goal_prediction_model(inputs_)
                         else:
-                            outputs = goal_prediction_model(inputs_, demo_data)
+                            if args.eval_condition_on_demo:
+                                outputs = goal_prediction_model(inputs_, demo_data)
+                            else:
+                                outputs = goal_prediction_model(inputs_, None)
 
                         weights = outputs[:, :, -1] # B, N
                         outputs = outputs[:, :, :-1] # B, N, 12
@@ -543,6 +546,7 @@ if __name__ == "__main__":
     parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
+    parser.add_argument('--eval_condition_on_demo', type=int, default=1)
     args = parser.parse_args()
     
     num_worker = 30

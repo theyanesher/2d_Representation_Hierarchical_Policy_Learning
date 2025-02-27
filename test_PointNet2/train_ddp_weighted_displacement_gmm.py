@@ -25,7 +25,7 @@ def train(args):
     device = torch.device(gpu_id)
 
     input_channel = 5 if args.add_one_hot_encoding else 3
-    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck:
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production:
         input_channel += args.demo_attn_embedding_dim
 
     output_dim = 13 
@@ -36,6 +36,7 @@ def train(args):
             model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, 
                                     input_channel=input_channel, 
                                     cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
+                                    use_hadamard_production=args.demo_hadamard_production,
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
@@ -80,8 +81,8 @@ def train(args):
     if args.conditioning_on_demo:
         output_dir += 'cond_on_demo_'
 
-    if args.separate_demo_feature:
-        output_dir += 'separate_demo_feature_'
+        if args.separate_demo_feature:
+            output_dir += 'separate_demo_feature_'
     
     output_dir += args.model_type 
 
@@ -119,6 +120,8 @@ def train(args):
     output_dir += "_demo_pn_" + args.demo_pn_type
     if args.demo_cross_attn_bottleneck:
         output_dir += "_demo_attn_bottleneck"
+    if args.demo_hadamard_production:
+        output_dir += "_demo_hadamard_production"
     output_dir += args.optimizer
         
     
@@ -301,6 +304,7 @@ def parse_args():
     parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
     parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--demo_hadamard_production', type=int, default=1)
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
     parser.add_argument('--optimizer', type=str, default='adamw')
