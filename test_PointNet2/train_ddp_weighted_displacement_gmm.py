@@ -25,7 +25,7 @@ def train(args):
     device = torch.device(gpu_id)
 
     input_channel = 5 if args.add_one_hot_encoding else 3
-    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck:
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.bottleneck_film_cond:
         input_channel += args.demo_attn_embedding_dim
 
     output_dim = 13 
@@ -42,6 +42,8 @@ def train(args):
                                     demo_use_cur_obs=args.demo_use_cur_obs,
                                     use_flow_in_demo=args.demo_use_flow,
                                     separate_demo_feature=args.separate_demo_feature,
+                                    cross_attn_every_layer=args.cross_attn_every_layer,
+                                    bottleneck_film_cond=args.bottleneck_film_cond
                                     ).to(device)
         else:
             from test_PointNet2.model_invariant import PointNet2_super
@@ -120,7 +122,10 @@ def train(args):
     if args.demo_cross_attn_bottleneck:
         output_dir += "_demo_attn_bottleneck"
     output_dir += args.optimizer
-        
+    if args.bottleneck_film_cond:
+        output_dir +="demo_Film_bottleneck"
+    if args.cross_attn_every_layer:
+        output_dir +="demo_attn_every_upsample"
     
     if not args.using_weight:
         output_dir = output_dir + "_no_weight"
@@ -181,8 +186,10 @@ def train(args):
             if not args.conditioning_on_demo:
                 pointcloud, gripper_pcd, goal_gripper_pcd = data
             else:
+                #import pdb; pdb.set_trace();
                 data = {k: v.to('cuda') for k, v in data.items()}
                 pointcloud, gripper_pcd, goal_gripper_pcd = data['pointcloud'], data['gripper_pcd'], data['goal_gripper_pcd']
+                #import pdb; pdb.set_trace();
                 
             # inputs: B, N, 3
             # gripper_pcd: B, 4, 3
@@ -304,6 +311,8 @@ def parse_args():
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
     parser.add_argument('--optimizer', type=str, default='adamw')
+    parser.add_argument('--cross_attn_every_layer', type=int, default=0)
+    parser.add_argument('--bottleneck_film_cond', type=int, default=0)
     return parser.parse_args()
 
 

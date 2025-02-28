@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from time import time
 import numpy as np
+from diffusion_policy_3d.model.diffusion.transformers.original_conditional_transformer import FilmConditionalResidualBlock
 
 def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))
@@ -405,7 +406,7 @@ class PointNet2_small2(nn.Module):
 class PointNet2_super(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, cross_attn_bottleneck=False, 
                  attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2, demo_use_attn=True, demo_pn_type='large', demo_use_cur_obs=True, 
-                 use_flow_in_demo=False, separate_demo_feature=False):
+                 use_flow_in_demo=False, separate_demo_feature=False, cross_attn_every_layer=False, bottleneck_film_cond = False):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -423,12 +424,35 @@ class PointNet2_super(nn.Module):
         self.bn1 = nn.BatchNorm1d(128)
         # self.drop1 = nn.Dropout(0.5)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
-        
-        self.cross_attn_bottleneck = cross_attn_bottleneck
+        self.cross_attn_bottleneck = 0
+        self.cross_attn_every_layer = cross_attn_every_layer
+        self.bottleneck_film_cond = bottleneck_film_cond
         if self.cross_attn_bottleneck:
             self.cross_attention_layers = CrossAttentionModule(attn_embedding_dim, attn_num_heads, attn_num_layers)
-            self.linear_down = nn.Linear(1024, attn_embedding_dim)
-            self.linear_up = nn.Linear(attn_embedding_dim, 1024)
+            self.linear_down_l6 = nn.Linear(1024, attn_embedding_dim)
+            self.linear_up_l6 = nn.Linear(attn_embedding_dim, 1024)
+        elif self.bottleneck_film_cond:
+            self.bottleneck_film_cond_layer = FilmConditionalResidualBlock(1024, 1024, attn_embedding_dim*2)
+            self.linear_film_bottleneck_l6 = nn.Linear(1024, 1024)
+            #self.linear_up_l6 = nn.Linear(attn_embedding_dim, 1024)
+        if self.cross_attn_every_layer:
+            self.linear_down_l5 = nn.Linear(512, attn_embedding_dim)
+            self.linear_up_l5 = nn.Linear(attn_embedding_dim, 512)
+
+            self.linear_down_l4 = nn.Linear(512, attn_embedding_dim)
+            self.linear_up_l4 = nn.Linear(attn_embedding_dim, 512)
+
+            self.linear_down_l3 = nn.Linear(256, attn_embedding_dim)
+            self.linear_up_l3 = nn.Linear(attn_embedding_dim, 256)
+
+            self.linear_down_l2 = nn.Linear(256, attn_embedding_dim)
+            self.linear_up_l2 = nn.Linear(attn_embedding_dim, 256)
+
+            self.linear_down_l1 = nn.Linear(128, attn_embedding_dim)
+            self.linear_up_l1 = nn.Linear(attn_embedding_dim, 128)
+
+            self.linear_down_l0 = nn.Linear(128, attn_embedding_dim)
+            self.linear_up_l0 = nn.Linear(attn_embedding_dim, 128)
 
         
         pn_fc_layers = [128, 64] if attn_embedding_dim < 255 else [256, 256]
@@ -451,9 +475,10 @@ class PointNet2_super(nn.Module):
         if np.random.rand() > 0.5: ### train with conditioning and without conditioning randomly
             demo_conditioning_feature = self.demo_transformer(demo_data)
             B, N, _ = xyz.shape
-            if not self.cross_attn_bottleneck:
+            if not self.cross_attn_bottleneck and not self.bottleneck_film_cond:
                 demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
             else:
+                #import pdb; pdb.set_trace();
                 if not self.separate_demo_feature:
                     demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
                 else:
@@ -462,7 +487,7 @@ class PointNet2_super(nn.Module):
                     demo_conditioning_feature_2 = demo_conditioning_feature_2.unsqueeze(1)
         else:
             B, N, _ = xyz.shape
-            if not self.cross_attn_bottleneck:
+            if not self.cross_attn_bottleneck and not self.bottleneck_film_cond:
                 demo_conditioning_feature = torch.zeros((B, N, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
             else:
                 if not self.separate_demo_feature:
@@ -471,11 +496,12 @@ class PointNet2_super(nn.Module):
                     demo_conditioning_feature_1, demo_conditioning_feature_2 = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device), torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
         
         l0_xyz = xyz[:, :3, :]
-        
-        if not self.cross_attn_bottleneck:
+        #import pdb; pdb.set_trace();
+        if not self.cross_attn_bottleneck and not self.bottleneck_film_cond:
             feature = torch.cat([xyz[:, 3:, :], condition_feature], dim=1) if xyz.shape[1] > 3 else condition_feature
             l1_xyz, l1_points = self.sa1(l0_xyz, feature)
         else:
+            #import pdb; pdb.set_trace();
             feature = xyz[:, 3:, :] if xyz.shape[1] > 3 else None
             l1_xyz, l1_points = self.sa1(l0_xyz, feature)
     
@@ -490,18 +516,96 @@ class PointNet2_super(nn.Module):
                 l6_points_attn = self.cross_attention_layers(self.linear_down(l6_points.permute(0, 2, 1)), 
                                                     demo_conditioning_feature, demo_conditioning_feature)
             else:
-                l6_points_attn_features = self.linear_down(l6_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                #import pdb; pdb.set_trace();
+                l6_points_attn_features = self.linear_down_l6(l6_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
                 query = torch.cat([l6_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
                 l6_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
                 l6_points_attn = l6_points_attn[:, :16, :]
                 
-            l6_points = F.relu(l6_points + self.linear_up(l6_points_attn).permute(0, 2, 1))
-
+            l6_points = F.relu(l6_points + self.linear_up_l6(l6_points_attn).permute(0, 2, 1))
+        elif self.bottleneck_film_cond:
+            #import pdb; pdb.set_trace();
+            cond = torch.cat([demo_conditioning_feature_1.squeeze(), demo_conditioning_feature_2.squeeze()], dim=1)
+            l6_points_film = self.bottleneck_film_cond_layer(l6_points,cond)
+            l6_points = F.relu(l6_points + self.linear_film_bottleneck_l6(l6_points_film.permute(0, 2, 1)).permute(0, 2, 1))
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points) # (B, 512, 64)
+
+        if self.cross_attn_bottleneck:
+            if not self.separate_demo_feature:
+                l5_points_attn = self.cross_attention_layers(self.linear_down_l5(l5_points.permute(0, 2, 1)), 
+                                                    demo_conditioning_feature, demo_conditioning_feature)
+            else:
+                #import pdb; pdb.set_trace();
+                l5_points_attn_features = self.linear_down_l5(l5_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                query = torch.cat([l5_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+                l5_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+                l5_points_attn = l5_points_attn[:, :l5_points.shape[2], :]
+                
+            l5_points = F.relu(l5_points + self.linear_up_l5(l5_points_attn).permute(0, 2, 1))
+
+
         l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points) # (B, 512, 128)
+
+        if self.cross_attn_bottleneck:
+            if not self.separate_demo_feature:
+                l4_points_attn = self.cross_attention_layers(self.linear_down(l4_points.permute(0, 2, 1)), 
+                                                    demo_conditioning_feature, demo_conditioning_feature)
+            else:
+                #import pdb; pdb.set_trace();
+                l4_points_attn_features = self.linear_down_l4(l4_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                query = torch.cat([l4_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+                l4_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+                l4_points_attn = l4_points_attn[:, :l4_points.shape[2], :]
+                
+            l4_points = F.relu(l4_points + self.linear_up_l4(l4_points_attn).permute(0, 2, 1))
         l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points) # (B, 256, 256)
+
+        if self.cross_attn_bottleneck:
+            if not self.separate_demo_feature:
+                l3_points_attn = self.cross_attention_layers(self.linear_down(l3_points.permute(0, 2, 1)), 
+                                                    demo_conditioning_feature, demo_conditioning_feature)
+            else:
+                #import pdb; pdb.set_trace();
+                l3_points_attn_features = self.linear_down_l3(l3_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                query = torch.cat([l3_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+                l3_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+                l3_points_attn = l3_points_attn[:, :l3_points.shape[2], :]
+                
+            l3_points = F.relu(l3_points + self.linear_up_l3(l3_points_attn).permute(0, 2, 1))
+
+
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points) # (B, 256, 512)
+
+        if self.cross_attn_bottleneck:
+            if not self.separate_demo_feature:
+                l2_points_attn = self.cross_attention_layers(self.linear_down(l2_points.permute(0, 2, 1)), 
+                                                    demo_conditioning_feature, demo_conditioning_feature)
+            else:
+                #import pdb; pdb.set_trace();
+                l2_points_attn_features = self.linear_down_l2(l2_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                query = torch.cat([l2_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+                l2_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+                l2_points_attn = l2_points_attn[:, :l2_points.shape[2], :]
+                
+            l2_points = F.relu(l2_points + self.linear_up_l2(l2_points_attn).permute(0, 2, 1))
+
+
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
+
+        if self.cross_attn_bottleneck:
+            if not self.separate_demo_feature:
+                l1_points_attn = self.cross_attention_layers(self.linear_down(l1_points.permute(0, 2, 1)), 
+                                                    demo_conditioning_feature, demo_conditioning_feature)
+            else:
+                #import pdb; pdb.set_trace();
+                l1_points_attn_features = self.linear_down_l1(l1_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+                query = torch.cat([l1_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+                l1_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+                l1_points_attn = l1_points_attn[:, :l1_points.shape[2], :]
+                
+            l1_points = F.relu(l1_points + self.linear_up_l1(l1_points_attn).permute(0, 2, 1))
+
+
         l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points) # (B, 128, num_point)
 
         x = F.relu(self.bn1(self.conv1(l0_points)))

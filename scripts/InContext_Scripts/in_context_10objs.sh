@@ -1,0 +1,12 @@
+torchrun --standalone --nproc_per_node=1 test_PointNet2/train_ddp_weighted_displacement_gmm.py --batch_size 10    \
+ --num_epochs 61 --model_type pointnet2_super --model_invariant     \
+ --exp_path /project_data/held/pratik/run_sample_basic_experiments/Robogen_Pratik_Branch/InContext_Conditioning/RoboGen-sim2real/Experiments/InContext_Learning_Train/10_objs     \
+ --num_train_objects 10     \
+ --dataset_prefix /scratch/yufeiw2/dp3_demo     \
+ --conditioning_on_demo 1 \
+ --demo_use_attn 0 \
+ --demo_use_cur_obs 0 \
+ --exp_name _debug \
+ --demo_cross_attn_bottleneck 0 \
+ --cross_attn_every_layer 1 \
+ --bottleneck_film_cond 1 
