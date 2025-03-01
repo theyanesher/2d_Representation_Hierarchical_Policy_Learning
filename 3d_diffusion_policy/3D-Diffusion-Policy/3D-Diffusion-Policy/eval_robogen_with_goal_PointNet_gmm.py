@@ -544,9 +544,12 @@ if __name__ == "__main__":
     parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
     parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--demo_hadamard_production', type=int, default=0)
+    parser.add_argument('--demo_aligned_cross_attn', type=int, default=0)
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
     parser.add_argument('--eval_condition_on_demo', type=int, default=1)
+    parser.add_argument('--eval_unseen', type=int, default=1)
     args = parser.parse_args()
     
     num_worker = 30
@@ -578,37 +581,48 @@ if __name__ == "__main__":
     policy.reset()
     policy = policy.to('cuda')
     
-    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-    cfg.task.env_runner.experiment_folder = [
-        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+    if args.eval_unseen:
+        cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+        cfg.task.env_runner.experiment_folder = [
+            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+            ]
+        cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+    
+    else:
+        cfg.task.env_runner.experiment_name = [
+            "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
+            "0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
+            "0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
         ]
-    cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
-    # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
-    # cfg.task.env_runner.experiment_folder += [
-    #     "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #     "data/diverse_objects_other/open_the_door_7263/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #     "data/diverse_objects_other/open_the_door_7290/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #     "data/diverse_objects_other/open_the_door_7310/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #     "data/diverse_objects_other/open_the_door_12092/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    #     "data/diverse_objects_other/open_the_door_12606/task_open_the_door_of_the_storagefurniture_by_its_handle",
-    # ]
-    # cfg.task.env_runner.demo_experiment_path += [None for _ in range(6)]
+        cfg.task.env_runner.experiment_folder = [
+            'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+            # 'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+        ]
+        cfg.task.env_runner.demo_experiment_path = [None for _ in range(3)]
     
     load_model_path = args.high_level_ckpt_name
         
     
     num_class = 13 if not args.predict_two_goals else 25
     input_channel = 5 if args.add_one_hot_encoding else 3
-    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck:
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production and not args.demo_aligned_cross_attn:
         input_channel += args.demo_attn_embedding_dim
 
     if not args.model_invariant:
@@ -626,12 +640,15 @@ if __name__ == "__main__":
             pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, 
                                     input_channel=input_channel, 
                                     cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
+                                    use_hadamard_production=args.demo_hadamard_production,
+                                    aligned_cross_attn=args.demo_aligned_cross_attn,
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
                                     demo_use_cur_obs=args.demo_use_cur_obs,
                                     use_flow_in_demo=args.demo_use_flow,
                                     separate_demo_feature=args.separate_demo_feature,
+                                    always_train_with_conditioning=args.eval_condition_on_demo
                                     ).to("cuda")
         else:
             from test_PointNet2.model_invariant import PointNet2_super
