@@ -8,6 +8,9 @@ import torch.nn.functional as F
 from time import time
 import numpy as np
 from diffusion_policy_3d.model.diffusion.transformers.original_conditional_transformer import FilmConditionalResidualBlock
+from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule
+from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
+from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
 
 def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))
@@ -333,8 +336,6 @@ class PointNetFeaturePropagation(nn.Module):
             new_points = F.relu(bn(conv(new_points)))
         return new_points
 
-from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
-
 class PointNet2(nn.Module):
     def __init__(self, num_classes):
         super(PointNet2, self).__init__()
@@ -406,7 +407,9 @@ class PointNet2_small2(nn.Module):
 class PointNet2_super(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, cross_attn_bottleneck=False, 
                  attn_embedding_dim=60, attn_num_heads=3, attn_num_layers=2, demo_use_attn=True, demo_pn_type='large', demo_use_cur_obs=True, 
-                 use_flow_in_demo=False, separate_demo_feature=False, cross_attn_every_layer=False, bottleneck_film_cond = False):
+                 use_flow_in_demo=False, separate_demo_feature=False, use_hadamard_production=False, 
+                  cross_attn_every_layer=False, bottleneck_film_cond = False,
+                 always_train_with_conditioning=False, aligned_cross_attn=False):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -451,11 +454,26 @@ class PointNet2_super(nn.Module):
             self.linear_down_l1 = nn.Linear(128, attn_embedding_dim)
             self.linear_up_l1 = nn.Linear(attn_embedding_dim, 128)
 
-            self.linear_down_l0 = nn.Linear(128, attn_embedding_dim)
-            self.linear_up_l0 = nn.Linear(attn_embedding_dim, 128)
+            # self.linear_down_l0 = nn.Linear(128, attn_embedding_dim)
+            # self.linear_up_l0 = nn.Linear(attn_embedding_dim, 128)
 
+        self.use_hadamard_production = use_hadamard_production
+        if self.use_hadamard_production:
+            input_dim = attn_embedding_dim
+            if separate_demo_feature:
+                input_dim = attn_embedding_dim * 2
+            self.bottleneck_fc = nn.Linear(input_dim, 1024)
+            self.fp6_fc = nn.Linear(input_dim, 512)
+            self.fp5_fc = nn.Linear(input_dim, 512)
+            self.fp4_fc = nn.Linear(input_dim, 256)
+            self.fp3_fc = nn.Linear(input_dim, 256)
+            self.fp2_fc = nn.Linear(input_dim, 128)
+            self.fp1_fc = nn.Linear(input_dim, 128)
+            
         
         pn_fc_layers = [128, 64] if attn_embedding_dim < 255 else [256, 256]
+        if aligned_cross_attn:
+            demo_pn_type = "large_return_sa"
         self.demo_transformer = Demo_processing_model(
             pn_input_channel=2 if not use_flow_in_demo else 12, 
             attn_embedding_dim=attn_embedding_dim,
@@ -469,144 +487,155 @@ class PointNet2_super(nn.Module):
         
         self.attn_embedding_dim = attn_embedding_dim
         self.separate_demo_feature = separate_demo_feature
+        self.always_train_with_conditioning = always_train_with_conditioning
+        self.aligned_cross_attn = aligned_cross_attn
+        
+        if aligned_cross_attn:
+            self.rotary_attn_layers = RelativeCrossAttentionModule(attn_embedding_dim, attn_num_heads, attn_num_layers)
+            self.rotary_attn_layers = replace_bn_with_gn(self.rotary_attn_layers)
+            self.rotary_attn_pos_enc = RotaryPositionEncoding3D(attn_embedding_dim)
+            
+            self.rotary_linear_down_sa5 = nn.Linear(1024, attn_embedding_dim)
+            self.rotary_linear_down_sa6 = nn.Linear(1024, attn_embedding_dim)
+            self.rotary_linear_up_sa5 = nn.Linear(attn_embedding_dim, 1024)
+            self.rotary_linear_up_sa6 = nn.Linear(attn_embedding_dim, 1024)
+            
+            self.rotary_linear_down_fp5 = nn.Linear(512, attn_embedding_dim)
+            self.rotary_linear_up_fp5 = nn.Linear(attn_embedding_dim, 512)
+            
+            self.l3_linear = nn.Linear(512, attn_embedding_dim)
+            self.l4_linear = nn.Linear(512, attn_embedding_dim)
+            
+    def hadamard_production(self, fp_feature, condition_feature, linear_layer):
+        condition_feature = linear_layer(condition_feature) # B, 1, attn_embedding_dim -> B, 1, fp_feature_dim
+        ### needs to repeat condition feature for each point in fp_feature
+        num_points = fp_feature.shape[1]
+        condition_feature = condition_feature.repeat(1, num_points, 1) # B, num_points, fp_feature_dim
+        update_feature = fp_feature * condition_feature
+        return update_feature.permute(0, 2, 1) # B, fp_feature_dim, num_points
+    
+    def rotary_cross_attn(self, cond_xyz, cond_points, cur_xyz, cur_points, linear_down_cond, linear_down_cur, linear_up_cur):
+        cond_xyz_embedding = self.rotary_attn_pos_enc(cond_xyz.permute(0, 2, 1)) # shape B 64 attn_embedding_dim
+        cur_xyz_embedding = self.rotary_attn_pos_enc(cur_xyz.permute(0, 2, 1))
+        cur_points_down = linear_down_cur(cur_points.permute(0, 2, 1)) # B, 64, attn_embedding_dim
+        cond_points_down = linear_down_cond(cond_points.permute(0, 2, 1)) # B, 64, attn_embedding_dim
+        # import pdb; pdb.set_trace()
+        attn_output = self.rotary_attn_layers(
+            query=cur_points_down.permute(1, 0, 2), value=cond_points_down.permute(1, 0, 2),
+            query_pos=cur_xyz_embedding, value_pos=cond_xyz_embedding,
+        )[-1] # L, B, C
+        
+        # import pdb; pdb.set_trace()
+        cur_points = cur_points + linear_up_cur(attn_output.permute(1, 0, 2)).permute(0, 2, 1)
+        return cur_points
+        
+    def normal_attention(self, cur_points, linear_down, linear_up, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2):
+        if not self.separate_demo_feature:
+            cur_points_attn = self.cross_attention_layers(linear_down(cur_points.permute(0, 2, 1)), 
+                                                demo_conditioning_feature, demo_conditioning_feature)
+        else:
+            #import pdb; pdb.set_trace();
+            cur_points_attn_features = linear_down(cur_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
+            query = torch.cat([cur_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
+            cur_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
+            cur_points_attn = cur_points_attn[:, :cur_points.shape[2], :]
+            
+        cur_points = F.relu(cur_points + linear_up(cur_points_attn).permute(0, 2, 1))
+        return cur_points
 
     def forward(self, xyz, demo_data):
         ### do demonstration conditioning processing here
-        if np.random.rand() > 0.5: ### train with conditioning and without conditioning randomly
+        # print("always use demo: ", self.always_train_with_conditioning)
+        if (np.random.rand() > 0.5 and demo_data is not None) or self.always_train_with_conditioning: ### train with conditioning and without conditioning randomly
             demo_conditioning_feature = self.demo_transformer(demo_data)
             B, N, _ = xyz.shape
-            if not self.cross_attn_bottleneck and not self.bottleneck_film_cond:
-                demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
-            else:
-                #import pdb; pdb.set_trace();
+            if self.aligned_cross_attn:
+                cond_l4_xyz, cond_l4_points, cond_l3_xyz, cond_l3_points = demo_conditioning_feature
+            elif self.cross_attn_bottleneck or self.use_hadamard_production or self.bottleneck_film_cond:
                 if not self.separate_demo_feature:
                     demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1)
                 else:
                     demo_conditioning_feature_1, demo_conditioning_feature_2 = demo_conditioning_feature
                     demo_conditioning_feature_1 = demo_conditioning_feature_1.unsqueeze(1)
                     demo_conditioning_feature_2 = demo_conditioning_feature_2.unsqueeze(1)
+            else:
+                demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
+            
         else:
             B, N, _ = xyz.shape
-            if not self.cross_attn_bottleneck and not self.bottleneck_film_cond:
-                demo_conditioning_feature = torch.zeros((B, N, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
-            else:
+            if self.cross_attn_bottleneck or self.use_hadamard_production or self.bottleneck_film_cond:
                 if not self.separate_demo_feature:
                     demo_conditioning_feature = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
                 else:
                     demo_conditioning_feature_1, demo_conditioning_feature_2 = torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device), torch.zeros((B, 1, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
+            else:
+                demo_conditioning_feature = torch.zeros((B, N, self.attn_embedding_dim), dtype=xyz.dtype, device=xyz.device)
         
         l0_xyz = xyz[:, :3, :]
-        #import pdb; pdb.set_trace();
-        if not self.cross_attn_bottleneck and not self.bottleneck_film_cond:
-            feature = torch.cat([xyz[:, 3:, :], condition_feature], dim=1) if xyz.shape[1] > 3 else condition_feature
+        
+        if self.cross_attn_bottleneck or self.use_hadamard_production or self.aligned_cross_attn or self.bottleneck_film_cond:
+            feature = xyz[:, 3:, :] if xyz.shape[1] > 3 else None
             l1_xyz, l1_points = self.sa1(l0_xyz, feature)
         else:
-            #import pdb; pdb.set_trace();
-            feature = xyz[:, 3:, :] if xyz.shape[1] > 3 else None
+            feature = torch.cat([xyz[:, 3:, :], condition_feature], dim=1) if xyz.shape[1] > 3 else condition_feature
             l1_xyz, l1_points = self.sa1(l0_xyz, feature)
     
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 512) (B, 256, 512)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 256) (B, 512, 256)
         l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 128) (B, 1024, 16)
         l5_xyz, l5_points = self.sa5(l4_xyz, l4_points) # (B, 3, 64) (B , 1024, 64)
-        l6_xyz, l6_points = self.sa6(l5_xyz, l5_points) # (B, 3, 16) (B, 1024, 16)
+        if self.aligned_cross_attn:
+            l5_points = self.rotary_cross_attn(cond_l3_xyz, cond_l3_points, l5_xyz, l5_points, self.l3_linear, self.rotary_linear_down_sa5, self.rotary_linear_up_sa5)
         
+        l6_xyz, l6_points = self.sa6(l5_xyz, l5_points) # (B, 3, 16) (B, 1024, 16)
+        if self.aligned_cross_attn:
+            l6_points = self.rotary_cross_attn(cond_l4_xyz, cond_l4_points, l6_xyz, l6_points, self.l4_linear, self.rotary_linear_down_sa6, self.rotary_linear_up_sa6)
         if self.cross_attn_bottleneck:
-            if not self.separate_demo_feature:
-                l6_points_attn = self.cross_attention_layers(self.linear_down(l6_points.permute(0, 2, 1)), 
-                                                    demo_conditioning_feature, demo_conditioning_feature)
-            else:
-                #import pdb; pdb.set_trace();
-                l6_points_attn_features = self.linear_down_l6(l6_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
-                query = torch.cat([l6_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
-                l6_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
-                l6_points_attn = l6_points_attn[:, :16, :]
-                
-            l6_points = F.relu(l6_points + self.linear_up_l6(l6_points_attn).permute(0, 2, 1))
-        elif self.bottleneck_film_cond:
-            #import pdb; pdb.set_trace();
+            l6_points = self.normal_attention(l6_points, self.linear_down_l6, self.linar_up_l6, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
+        if self.bottleneck_film_cond:
             cond = torch.cat([demo_conditioning_feature_1.squeeze(), demo_conditioning_feature_2.squeeze()], dim=1)
             l6_points_film = self.bottleneck_film_cond_layer(l6_points,cond)
-            l6_points = F.relu(l6_points + self.linear_film_bottleneck_l6(l6_points_film.permute(0, 2, 1)).permute(0, 2, 1))
+            l6_points = F.relu(l6_points + self.linear_film_bottleneck_l6(l6_points_film.permute(0, 2, 1)).permute(0, 2, 1)) 
+        if self.use_hadamard_production:
+            if self.separate_demo_feature:
+                demo_conditioning_feature = torch.cat([demo_conditioning_feature_1, demo_conditioning_feature_2], dim=-1)
+            l6_points = self.hadamard_production(l6_points.permute(0, 2, 1), demo_conditioning_feature, self.bottleneck_fc)
+            
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points) # (B, 512, 64)
-
-        if self.cross_attn_bottleneck:
-            if not self.separate_demo_feature:
-                l5_points_attn = self.cross_attention_layers(self.linear_down_l5(l5_points.permute(0, 2, 1)), 
-                                                    demo_conditioning_feature, demo_conditioning_feature)
-            else:
-                #import pdb; pdb.set_trace();
-                l5_points_attn_features = self.linear_down_l5(l5_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
-                query = torch.cat([l5_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
-                l5_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
-                l5_points_attn = l5_points_attn[:, :l5_points.shape[2], :]
-                
-            l5_points = F.relu(l5_points + self.linear_up_l5(l5_points_attn).permute(0, 2, 1))
-
+        if self.aligned_cross_attn:
+            l5_points = self.rotary_cross_attn(cond_l3_xyz, cond_l3_points, l5_xyz, l5_points, self.l3_linear, self.rotary_linear_down_fp5, self.rotary_linear_up_fp5)
+        if self.cross_attn_every_layer:
+            l5_points = self.normal_attention(l5_points, self.linear_down_l5, self.linar_up_l5, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
+        if self.use_hadamard_production:
+            l5_points = self.hadamard_production(l5_points.permute(0, 2, 1), demo_conditioning_feature, self.fp6_fc)
 
         l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points) # (B, 512, 128)
-
-        if self.cross_attn_bottleneck:
-            if not self.separate_demo_feature:
-                l4_points_attn = self.cross_attention_layers(self.linear_down(l4_points.permute(0, 2, 1)), 
-                                                    demo_conditioning_feature, demo_conditioning_feature)
-            else:
-                #import pdb; pdb.set_trace();
-                l4_points_attn_features = self.linear_down_l4(l4_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
-                query = torch.cat([l4_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
-                l4_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
-                l4_points_attn = l4_points_attn[:, :l4_points.shape[2], :]
-                
-            l4_points = F.relu(l4_points + self.linear_up_l4(l4_points_attn).permute(0, 2, 1))
+        if self.cross_attn_every_layer:
+            l4_points = self.normal_attention(l4_points, self.linear_down_l4, self.linar_up_l4, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
+        if self.use_hadamard_production:
+            l4_points = self.hadamard_production(l4_points.permute(0, 2, 1), demo_conditioning_feature, self.fp5_fc)
+        
         l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points) # (B, 256, 256)
-
-        if self.cross_attn_bottleneck:
-            if not self.separate_demo_feature:
-                l3_points_attn = self.cross_attention_layers(self.linear_down(l3_points.permute(0, 2, 1)), 
-                                                    demo_conditioning_feature, demo_conditioning_feature)
-            else:
-                #import pdb; pdb.set_trace();
-                l3_points_attn_features = self.linear_down_l3(l3_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
-                query = torch.cat([l3_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
-                l3_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
-                l3_points_attn = l3_points_attn[:, :l3_points.shape[2], :]
-                
-            l3_points = F.relu(l3_points + self.linear_up_l3(l3_points_attn).permute(0, 2, 1))
-
-
+        if self.cross_attn_every_layer:
+            l3_points = self.normal_attention(l3_points, self.linear_down_l3, self.linar_up_l3, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
+        if self.use_hadamard_production:
+            l3_points = self.hadamard_production(l3_points.permute(0, 2, 1), demo_conditioning_feature, self.fp4_fc)
+        
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points) # (B, 256, 512)
-
-        if self.cross_attn_bottleneck:
-            if not self.separate_demo_feature:
-                l2_points_attn = self.cross_attention_layers(self.linear_down(l2_points.permute(0, 2, 1)), 
-                                                    demo_conditioning_feature, demo_conditioning_feature)
-            else:
-                #import pdb; pdb.set_trace();
-                l2_points_attn_features = self.linear_down_l2(l2_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
-                query = torch.cat([l2_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
-                l2_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
-                l2_points_attn = l2_points_attn[:, :l2_points.shape[2], :]
-                
-            l2_points = F.relu(l2_points + self.linear_up_l2(l2_points_attn).permute(0, 2, 1))
-
-
+        if self.cross_attn_every_layer:
+            l2_points = self.normal_attention(l2_points, self.linear_down_l2, self.linar_up_l2, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
+        if self.use_hadamard_production:
+            l2_points = self.hadamard_production(l2_points.permute(0, 2, 1), demo_conditioning_feature, self.fp3_fc)
+        
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
-
-        if self.cross_attn_bottleneck:
-            if not self.separate_demo_feature:
-                l1_points_attn = self.cross_attention_layers(self.linear_down(l1_points.permute(0, 2, 1)), 
-                                                    demo_conditioning_feature, demo_conditioning_feature)
-            else:
-                #import pdb; pdb.set_trace();
-                l1_points_attn_features = self.linear_down_l1(l1_points.permute(0, 2, 1)) # B, 16, attn_embedding_dim
-                query = torch.cat([l1_points_attn_features, demo_conditioning_feature_1, demo_conditioning_feature_2], dim=1)
-                l1_points_attn = self.cross_attention_layers(query, query, query) # self attention actually # B, 16, attn_embedding_dim
-                l1_points_attn = l1_points_attn[:, :l1_points.shape[2], :]
+        if self.cross_attn_every_layer:
+            l1_points = self.normal_attention(l1_points, self.linear_down_l1, self.linar_up_l1, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
+        if self.use_hadamard_production:
+            l1_points = self.hadamard_production(l1_points.permute(0, 2, 1), demo_conditioning_feature, self.fp2_fc)
                 
-            l1_points = F.relu(l1_points + self.linear_up_l1(l1_points_attn).permute(0, 2, 1))
-
-
         l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points) # (B, 128, num_point)
+        if self.use_hadamard_production:
+            l0_points = self.hadamard_production(l0_points.permute(0, 2, 1), demo_conditioning_feature, self.fp1_fc)
 
         x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
@@ -736,6 +765,8 @@ class Demo_processing_model(nn.Module):
             self.pointnet_encoder = PointNet2_no_feature_prop(num_classes=attn_embedding_dim, input_channel=pn_input_channel, fc_layers=pn_fc_layers, keep_gripper_in_fps=False)
         elif pn_type == 'small':
             self.pointnet_encoder = PointNet2_small2_no_feature_prop(num_classes=attn_embedding_dim, input_channel=pn_input_channel, keep_gripper_in_fps=False)
+        elif pn_type == 'large_return_sa':
+            self.pointnet_encoder = PointNet2_no_feature_prop_2(num_classes=attn_embedding_dim, input_channel=pn_input_channel, fc_layers=pn_fc_layers, keep_gripper_in_fps=False)
             
         self.use_attn = use_attn
         self.use_cur_obs = use_cur_obs
@@ -747,6 +778,7 @@ class Demo_processing_model(nn.Module):
             
         self.use_flow_in_demo = use_flow_in_demo
         self.separate_demo_feature = separate_demo_feature
+        self.pn_type = pn_type
         
     def construct_pn_input(self, pcd, gripper_pcd):
         if not self.use_flow_in_demo:
@@ -786,11 +818,20 @@ class Demo_processing_model(nn.Module):
             return attn_output[:, 0, :] # use updated cur_obs_embedding
         
         else:
-            if not self.separate_demo_feature:
-                concat_grasp_and_open = torch.cat([demo_grasp_embedding, demo_open_embedding], dim=-1)
-                return self.linear(concat_grasp_and_open)
+            if 'return_sa' in self.pn_type:
+                grasp_l3_xyz, grasp_l3_points, grasp_l4_xyz, grasp_l4_points = demo_grasp_embedding
+                open_l3_xyz, open_l3_points, open_l4_xyz, open_l4_points = demo_open_embedding
+                l3_xyz = torch.cat([grasp_l3_xyz, open_l3_xyz], dim=-1)
+                l4_xyz = torch.cat([grasp_l4_xyz, open_l4_xyz], dim=-1)
+                l3_points = torch.cat([grasp_l3_points, open_l3_points], dim=-1)
+                l4_points = torch.cat([grasp_l4_points, open_l4_points], dim=-1)
+                return l3_xyz, l3_points, l4_xyz, l4_points
             else:
-                return demo_grasp_embedding, demo_open_embedding
+                if not self.separate_demo_feature:
+                    concat_grasp_and_open = torch.cat([demo_grasp_embedding, demo_open_embedding], dim=-1)
+                    return self.linear(concat_grasp_and_open)
+                else:
+                    return demo_grasp_embedding, demo_open_embedding
     
 class PointNet2_super_no_feature_prop(nn.Module):
     def __init__(self, num_classes=128, input_channel=3, keep_gripper_in_fps=False):
@@ -829,6 +870,27 @@ class PointNet2_super_no_feature_prop(nn.Module):
         x = self.fc3(x)
 
         return x # x shape: B, num_classes
+    
+class PointNet2_no_feature_prop_2(nn.Module):
+    def __init__(self, num_classes=60, input_channel=3, keep_gripper_in_fps=False, fc_layers=[128, 64]):
+        super(PointNet2_no_feature_prop_2, self).__init__()
+        # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=3, mlp_list=[[16, 16, 32], [32, 32, 64]])
+        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=input_channel, mlp_list=[[16, 16, 32], [32, 32, 64]])
+        self.sa2 = PointNetSetAbstractionMsg(npoint=256, radius_list=[0.1, 0.2], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]])
+        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]])
+        self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256+256, [[256, 256, 256], [256, 256, 256]])
+        
+    def forward(self, xyz, feature):
+        l0_points = feature
+        l0_xyz = xyz[:, :3, :]
+        B, _, _ = xyz.shape
+        
+        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points) # (B, 3, 1024) (B, 96, 1024)
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 256) (B, 256, 256)
+        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 64) (B, 512, 64)
+        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 16) (B, 512, 16)
+
+        return l4_xyz, l4_points, l3_xyz, l3_points
     
 class PointNet2_no_feature_prop(nn.Module):
     def __init__(self, num_classes=60, input_channel=3, keep_gripper_in_fps=False, fc_layers=[128, 64]):

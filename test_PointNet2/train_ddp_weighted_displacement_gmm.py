@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 import wandb
 import numpy as np
+from termcolor import cprint
 
 def ddp_setup():
     os.environ["NCCL_P2P_LEVEL"] = "NVL"
@@ -25,7 +26,7 @@ def train(args):
     device = torch.device(gpu_id)
 
     input_channel = 5 if args.add_one_hot_encoding else 3
-    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.bottleneck_film_cond:
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production and not args.demo_aligned_cross_attn and not args.bottleneck_film_cond:
         input_channel += args.demo_attn_embedding_dim
 
     output_dim = 13 
@@ -36,6 +37,8 @@ def train(args):
             model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, 
                                     input_channel=input_channel, 
                                     cross_attn_bottleneck=args.demo_cross_attn_bottleneck,
+                                    use_hadamard_production=args.demo_hadamard_production,
+                                    aligned_cross_attn=args.demo_aligned_cross_attn,
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
@@ -43,8 +46,20 @@ def train(args):
                                     use_flow_in_demo=args.demo_use_flow,
                                     separate_demo_feature=args.separate_demo_feature,
                                     cross_attn_every_layer=args.cross_attn_every_layer,
-                                    bottleneck_film_cond=args.bottleneck_film_cond
+                                    bottleneck_film_cond=args.bottleneck_film_cond，
+                                    always_train_with_conditioning=args.demo_pretrained_pn_path is not None or args.always_train_with_conditioning,
                                     ).to(device)
+            
+                
+            if args.demo_pretrained_pn_path is not None:
+                # import pdb; pdb.set_trace()
+                cprint("load partially trained pointnet++ from {}".format(args.demo_pretrained_pn_path), "red")
+                # import pdb; pdb.set_trace()
+                model.load_state_dict(torch.load(args.demo_pretrained_pn_path, map_location=device), strict=False)
+                for name, module in model.named_children():
+                    if name != "demo_transformer":  # If this submodule was in the checkpoint
+                        for param in module.parameters():
+                            param.requires_grad = False  # Freeze it
         else:
             from test_PointNet2.model_invariant import PointNet2_super
             model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel,
@@ -70,27 +85,43 @@ def train(args):
         print("Successfully load model from: ", args.load_model_path)
     
     model.train()
-    to_optimize_parameters = model.parameters()
 
     if args.optimizer == 'adam':
-        optimizer = torch.optim.Adam(to_optimize_parameters, lr=args.lr)
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
     elif args.optimizer == 'adamw':
-        optimizer = torch.optim.AdamW(to_optimize_parameters, lr=args.lr)
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
     criterion = torch.nn.MSELoss()
+    
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: requires_grad={param.requires_grad}")  # Should be True only for `another_model`
 
     output_dir = "GMM_" 
-    if args.conditioning_on_demo:
-        output_dir += 'cond_on_demo_'
+    output_dir = output_dir + "_" + str(datetime.date.today())
 
-    if args.separate_demo_feature:
-        output_dir += 'separate_demo_feature_'
+    if args.conditioning_on_demo:
+        output_dir += '_demo'
+
+        if args.separate_demo_feature:
+            output_dir += '_separate'
+        if args.demo_use_attn:
+            output_dir += "_demo_attn"
+        if args.demo_use_cur_obs:
+            output_dir += "_demo_curobs"
+        output_dir += "_pn_" + args.demo_pn_type
+        if args.demo_cross_attn_bottleneck:
+            output_dir += "_attn_bottleneck"
+        if args.demo_hadamard_production:
+            output_dir += "_hadamard"
+        if args.demo_pretrained_pn_path is not None:
+            output_dir += "_load_pretrained_pn"
+        if args.always_train_with_conditioning:
+            output_dir += "_always_condition"
     
     output_dir += args.model_type 
 
     if args.model_invariant:
         output_dir = output_dir + "_model_invariant"
     
-    output_dir = output_dir + "_" + str(datetime.date.today())
 
     if args.use_all_data:
         output_dir = output_dir + "_use_all_data"
@@ -114,13 +145,6 @@ def train(args):
     if args.add_one_hot_encoding:
         output_dir = output_dir + "_one_hot"
         
-    if not args.demo_use_attn:
-        output_dir += "_no_demo_attn"
-    if not args.demo_use_cur_obs:
-        output_dir += "_no_demo_cur_obs"
-    output_dir += "_demo_pn_" + args.demo_pn_type
-    if args.demo_cross_attn_bottleneck:
-        output_dir += "_demo_attn_bottleneck"
     output_dir += args.optimizer
     if args.bottleneck_film_cond:
         output_dir +="demo_Film_bottleneck"
@@ -308,8 +332,12 @@ def parse_args():
     parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
     parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--demo_hadamard_production', type=int, default=0)
+    parser.add_argument('--demo_aligned_cross_attn', type=int, default=0)
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
+    parser.add_argument('--demo_pretrained_pn_path', type=str, default=None)
+    parser.add_argument('--always_train_with_conditioning', type=int, default=0)
     parser.add_argument('--optimizer', type=str, default='adamw')
     parser.add_argument('--cross_attn_every_layer', type=int, default=0)
     parser.add_argument('--bottleneck_film_cond', type=int, default=0)
