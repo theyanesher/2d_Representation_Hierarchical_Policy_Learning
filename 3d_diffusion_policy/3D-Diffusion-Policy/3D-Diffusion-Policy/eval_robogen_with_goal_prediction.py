@@ -27,6 +27,7 @@ from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer
 import cv2
 import argparse
 from typing import Optional, List
+from diffusion_policy_3d.common.gripper_orientation_from_4_points import get_gripper_pos_orient_from_4_points_torch
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, 
                   real_world_camera=False, noise_real_world_pcd=False, randomize_camera=False):
@@ -76,6 +77,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                           randomize_camera=False,
                           use_high_level=True,
                           heuristic_goal_switching=False,
+                          pos_ori_imp = False
                           ):
     
     if calculate_distance_from_gt:
@@ -206,11 +208,45 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                             for key in high_level_parallel_input_dict:
                                 high_level_parallel_input_dict[key] = high_level_parallel_input_dict[key][:, -1, ...].unsqueeze(1) # take the most recent observation
                         
+                        if pos_ori_imp:
+                            #import pdb; pdb.set_trace();
+                            open_close = np.array(high_level_parallel_input_dict['agent_pos'][:,:,9].cpu()).squeeze()
+                            gripper_pcd_numpy = np.array(high_level_parallel_input_dict['gripper_pcd'].cpu())
+                            gripper_pcd_numpy = gripper_pcd_numpy.reshape(-1,4,3)
+                            gripper_pcd_10d_numpy = np.zeros((gripper_pcd_numpy.shape[0], 10))
+                            for frame in range(gripper_pcd_numpy.shape[0]):
+                                #import pdb; pdb.set_trace();
+                                gripper_9d = get_gripper_pos_orient_from_4_points_torch(gripper_pcd_numpy[frame])
+                                gripper_pcd_10d_numpy[frame] = np.append(gripper_9d, open_close[frame])
+                            gripper_pcd_10d_numpy = np.expand_dims(np.expand_dims(gripper_pcd_10d_numpy, axis=0), axis = -1).astype(np.float32)
+                            gripper_pcd_10d = torch.from_numpy(gripper_pcd_10d_numpy).cuda()
+                            
+                            #import pdb; pdb.set_trace();
+                            displacement_gripper_to_object_numpy = np.array(high_level_parallel_input_dict['displacement_gripper_to_object'].cpu()).reshape(-1,4,3)
+                            displacement_gripper_to_object_numpy_10d = np.zeros((gripper_pcd_numpy.shape[0], 3))
+                            for frame in range(gripper_pcd_numpy.shape[0]):
+                                #import pdb; pdb.set_trace();
+                                #print("000000000000000000", sample['displacement_gripper_to_object'].shape)
+                                object_point = np.array(high_level_parallel_input_dict['gripper_pcd'].cpu()).reshape(-1,4,3)[frame,0] + displacement_gripper_to_object_numpy[frame,0]
+                                #print("111111111111", object_point.shape)
+                                displacement_gripper_to_object_numpy_10d[frame] = (object_point - gripper_pcd_10d_numpy[0, frame, :3].flatten())
+                                #print("222222222222", gripper_pcd.shape, gripper_pcd[i, :3, :].flatten().shape, (object_point - gripper_pcd[i, :3, :].flatten()).shape) 
+                            #displacement_gripper_to_object = np.array(displacement_gripper_to_object).reshape(self.horizon, -1, 3)
+                            displacement_gripper_to_object_10d = torch.from_numpy(np.expand_dims(np.expand_dims(displacement_gripper_to_object_numpy_10d, axis=0), axis=2).astype(np.float32)).cuda()
+                            high_level_parallel_input_dict['gripper_pcd'] = gripper_pcd_10d
+                            high_level_parallel_input_dict['displacement_gripper_to_object'] = displacement_gripper_to_object_10d
+                            #import pdb; pdb.set_trace();
+
+
+
                         with torch.no_grad():
                             predicted_goal = goal_policy.predict_action(high_level_parallel_input_dict)
-                        
+                        #import pdb; pdb.set_trace();
                         if goal_cfg.policy.prediction_target == 'goal_gripper_pcd':
-                            parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
+                            if pos_ori_imp:
+                                parallel_input_dict['goal_gripper_10d_repr'] = predicted_goal['action'][:, :2, :].view(1, 2, 10)
+                            else:
+                                parallel_input_dict['goal_gripper_pcd'] = predicted_goal['action'][:, :2, :].view(1, 2, 4, 3)
                         elif goal_cfg.policy.prediction_target == 'delta_to_goal_gripper':
                             current_gripper_pcd = parallel_input_dict['gripper_pcd'].detach()
                             delta_pcd = predicted_goal['action'][:, :2, :]
@@ -218,7 +254,7 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                         last_goal = parallel_input_dict['goal_gripper_pcd']
                     else:
                         parallel_input_dict['goal_gripper_pcd'] = last_goal
-                        
+                #import pdb; pdb.set_trace();        
                 if cfg.task.env_runner.dense_pcd_for_goal:
                     parallel_input_dict['point_cloud'] = parallel_input_dict['dense_point_cloud']
                     
@@ -251,7 +287,12 @@ def run_eval_non_parallel(cfg, policy, goal_cfg, goal_policy,
                     break
 
                 if use_high_level:
-                    env.env.goal_gripper_pcd = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[0].reshape(4, 3)
+                    if pos_ori_imp:
+                        from diffusion_policy_3d.common.gripper_orientation_from_4_points import get_points_from_pos_rotation_matrix
+                        positions_of_4_points = get_points_from_pos_rotation_matrix(parallel_input_dict['goal_gripper_10d_repr'].cpu().numpy()[0,0,:3], parallel_input_dict['goal_gripper_10d_repr'][0,0,:6])
+                        env.env.goal_gripper_pcd = positions_of_4_points.reshape(4, 3)
+                    else:
+                        env.env.goal_gripper_pcd = parallel_input_dict['goal_gripper_pcd'].detach().cpu().numpy().squeeze(0)[0].reshape(4, 3)
             
                 if not use_high_level and not heuristic_goal_switching:
                     env.env.goal_gripper_pcd = None
@@ -312,6 +353,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_high_level", type=int, default=1)
     parser.add_argument("--heuristic_goal_switching", type=int, default=0)
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
+    parser.add_argument('--pos_ori_imp', action='store_true', help='Set the flag for 10D representation Training')
 
     args = parser.parse_args()
     
@@ -442,4 +484,5 @@ if __name__ == "__main__":
             randomize_camera=args.randomize_camera,
             use_high_level=args.use_high_level,
             heuristic_goal_switching=args.heuristic_goal_switching,
+            pos_ori_imp = args.pos_ori_imp
     )

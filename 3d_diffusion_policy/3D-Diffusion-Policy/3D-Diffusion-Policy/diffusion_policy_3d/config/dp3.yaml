@@ -96,7 +96,7 @@ policy:
     attention_num_heads: 3 # there was a bug with 4, should use 3 instead
     attention_num_layers: 2
     use_repr_10d: false
-
+    pos_ori_imp: false
   prediction_target: action
 
   ### transformer diffusion parameters

@@ -25,6 +25,8 @@ import pickle as pkl
 import argparse
 from typing import List, Optional
 from collections import deque
+from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
+
 
 def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
@@ -182,7 +184,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False):
+                          randomize_camera=False, pos_ori_imp=False):
     
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
@@ -385,8 +387,18 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 
                 predicted_goal = outputs.repeat(1, 2, 1, 1)
 
-                parallel_input_dict['goal_gripper_pcd'] = predicted_goal
-
+                #parallel_input_dict['goal_gripper_pcd'] = predicted_goal
+                if pos_ori_imp:
+                    from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
+                    #import pdb; pdb.set_trace();
+                    predicted_goal = predicted_goal.reshape(-1,4,3)
+                    predicted_goal = torch.from_numpy(gripper_pcd_to_10d_vector(predicted_goal.cpu().numpy())).to(torch.float32).cuda()
+                    predicted_goal = predicted_goal.reshape(1,-1,10)
+                    
+                    parallel_input_dict['goal_gripper_10d_repr'] = predicted_goal
+                else:
+                    parallel_input_dict['goal_gripper_pcd'] = predicted_goal
+                #import pdb; pdb.set_trace()
                 with torch.no_grad():
                     batched_action = policy.predict_action(parallel_input_dict)
                     gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
@@ -468,6 +480,7 @@ if __name__ == "__main__":
     parser.add_argument('-n', '--noise', type=float, default=None, nargs=2, help='bounds for noise. e.g. `--noise -0.1 0.1')
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
+    parser.add_argument('--pos_ori_imp', action='store_true', help='Set the flag for 10D representation Training')
     args = parser.parse_args()
     
     num_worker = 30
@@ -492,25 +505,26 @@ if __name__ == "__main__":
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     workspace.load_checkpoint(path=checkpoint_dir, )
 
+    #Low level policy loading 
     policy = deepcopy(workspace.model)
     if workspace.cfg.training.use_ema:
         policy = deepcopy(workspace.ema_model)
     policy.eval()
     policy.reset()
     policy = policy.to('cuda')
-    
-    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-    cfg.task.env_runner.experiment_folder = [
-        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    ''''data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
         'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+        'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle', 
+        'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle', '''
+    cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+    cfg.task.env_runner.experiment_folder = [
+        'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+        
         ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
     # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
@@ -548,7 +562,7 @@ if __name__ == "__main__":
         elif args.pointnet_class == "PointNet2_superplus":
             pointnet2_model = PointNet2_superplus(num_classes=13).to("cuda")
             
-        
+    #High Level Policy Loading    
     pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
     
@@ -582,7 +596,8 @@ if __name__ == "__main__":
             update_goal_freq=args.update_goal_freq,
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
-            randomize_camera=args.randomize_camera
+            randomize_camera=args.randomize_camera,
+            pos_ori_imp=args.pos_ori_imp
     )
 
 

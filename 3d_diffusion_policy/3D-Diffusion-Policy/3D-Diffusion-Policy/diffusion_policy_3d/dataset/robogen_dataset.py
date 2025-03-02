@@ -151,7 +151,8 @@ class RobogenDataset(BaseDataset):
             prob_y = None,
             prob_rot_z = None,
             prediction_target='action',
-            use_repr_10d=False,
+            use_repr_10d=False, # 10D Representation for Low Level Policy
+            pos_ori_imp=False, #10D Representation for High Level Policy
             dp3=False,
             **kwargs
             ):
@@ -169,6 +170,7 @@ class RobogenDataset(BaseDataset):
         self.object_augmentation_high_level = object_augmentation_high_level
         self.prediction_target = prediction_target
         self.use_repr_10d=use_repr_10d
+        self.pos_ori_imp-pos_ori_imp
         self.dp3 = dp3
 
         cprint(f"Using 10D representation {self.use_repr_10d}", "red")
@@ -414,11 +416,43 @@ class RobogenDataset(BaseDataset):
         agent_pos = copy.deepcopy(sample['state'][:,])
         point_cloud = copy.deepcopy(sample['point_cloud'][:,])
         action = copy.deepcopy(sample['action'])
+
+
+        #10D GRIPPER BASELINE EXPERIMENT
+        if self.pos_ori_imp:
+            open_close = sample['state'][:-1,9]
+            gripper_pcd_10d = []
+            for i in range(self.horizon):
+                gripper_pcd_10d.append(get_gripper_pos_orient_from_4_points_torch(sample['gripper_pcd'][i]))
+            gripper_pcd = copy.deepcopy(np.array(gripper_pcd_10d))
+            gripper_pcd = np.column_stack((gripper_pcd, open_close))
+            gripper_pcd = np.expand_dims(gripper_pcd, axis=-1)
+            goal_gripper_pcd_10d =[]
+            open_close = sample['action'][:-1,9]
+            for i in range(self.horizon):
+                goal_gripper_pcd_10d.append(get_gripper_pos_orient_from_4_points_torch(sample['goal_gripper_pcd'][i]))
+            goal_gripper_pcd = copy.deepcopy(np.array(goal_gripper_pcd_10d))
+            goal_gripper_pcd = np.column_stack((goal_gripper_pcd, open_close))
+            goal_gripper_pcd = np.expand_dims(goal_gripper_pcd, axis=-1)
+            displacement_gripper_to_object = []
+            for i in range(self.horizon):
+                #print("000000000000000000", sample['displacement_gripper_to_object'].shape)
+                object_point = sample['gripper_pcd'][i][0] + sample['displacement_gripper_to_object'][i][0]
+                #print("111111111111", object_point.shape)
+                displacement_gripper_to_object.append(object_point - gripper_pcd[i, :3, :].flatten())
+                #print("222222222222", gripper_pcd.shape, gripper_pcd[i, :3, :].flatten().shape, (object_point - gripper_pcd[i, :3, :].flatten()).shape) 
+            displacement_gripper_to_object = np.array(displacement_gripper_to_object).reshape(self.horizon, -1, 3)
+            #print("HEREEEEEEE", gripper_pcd.shape, goal_gripper_pcd.shape, displacement_gripper_to_object.shape)
+
+
+
         if self.object_augmentation_high_level:
             gripper_pcd = copy.deepcopy(sample['gripper_pcd'][:,])
             goal_gripper_pcd = copy.deepcopy(sample['goal_gripper_pcd'][:,])
         agent_pos_old = copy.deepcopy(agent_pos)
 
+
+        
 
         # augmentation
         ###########################################
@@ -610,6 +644,21 @@ class RobogenDataset(BaseDataset):
             for key in self.keys_:
                 if key not in ['state', 'action', 'point_cloud', 'gripper_pcd', 'goal_gripper_pcd']:
                     data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
+                    
+        elif self.pos_ori_imp:
+            data = {
+                'obs': {
+                    'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
+                    'agent_pos': agent_pos.astype(np.float32), # T, D_pos
+                    'gripper_pcd': gripper_pcd.astype(np.float32),
+                    'goal_gripper_pcd': goal_gripper_pcd.astype(np.float32),
+                    'displacement_gripper_to_object': displacement_gripper_to_object.astype(np.float32)
+                },
+                'action': action.astype(np.float32)
+            }
+            for key in self.keys_:
+                if key not in ['state', 'action', 'point_cloud', 'gripper_pcd', 'goal_gripper_pcd', 'displacement_gripper_to_object']:
+                    data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))[:self.horizon,:,:]
         else:
             # assign to dict
             data = {
