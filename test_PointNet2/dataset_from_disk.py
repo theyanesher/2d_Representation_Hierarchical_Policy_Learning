@@ -207,7 +207,6 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                 ax3.scatter(demo_open_goal_gripper_pcd[:, 0], demo_open_goal_gripper_pcd[:, 1], demo_open_goal_gripper_pcd[:, 2], s=20, color='red')
 
                 plt.show()
-
             return {
                 "pointcloud": pointcloud,
                 "gripper_pcd": gripper_pcd,
