@@ -543,12 +543,14 @@ if __name__ == "__main__":
     parser.add_argument('--demo_use_attn', type=int, default=0)
     parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
-    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=0)
     parser.add_argument('--demo_hadamard_production', type=int, default=0)
     parser.add_argument('--demo_aligned_cross_attn', type=int, default=0)
+    parser.add_argument('--bottleneck_film_cond', type=int, default=0)
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
     parser.add_argument('--eval_condition_on_demo', type=int, default=1)
+    parser.add_argument('--demo_just_use_pn', type=int, default=0)
     parser.add_argument('--eval_unseen', type=int, default=1)
     args = parser.parse_args()
     
@@ -622,8 +624,10 @@ if __name__ == "__main__":
     
     num_class = 13 if not args.predict_two_goals else 25
     input_channel = 5 if args.add_one_hot_encoding else 3
-    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production and not args.demo_aligned_cross_attn:
+    if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production and not args.demo_aligned_cross_attn and not args.bottleneck_film_cond:
         input_channel += args.demo_attn_embedding_dim
+    if args.conditioning_on_demo and args.demo_just_use_pn:
+        input_channel = 5 + 3
 
     if not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
@@ -643,13 +647,15 @@ if __name__ == "__main__":
                                     use_hadamard_production=args.demo_hadamard_production,
                                     aligned_cross_attn=args.demo_aligned_cross_attn,
                                     attn_embedding_dim=args.demo_attn_embedding_dim,
+                                    bottleneck_film_cond=args.bottleneck_film_cond,
                                     demo_use_attn=args.demo_use_attn,
                                     demo_pn_type=args.demo_pn_type,
                                     demo_use_cur_obs=args.demo_use_cur_obs,
                                     use_flow_in_demo=args.demo_use_flow,
                                     separate_demo_feature=args.separate_demo_feature,
-                                    always_train_with_conditioning=args.eval_condition_on_demo
-                                    ).to("cuda")
+                                    always_train_with_conditioning=args.eval_condition_on_demo,
+                                    just_use_pn=args.demo_just_use_pn,
+                                ).to("cuda")
         else:
             from test_PointNet2.model_invariant import PointNet2_super
             pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")

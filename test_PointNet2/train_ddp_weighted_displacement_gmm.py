@@ -28,6 +28,8 @@ def train(args):
     input_channel = 5 if args.add_one_hot_encoding else 3
     if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production and not args.demo_aligned_cross_attn and not args.bottleneck_film_cond:
         input_channel += args.demo_attn_embedding_dim
+    if args.conditioning_on_demo and args.demo_just_use_pn:
+        input_channel = 5 + 3
 
     output_dim = 13 
 
@@ -46,8 +48,10 @@ def train(args):
                                     use_flow_in_demo=args.demo_use_flow,
                                     separate_demo_feature=args.separate_demo_feature,
                                     cross_attn_every_layer=args.cross_attn_every_layer,
-                                    bottleneck_film_cond=args.bottleneck_film_cond，
+                                    bottleneck_film_cond=args.bottleneck_film_cond,
                                     always_train_with_conditioning=args.demo_pretrained_pn_path is not None or args.always_train_with_conditioning,
+                                    condition_set_to_false=args.condition_set_to_false,
+                                    just_use_pn=args.demo_just_use_pn,
                                     ).to(device)
             
                 
@@ -101,35 +105,41 @@ def train(args):
     if args.conditioning_on_demo:
         output_dir += '_demo'
 
-        if args.separate_demo_feature:
-            output_dir += '_separate'
+        if not args.separate_demo_feature:
+            output_dir += '_not_separate'
         if args.demo_use_attn:
             output_dir += "_demo_attn"
         if args.demo_use_cur_obs:
             output_dir += "_demo_curobs"
+        if args.demo_just_use_pn:
+            output_dir += "_just_use_pn"
         output_dir += "_pn_" + args.demo_pn_type
         if args.demo_cross_attn_bottleneck:
             output_dir += "_attn_bottleneck"
         if args.demo_hadamard_production:
             output_dir += "_hadamard"
+        if args.demo_aligned_cross_attn:
+            output_dir += "_aligned_cross_attn"
+        if args.bottleneck_film_cond:
+            output_dir +="_Film_bottleneck"
+        if args.cross_attn_every_layer:
+            output_dir +="_attn_every_upsample"
         if args.demo_pretrained_pn_path is not None:
             output_dir += "_load_pretrained_pn"
         if args.always_train_with_conditioning:
             output_dir += "_always_condition"
+        if args.condition_set_to_false:
+            output_dir += "_half_cond_false"
     
-    output_dir += args.model_type 
-
-    if args.model_invariant:
-        output_dir = output_dir + "_model_invariant"
-    
-
-    if args.use_all_data:
-        output_dir = output_dir + "_use_all_data"
-    else:
-        output_dir = output_dir + "_use_75_episodes"
-
-    if args.use_combined_action:
-        output_dir = output_dir + "_use_combined_data"
+    # output_dir += args.model_type 
+    # if args.model_invariant:
+    #     output_dir = output_dir + "_model_invariant"
+    # if args.use_all_data:
+    #     output_dir = output_dir + "_use_all_data"
+    # else:
+    #     output_dir = output_dir + "_use_75_episodes"
+    # if args.use_combined_action:
+    #     output_dir = output_dir + "_use_combined_data"
     
     output_dir = output_dir + "_" + str(args.num_train_objects) + "-obj"
     
@@ -146,10 +156,7 @@ def train(args):
         output_dir = output_dir + "_one_hot"
         
     output_dir += args.optimizer
-    if args.bottleneck_film_cond:
-        output_dir +="demo_Film_bottleneck"
-    if args.cross_attn_every_layer:
-        output_dir +="demo_attn_every_upsample"
+
     
     if not args.using_weight:
         output_dir = output_dir + "_no_weight"
@@ -327,20 +334,22 @@ def parse_args():
     parser.add_argument('--exp_name', type=str, default="")
     parser.add_argument('--fixed_variance', type=float, default=0.05)
     parser.add_argument('--conditioning_on_demo', type=int, default=0)
-    parser.add_argument('--demo_attn_embedding_dim', type=int, default=255)
+    parser.add_argument('--demo_attn_embedding_dim', type=int, default=240)
     parser.add_argument('--demo_use_attn', type=int, default=0)
     parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
-    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=1)
+    parser.add_argument('--demo_cross_attn_bottleneck', type=int, default=0)
     parser.add_argument('--demo_hadamard_production', type=int, default=0)
     parser.add_argument('--demo_aligned_cross_attn', type=int, default=0)
     parser.add_argument('--separate_demo_feature', type=int, default=1)
     parser.add_argument('--demo_use_flow', type=int, default=1)
     parser.add_argument('--demo_pretrained_pn_path', type=str, default=None)
     parser.add_argument('--always_train_with_conditioning', type=int, default=0)
-    parser.add_argument('--optimizer', type=str, default='adamw')
     parser.add_argument('--cross_attn_every_layer', type=int, default=0)
     parser.add_argument('--bottleneck_film_cond', type=int, default=0)
+    parser.add_argument('--condition_set_to_false', type=int, default=0)
+    parser.add_argument('--demo_just_use_pn', type=int, default=0)
+    parser.add_argument('--optimizer', type=str, default='adamw')
     return parser.parse_args()
 
 
