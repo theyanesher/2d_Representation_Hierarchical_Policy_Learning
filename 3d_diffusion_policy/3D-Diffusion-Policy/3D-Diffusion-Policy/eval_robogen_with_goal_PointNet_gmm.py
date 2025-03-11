@@ -183,9 +183,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False, conditioning_on_demo=False):
+                          randomize_camera=False, conditioning_on_demo=False,
+                          conditional_demo_folders=None):
     
-    for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
+    for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path, conditional_demo_folder) in \
+        enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path,
+                      conditional_demo_folders)):
         
         if dataset_index is not None:
             dataset_idx = dataset_index
@@ -274,9 +277,19 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
             
         if conditioning_on_demo: # construct the env using the last episode as demo
-            config_file = config_files[exp_end_idx]
-            init_state_file = init_state_files[exp_end_idx]
-            opening_state_file = opening_state_files[exp_end_idx]
+            if conditional_demo_folder is None:
+                config_file = config_files[exp_end_idx]
+                init_state_file = init_state_files[exp_end_idx]
+                opening_state_file = opening_state_files[exp_end_idx]
+            else:
+                config_file = os.path.join(conditional_demo_folder, "task_config.yaml")
+                init_state_file = os.path.join(conditional_demo_folder, "grasp_the_handle_of_the_storage_furniture_door_primitive", "states", "state_0.pkl")
+                stage_lengths = os.path.join(conditional_demo_folder, "grasp_the_handle_of_the_storage_furniture_door_primitive", "stage_lengths.json")
+                with open(stage_lengths, 'r') as f:
+                    stage_lengths = json.load(f)
+                opening_state = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 1
+                opening_state_file = os.path.join(conditional_demo_folder, "grasp_the_handle_of_the_storage_furniture_door_primitive", "states", "state_{}.pkl".format(opening_state))
+
             # from termcolor import cprint
             cprint(f"exp_end_idx {exp_end_idx}", "red")
             cprint(f"demo config file {config_file}", "red")
@@ -446,7 +459,24 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         displacement_mean = outputs[:, sampled_index, :, :] # B, 4, 3
                         input_point_pos = inputs[:, sampled_index, :] # B, 3
                         prediction = input_point_pos.unsqueeze(1) + displacement_mean # B, 4, 3
+                        
+                        # handle the ambiguity between the two finger points
+                        if args.flip_goal:
+                            cur_gripper = parallel_input_dict['gripper_pcd'][0, -1].reshape(4, 3)
+                            distance_1 = torch.norm(prediction.squeeze(0) - cur_gripper, dim=-1).mean()
+                            distance_2 = torch.norm(prediction.squeeze(0)[[0, 2, 1, 3]] - cur_gripper, dim=-1).mean()
+                            # print("distance_1: ", distance_1)
+                            # print("distance_2: ", distance_2)
+                            # import pdb; pdb.set_trace()
+
+
+                            if distance_1 > distance_2:
+                                print("flip the predicted goal")
+                                prediction = prediction[:, [0, 2, 1, 3], :]
+                        
+                        
                         outputs = prediction.unsqueeze(1) # B, history=1, 4, 3
+                        # import pdb; pdb.set_trace()
                         
                     last_goal = outputs
                 else:
@@ -539,7 +569,7 @@ if __name__ == "__main__":
     parser.add_argument('--fixed_variance', type=float, default=0.05)
     parser.add_argument('--argmax', type=int, default=0)
     parser.add_argument('--conditioning_on_demo', type=int, default=0)
-    parser.add_argument('--demo_attn_embedding_dim', type=int, default=255)
+    parser.add_argument('--demo_attn_embedding_dim', type=int, default=240)
     parser.add_argument('--demo_use_attn', type=int, default=0)
     parser.add_argument('--demo_use_cur_obs', type=int, default=0)
     parser.add_argument('--demo_pn_type', type=str, default='large')
@@ -552,6 +582,8 @@ if __name__ == "__main__":
     parser.add_argument('--eval_condition_on_demo', type=int, default=1)
     parser.add_argument('--demo_just_use_pn', type=int, default=0)
     parser.add_argument('--eval_unseen', type=int, default=1)
+    parser.add_argument('--flip_goal', type=int, default=0)
+    parser.add_argument('--small_film', type=int, default=0)
     args = parser.parse_args()
     
     num_worker = 30
@@ -583,6 +615,7 @@ if __name__ == "__main__":
     policy.reset()
     policy = policy.to('cuda')
     
+    conditional_demo_folders = [None for _ in range(10)]
     if args.eval_unseen:
         cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
         cfg.task.env_runner.experiment_folder = [
@@ -598,6 +631,10 @@ if __name__ == "__main__":
             'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
             ]
         cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+        
+        # conditional_demo_folders = [
+        #     "/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-07-06-05-06-58"
+        # ]
     
     else:
         cfg.task.env_runner.experiment_name = [
@@ -655,6 +692,7 @@ if __name__ == "__main__":
                                     separate_demo_feature=args.separate_demo_feature,
                                     always_train_with_conditioning=args.eval_condition_on_demo,
                                     just_use_pn=args.demo_just_use_pn,
+                                    small_film=args.small_film,
                                 ).to("cuda")
         else:
             from test_PointNet2.model_invariant import PointNet2_super
@@ -696,6 +734,7 @@ if __name__ == "__main__":
             noise_real_world_pcd=args.noise_real_world_pcd,
             randomize_camera=args.randomize_camera,
             conditioning_on_demo=args.conditioning_on_demo,
+            conditional_demo_folders=conditional_demo_folders, 
     )
 
 

@@ -65,6 +65,80 @@ class FilmConditionalResidualBlock1D(nn.Module):
         out = self.blocks[1](out)
         out = out + self.residual_conv(x)
         return out
+    
+class FilmConditionalResidualBlock1DSmall(nn.Module):
+    def __init__(self, 
+                 in_channels,
+                 out_channels,
+                 cond_dim,
+                 kernel_size=3,
+                 n_groups=1
+        ):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            Conv1dBlock(in_channels,
+                        out_channels,
+                        kernel_size,
+                        n_groups=n_groups),
+        ])
+
+        cond_channels = out_channels * 2
+        self.cond_encoder = nn.Sequential(
+            nn.Mish(),
+            nn.Linear(cond_dim, cond_channels),
+            Rearrange('batch t -> batch t 1'),
+        )
+
+        self.out_channels = out_channels
+        # make sure dimensions compatible
+        self.residual_conv = nn.Conv1d(in_channels, out_channels, 1) \
+            if in_channels != out_channels else nn.Identity()
+        
+    def forward(self, x, cond=None):
+        '''
+            x : [ batch_size x in_channels x horizon ]
+            cond : [ batch_size x cond_dim]
+
+            returns:
+            out : [ batch_size x out_channels x horizon ]
+        '''
+        out = self.blocks[0](x)
+        if cond is not None:
+            embed = self.cond_encoder(cond)
+            embed = embed.reshape(embed.shape[0], 2, self.out_channels, 1)
+            scale = embed[:, 0, ...]
+            bias = embed[:, 1, ...]
+            out = scale * out + bias
+        return out
+    
+class FilmConditionalResidualBlockSmall(nn.Module):
+    def __init__(self, 
+                 in_channels,
+                 out_channels,
+                 cond_dim,
+                 kernel_size=3,
+                 n_groups=1
+        ):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            FilmConditionalResidualBlock1D(in_channels,
+                                             out_channels,
+                                             cond_dim,
+                                             kernel_size,
+                                             n_groups),
+        ])
+
+    def forward(self, x, cond=None):
+        '''
+            x : [ batch_size x in_channels x horizon ]
+            cond : [ batch_size x cond_dim]
+
+            returns:
+            out : [ batch_size x out_channels x horizon ]
+        '''
+        out = self.blocks[0](x, cond)
+        return out
+
 
 class FilmConditionalResidualBlock(nn.Module):
     def __init__(self, 

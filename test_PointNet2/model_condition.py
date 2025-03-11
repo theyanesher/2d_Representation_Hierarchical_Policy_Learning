@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from time import time
 import numpy as np
-from diffusion_policy_3d.model.diffusion.transformers.original_conditional_transformer import FilmConditionalResidualBlock
+from diffusion_policy_3d.model.diffusion.transformers.original_conditional_transformer import FilmConditionalResidualBlock, FilmConditionalResidualBlockSmall
 from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule
 from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
@@ -412,6 +412,8 @@ class PointNet2_super(nn.Module):
                  always_train_with_conditioning=False, aligned_cross_attn=False,
                  condition_set_to_false=False, 
                  just_use_pn=False,
+                 condition_prob=0.5,
+                 small_film=False,
                  ):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -436,6 +438,7 @@ class PointNet2_super(nn.Module):
         self.just_use_pn = just_use_pn
         self.condition_set_to_false = condition_set_to_false
         self.always_train_with_conditioning = always_train_with_conditioning
+        self.condition_prob = condition_prob
         
         if not just_use_pn:
         
@@ -444,10 +447,14 @@ class PointNet2_super(nn.Module):
                 self.linear_down_l6 = nn.Linear(1024, attn_embedding_dim)
                 self.linear_up_l6 = nn.Linear(attn_embedding_dim, 1024)
             elif self.bottleneck_film_cond:
-                self.bottleneck_film_cond_layer = FilmConditionalResidualBlock(1024, 1024, attn_embedding_dim*2)
+                film_class = FilmConditionalResidualBlock if not small_film else FilmConditionalResidualBlockSmall
+                if separate_demo_feature:
+                    self.bottleneck_film_cond_layer = film_class(1024, 1024, attn_embedding_dim*2)
+                else:
+                    self.bottleneck_film_cond_layer = film_class(1024, 1024, attn_embedding_dim)
                 self.linear_film_bottleneck_l6 = nn.Linear(1024, 1024)
                 #self.linear_up_l6 = nn.Linear(attn_embedding_dim, 1024)
-            if self.cross_attn_every_layer:
+            if self.cross_attn_every_layer: # or True:
                 self.linear_down_l5 = nn.Linear(512, attn_embedding_dim)
                 self.linear_up_l5 = nn.Linear(attn_embedding_dim, 512)
 
@@ -536,6 +543,7 @@ class PointNet2_super(nn.Module):
         # import pdb; pdb.set_trace()
         cur_points = cur_points + linear_up_cur(attn_output.permute(1, 0, 2)).permute(0, 2, 1)
         return cur_points
+        # return linear_up_cur(attn_output.permute(1, 0, 2)).permute(0, 2, 1)
         
     def normal_attention(self, cur_points, linear_down, linear_up, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2):
         if not self.separate_demo_feature:
@@ -609,7 +617,7 @@ class PointNet2_super(nn.Module):
         ### do demonstration conditioning processing here
         # print("always use demo: ", self.always_train_with_conditioning)
         use_condition = True
-        if (np.random.rand() > 0.5 and demo_data is not None) or self.always_train_with_conditioning: ### train with conditioning and without conditioning randomly
+        if (np.random.rand() < self.condition_prob and demo_data is not None) or self.always_train_with_conditioning: ### train with conditioning and without conditioning randomly
             # import pdb; pdb.set_trace()
             demo_conditioning_feature = self.demo_transformer(demo_data)
             B, N, _ = xyz.shape
@@ -623,9 +631,9 @@ class PointNet2_super(nn.Module):
                     demo_conditioning_feature_1, demo_conditioning_feature_2 = demo_conditioning_feature
                     demo_conditioning_feature_1 = demo_conditioning_feature_1.unsqueeze(1)
                     demo_conditioning_feature_2 = demo_conditioning_feature_2.unsqueeze(1)
+                    # import pdb; pdb.set_trace()
             else:
                 demo_conditioning_feature = demo_conditioning_feature.unsqueeze(1).expand(B, N, demo_conditioning_feature.shape[1])
-            
         else:
             if self.condition_set_to_false:
                 # print("setting use_condition to be false!")
@@ -671,8 +679,10 @@ class PointNet2_super(nn.Module):
         if self.cross_attn_bottleneck and use_condition:
             l6_points = self.normal_attention(l6_points, self.linear_down_l6, self.linar_up_l6, demo_conditioning_feature, demo_conditioning_feature_1, demo_conditioning_feature_2)
         if self.bottleneck_film_cond and use_condition:
-            # import pdb; pdb.set_trace()
-            cond = torch.cat([demo_conditioning_feature_1.squeeze(1), demo_conditioning_feature_2.squeeze(1)], dim=1)
+            if self.separate_demo_feature:
+                cond = torch.cat([demo_conditioning_feature_1.squeeze(1), demo_conditioning_feature_2.squeeze(1)], dim=1)
+            else:
+                cond = demo_conditioning_feature.squeeze(1)
             l6_points_film = self.bottleneck_film_cond_layer(l6_points,cond)
             l6_points = F.relu(l6_points + self.linear_film_bottleneck_l6(l6_points_film.permute(0, 2, 1)).permute(0, 2, 1)) 
         if self.use_hadamard_production and use_condition:

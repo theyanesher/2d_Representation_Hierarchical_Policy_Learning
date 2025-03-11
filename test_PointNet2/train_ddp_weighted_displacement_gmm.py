@@ -52,23 +52,50 @@ def train(args):
                                     always_train_with_conditioning=args.demo_pretrained_pn_path is not None or args.always_train_with_conditioning,
                                     condition_set_to_false=args.condition_set_to_false,
                                     just_use_pn=args.demo_just_use_pn,
+                                    condition_prob=args.demo_condition_prob,
+                                    small_film=args.small_film,
                                     ).to(device)
+            
+            total_params = sum(p.numel() for p in model.parameters())
+            cprint(f"model has parameters {total_params}", "red")
+            # exit()
             
                 
             if args.demo_pretrained_pn_path is not None:
                 # import pdb; pdb.set_trace()
                 cprint("load partially trained pointnet++ from {}".format(args.demo_pretrained_pn_path), "red")
-                # import pdb; pdb.set_trace()
-                model.load_state_dict(torch.load(args.demo_pretrained_pn_path, map_location=device), strict=False)
+                # loaded_submodules = {k.split(".")[0] for k in checkpoint.keys()}  # Extract top-level module names
+                # model.load_state_dict(torch.load(args.demo_pretrained_pn_path, map_location=device), strict=False)
+                # for name, module in model.named_children():
+                #     if name != "demo_transformer":  # If this submodule was in the checkpoint
+                #         for param in module.parameters():
+                #             param.requires_grad = False  # Freeze it
+                
+                checkpoint = torch.load(args.demo_pretrained_pn_path, map_location=device)  # Replace with actual checkpoint
+
+                # Get the submodules in the checkpoint
+                loaded_submodules = {k.split(".")[0] for k in checkpoint.keys()}  # Extract top-level module names
+
+                # Load only the checkpointed submodules
+                filtered_state_dict = {k: v for k, v in checkpoint.items() if k.split(".")[0] in loaded_submodules}
+                model.load_state_dict(filtered_state_dict, strict=False)  # Ignore missing keys
                 for name, module in model.named_children():
-                    if name != "demo_transformer":  # If this submodule was in the checkpoint
+                    cprint(f"checking module {name}", "red")
+                    if name in loaded_submodules:  # If this submodule was in the checkpoint
+                        cprint(f"freezing {name}", 'yellow')
                         for param in module.parameters():
                             param.requires_grad = False  # Freeze it
+                # import pdb; pdb.set_trace()
+                
         else:
             from test_PointNet2.model_invariant import PointNet2_super
             model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel,
                                     ).to(device)
             
+            total_params = sum(p.numel() for p in model.parameters())
+            cprint(f"model has parameters {total_params}", "red")
+            # exit()
+
     else:
         from test_PointNet2.model import PointNet2_small2
         from test_PointNet2.model import PointNet2
@@ -83,7 +110,8 @@ def train(args):
             model = AttnModel(num_classes=output_dim).to(device)
         else:
             raise ValueError(f"model_type {args.model_type} not recognized")
-    
+        
+        
     if args.load_model_path is not None:
         model.load_state_dict(torch.load(args.load_model_path, map_location=device))
         print("Successfully load model from: ", args.load_model_path)
@@ -99,7 +127,11 @@ def train(args):
     # for name, param in model.named_parameters():
     #     print(f"{name}: requires_grad={param.requires_grad}")  # Should be True only for `another_model`
 
-    output_dir = "GMM_" 
+    if args.gmm:
+        output_dir = "GMM_" 
+    else:
+        output_dir = "Reg_"
+    
     output_dir = output_dir + "_" + str(datetime.date.today())
 
     if args.conditioning_on_demo:
@@ -130,6 +162,9 @@ def train(args):
             output_dir += "_always_condition"
         if args.condition_set_to_false:
             output_dir += "_half_cond_false"
+        if args.small_film:
+            output_dir += '_small_film'
+        output_dir += f"_cond_prob_{args.demo_condition_prob}"
     
     # output_dir += args.model_type 
     # if args.model_invariant:
@@ -155,7 +190,7 @@ def train(args):
     if args.add_one_hot_encoding:
         output_dir = output_dir + "_one_hot"
         
-    output_dir += args.optimizer
+    # output_dir += args.optimizer
 
     
     if not args.using_weight:
@@ -213,6 +248,7 @@ def train(args):
     for epoch in range(args.num_epochs):
         running_loss = 0.0
         accumulated_displacement_loss = 0.0
+        accumulated_weighting_loss = 0.0
         for i, data in enumerate(tqdm(dataloader)):
             if not args.conditioning_on_demo:
                 pointcloud, gripper_pcd, goal_gripper_pcd = data
@@ -247,6 +283,7 @@ def train(args):
 
             inputs, labels = inputs.to(device), labels.to(device)
             inputs = inputs.permute(0, 2, 1)
+
             optimizer.zero_grad()
             if not args.conditioning_on_demo:
                 outputs = model(inputs) # B, N, 13
@@ -260,30 +297,50 @@ def train(args):
                 labels = labels[:, :-4, :]
                 inputs = inputs[:, :, :-4]
                 N = N - 4
+                
+            if args.gmm:
+                diff = outputs - labels  # Shape: (B, N, 12)
+                fixed_variance = args.fixed_variance
+                exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
+                log_gaussians = exponent 
+
+                # Compute log mixing coefficients
+                log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
+                log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-10)  # Prevent extreme values
+
+                max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
+                log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
+                
                         
-            
-            # import pdb; pdb.set_trace()
-            diff = outputs - labels  # Shape: (B, N, 12)
-            fixed_variance = args.fixed_variance
-            exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
-            log_gaussians = exponent 
+                loss = -torch.mean(log_probs) # mean of the negative log likelihood
+                accumulated_displacement_loss += loss.item()
 
-            # Compute log mixing coefficients
-            log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
-            log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-10)  # Prevent extreme values
+               
+            else:
+                loss = criterion(outputs, labels)
+                accumulated_displacement_loss += loss.item()
 
-            max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
-            log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
-            
+                if args.using_weight:
+                    inputs = inputs.permute(0, 2, 1)
+                    outputs = outputs.view(B, N, 4, 3)
+                    outputs = outputs + inputs[:, :, :3].unsqueeze(2) # B, N, 4, 3
+
+                    # softmax the weights
+                    weights = torch.nn.functional.softmax(weights, dim=1)
                     
-            loss = -torch.mean(log_probs) # mean of the negative log likelihood
-            accumulated_displacement_loss += loss.item()
+                    # sum the displacement of the predicted gripper point cloud according to the weights
+                    outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                    outputs = outputs.sum(dim=1)
+                    avg_loss = criterion(outputs, gripper_points.to(device))
+
+                    loss = loss + avg_loss * args.weight_loss_weight
+                    accumulated_weighting_loss += (avg_loss * args.weight_loss_weight).item()
 
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
 
-            log_interval = 50
+            log_interval = 50 if args.gmm else 1000
             if (i+1) % log_interval == 0 and os.environ['LOCAL_RANK'] == '0':
                 print(f"Epoch {epoch + 1}, iter {i + 1}, loss: {running_loss / log_interval}")
                 
@@ -292,6 +349,7 @@ def train(args):
                     "global_step": global_step,
                     "total_loss": running_loss / log_interval,
                     "displacement_loss": accumulated_displacement_loss / log_interval,
+                    "weighting_loss": accumulated_weighting_loss / log_interval,
                 }
 
                 wandb_run.log(log_info, step=global_step)
@@ -347,9 +405,12 @@ def parse_args():
     parser.add_argument('--always_train_with_conditioning', type=int, default=0)
     parser.add_argument('--cross_attn_every_layer', type=int, default=0)
     parser.add_argument('--bottleneck_film_cond', type=int, default=0)
+    parser.add_argument('--small_film', type=int, default=0)
     parser.add_argument('--condition_set_to_false', type=int, default=0)
     parser.add_argument('--demo_just_use_pn', type=int, default=0)
+    parser.add_argument('--demo_condition_prob', type=float, default=0.5)
     parser.add_argument('--optimizer', type=str, default='adamw')
+    parser.add_argument('--gmm', type=int, default=1)
     return parser.parse_args()
 
 
