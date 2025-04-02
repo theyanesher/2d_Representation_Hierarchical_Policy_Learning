@@ -1,0 +1,30 @@
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Current SDK version is 0.15.4
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Configure stats pid to 2328478
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Loading settings from /home/chenyuan/.config/wandb/settings
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Loading settings from /home/chenyuan/RoboGen-sim2real/test_PointNet2/wandb/settings
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Loading settings from environment variables: {}
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Applying setup settings: {'_disable_service': False}
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_setup.py:_flush():76] Inferring run settings from compute environment: {'program_relpath': 'test_PointNet2/train_ddp_weighted_displacement.py', 'program': '/home/chenyuan/RoboGen-sim2real/test_PointNet2/train_ddp_weighted_displacement.py'}
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_init.py:_log_setup():507] Logging user logs to ./high_level/pointnet2_super_model_invariant_2025-03-20_use_75_episodes_200-obj_paper_1211/wandb/run-20250320_103853-q6od1nx8/logs/debug.log
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_init.py:_log_setup():508] Logging internal logs to ./high_level/pointnet2_super_model_invariant_2025-03-20_use_75_episodes_200-obj_paper_1211/wandb/run-20250320_103853-q6od1nx8/logs/debug-internal.log
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_init.py:init():547] calling init triggers
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_init.py:init():554] wandb.init called with sweep_config: {}
+config: {}
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_init.py:init():596] starting backend
+2025-03-20 10:38:53,756 INFO    MainThread:2328478 [wandb_init.py:init():600] setting up manager
+2025-03-20 10:38:53,759 INFO    MainThread:2328478 [backend.py:_multiprocessing_setup():106] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2025-03-20 10:38:53,761 INFO    MainThread:2328478 [wandb_init.py:init():606] backend started and connected
+2025-03-20 10:38:53,762 INFO    MainThread:2328478 [wandb_init.py:init():703] updated telemetry
+2025-03-20 10:38:53,821 INFO    MainThread:2328478 [wandb_init.py:init():736] communicating run to backend with 60.0 second timeout
+2025-03-20 10:38:54,034 INFO    MainThread:2328478 [wandb_run.py:_on_init():2176] communicating current version
+2025-03-20 10:38:54,147 INFO    MainThread:2328478 [wandb_run.py:_on_init():2185] got version response upgrade_message: "wandb version 0.19.8 is available!  To upgrade, please run:\n $ pip install wandb --upgrade"
+
+2025-03-20 10:38:54,147 INFO    MainThread:2328478 [wandb_init.py:init():787] starting run threads in backend
+2025-03-20 10:38:59,719 INFO    MainThread:2328478 [wandb_run.py:_console_start():2155] atexit reg
+2025-03-20 10:38:59,720 INFO    MainThread:2328478 [wandb_run.py:_redirect():2010] redirect: SettingsConsole.WRAP_RAW
+2025-03-20 10:38:59,720 INFO    MainThread:2328478 [wandb_run.py:_redirect():2075] Wrapping output streams.
+2025-03-20 10:38:59,720 INFO    MainThread:2328478 [wandb_run.py:_redirect():2100] Redirects installed.
+2025-03-20 10:38:59,721 INFO    MainThread:2328478 [wandb_init.py:init():828] run started, returning control to user process
+2025-03-20 10:38:59,721 INFO    MainThread:2328478 [wandb_run.py:_config_callback():1283] config_cb None None {'output_dir': './high_level/pointnet2_super_model_invariant_2025-03-20_use_75_episodes_200-obj_paper_1211', 'model_type': 'pointnet2_super', 'lr': 0.001, 'weight_loss_weight': 10, 'batch_size': 50}
+2025-03-20 10:38:59,722 INFO    MainThread:2328478 [wandb_run.py:_config_callback():1283] config_cb None None {'all_zarr_path': None, 'num_train_objects': '200', 'dataset_prefix': '/media/chenyuan/7e1e609b-387d-4a95-9219-2535fbbecfe9/articubot_demo/dp3_demo', 'batch_size': 50, 'beg_ratio': 0, 'end_ratio': 1, 'num_epochs': 60, 'save_freq': 2, 'lr': 0.001, 'only_first_stage': False, 'exp_path': './high_level/pointnet2_super_model_invariant_2025-03-20_use_75_episodes_200-obj_paper_1211', 'model_type': 'pointnet2_super', 'load_model_path': None, 'output_obj_pcd_only': False, 'weight_loss_weight': 10, 'use_all_data': False, 'use_combined_action': False, 'model_invariant': True, 'predict_two_goals': False, 'keep_gripper_in_fps': 0, 'add_one_hot_encoding': 0, 'using_weight': 1, 'exp_name': '_paper_1211'}
+2025-03-21 16:18:46,845 WARNING MsgRouterThr:2328478 [router.py:message_loop():77] message_loop has been closed

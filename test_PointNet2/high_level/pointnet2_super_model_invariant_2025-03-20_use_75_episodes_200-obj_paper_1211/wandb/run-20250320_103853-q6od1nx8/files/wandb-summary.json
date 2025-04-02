@@ -1,0 +1,1 @@
+{"epoch": 8, "global_step": 100956, "total_loss": 0.0109859591065906, "displacement_loss": 0.0019956450356403365, "weighting_loss": 0.008990314081311226, "_timestamp": 1742588269.0046678, "_runtime": 106735.243465662, "_step": 100956, "_wandb": {"runtime": 106787}}

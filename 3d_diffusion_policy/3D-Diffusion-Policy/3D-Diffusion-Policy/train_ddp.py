@@ -726,7 +726,7 @@ class TrainDP3Workspace:
 def initialize_pretrained_high_level_policy():
     # configure model
     # on autobot
-    goal_exp_dir = '/project_data/held/ziyuw2/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
+    goal_exp_dir = '/home/chenyuan/Robogen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0807-200-obj-pred-goal-gripper-PointNet2-backbone-UNet-diffusion-ep-75-epsilon/2024.08.07/14.03.40_train_dp3_robogen_open_door'
     # on robocluster
     # goal_exp_dir = '/ocean/projects/cis240052p/ckuo1/RoboGen-sim2real/pretrained_high-level_policy/14.03.40_train_dp3_robogen_open_door'
 
@@ -754,7 +754,8 @@ def initialize_pretrained_high_level_policy():
     pretrained_goal_model = goal_policy  # Assuming goal_policy is defined in your scope
     return pretrained_goal_model
 # pretrained_goal_model = initialize_pretrained_high_level_policy()
-
+import sys
+sys.path.append('/home/chenyuan/RoboGen-sim2real')
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.joinpath(

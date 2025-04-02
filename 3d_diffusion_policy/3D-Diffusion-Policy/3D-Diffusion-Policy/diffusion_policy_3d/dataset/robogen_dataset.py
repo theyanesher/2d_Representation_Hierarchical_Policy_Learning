@@ -170,7 +170,7 @@ class RobogenDataset(BaseDataset):
         self.object_augmentation_high_level = object_augmentation_high_level
         self.prediction_target = prediction_target
         self.use_repr_10d=use_repr_10d
-        self.pos_ori_imp-pos_ori_imp
+        self.pos_ori_imp=pos_ori_imp
         self.dp3 = dp3
 
         cprint(f"Using 10D representation {self.use_repr_10d}", "red")
