@@ -17,13 +17,15 @@ from PIL import Image, ImageSequence
 import multiprocessing
 import objaverse
 import trimesh
+import random
+import scipy
 from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapaien_cannot_vhacd_part_dict
-from typing import List, Optional
+
 
 # Chialiang
 from scipy.spatial.transform import Rotation as R
 
-workspace = os.environ['PROJECT_DIR']
+workspace = os.environ['PWD']
 data_dir = os.path.join(workspace, "data")
 
 default_config = {
@@ -66,7 +68,8 @@ def down_load_single_object(name, uids=None, candidate_num=5, vhacd=True, debug=
     processes = multiprocessing.cpu_count()
    
     for uid in uids:
-        save_path = osp.join(os.environ["PROJECT_DIR"], "objaverse_utils/data/obj", "{}".format(uid))
+        save_path = osp.join("objaverse_utils/data/obj", "{}".format(uid))
+        # print("save_path is: ", save_path)
         if not osp.exists(save_path):
             os.makedirs(save_path)
         if osp.exists(save_path + "/material.urdf"):
@@ -146,27 +149,29 @@ def load_gif(gif_path):
     frames_arrays = [np.array(frame) for frame in frames]
     return frames_arrays
 
-def build_up_env(task_config=None, solution_path=None, task_name=None, restore_state_file=None, return_env_class=False, 
+def build_up_env(task_config=None, env_name=None, task_name=None, object_name=None, link_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0, random_object_translation: Optional[List]=None, **kwargs,
+                    obj_id=0, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
     save_config['config_path'] = task_config
     save_config['task_name'] = task_name
+    save_config['object_name'] = object_name
+    save_config['link_name'] = link_name
     save_config['restore_state_file'] = restore_state_file
     save_config['translation_mode'] = action_space
     save_config['gui'] = render
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
-    save_config['task_name'] = task_name
-    save_config['random_object_translation'] = random_object_translation
     for key, value in kwargs.items():
         save_config[key] = value
 
     ### you might want to restore to a specific state
-    module = importlib.import_module("{}.{}".format(solution_path.replace("/", "."), task_name))
-    env_class = getattr(module, task_name)
+    # module = importlib.import_module("{}.{}".format(solution_path.replace("/", "."), task_name))
+    # env_class = getattr(module, task_name)
+    module = importlib.import_module("manipulation.envs.{}".format(env_name))
+    env_class = getattr(module, env_name)
     env = env_class(**save_config)
 
 
@@ -397,6 +402,9 @@ def preprocess_urdf(urdf_file_path, num_processes=6):
     # do vhacd in parallel, each has a timeout of 200 seconds
     with NonDaemonPool(processes=num_processes) as pool: 
         results = pool.map(run_vhacd_with_timeout, to_process_args)
+    # results = []
+    # for args in to_process_args:
+    #     results.append(run_vhacd_with_timeout(args))
 
     processed_idx = 0
     for l_idx in range(len(new_lines)):
@@ -420,7 +428,7 @@ def preprocess_urdf(urdf_file_path, num_processes=6):
     return new_path
 
 
-def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhacd=True):
+def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhacd=True, default_initial_joint_angle=0):
     urdf_paths = []
     urdf_sizes = []
     urdf_locations = []
@@ -436,6 +444,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
     distractor_config_path = None
 
     robot_initial_joint_angles = [0.0, 0.0, 0.0, -0.4, 0.0, 0.4, 0.0]
+    initial_finger_angle = default_initial_joint_angle
 
     for obj in config:
         # print(obj)
@@ -461,6 +470,11 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
             initial_joint_angles = obj['initial_joint_angles']
             initial_joint_angles = parse_center(initial_joint_angles)
             robot_initial_joint_angles = initial_joint_angles
+
+        if 'initial_finger_angle' in obj.keys():
+            initial_finger_angle = obj['initial_finger_angle']
+            initial_finger_angle = float(initial_finger_angle)
+            
 
         if "type" not in obj.keys():
             continue
@@ -524,6 +538,7 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
             urdf_file_path = osp.join(f"{data_dir}/dataset", obj_path, "mobility.urdf")
             if use_vhacd:
                 new_urdf_file_path = urdf_file_path.replace("mobility.urdf", "mobility_vhacd.urdf")
+                # import pdb; pdb.set_trace()
                 if not osp.exists(new_urdf_file_path):
                     new_urdf_file_path = preprocess_urdf(urdf_file_path)
                 urdf_paths.append(new_urdf_file_path)
@@ -543,10 +558,10 @@ def parse_config(config, use_bard=True, obj_id=None, use_gpt_size=True, use_vhac
         urdf_on_tables.append(obj.get('on_table', False))
         urdf_crop_sizes.append(obj.get('is_crop_size', True))
     return urdf_paths, urdf_sizes, urdf_locations, urdf_orientations, urdf_names, urdf_types, urdf_on_tables, use_table, urdf_crop_sizes, \
-        articulated_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, robot_initial_joint_angles
+        articulated_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, robot_initial_joint_angles, initial_finger_angle
             
         
-
+#USED
 def take_round_images(env, center, distance, elevation=30, azimuth_interval=30, camera_width=640, camera_height=480,
                         return_camera_matrices=False, z_near=0.01, z_far=10, save_path=None):
     camera_target = center
@@ -754,7 +769,7 @@ def get_pc_ben(depth, view_matrix, projection_matrix, znear, zfar):
 
     return P_world
 
-
+#USED
 def save_env(env, save_path=None):
     object_joint_angle_dicts = {}
     object_joint_name_dicts = {}
@@ -810,7 +825,7 @@ def save_env(env, save_path=None):
             pickle.dump(state, f, pickle.HIGHEST_PROTOCOL)
 
     return state
-
+#USED
 def load_env(env, load_path=None, state=None):
 
     if load_path is not None:
@@ -872,7 +887,7 @@ def load_env(env, load_path=None, state=None):
 
     return state
 
-
+#USED
 ### get handle utility functions
 def load_obj(fn):
     fin = open(fn, 'r')
@@ -890,7 +905,7 @@ def load_obj(fn):
     v = np.vstack(vertices)
 
     return v, f
-
+#USED
 def find_nearest_point_on_line(line_pt1, line_pt2, target_pt):
     line_pt1 = np.array(line_pt1).reshape(-1, 3)
     line_pt2 = np.array(line_pt2).reshape(-1, 3)
@@ -912,7 +927,7 @@ def find_nearest_point_on_line(line_pt1, line_pt2, target_pt):
     nearest_pt = line_pt1 + projection_scalar.reshape(-1, 1) * line_vec.repeat(len(projection_scalar), axis=0)
     
     return nearest_pt # (-1, 3)
-
+#USED
 def rotate_point_around_axis(pt, ax, theta_rad):
     """
     Rotate a point around a given axis by theta radiance.
@@ -968,42 +983,6 @@ def rotation_transfer_matrix_to_6D(rotate_matrix):
 
     orient = np.array([a1, a2], dtype=np.float64).flatten()
     return orient
-
-
-def rotation_transfer_6D_to_matrix_batch(orient):
-
-    # orient shape = (B, 6)
-    # return shape = (3, B * 3)
-
-    if type(orient) == list or type(orient) == tuple:
-        orient = np.array(orient, dtype=np.float64)
-    
-    assert orient.shape[-1] == 6
-
-    orient = orient.reshape(-1, 2, 3)
-    a1 = orient[:,0]
-    a2 = orient[:,1]
-
-    b1 = a1 / np.linalg.norm(a1, axis=-1).reshape(-1,1)
-    b2 = a2 - (np.sum(a2*b1, axis=-1).reshape(-1,1) * b1)
-    b2 = b2 / np.linalg.norm(b2, axis=-1).reshape(-1,1)
-    b3 = np.cross(b1, b2)
-
-    rotate_matrix = np.hstack((b1, b2, b3))
-    rotate_matrix = rotate_matrix.reshape(-1, 3).T
-
-    return rotate_matrix
-
-def rotation_transfer_matrix_to_6D_batch(rotate_matrix):
-
-    # rotate_matrix.shape = (B, 9) or (B x 3, 3) rotation transpose (i.e., row vectors instead of column vectors)
-    # return shape = (B, 6)
-
-    if type(rotate_matrix) == list or type(rotate_matrix) == tuple:
-        rotate_matrix = np.array(rotate_matrix, dtype=np.float64).reshape(-1, 9)
-    rotate_matrix = rotate_matrix.reshape(-1, 9)
-
-    return rotate_matrix[:,:6]
 
 ###########################################
 
@@ -1180,6 +1159,112 @@ def draw_coordinate(pose, size, color : np.ndarray=np.asarray([[1, 0, 0], [0, 1,
     p.addUserDebugLine(origin, y, color[1], 2, 0)
     p.addUserDebugLine(origin, z, color[2], 2, 0)
 
+def sample_point_inside_triangle(v1,v2,v3):
+    r1 = random.uniform(0, 1)
+    r2 = random.uniform(0, 1)
+    while r1 + r2 >= 1:
+        r1 = random.uniform(0, 1)
+        r2 = random.uniform(0, 1)
+    r3 = 1 - r1 - r2
+
+    # Calculate the point using barycentric coordinates
+    x = r1 * v1[0] + r2 * v2[0] + r3 * v3[0]
+    y = r1 * v1[1] + r2 * v2[1] + r3 * v3[1]
+    z = r1 * v1[2] + r2 * v2[2] + r3 * v3[2]
+    return [x, y, z]
+
+def get_link_handle(all_handle_pos, handle_joint_id, link_pc, threshold=0.02):
+    handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+    distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
+    min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
+    min_distance_handle_idx = np.argmin(min_distance)
+    handle_joint_id = handle_joint_id[min_distance_handle_idx]
+    handle_pc = all_handle_pos[min_distance_handle_idx]
+    handle_median = handle_median_points[min_distance_handle_idx]
+    pc_to_handle_distance = scipy.spatial.distance.cdist(link_pc, handle_pc).min(axis=1)
+    handle_pc = link_pc[pc_to_handle_distance < threshold]
+    # use the pointcloud of link instead of the handle itself. (partially occluded)
+    return handle_pc, handle_joint_id, handle_median, min_distance_handle_idx
+
+def get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, pc_points):
+    
+    cur_pos, cur_orient = cur_eef_pos, cur_eef_orient
+
+    X_GW = p.invertTransform(cur_pos, cur_orient)
+    translation = np.array(X_GW[0])
+    rotation = np.array(p.getMatrixFromQuaternion(X_GW[1])).reshape(3, 3)
+    T = np.eye(4)
+    T[:3, :3] = rotation
+    T[:3, 3] = translation ### this is the transformation from world frame to gripper frame
+
+    pc_homogeneous = np.hstack((pc_points, np.ones((pc_points.shape[0], 1))))  # Convert to homogeneous coordinates Nx4
+    pc_transformed_homogeneous = T @ pc_homogeneous.T # 4x4 @ 4xN = 4xN
+    p_GC = pc_transformed_homogeneous[:3, :] # 3xN
+
+    ### Crop to a region inside of the finger box.
+    crop_min = [-0.02, -0.06, -0.01] 
+    crop_max = [0.02, 0.06, 0.01]
+    indices = np.all(
+        (
+            crop_min[0] <= p_GC[0, :],
+            p_GC[0, :] <= crop_max[0],
+            crop_min[1] <= p_GC[1, :],
+            p_GC[1, :] <= crop_max[1],
+            crop_min[2] <= p_GC[2, :],
+            p_GC[2, :] <= crop_max[2],
+        ),
+        axis=0,
+    )
+    
+    within_bbox_handle_pc = pc_points[indices]
+    if len(within_bbox_handle_pc) == 0:
+        # print("no points are within the gripper")
+        return 0
+    score = np.sum(indices) 
+    # print("score is: ", score)
+    return score
+
+def get_handle_orient(handle_pc):
+    # get axis aligned bounding box of the handle pc
+    min_xyz = np.min(handle_pc, axis=0)
+    max_xyz = np.max(handle_pc, axis=0)
+    x_range = max_xyz[0] - min_xyz[0]
+    y_range = max_xyz[1] - min_xyz[1]
+    z_range = max_xyz[2] - min_xyz[2]
+    horizontal_range = np.max([x_range, y_range])
+    vertical_range = z_range
+    if horizontal_range > vertical_range:
+        handle_orient = "horizontal"
+    else:
+        handle_orient = "vertical"
+    
+    return handle_orient
+
+def pc_to_line_distance(pc, line_start, line_end):
+    line_start = np.array(line_start)
+    line_end = np.array(line_end)
+    line_vec = line_end - line_start
+    pc_vecs = pc - line_start
+    cross_prod = np.cross(line_vec, pc_vecs)
+    distances = np.linalg.norm(cross_prod, axis=1) / np.linalg.norm(line_vec)
+    return distances
+
+def estimate_line_direction(pc):
+    centered = pc - np.mean(pc, axis=0)
+    cov = np.cov(centered.T)
+    eigvals, eigvecs = np.linalg.eig(cov)
+    principal_axis = eigvecs[:, np.argmax(eigvals)]
+    principal_axis /= np.linalg.norm(principal_axis)
+    return principal_axis
+
+
+def in_bbox(pos, bbox_min, bbox_max):
+    if (pos[0] <= bbox_max[0] and pos[0] >= bbox_min[0] and \
+        pos[1] <= bbox_max[1] and pos[1] >= bbox_min[1] and \
+        pos[2] <= bbox_max[2] and pos[2] >= bbox_min[2]):
+        return True
+    return False
+
 def draw_bbox(start, end):
 
     assert len(start) == 3 and len(end) == 3, f'infeasible size of position, len(position) must be 3'
@@ -1199,27 +1284,6 @@ def draw_bbox(start, end):
         p.addUserDebugLine(points_bb[i], points_bb[(i + 1) % 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i + 4], points_bb[(i + 1) % 4 + 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i], points_bb[i + 4], [1, 0, 0])
-
-def piecewise_uniform_sample(low: float, high: float) -> float:
-    """
-    Samples from a piece-wise uniform distribution of [low,high]+[-high, -low]
-    """
-    is_negative = np.random.uniform(0,1) <= 0.5
-    if is_negative:
-        return np.random.uniform(-high, -low)
-    else:
-        return np.random.uniform(low, high)
-
-def radial_shift(x_coord: float, y_coord: float, noise_bounds: List[float]):
-    theta = np.arctan2(y_coord, x_coord)
-    theta_noise = np.random.uniform(-0.1, 0.1)
-    dist = np.linalg.norm([x_coord, y_coord])
-    dist_noise = np.random.uniform(noise_bounds[0],noise_bounds[1])
-    theta += theta_noise
-    dist += dist_noise
-    perturbed_x = dist * np.cos(theta)
-    perturbed_y = dist * np.sin(theta)
-    return perturbed_x, perturbed_y
 
 if __name__ == '__main__':
     

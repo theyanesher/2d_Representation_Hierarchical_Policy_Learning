@@ -9,20 +9,13 @@ import os.path as osp
 from collections import defaultdict
 from scipy.spatial.transform import Rotation as R
 from manipulation.panda import Panda
-from manipulation.ur5 import UR5
-from manipulation.sawyer import Sawyer
-from manipulation.utils import parse_config, load_env, download_and_parse_objavarse_obj_from_yaml_config, \
-                        save_env, radial_shift
-from manipulation.gpt_reward_api import get_joint_id_from_name, get_link_id_from_name, get_handle_pos, get_link_pc
-from manipulation.gpt_primitive_api import get_link_handle
-import matplotlib.pyplot as plt
-import open3d 
-from termcolor import cprint
+from manipulation.utils import *
 import time
 import scipy
+from scipy import ndimage
 import os
-from manipulation.gpt_primitive_api import get_pc_num_within_gripper
-from typing import List, Optional
+import json
+
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
@@ -45,8 +38,7 @@ class SimpleEnv(gym.Env):
                     mobile=False,
                     # mobile=True,
                     task_name=None,
-                    open_gripper_at_reset=True,
-                    random_object_translation: Optional[List] = None
+                    open_gripper_at_reset=False,
                 ):
         
         super().__init__()
@@ -66,7 +58,6 @@ class SimpleEnv(gym.Env):
         self.randomize = randomize
         self.obj_id = obj_id # which object to choose to use from the candidates
         self.open_gripper_at_reset = open_gripper_at_reset
-        self.random_object_translation = random_object_translation
         
         # robot
         self.mobile = mobile
@@ -87,12 +78,14 @@ class SimpleEnv(gym.Env):
         self.suction_obj_id = None
         self.activated = 0
         
+        # import pdb; pdb.set_trace()
         if self.gui:
             try:
                 self.id = p.connect(p.GUI)
             except:
                 self.id = p.connect(p.DIRECT)
         else:
+            # import pdb; pdb.set_trace()
             self.id = p.connect(p.DIRECT)
 
         self.asset_dir = osp.join(osp.dirname(osp.realpath(__file__)), "assets/")
@@ -103,8 +96,6 @@ class SimpleEnv(gym.Env):
         self.grasped_handle = False
         self.seed()
         self.set_scene()
-        self.view_matrix = None
-        self.projection_matrix = None
         self.setup_camera_rpy()
         self.scene_lower, self.scene_upper = self.get_scene_bounds()
         self.scene_center = (self.scene_lower + self.scene_upper) / 2
@@ -145,15 +136,6 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
-
-    def get_gripper_pc(self):
-        # get the point cloud of the gripper
-        right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
-        left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
-        right_hand_pos, _ = self.robot.get_pos_orient(self.robot.right_hand)
-        eef_pos, _ = self.robot.get_pos_orient(self.robot.right_end_effector)
-        gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
-        return gripper_pc.astype(np.float32)
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -193,46 +175,49 @@ class SimpleEnv(gym.Env):
         range = max_aabb - min_aabb
         return min_aabb - 0.5 * range, max_aabb + 0.5 * range
 
-    def clip_within_workspace(self, robot_pos, ori_pos, on_table):
-        pos = ori_pos.copy()
-        # If objects are too close to the robot, push them away
-        x_near_low, x_near_high = robot_pos[0] - 0.4, robot_pos[0] + 0.4
-        y_near_low, y_near_high = robot_pos[1] - 0.4, robot_pos[1] + 0.4
+    # def clip_within_workspace(self, robot_pos, ori_pos, on_table):
+    #     pos = ori_pos.copy()
+    #     # If objects are too close to the robot, push them away
+    #     x_near_low, x_near_high = robot_pos[0] - 0.4, robot_pos[0] + 0.4
+    #     y_near_low, y_near_high = robot_pos[1] - 0.4, robot_pos[1] + 0.4
 
-        if pos[0] > x_near_low and pos[0] < x_near_high:
-            pos[0] = x_near_low if pos[0] < robot_pos[0] else x_near_high
+    #     if pos[0] > x_near_low and pos[0] < x_near_high:
+    #         pos[0] = x_near_low if pos[0] < robot_pos[0] else x_near_high
 
-        if pos[1] > y_near_low and pos[1] < y_near_high:
-            pos[1] = y_near_low if pos[1] < robot_pos[1] else y_near_high
-        if not on_table:
-            return pos    
-        else:
-            # Object is on table, should be within table's bounding box
-            new_pos = pos.copy()
-            new_pos[:2] = np.clip(new_pos[:2], self.table_bbox_min[:2], self.table_bbox_max[:2])
-            return new_pos
+    #     if pos[1] > y_near_low and pos[1] < y_near_high:
+    #         pos[1] = y_near_low if pos[1] < robot_pos[1] else y_near_high
+    #     if not on_table:
+    #         return pos    
+    #     else:
+    #         # Object is on table, should be within table's bounding box
+    #         new_pos = pos.copy()
+    #         new_pos[:2] = np.clip(new_pos[:2], self.table_bbox_min[:2], self.table_bbox_max[:2])
+    #         return new_pos
         
     def clip_x_bbox_within_workspace(self, robot_pos, ori_pos, on_table , min_bbox, max_bbox):
-        x_near_low = robot_pos[0] - 0.7
-        x_near_high = robot_pos[0] + 0.7
-        offset = 0
-        if min_bbox[0] > robot_pos[0]:
-            if min_bbox[0] < x_near_high:
-                offset = x_near_high - min_bbox[0]
-        elif max_bbox[0] < robot_pos[0]:
-            if max_bbox[0] > x_near_low:
-                offset = x_near_low - max_bbox[0]
+        if self.robot_name == 'panda':
+            x_near_low = robot_pos[0] - 0.2
+            x_near_high = robot_pos[0] + 0.2
+            offset = 0
+            if min_bbox[0] > robot_pos[0]:
+                if min_bbox[0] < x_near_high:
+                    offset = x_near_high - min_bbox[0]
+            elif max_bbox[0] < robot_pos[0]:
+                if max_bbox[0] > x_near_low:
+                    offset = x_near_low - max_bbox[0]
 
-        pos = ori_pos.copy()
-        pos[0] += offset
-        
-        if not on_table:
-            return pos
+            pos = ori_pos.copy()
+            pos[0] += offset
+            
+            if not on_table:
+                return pos
+            else:
+                # Object is on table, should be within table's bounding box
+                new_pos = pos.copy()
+                new_pos[:2] = np.clip(new_pos[:2], self.table_bbox_min[:2], self.table_bbox_max[:2])
+                return new_pos
         else:
-            # Object is on table, should be within table's bounding box
-            new_pos = pos.copy()
-            new_pos[:2] = np.clip(new_pos[:2], self.table_bbox_min[:2], self.table_bbox_max[:2])
-            return new_pos
+            return ori_pos
 
     def get_robot_base_pos(self):
         if not self.mobile:
@@ -281,14 +266,13 @@ class SimpleEnv(gym.Env):
             "plane": 0,
         }
         urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes, \
-            use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles = self.load_and_parse_config(restore_state)
+            use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles, robot_initial_finger_angle = self.load_and_parse_config(restore_state)
 
         ### load plane 
         planeId = p.loadURDF(osp.join(self.asset_dir, "plane", "plane.urdf"), physicsClientId=self.id)
 
         ### create and load a robot
-        self.robot_base_pos = self.load_robot(restore_state, robot_initial_joint_angles=robot_initial_joint_angles)
-
+        self.robot_base_pos = self.load_robot(restore_state, robot_initial_joint_angles=robot_initial_joint_angles, robot_initial_finger_angle=robot_initial_finger_angle)
         self.urdf_ids = {
             "robot": self.robot.body,
             "plane": planeId,
@@ -303,13 +287,11 @@ class SimpleEnv(gym.Env):
 
         ### if a state is passed in, restore the state
         if reset_state is not None:
-            self.add_object_position_pertubations(reset_state)
             load_env(self, state=reset_state)
             return
 
         ### after first set scene, the init state will be stored, and can be restored here, skipping the following steps to save time
         if self.init_state is not None:
-            self.add_object_position_pertubations(self.init_state)
             load_env(self, state=self.init_state)
             return
         
@@ -326,16 +308,20 @@ class SimpleEnv(gym.Env):
         self.set_to_default_joint_angles()
 
         ### overwrite joint angles specified by GPT
-        self.handle_gpt_joint_angle(articulated_init_joint_angles)
-          
+        # self.handle_gpt_joint_angle(articulated_init_joint_angles)
         # open the gripper at reset 
         if self.open_gripper_at_reset:
             for _ in range(20):
-                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
+                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [self.robot.finger_fully_open_joint_angle, self.robot.finger_fully_open_joint_angle], set_instantly=False)
 
         ### stabilize the scene
         for _ in range(500):
             p.stepSimulation(physicsClientId=self.id)
+        
+        # import pdb; pdb.set_trace()
+        # if self.robot_name == 'xarm':
+        #     self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [robot_initial_finger_angle, robot_initial_finger_angle], set_instantly=True)
+        # import pdb; pdb.set_trace()
 
         ### restore to a state if provided
         if self.restore_state_file is not None:
@@ -350,11 +336,13 @@ class SimpleEnv(gym.Env):
             p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1, physicsClientId=self.id)
  
         self.init_state = save_env(self)
+        
 
         
-    def load_robot(self, restore_state, robot_initial_joint_angles=None):
+    def load_robot(self, restore_state, robot_initial_joint_angles=None, robot_initial_finger_angle=None):
         robot_classes = {
             "panda": Panda,
+            # "xarm": Xarm,
             # "sawyer": Sawyer,
             # "ur5": UR5,
         }
@@ -369,6 +357,8 @@ class SimpleEnv(gym.Env):
         self.robot.init(self.asset_dir, self.id, self.np_random, fixed_base=True, use_suction=self.use_suction)
         self.agents = [self.robot]
         self.suction_id = self.robot.right_gripper_indices[0]
+        if robot_initial_finger_angle is None:
+            robot_initial_finger_angle = self.robot.finger_fully_open_joint_angle
 
         # Set robot base position & orientation, and joint angles
         robot_base_pos = self.get_robot_base_pos()
@@ -388,9 +378,13 @@ class SimpleEnv(gym.Env):
                 # self.robot.set_joint_angles(self.robot.right_arm_joint_indices, ik_joint_angles)
             else:
                 self.robot.set_joint_angles(self.robot.right_arm_joint_indices, init_joint_angles)
+
+        # Set gripper to be robot_initial_finger_angle
+        # p.resetJointState(self.robot.body, 9, robot_initial_finger_angle, physicsClientId=self.id)
+        # p.resetJointState(self.robot.body, 10, robot_initial_finger_angle, physicsClientId=self.id)
+        self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [robot_initial_finger_angle, robot_initial_finger_angle], set_instantly=True)
                 
         self.robot.set_gravity(0, 0, 0)
-        
         return robot_base_pos        
     
     def load_and_parse_config(self, restore_state):
@@ -414,9 +408,13 @@ class SimpleEnv(gym.Env):
         ### parse config
         urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, \
             use_table, urdf_crop_sizes, articulated_init_joint_angles, spatial_relationships, distractor_config_path, urdf_movables, \
-                robot_initial_joint_angles = parse_config(self.config, 
+                robot_initial_joint_angles, robot_initial_finger_angle = parse_config(self.config, 
                         use_bard=True, obj_id=self.obj_id,
                         use_vhacd=True)
+                
+        # print("robot_initial_joint_angles: ", robot_initial_joint_angles)
+        # import pdb; pdb.set_trace()
+        
         if not use_table:
             urdf_on_table = [False for _ in urdf_on_table]
         urdf_names = [x.lower() for x in urdf_names]
@@ -425,6 +423,7 @@ class SimpleEnv(gym.Env):
         
         ### parse distractor object config (semantically meaningful objects that are related but not used for the task)
         if distractor_config_path is not None:
+            print("Loading distractor config: ", distractor_config_path)
             self.distractor_config_path = distractor_config_path
             res = download_and_parse_objavarse_obj_from_yaml_config(distractor_config_path, candidate_num=self.object_candidate_num, vhacd=self.vhacd)
             with open(distractor_config_path, 'r') as f:
@@ -459,16 +458,14 @@ class SimpleEnv(gym.Env):
                     urdf_path = urdf_path[start_idx:]
                     urdf_path = os.path.join(os.environ["PROJECT_DIR"], urdf_path)
                     self.urdf_paths[urdf_name] = urdf_path
-                urdf_paths = []
-                for name in urdf_names:
-                    if name in self.urdf_paths:
-                        urdf_paths.append(self.urdf_paths[name])
+                    
+                urdf_paths = [self.urdf_paths[name] for name in urdf_names]
             if "object_sizes" in restore_state:
                 self.simulator_sizes = restore_state['object_sizes']
                 urdf_sizes = [self.simulator_sizes[name] for name in urdf_names]
                 
         return urdf_paths, urdf_sizes, urdf_positions, urdf_orientations, urdf_names, urdf_types, urdf_on_table, urdf_movables, urdf_crop_sizes, \
-            use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles
+            use_table, articulated_init_joint_angles, spatial_relationships, robot_initial_joint_angles, robot_initial_finger_angle
         
     def load_table(self, use_table, restore_state):
         self.use_table = use_table
@@ -522,20 +519,15 @@ class SimpleEnv(gym.Env):
             # print("Loading object: {} path {}".format(name, path))
             
             name = name.lower()
-            if name == "inside_distractor":
-                continue
             # by default, all objects movable, except the urdf files
             use_fixed_base = (type == 'urdf' and not self.is_distractor[name])
             if type == 'urdf' and moveable: # if gpt specified the object is movable, then it is movable
                 use_fixed_base = False
             
-            if not moveable:
-                use_fixed_base = True
-            
             if type == 'urdf' and is_crop_size:
                 size = min(size, 1.2)
                 size = max(size, 0.075) # if the object is too small, current gripper cannot really manipulate it.
-            
+            # print("Object: ", name, " size: ", size, " type: ", type, " on_table: ", on_table, " is_crop_size: ", is_crop_size)
             x_orient = np.pi/2 if type == 'mesh' else 0 # handle different coordinate axis by objaverse and partnet-mobility
             if self.randomize or self.is_distractor[name]:
                 orientation = p.getQuaternionFromEuler([x_orient, 0, self.np_random.uniform(-np.pi/3, np.pi/3)], physicsClientId=self.id)
@@ -560,11 +552,7 @@ class SimpleEnv(gym.Env):
                 obj_y = self.table_bbox_min[1] + pos[1] * table_xy_range[1]
                 obj_z = self.table_height + pos[2]
                 load_pos = [obj_x, obj_y, obj_z]
-            try:
-                id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
-            except:
-                path = osp.join(os.environ["PROJECT_DIR"], path)
-                id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
+            id = p.loadURDF(path, basePosition=load_pos, baseOrientation=orientation, physicsClientId=self.id, useFixedBase=use_fixed_base, globalScaling=size)
 
             # scale size 
             if name in self.simulator_sizes:
@@ -592,7 +580,6 @@ class SimpleEnv(gym.Env):
             self.init_positions[name] = np.array(load_pos)
             self.init_orientations[name] = orientation
             self.on_tables[name] = on_table
-
             # print("Finished loading object: ", name)
     
     def adjust_object_positions(self, robot_base_pos):
@@ -612,20 +599,6 @@ class SimpleEnv(gym.Env):
         
         return object_height
         
-    def add_object_position_pertubations(self, state):
-        print(self.random_object_translation)
-        if self.random_object_translation is None:
-            return
-        for obj_name, obj_id in self.urdf_ids.items():
-            if obj_name != "robot" and obj_name != "plane":
-                print()
-                print(f"obj name: {obj_name}")
-                x, y, z = state['object_base_position'][obj_name]
-                print(f'before translation {x} {y}')
-                x, y = radial_shift(x, y, self.random_object_translation)
-                print(f'after translation {x} {y}')
-                state['object_base_position'][obj_name] = [x, y, z]
-
     def resolve_collision(self, robot_base_pos, object_height, spatial_relationships):
         collision = True
         collision_cnt = 1
@@ -768,120 +741,7 @@ class SimpleEnv(gym.Env):
                 joint_val = joint_limit_low
                 p.resetJointState(obj_id, joint_idx, joint_val, physicsClientId=self.id)
 
-    def handle_gpt_special_relationships(self, spatial_relationships):
-        # we support "on" and "in" for now, but this can be extended to more relationships
-        for spatial_relationship in spatial_relationships:
-            words = spatial_relationship.lower().split(",")
-            words = [word.strip().lstrip() for word in words]
-            if words[0] == "on":
-                obj_a = words[1]
-                obj_b = words[2]
-                if len(words) == 4:
-                    obj_b_link = words[3]
-                    obj_b_link_id = get_link_id_from_name(self, obj_b, obj_b_link)
-                else:
-                    obj_b_link_id = -1
-                obj_a_id, obj_b_id = self.urdf_ids[obj_a], self.urdf_ids[obj_b]
-                
-                obj_a_bbox_min, obj_a_bbox_max = self.get_aabb(obj_a_id)
-                obj_a_size = obj_a_bbox_max - obj_a_bbox_min
-                target_aabb_min, target_aabb_max = self.get_aabb_link(obj_b_id, obj_b_link_id)
-                id_line = p.addUserDebugLine(target_aabb_min, target_aabb_max, [1, 0, 0], lineWidth=10, lifeTime=0, physicsClientId=self.id)
-                id_point = p.addUserDebugPoints([(target_aabb_min + target_aabb_max) / 2], [[0, 0, 1]], 10, 0, physicsClientId=self.id)
-
-                new_pos = (target_aabb_min + target_aabb_max) / 2
-                new_pos[2] = target_aabb_max[2] # put obj a on top of obj b.
-                new_pos[2] += obj_a_size[2] # add the height of obj a
-                if not self.randomize:
-                    obj_a_orientation = p.getQuaternionFromEuler([np.pi/2, 0, 0], physicsClientId=self.id)
-                else:
-                    random_orientations = [0, np.pi / 2, np.pi, np.pi * 3 / 2]
-                    obj_a_orientation = p.getQuaternionFromEuler([np.pi/2, 0, random_orientations[np.random.randint(4)]], physicsClientId=self.id)
-
-                p.resetBasePositionAndOrientation(obj_a_id, new_pos, obj_a_orientation, physicsClientId=self.id)
-                
-                p.removeUserDebugItem(id_line, physicsClientId=self.id)
-                p.removeUserDebugItem(id_point, physicsClientId=self.id)
-
-            if words[0] == 'in':
-                obj_a = words[1]
-                obj_b = words[2]
-                if len(words) == 4:
-                    obj_b_link = words[3]
-                    obj_b_link_id = get_link_id_from_name(self, obj_b, obj_b_link)
-                else:
-                    obj_b_link_id = -1
-                obj_a_id, obj_b_id = self.urdf_ids[obj_a], self.urdf_ids[obj_b]
-                
-                # if after a lot of trying times, there is still collision, we should scale down the size of object A.
-                cnt = 1
-                collision_free = False
-                obj_a_new_size = self.simulator_sizes[obj_a]
-                obj_a_ori_pos, obj_a_orientation = p.getBasePositionAndOrientation(obj_a_id, physicsClientId=self.id)         
-                target_aabb_min, target_aabb_max = self.get_aabb_link(obj_b_id, obj_b_link_id)
-
-                while not collision_free:
-                    if cnt % 100 == 0:
-                        # print("scaling down! object size is {}".format(obj_a_new_size))
-                        obj_a_new_size = obj_a_new_size * 0.9
-                        p.removeBody(obj_a_id, physicsClientId=self.id)
-                        obj_a_id = p.loadURDF(self.urdf_paths[obj_a],
-                                            basePosition=obj_a_ori_pos,
-                                            baseOrientation=obj_a_orientation,
-                                            physicsClientId=self.id, useFixedBase=False, globalScaling=obj_a_new_size)
-                        self.urdf_ids[obj_a] = obj_a_id
-                        self.simulator_sizes[obj_a] = obj_a_new_size
-
-                    obj_a_bbox_min, obj_a_bbox_max = self.get_aabb(obj_a_id)
-                    obj_a_size = obj_a_bbox_max - obj_a_bbox_min
-                    id_line = p.addUserDebugLine(target_aabb_min, target_aabb_max, [1, 0, 0], lineWidth=10, lifeTime=0, physicsClientId=self.id)
-                    id_point = p.addUserDebugPoints([(target_aabb_min + target_aabb_max) / 2], [[0, 0, 1]], 10, 0, physicsClientId=self.id)
-
-                    center_pos = (target_aabb_min + target_aabb_max) / 2
-                    up_pos = center_pos.copy()
-                    up_pos[2] += obj_a_size[2]
-                    possible_locations = [center_pos, up_pos]
-                    obj_a_orientation = p.getQuaternionFromEuler([np.pi/2, 0, 0], physicsClientId=self.id)
-                    for pos in possible_locations: # we try two possible locations to put obj a in obj b
-                        p.resetBasePositionAndOrientation(obj_a_id, pos, obj_a_orientation, physicsClientId=self.id)
-                        contact_points = p.getClosestPoints(obj_a_id, obj_b_id, 0.002, physicsClientId=self.id)
-
-                        if len(contact_points) == 0:
-                            collision_free = True
-                            break
-                    
-                    p.removeUserDebugItem(id_line, physicsClientId=self.id)
-                    p.removeUserDebugItem(id_point, physicsClientId=self.id)
-
-                    cnt += 1
-                    if cnt > 1000: # if after scaling for 10 times it still does not work, let it be. 
-                        break
-                        
-
-    def handle_gpt_joint_angle(self, articulated_init_joint_angles):
-        # import pdb; pdb.set_trace()
-        for name in articulated_init_joint_angles:
-            obj_id = self.urdf_ids[name.lower()]
-
-            if "set_joint_angle_joint_id" not in articulated_init_joint_angles[name].keys():
-                for joint_name, joint_angle in articulated_init_joint_angles[name].items():
-                    joint_idx = get_joint_id_from_name(self, name.lower(), joint_name)
-                    joint_limit_low, joint_limit_high = p.getJointInfo(obj_id, joint_idx, physicsClientId=self.id)[8:10]
-                    if joint_limit_low > joint_limit_high:
-                        joint_limit_low, joint_limit_high = joint_limit_high, joint_limit_low
-                    if 'random' not in joint_angle:
-                        # joint_angle = float(joint_angle)
-                        # joint_angle = min(joint_angle, 0.7)
-                        # joint_angle = max(joint_angle, 0.06)
-                        # joint_angle = joint_limit_low + joint_angle * (joint_limit_high - joint_limit_low)
-                        joint_angle = joint_limit_low
-                    else:
-                        joint_angle = self.np_random.uniform(joint_limit_low, joint_limit_high)
-            else:
-                # TODO: account for cases when there are multiple joints to be set.
-                p.resetJointState(obj_id, articulated_init_joint_angles[name]["set_joint_angle_joint_id"], 
-                              articulated_init_joint_angles[name]['set_joint_angle_joint_angle'], physicsClientId=self.id)
-
+#     #USED
     def reset(self, reset_state=None, object_name='StorageFurniture', open_gripper_at_reset=False):
         self.grasped_handle = False
         self.set_scene(reset_state)
@@ -889,7 +749,7 @@ class SimpleEnv(gym.Env):
         self.time_step = 0
         self.success = False
         object_name = object_name.lower()
-        friction = 5
+        friction = 1 if self.robot_name == 'panda' else 1000
         num_links = p.getNumJoints(self.urdf_ids[object_name], physicsClientId=self.id)
         for l_id in range(num_links):
             p.changeDynamics(self.urdf_ids[object_name], l_id, lateralFriction=friction, physicsClientId=self.id)
@@ -902,6 +762,13 @@ class SimpleEnv(gym.Env):
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], rollingFriction=friction, physicsClientId=self.id)
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[0], spinningFriction=friction, physicsClientId=self.id)
         p.changeDynamics(self.robot.body, self.robot.right_gripper_indices[1], spinningFriction=friction, physicsClientId=self.id)
+
+        if self.robot_name == 'xarm':
+            for i in range(11, 16):
+                p.changeDynamics(self.robot.body, i, spinningFriction=friction, physicsClientId=self.id)
+                p.changeDynamics(self.robot.body, i, lateralFriction=friction, physicsClientId=self.id)
+                p.changeDynamics(self.robot.body, i, rollingFriction=friction, physicsClientId=self.id)
+            
 
         self.ik_failure = False
 
@@ -942,40 +809,40 @@ class SimpleEnv(gym.Env):
         else:
             return img
         
-    def render_with_segmask(self, name=None):
-        name = name.lower()
-        obj_id = self.urdf_ids[name]
-        min_aabb, max_aabb = self.get_aabb(obj_id)
-        center = (min_aabb + max_aabb) / 2
-        camera_target = center
-        camera_eye = center + np.array([0.2, 0.0, 0.3])
-        near = 0.01
-        far = 1000
-        view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1], physicsClientId=self.id)
-        projection_matrix = p.computeProjectionMatrixFOV(60, self.camera_width / self.camera_height, near, far, physicsClientId=self.id)
+#     def render_with_segmask(self, name=None):
+#         name = name.lower()
+#         obj_id = self.urdf_ids[name]
+#         min_aabb, max_aabb = self.get_aabb(obj_id)
+#         center = (min_aabb + max_aabb) / 2
+#         camera_target = center
+#         camera_eye = center + np.array([0.2, 0.0, 0.3])
+#         near = 0.01
+#         far = 1000
+#         view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1], physicsClientId=self.id)
+#         projection_matrix = p.computeProjectionMatrixFOV(60, self.camera_width / self.camera_height, near, far, physicsClientId=self.id)
 
 
-        w, h, img, depth, segmask = p.getCameraImage(self.camera_width, self.camera_height, 
-            view_matrix, projection_matrix, 
-            renderer=p.ER_BULLET_HARDWARE_OPENGL, 
-            physicsClientId=self.id)
-        img = np.reshape(img, (h, w, 4))[:, :, :3]
-        depth = np.reshape(depth, (h, w))
+#         w, h, img, depth, segmask = p.getCameraImage(self.camera_width, self.camera_height, 
+#             view_matrix, projection_matrix, 
+#             renderer=p.ER_BULLET_HARDWARE_OPENGL, 
+#             physicsClientId=self.id)
+#         img = np.reshape(img, (h, w, 4))[:, :, :3]
+#         depth = np.reshape(depth, (h, w))
 
-        # extract near and far from projection matrix
-        depth = near * far / (far - (far - near) * depth)
+#         # extract near and far from projection matrix
+#         depth = near * far / (far - (far - near) * depth)
         
-        # extract the object's mask by matching the object's id
-        mask = (segmask == obj_id).astype(np.uint8)
+#         # extract the object's mask by matching the object's id
+#         mask = (segmask == obj_id).astype(np.uint8)
 
-        # get camera matrix K
-        camera_K = np.array(projection_matrix).reshape(4, 4).T
-        camera_K = camera_K[:3, :3]
-        camera_K = camera_K / camera_K[2, 2]
+#         # get camera matrix K
+#         camera_K = np.array(projection_matrix).reshape(4, 4).T
+#         camera_K = camera_K[:3, :3]
+#         camera_K = camera_K / camera_K[2, 2]
 
-        return img, depth, camera_K, mask
+#         return img, depth, camera_K, mask
     
-    def take_direct_action(self, actions, gains=None, forces=None, save_img_interval=0, ik_try_times=25, far_target=False):
+    def take_direct_action(self, actions, gains=None, forces=None):
         if gains is None:
             gains = [a.motor_gains for a in self.agents]
         elif type(gains) not in (list, tuple): 
@@ -1007,8 +874,10 @@ class SimpleEnv(gym.Env):
             # agent.ik_ikpy_franka(pos, orient, ik_indices)
             # trying to use tracik
             # agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
-            if not self.mobile:
+            if not self.mobile and self.robot_name == 'panda':
                 tracIK_solutions = agent.ik_tracik_franka(pos, orient, ik_indices)
+            elif not self.mobile and self.robot_name == 'xarm':
+                tracIK_solutions = agent.ik_tracik_xarm(pos, orient, ik_indices)
             else:
                 tracIK_solutions = []
             # if not ik_success:
@@ -1018,7 +887,7 @@ class SimpleEnv(gym.Env):
             bullet_solutions = []
             old_state = save_env(self)
             ik_indices = [_ for _ in range(len(self.robot.right_arm_joint_indices))]
-            for try_idx in range(ik_try_times):
+            for try_idx in range(25):
                 if try_idx > 0: 
                     new_joint_angles = original_joint_angles[ik_indices] + np.random.uniform(-0.3, 0.3, size=len(ik_indices))
                     self.robot.set_joint_angles(ik_indices, new_joint_angles)
@@ -1027,21 +896,6 @@ class SimpleEnv(gym.Env):
                 
                 if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
                     bullet_solutions.append(ik_joint_angles)
-
-            if far_target:
-                ik_lower_limits = self.robot.ik_lower_limits
-                ik_upper_limits = self.robot.ik_upper_limits
-                ik_joint_ranges = ik_upper_limits - ik_lower_limits
-
-                ik_lower_limits = ik_lower_limits + 0.05 * ik_joint_ranges
-                ik_upper_limits = ik_upper_limits - 0.05 * ik_joint_ranges
-                ik_joint_ranges = ik_upper_limits - ik_lower_limits
-                for try_idx in range(2 * ik_try_times):
-                    new_joint_angles = np.random.uniform(ik_lower_limits, ik_upper_limits)
-                    self.robot.set_joint_angles(ik_indices, new_joint_angles)
-                    ik_joint_angles = self.robot.ik(self.robot.right_end_effector, pos, orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
-                    if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
-                        bullet_solutions.append(ik_joint_angles)
 
             load_env(self, state = old_state)
             all_possible_solutions = tracIK_solutions + bullet_solutions
@@ -1070,25 +924,21 @@ class SimpleEnv(gym.Env):
             beg = time.time()
             if ik_success:
                 control_total = 50
-                # save_img_interval = 0
+                save_img_interval = 0
                 # gripper
                 for _ in range(2):
                     if not self.use_suction:
+                        # import pdb; pdb.set_trace()
                         agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
                     p.stepSimulation(physicsClientId=self.id) 
-                    if save_img_interval > 0:
-                        rgb = self.render()
-                        self.control_rgbs.append(rgb)
 
                 cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
 
                 old_err = 1e10
                 while True:
-                    # cur_finger_joint_angles = np.array(agent.get_joint_angles(agent.right_gripper_indices))
-                    # if np.linalg.norm(cur_finger_joint_angles - np.array([finger_joint_angle, finger_joint_angle])) > 1e-3:
-                    #     agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)  
-
                     agent.control(agent.controllable_joint_indices, agent_joint_angles)
+                    if self.robot_name == 'xarm':
+                        agent.set_gripper_open_position(agent.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=False)
                     cur_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
                     err = np.linalg.norm(cur_joint_angles - agent_joint_angles) 
                     # print("err: ", err)
@@ -1128,9 +978,9 @@ class SimpleEnv(gym.Env):
         
         
         cur_joint_angle_finger = self.robot.get_joint_angles(self.robot.right_gripper_indices)
-        new_finger_joint_angle = cur_joint_angle_finger[0] + action[7] * 0.04
+        new_finger_joint_angle = cur_joint_angle_finger[0] + action[7] * self.robot.finger_fully_open_joint_angle
         # print("action[7]: ", action[7])
-        new_finger_joint_angle = np.clip(new_finger_joint_angle, 0, 0.04)
+        new_finger_joint_angle = np.clip(new_finger_joint_angle, self.robot.finger_fully_close_joint_angle, self.robot.finger_fully_open_joint_angle)
         # print("old_finger_joint_angle: ", cur_joint_angle_finger)
         # print("new_finger_joint_angle: ", new_finger_joint_angle)
         
@@ -1212,7 +1062,7 @@ class SimpleEnv(gym.Env):
                     #     agent.set_gripper_open_position(agent.right_gripper_indices, [0, 0], set_instantly=True)
                     cur_joint_angle = p.getJointState(self.robot.body, self.robot.right_gripper_indices[0], physicsClientId=self.id)[0]
                     new_joint_angle = cur_joint_angle + suction * 0.02
-                    new_joint_angle = np.clip(new_joint_angle, 0, 0.04)
+                    new_joint_angle = np.clip(new_joint_angle, self.robot.finger_fully_close_joint_angle, self.robot.finger_fully_open_joint_angle)
                     agent.set_gripper_open_position(agent.right_gripper_indices, [new_joint_angle, new_joint_angle], set_instantly=False)
                 else:
                     if suction >= 0: self.activate_suction()
@@ -1264,90 +1114,89 @@ class SimpleEnv(gym.Env):
         return orient
     
 
-    def activate_suction(self):
-        if not self.activated:
-            # assume the suction is attached to the right end effector
-            suction_id = self.suction_id
-            points = p.getContactPoints(bodyA=self.robot.body, linkIndexA=suction_id, physicsClientId=self.id)
-            if points:
-                # Handle contact between suction with a rigid object.
-                contact_object_id_link_cnts = defaultdict(int)
-                for point in points:
-                    obj_id, contact_link, contact_position_on_obj = point[2], point[4], point[6]
+#     def activate_suction(self):
+#         if not self.activated:
+#             # assume the suction is attached to the right end effector
+#             suction_id = self.suction_id
+#             points = p.getContactPoints(bodyA=self.robot.body, linkIndexA=suction_id, physicsClientId=self.id)
+#             if points:
+#                 # Handle contact between suction with a rigid object.
+#                 contact_object_id_link_cnts = defaultdict(int)
+#                 for point in points:
+#                     obj_id, contact_link, contact_position_on_obj = point[2], point[4], point[6]
                     
-                    if obj_id == self.urdf_ids['plane'] or obj_id == self.robot.body:
-                        pass
-                    else:
-                        contact_object_id_link_cnts[(obj_id, contact_link)] += 1
+#                     if obj_id == self.urdf_ids['plane'] or obj_id == self.robot.body:
+#                         pass
+#                     else:
+#                         contact_object_id_link_cnts[(obj_id, contact_link)] += 1
                 
-                if len(contact_object_id_link_cnts) > 0:
-                    # find the object that has the most contact points
-                    obj_id, contact_link = max(contact_object_id_link_cnts.items(), key=lambda x: x[1])[0]
-                    # print("contact with object: ", obj_id, contact_link)
+#                 if len(contact_object_id_link_cnts) > 0:
+#                     # find the object that has the most contact points
+#                     obj_id, contact_link = max(contact_object_id_link_cnts.items(), key=lambda x: x[1])[0]
+#                     # print("contact with object: ", obj_id, contact_link)
 
-                    suction_pose = p.getLinkState(self.robot.body, suction_id, physicsClientId=self.id)
-                    if contact_link >= 0:
-                        obj_link_pose = p.getLinkState(obj_id, contact_link, physicsClientId=self.id)
-                    else:
-                        obj_link_pose = p.getBasePositionAndOrientation(obj_id, physicsClientId=self.id)
-                    world_to_suction = p.invertTransform(suction_pose[0], suction_pose[1])
-                    obj_to_suction = p.multiplyTransforms(world_to_suction[0],
-                                                        world_to_suction[1],
-                                                        obj_link_pose[0], obj_link_pose[1])
+#                     suction_pose = p.getLinkState(self.robot.body, suction_id, physicsClientId=self.id)
+#                     if contact_link >= 0:
+#                         obj_link_pose = p.getLinkState(obj_id, contact_link, physicsClientId=self.id)
+#                     else:
+#                         obj_link_pose = p.getBasePositionAndOrientation(obj_id, physicsClientId=self.id)
+#                     world_to_suction = p.invertTransform(suction_pose[0], suction_pose[1])
+#                     obj_to_suction = p.multiplyTransforms(world_to_suction[0],
+#                                                         world_to_suction[1],
+#                                                         obj_link_pose[0], obj_link_pose[1])
                     
-                    suction_to_obj = p.invertTransform(obj_to_suction[0], obj_to_suction[1])
+#                     suction_to_obj = p.invertTransform(obj_to_suction[0], obj_to_suction[1])
                     
-                    self.create_suction_constraint(obj_id, contact_link, suction_to_obj)
+#                     self.create_suction_constraint(obj_id, contact_link, suction_to_obj)
                     
-                    self.activated = True
-                    self.suction_obj_id = obj_id
-                    self.suction_contact_link = contact_link
-                    self.suction_to_obj_pose = suction_to_obj
+#                     self.activated = True
+#                     self.suction_obj_id = obj_id
+#                     self.suction_contact_link = contact_link
+#                     self.suction_to_obj_pose = suction_to_obj
 
-    def create_suction_constraint(self, suction_obj_id, suction_contact_link, suction_to_obj_pose):
-        suction_id = self.suction_id
-        self.contact_constraint = p.createConstraint(
-            parentBodyUniqueId=self.robot.body,
-            parentLinkIndex=suction_id,
-            childBodyUniqueId=suction_obj_id,
-            childLinkIndex=suction_contact_link,
-            jointType=p.JOINT_FIXED,
-            jointAxis=(0, 0, 0), 
-            parentFramePosition=(0, 0, 0),
-            parentFrameOrientation=(0, 0, 0),
-            childFramePosition=suction_to_obj_pose[0],
-            childFrameOrientation=suction_to_obj_pose[1], 
-            physicsClientId=self.id)
+#     def create_suction_constraint(self, suction_obj_id, suction_contact_link, suction_to_obj_pose):
+#         suction_id = self.suction_id
+#         self.contact_constraint = p.createConstraint(
+#             parentBodyUniqueId=self.robot.body,
+#             parentLinkIndex=suction_id,
+#             childBodyUniqueId=suction_obj_id,
+#             childLinkIndex=suction_contact_link,
+#             jointType=p.JOINT_FIXED,
+#             jointAxis=(0, 0, 0), 
+#             parentFramePosition=(0, 0, 0),
+#             parentFrameOrientation=(0, 0, 0),
+#             childFramePosition=suction_to_obj_pose[0],
+#             childFrameOrientation=suction_to_obj_pose[1], 
+#             physicsClientId=self.id)
         
-        p.changeConstraint(self.contact_constraint, maxForce=5000, physicsClientId=self.id)
+#         p.changeConstraint(self.contact_constraint, maxForce=5000, physicsClientId=self.id)
 
-    def deactivate_suction(self):
-        self.activated = False
-        if self.contact_constraint is not None:
-            p.removeConstraint(self.contact_constraint, physicsClientId=self.id)
-            self.contact_constraint = None
+#     def deactivate_suction(self):
+#         self.activated = False
+#         if self.contact_constraint is not None:
+#             p.removeConstraint(self.contact_constraint, physicsClientId=self.id)
+#             self.contact_constraint = None
 
 
-    def step(self, action):
-        self.time_step += 1        
-        self.take_step(action)
-        obs = self._get_obs()                
-        # to handle some stupid typing error in early prompts
-        try:
-            reward, success = self._compute_reward() 
-        except:
-            reward, success = self.compute_reward()
-        self.success = success
-        done = self.time_step == self.horizon
-        info = self._get_info()
-        return obs, reward, done, info
+#     def step(self, action):
+#         self.time_step += 1        
+#         self.take_step(action)
+#         obs = self._get_obs()                
+#         # to handle some stupid typing error in early prompts
+#         try:
+#             reward, success = self._compute_reward() 
+#         except:
+#             reward, success = self.compute_reward()
+#         self.success = success
+#         done = self.time_step == self.horizon
+#         info = self._get_info()
+#         return obs, reward, done, info
 
-    def compute_reward(self):
-        return 0, 0
+#     def compute_reward(self):
+#         return 0, 0
 
-    def _get_info(self):
+    def _get_info(self, object_name, handle_name=None, link_name=None):
         # TODO: this should be implemented by GPT
-        object_name = 'storagefurniture'
         if self.handle_joint is None:
             # all_handle_pos, handle_joint_id = get_handle_pos(self, object_name, return_median=False)
             # handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
@@ -1361,18 +1210,20 @@ class SimpleEnv(gym.Env):
             # self.handle_joint = handle_joint
             # handle_pos = handle_median_points[min_distance_handle_idx]
 
-            all_handle_pos, all_handle_joint_id, handle_pts_obj_frame, mobility_info = get_handle_pos(self, object_name, return_median=False, return_info=True)
+            all_handle_pos, all_handle_joint_id, handle_pts_obj_frame, mobility_info = self.get_handle_pos(object_name, return_median=False, return_info=True, custom_joint_name=handle_name)
             self.handle_pts_obj_frame = handle_pts_obj_frame
             self.mobility_info = mobility_info
-            link_name = "link_0"
-            link_pc = get_link_pc(self, object_name, link_name)
+            # link_name = "link_0"
+            link_pc, _, _, _ = self.get_link_pc(object_name, link_name)
+            # object_pc, _ = get_pc_and_normal(self, object_name)
             _, link_handle_joint_id, link_handle_median, min_link_idx = get_link_handle(all_handle_pos, all_handle_joint_id, link_pc)
+            # _, link_handle_joint_id, link_handle_median, min_link_idx = get_link_handle(all_handle_pos, all_handle_joint_id, object_pc)
             self.handle_joint = link_handle_joint_id
             self.handle_pos = link_handle_median
             self.min_link_idx = min_link_idx
             self.all_handle_points = all_handle_pos[min_link_idx]
         else:
-            all_handle_pos, _ = get_handle_pos(self, object_name, return_median=False, handle_pts_obj_frame=self.handle_pts_obj_frame, mobility_info=self.mobility_info)
+            all_handle_pos, _, _, _ = self.get_handle_pos(object_name, return_median=False, handle_pts_obj_frame=self.handle_pts_obj_frame, mobility_info=self.mobility_info, custom_joint_name=handle_name)
             handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
             self.handle_pos = handle_median_points[self.min_link_idx]
             self.all_handle_points = all_handle_pos[self.min_link_idx]
@@ -1401,7 +1252,7 @@ class SimpleEnv(gym.Env):
                 min_distance_left = np.min(left_distance)
                 min_distance_right = np.min(right_distance)
                 # if min_distance_left < 0.015 and min_distance_right < 0.015:
-                if min_distance_left < 0.02 or min_distance_right < 0.02:
+                if min_distance_left < 0.01 or min_distance_right < 0.01:
                     grasped_handle = True
                     self.grasped_handle = self.grasped_handle or grasped_handle
         
@@ -1489,6 +1340,310 @@ class SimpleEnv(gym.Env):
             cnt += 1
 
         return obs
+    
+    # from gpt_reward_api
+    def get_bounding_box(self, object_name):
+        object_name = object_name.lower()
+        object_id = self.urdf_ids[object_name]
+        if object_name != "init_table":
+            return self.get_aabb(object_id)
+        else:
+            return self.table_bbox_min, self.table_bbox_max
+        
+    def get_bounding_box_link(self, object_name, link_name):
+        object_name = object_name.lower()
+        object_id = self.urdf_ids[object_name]
+        link_id = self.get_link_id_from_name(object_name, link_name)
+        object_id = self.urdf_ids[object_name]
+        return self.get_aabb_link(object_id, link_id)
+    
+    def get_link_pose(self, object_name, custom_link_name):
+        object_name = object_name.lower()
+        object_id = self.urdf_ids[object_name]
+        urdf_link_name = custom_link_name
+        link_id = self.get_link_id_from_name( object_name, urdf_link_name)
+        link_pos, link_orient = p.getLinkState(object_id, link_id, physicsClientId=self.id)[:2]
+        return np.array(link_pos), np.array(link_orient)
+
+    def take_round_images(self, center, distance, elevation=30, azimuth_interval=30, camera_width=640, camera_height=480, return_camera_matrices=False):
+        camera_target = center
+        delta_z = distance * np.sin(np.deg2rad(elevation))
+        xy_distance = distance * np.cos(np.deg2rad(elevation))
+
+        prev_view_matrix, prev_projection_matrix = self.view_matrix, self.projection_matrix
+
+        rgbs = []
+        depths = []
+        view_camera_matrices = []
+        project_camera_matrices = []
+        for azimuth in range(0, 360, azimuth_interval):
+            delta_x = xy_distance * np.cos(np.deg2rad(azimuth))
+            delta_y = xy_distance * np.sin(np.deg2rad(azimuth))
+            camera_position = [camera_target[0] + delta_x, camera_target[1] + delta_y, camera_target[2] + delta_z]
+            self.setup_camera(camera_position, camera_target, 
+                                camera_width=camera_width, camera_height=camera_height)
+
+            rgb, depth = self.render(return_depth=True)
+            rgbs.append(rgb)
+            depths.append(depth)
+            view_camera_matrices.append(self.view_matrix)
+            project_camera_matrices.append(self.projection_matrix)
+        
+        self.view_matrix, self.projection_matrix = prev_view_matrix, prev_projection_matrix
+
+        if not return_camera_matrices:
+            return rgbs, depths
+        else:
+            return rgbs, depths, view_camera_matrices, project_camera_matrices
+
+    def get_link_pc(self, object_name, urdf_link_name):
+        object_name = object_name.lower()
+        object_id = self.urdf_ids[object_name]
+        prev_rgbas = []
+        ### make all other objects invisiable
+        for obj_name, obj_id in self.urdf_ids.items():
+            if obj_name != object_name:
+                num_links = p.getNumJoints(obj_id, physicsClientId=self.id)
+                for link_idx in range(-1, num_links):
+                    prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=self.id)[0][14:18]
+                    prev_rgbas.append(prev_rgba)
+                    p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=self.id)
+
+        ### center camera to the target object
+        env_prev_view_matrix, env_prev_projection_matrix = self.view_matrix, self.projection_matrix
+        camera_width = 640
+        camera_height = 480
+        obj_id = object_id
+        min_aabb, max_aabb = self.get_aabb(obj_id)
+        camera_target = (max_aabb + min_aabb) / 2
+        # distance = np.linalg.norm(max_aabb - min_aabb) * 1.2
+        distance = np.linalg.norm(max_aabb - min_aabb) * 1.2 if self.robot_name == 'panda' else np.linalg.norm(max_aabb - min_aabb) * 0.8
+        elevation = 30
+
+        ### get a round of images of the target object
+        imgs, depths, view_matrices, projection_matrices = self.take_round_images(
+            camera_target, distance, elevation, 
+            camera_width=camera_width, camera_height=camera_height, 
+            return_camera_matrices=True)
+        
+       
+
+        link_id = self.get_link_id_from_name(object_name, urdf_link_name)
+        # print("urdf_link_name: ", urdf_link_name)
+        # import pdb; pdb.set_trace()
+        prev_link_rgba = p.getVisualShapeData(obj_id, link_id, physicsClientId=self.id)[0][14:18]
+        p.changeVisualShape(obj_id, link_id, rgbaColor=[0, 0, 0, 0], physicsClientId=self.id)
+
+        ### get a round of images of the target object with link invisiable
+        img_invisible, depths_link_invisible, _, _ = self.take_round_images(
+            camera_target, distance, elevation,
+            camera_width=camera_width, camera_height=camera_height, 
+            return_camera_matrices=True
+        )
+
+        ### use subtraction to get the link mask
+        max_num_diff_pixels = 0
+        best_idx = 0
+        for idx, (depth, depth_) in enumerate(zip(depths, depths_link_invisible)):
+            diff_image = np.abs(depth - depth_)
+            diff_pixels = np.sum(diff_image > 0)
+            if diff_pixels > max_num_diff_pixels:
+                max_num_diff_pixels = diff_pixels
+                best_idx = idx
+        best_mask = np.abs(depths[best_idx] - depths_link_invisible[best_idx]) > 0
+        # best_mask = np.any(best_mask)
+
+
+        ### get the link mask center
+
+        center = ndimage.measurements.center_of_mass(best_mask)
+        center = [int(center[0]), int(center[1])]
+
+        ### back project the link mask center to get the link com in 3d coordinate
+        best_pc = get_pc(projection_matrices[best_idx], view_matrices[best_idx], depths[best_idx], camera_width, camera_height)
+
+        import imageio
+        imageio.imwrite("img_invisible.png", img_invisible[best_idx])
+        pt_idx = center[0] * camera_width + center[1]
+        link_com = best_pc[pt_idx]
+        best_pc = best_pc.reshape((camera_height, camera_width, 3))
+        all_pc = best_pc[best_mask]
+
+        best_view_matrix = view_matrices[best_idx]
+        best_projection_matrix = projection_matrices[best_idx]
+        best_img = imgs[best_idx]
+        ### reset the object and link rgba to previous values, and the simulator view matrix and projection matrix
+        p.changeVisualShape(obj_id, link_id, rgbaColor=prev_link_rgba, physicsClientId=self.id)
+
+        cnt = 0
+        for obj_name, obj_id in self.urdf_ids.items():
+            if obj_name != object_name:
+                num_links = p.getNumJoints(obj_id, physicsClientId=self.id)
+                for link_idx in range(-1, num_links):
+                    p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=self.id)
+                    cnt += 1
+
+        self.view_matrix, self.projection_matrix = env_prev_view_matrix, env_prev_projection_matrix
+
+        return all_pc, best_view_matrix, best_projection_matrix, best_img
+
+    def get_link_id_from_name(self, object_name, link_name):
+        object_id = self.urdf_ids[object_name]
+        num_joints = p.getNumJoints(object_id, physicsClientId=self.id)
+        joint_index = None
+        for i in range(num_joints):
+            joint_info = p.getJointInfo(object_id, i, physicsClientId=self.id)
+            if joint_info[12].decode('utf-8') == link_name:
+                joint_index = i
+                break
+
+        return joint_index
+    
+    def get_joint_id_from_name(self, object_name, joint_name):
+        object_id = self.urdf_ids[object_name]
+        num_joints = p.getNumJoints(object_id, physicsClientId=self.id)
+        joint_index = None
+        for i in range(num_joints):
+            joint_info = p.getJointInfo(object_id, i, physicsClientId=self.id)
+            if joint_info[1].decode('utf-8') == joint_name:
+                joint_index = i
+                break
+
+        return joint_index
+
+    # NOTE: hard-coded for now, should make it more general in the future
+    def get_handle_pos(self, obj_name, return_median=True, handle_pts_obj_frame=None, mobility_info=None, return_info=False, custom_joint_name=None):
+        # print("get_handle_pos")
+        obj_name = obj_name.lower()
+        scaling = self.simulator_sizes[obj_name]
+
+        # get the parent frame of the revolute joint.
+        obj_id = self.urdf_ids[obj_name] 
+
+        # axis in parent frame, transform everything to world frame
+        if mobility_info is None:
+            urdf_path = self.urdf_paths[obj_name]
+            parent_dir = os.path.dirname(urdf_path)
+            start_idx = parent_dir.find("data/dataset")
+            parent_dir = parent_dir[start_idx:]
+            parent_dir = os.path.join(os.environ["PROJECT_DIR"], parent_dir)
+            # print("mobility_info path: ", parent_dir)
+            mobility_info = json.load(open(f"{parent_dir}/mobility_v2.json", "r"))
+        
+        # return a list of handle points in world frame
+        ret_handle_pt_list = []
+        ret_joint_idx_list = []
+        axis_world_list = []
+        axis_end_world_list = []
+
+        joint_name = None
+        parent_joint_name = None
+        handle_idx = 0
+        all_handle_pts_object_frame = []
+        for idx, joint_info in enumerate(mobility_info):
+            all_parts = [part["name"] for part in joint_info["parts"]]
+            if custom_joint_name in all_parts:
+                all_ids = [part["id"] for part in joint_info["parts"]]
+                index = all_parts.index(custom_joint_name)
+                handle_id = all_ids[index]
+                joint_name = "joint_{}".format(joint_info["id"])
+                parent_joint_name = "joint_{}".format(joint_info["parent"])
+                joint_data = joint_info['jointData']
+                axis_body = np.array(joint_data["axis"]["origin"]) * scaling
+                axis_dir_body = np.array(joint_data["axis"]["direction"])
+                joint_limit = joint_data["limit"]
+                if joint_limit['a'] > joint_limit['b']:
+                    axis_dir_body = -axis_dir_body
+
+                joint_idx = self.get_joint_id_from_name( obj_name, joint_name) # this is the joint id in pybullet
+                parent_joint_idx = self.get_joint_id_from_name(obj_name, parent_joint_name) # this is the joint id in pybullet
+                
+                parent_link_state = p.getLinkState(obj_id, parent_joint_idx, physicsClientId=self.id) # NOTE: the handle link id should be dependent on the object urdf.
+                # parent_link_state = p.getLinkState(obj_id, joint_idx, physicsClientId=simulator.id) # NOTE: the handle link id should be dependent on the object urdf.
+                link_urdf_world_pos, link_urdf_world_orn = parent_link_state[0], parent_link_state[1]
+                # this is the transformation from the parent frame to the world frame. 
+                T_body_to_world = np.eye(4) # transformation from the parent body frame to the world frame
+                T_body_to_world[:3, :3] = np.array(p.getMatrixFromQuaternion(link_urdf_world_orn)).reshape(3, 3)
+                T_body_to_world[:3, 3] = link_urdf_world_pos
+                
+                axis_world = T_body_to_world[:3, :3] @ axis_body + T_body_to_world[:3, 3]   
+                axis_pt2_body = np.array(axis_body) + axis_dir_body
+                axis_end_world = T_body_to_world[:3, :3] @ axis_pt2_body + T_body_to_world[:3, 3]
+                axis_dir_world = axis_end_world - axis_world
+
+                # get the handle points in world frame
+                if handle_pts_obj_frame is None:
+                    handle_obj_path = f"{parent_dir}/parts_render/{handle_id}{custom_joint_name}.obj" # NOTE: this path should be dependent on the object. 
+                    handle_pts, handle_faces = load_obj(handle_obj_path) # this is in object frame
+
+                    handle_pts = handle_pts * scaling
+                    # add more dense points around handle
+                    added_points = []
+                    for f in handle_faces:
+                        v1,v2,v3 = f
+                        v1 = handle_pts[v1-1]
+                        v2 = handle_pts[v2-1]
+                        v3 = handle_pts[v3-1]
+                        a = np.linalg.norm(v1-v2)
+                        b = np.linalg.norm(v2-v3)
+                        c = np.linalg.norm(v3-v1)
+                        s = (a+b+c) / 2
+                        temp = max(0, s*(s-a)*(s-b)*(s-c))
+                        surface = np.sqrt(temp)
+                        num_points = surface * 1e6
+                        num_points = int(num_points)
+                        num_points = np.clip(num_points, 0, 5)
+                        added_points.extend([sample_point_inside_triangle(v1,v2,v3) for _ in range(num_points)])
+
+                    if added_points != []:
+                        added_points = np.array(added_points)
+                        handle_pts = np.concatenate((handle_pts, added_points), axis=0)
+                        
+                    all_handle_pts_object_frame.append(handle_pts)
+                        
+                else:
+                    handle_pts = handle_pts_obj_frame[handle_idx]
+                
+                
+                # transform this to the world frame using the object *base*'s position and orientation
+                handle_points_world = T_body_to_world[:3, :3] @ handle_pts.T + T_body_to_world[:3, 3].reshape(3, 1) # 3 x N
+                if return_median:
+                    handle_point_median = np.median(handle_points_world, axis=1)
+                else:
+                    handle_point_median = handle_points_world.T
+
+                # find the projection of the handle point to the rotation axis, in world frame. 
+                project_on_rotation_axis = find_nearest_point_on_line(axis_world, axis_end_world, handle_point_median)
+                # p.addUserDebugLine(project_on_rotation_axis, handle_point_median, [1, 0, 0], 25, 0)
+
+                # TODO: GPT can parse the mobility.json to get the joint name. 
+                joint_info = p.getJointInfo(obj_id, joint_idx, physicsClientId=self.id)
+                joint_type = joint_info[2]
+                
+                if joint_type == p.JOINT_REVOLUTE:
+                    rotation_angle = p.getJointState(obj_id, joint_idx, physicsClientId=self.id)[0] # NOTE: this joint id should be dependent on the object urdf.
+                    rotated_handle_pt_local = rotate_point_around_axis(handle_point_median - project_on_rotation_axis, axis_dir_world, rotation_angle)
+                    rotated_handle_pt = project_on_rotation_axis + rotated_handle_pt_local
+                elif joint_type == p.JOINT_PRISMATIC:
+                    translation = p.getJointState(obj_id, joint_idx, physicsClientId=self.id)[0]
+                    rotated_handle_pt = handle_point_median + axis_dir_world * translation
+                    
+                # import pdb; pdb.set_trace()
+                # rotated_handle_pt = handle_points_world.T
+
+                if return_median:
+                    ret_handle_pt_list.append(rotated_handle_pt.flatten())
+                else:
+                    ret_handle_pt_list.append(rotated_handle_pt)
+                ret_joint_idx_list.append(joint_idx)
+                axis_world_list.append(axis_world)
+                axis_end_world_list.append(axis_end_world)
+                handle_idx += 1
+                
+        if return_info:
+            return ret_handle_pt_list, ret_joint_idx_list, all_handle_pts_object_frame, mobility_info
+        
+        return ret_handle_pt_list, ret_joint_idx_list, axis_world_list, axis_end_world_list
 
     def disconnect(self):
         p.disconnect(self.id)
@@ -1496,110 +1651,148 @@ class SimpleEnv(gym.Env):
     def close(self):
         p.disconnect(self.id)
     
+#     def get_gripper_pc(self):
+#         # get the point cloud of the gripper
+#         right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+#         left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+#         right_hand_pos, _ = self.robot.get_pos_orient(self.robot.right_hand)
+#         eef_pos, _ = self.robot.get_pos_orient(self.robot.right_end_effector)
+#         gripper_pc = np.array([right_hand_pos, right_finger_pos, left_finger_pos, eef_pos]).reshape(-1, 3)
+#         return gripper_pc.astype(np.float32)
     
-if __name__ == "__main__":
-    from manipulation.utils import build_up_env
-    env = SimpleEnv(
-        config_path="data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-05-11-00-58-12/task_config.yaml",
-        gui=True,
-        mobile=True,
-        control_step=10,
-        max_translation=0.05,
-    )
+# if __name__ == "__main__":
+#     from manipulation.utils import build_up_env
+#     env = SimpleEnv(
+#         config_path="data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-05-11-00-58-12/task_config.yaml",
+#         gui=True,
+#         mobile=False,
+#         control_step=10,
+#         max_translation=0.05,
+#     )
     
-    env.reset()
+#     env.reset()
     
-    obj_id = env.urdf_ids['robot']
-    num_joints = p.getNumJoints(obj_id, physicsClientId=env.id)
-    for i in range(num_joints):
-        info = p.getJointInfo(obj_id, i, physicsClientId=env.id)
-        link_name = info[12].decode('utf-8')
-        joint_limits = info[8:10]
-        joint_name = info[1].decode('utf-8')
-        print("joint id: ", i)
-        print("link_name: ", link_name)
-        print("joint_name: ", joint_name)
-        print("joint_limits: ", joint_limits)
-        print("joint type: ", info[2])
-        print("joint limit: ", info[8:10])
-        print("===================")
+#     for _ in range(10000000):
+#         p.stepSimulation()
     
-    p.addUserDebugLine([0, 0, 0], [1, 0, 0], [1, 0, 0], 
-                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
-    p.addUserDebugLine([0, 0, 0], [0, 1, 0], [0, 1, 0], 
-                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
-    p.addUserDebugLine([0, 0, 0], [0, 0, 1], [0, 0, 1], 
-                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
     
-    p.addUserDebugLine([0, 0, 0], [1, 0, 0], [1, 0, 0], 
-                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
-    p.addUserDebugLine([0, 0, 0], [0, 1, 0], [0, 1, 0], 
-                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
-    p.addUserDebugLine([0, 0, 0], [0, 0, 1], [0, 0, 1], 
-                       parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+#     env_finger_angle = p.getJointState(env.robot.body, env.robot.right_gripper_indices[0], physicsClientId=env.id)
+#     print("finger angle is: ", env_finger_angle)
+#     eef_pos, eef_quat = env.robot.get_pos_orient(env.robot.right_end_effector)
+#     gripper_pc = env.get_gripper_pc()
+#     print("gripper_pc: ", gripper_pc)
+#     print("eef_pos: ", eef_pos)
+#     print("eef_quat: ", eef_quat)
     
-    p.addUserDebugLine([0, 0, 0], [0.1, 0, 0], [1, 0, 0], physicsClientId=env.id)
-    p.addUserDebugLine([0, 0, 0], [0, 0.1, 0], [0, 1, 0], physicsClientId=env.id)
-    p.addUserDebugLine([0, 0, 0], [0, 0, 0.1], [0, 0, 1], physicsClientId=env.id)
+#     finger_joint_angle = 0
+#     env.robot.set_gripper_open_position(env.robot.right_gripper_indices, [finger_joint_angle, finger_joint_angle], set_instantly=True)
+#     p.stepSimulation()
+#     env_finger_angle = p.getJointState(env.robot.body, env.robot.right_gripper_indices[0], physicsClientId=env.id)
+#     print("finger angle is: ", env_finger_angle)
+#     gripper_pc_closed = env.get_gripper_pc()
+#     print("gripper_pc_closed: ", gripper_pc_closed)
     
-    for j_id in range(num_joints):
-        p.resetJointState(obj_id, j_id, 0, physicsClientId=env.id)
+#     from matplotlib import pyplot as plt
+#     fig = plt.figure()
+#     ax = fig.add_subplot(111, projection='3d')
+#     ax.scatter(gripper_pc[:, 0], gripper_pc[:, 1], gripper_pc[:, 2], c='r')
+#     ax.scatter(gripper_pc_closed[:, 0], gripper_pc_closed[:, 1], gripper_pc_closed[:, 2], c='b')
+#     # turn off axis
+#     ax.set_axis_off()
+#     plt.show()
+    
+    
+#     # obj_id = env.urdf_ids['robot']
+#     # num_joints = p.getNumJoints(obj_id, physicsClientId=env.id)
+#     # for i in range(num_joints):
+#     #     info = p.getJointInfo(obj_id, i, physicsClientId=env.id)
+#     #     link_name = info[12].decode('utf-8')
+#     #     joint_limits = info[8:10]
+#     #     joint_name = info[1].decode('utf-8')
+#     #     print("joint id: ", i)
+#     #     print("link_name: ", link_name)
+#     #     print("joint_name: ", joint_name)
+#     #     print("joint_limits: ", joint_limits)
+#     #     print("joint type: ", info[2])
+#     #     print("joint limit: ", info[8:10])
+#     #     print("===================")
+    
+#     # p.addUserDebugLine([0, 0, 0], [1, 0, 0], [1, 0, 0], 
+#     #                    parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
+#     # p.addUserDebugLine([0, 0, 0], [0, 1, 0], [0, 1, 0], 
+#     #                    parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
+#     # p.addUserDebugLine([0, 0, 0], [0, 0, 1], [0, 0, 1], 
+#     #                    parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=2, physicsClientId=env.id)
+    
+#     # p.addUserDebugLine([0, 0, 0], [1, 0, 0], [1, 0, 0], 
+#     #                    parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+#     # p.addUserDebugLine([0, 0, 0], [0, 1, 0], [0, 1, 0], 
+#     #                    parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+#     # p.addUserDebugLine([0, 0, 0], [0, 0, 1], [0, 0, 1], 
+#     #                    parentObjectUniqueId=env.urdf_ids['robot'], parentLinkIndex=3, physicsClientId=env.id)
+    
+#     # p.addUserDebugLine([0, 0, 0], [0.1, 0, 0], [1, 0, 0], physicsClientId=env.id)
+#     # p.addUserDebugLine([0, 0, 0], [0, 0.1, 0], [0, 1, 0], physicsClientId=env.id)
+#     # p.addUserDebugLine([0, 0, 0], [0, 0, 0.1], [0, 0, 1], physicsClientId=env.id)
+    
+#     # for j_id in range(num_joints):
+#     #     p.resetJointState(obj_id, j_id, 0, physicsClientId=env.id)
         
-    # joint 2 is base, which is also the rotation joint
-    # joint 1 is the y translation
-    # joint 0 is the x translation
-    # joint 3 is pand_link 0
-    # import pdb; pdb.set_trace()
+#     # joint 2 is base, which is also the rotation joint
+#     # joint 1 is the y translation
+#     # joint 0 is the x translation
+#     # joint 3 is pand_link 0
+#     # import pdb; pdb.set_trace()
     
-    # cprint("move joint 2")
-    # p.resetJointState(obj_id, 2, np.pi / 2, physicsClientId=env.id)
+#     # cprint("move joint 2")
+#     # p.resetJointState(obj_id, 2, np.pi / 2, physicsClientId=env.id)
     
-    # import pdb; pdb.set_trace()
+#     # import pdb; pdb.set_trace()
     
-    # cprint("move joint 1")
-    # p.resetJointState(obj_id, 1, 0.5, physicsClientId=env.id)
+#     # cprint("move joint 1")
+#     # p.resetJointState(obj_id, 1, 0.5, physicsClientId=env.id)
     
-    # import pdb; pdb.set_trace()
+#     # import pdb; pdb.set_trace()
     
-    # cprint("move joint 0")
-    # p.resetJointState(obj_id, 0, 0.5, physicsClientId=env.id)
+#     # cprint("move joint 0")
+#     # p.resetJointState(obj_id, 0, 0.5, physicsClientId=env.id)
     
-    # import pdb; pdb.set_trace()
+#     # import pdb; pdb.set_trace()
     
-    ### test the ik for the mobile base
-    cur_eef_pos, cur_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
-    for idx in range(100):
-        env.step([0, 1, 0, 0, 0, 0, 0])
-    now_eef_pos, now_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
-    print("cur_eef_pos: ", cur_eef_pos)
-    print("now_eef_pos: ", now_eef_pos)
+#     ### test the ik for the mobile base
+#     cur_eef_pos, cur_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+#     for idx in range(100):
+#         env.step([0, 1, 0, 0, 0, 0, 0])
+#     now_eef_pos, now_eef_orient = env.robot.get_pos_orient(env.robot.right_end_effector)
+#     print("cur_eef_pos: ", cur_eef_pos)
+#     print("now_eef_pos: ", now_eef_pos)
     
-    agent = env.robot
-    close_joint_angle = 0.04
-    import pdb; pdb.set_trace()
-    for _ in range(100):
-        agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
-        p.stepSimulation()
-    import pdb; pdb.set_trace()
+#     agent = env.robot
+#     close_joint_angle = 0.04
+#     import pdb; pdb.set_trace()
+#     for _ in range(100):
+#         agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
+#         p.stepSimulation()
+#     import pdb; pdb.set_trace()
     
-    close_joint_angle = 0
-    for _ in range(100):
-        agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
-        p.stepSimulation()
-    import pdb; pdb.set_trace()
+#     close_joint_angle = 0
+#     for _ in range(100):
+#         agent.set_gripper_open_position(agent.right_gripper_indices, [close_joint_angle, close_joint_angle], set_instantly=False)
+#         p.stepSimulation()
+#     import pdb; pdb.set_trace()
 
-    # cur_pos, cur_orient = env.robot.get_base_pos_orient()
-    # cur_orient = p.getEulerFromQuaternion(cur_orient)
-    # # pos: array([ 9.55000000e-02, -1.74315373e-12,  1.09100000e+00])
-    # # orient: array([ 9.23879533e-01,  3.82683432e-01, -1.87384124e-12,  4.52385294e-12])
-    # pos = np.array([ 0.02, -1.74315373e-12,  1.09100000e+00])
-    # orient = np.array([ 9.23879533e-01,  3.82683432e-01, -1.87384124e-12,  4.52385294e-12])
-    # orient = p.getEulerFromQuaternion(orient)
-    # for idx in range(100):
-    #     # new_pos = cur_pos + np.array([0.005, 0, 0])
-    #     env.take_direct_action([*pos, *orient, 0])
-    #     pos, orient = env.robot.get_base_pos_orient()
-    #     print("after step {} pos {} orient {}".format(idx, pos, orient))
+#     # cur_pos, cur_orient = env.robot.get_base_pos_orient()
+#     # cur_orient = p.getEulerFromQuaternion(cur_orient)
+#     # # pos: array([ 9.55000000e-02, -1.74315373e-12,  1.09100000e+00])
+#     # # orient: array([ 9.23879533e-01,  3.82683432e-01, -1.87384124e-12,  4.52385294e-12])
+#     # pos = np.array([ 0.02, -1.74315373e-12,  1.09100000e+00])
+#     # orient = np.array([ 9.23879533e-01,  3.82683432e-01, -1.87384124e-12,  4.52385294e-12])
+#     # orient = p.getEulerFromQuaternion(orient)
+#     # for idx in range(100):
+#     #     # new_pos = cur_pos + np.array([0.005, 0, 0])
+#     #     env.take_direct_action([*pos, *orient, 0])
+#     #     pos, orient = env.robot.get_base_pos_orient()
+#     #     print("after step {} pos {} orient {}".format(idx, pos, orient))
     
-    # target_pos array([ 0.81408316, -0.20561448,  0.54356222])
-    # target orientation array([ 0.70465044, -0.05751408,  0.65244973, -0.27289051])
+#     # target_pos array([ 0.81408316, -0.20561448,  0.54356222])
+#     # target orientation array([ 0.70465044, -0.05751408,  0.65244973, -0.27289051])

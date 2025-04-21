@@ -16,6 +16,9 @@ class Panda(Robot):
             right_end_effector = 15 # Used to get the pose of the end effector
             right_gripper_indices = [13, 14] # Gripper actuated joints
             right_hand = 12 # TODO: check this
+            
+        self.finger_fully_open_joint_angle = 0.04
+        self.finger_fully_close_joint_angle = 0.0
                 
         super(Panda, self).__init__(controllable_joints, right_arm_joint_indices, right_end_effector, right_gripper_indices)
         self.right_hand = right_hand

@@ -45,10 +45,12 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
             it = 0
             solutions = []
             while True:
-                if not env.mobile:
-                    # print("not mobile ik")
+                target_joint_solutions = []
+                
+                if not env.mobile and env.robot_name == 'panda' or (env.robot_name == 'xarm' and it % 2 == 0):
+                    # ik limits contain only the movable joints
                     ik_start_pose = np.random.uniform(ik_lower_limits, ik_upper_limits)
-                    ompl_robot.set_state(ik_start_pose[env.robot.right_arm_joint_indices])
+                    ompl_robot.set_state(ik_start_pose[:len(env.robot.right_arm_joint_indices)])
 
                     target_joint_angle = np.array(p.calculateInverseKinematics(
                         env.robot.body, target_link, 
@@ -57,8 +59,10 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                         residualThreshold=1e-4,
                         # maxNumIterations=5000
                     ))
-
-                else:
+                    
+                    target_joint_solutions.append(target_joint_angle)
+                    
+                if env.mobile or (env.robot_name == 'xarm' and it % 2 == 1):
                     # print("mobile ik")
                     ik_rest_poses = np.random.uniform(ik_lower_limits, ik_upper_limits)
         
@@ -69,28 +73,37 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                         restPoses=ik_rest_poses.tolist(), 
                         maxNumIterations=10000,
                         residualThreshold=1e-4
-                    ))
+                    )) # ik already filters out fixed joints
+                    
+                    target_joint_solutions.append(target_joint_angle)
 
-                ompl_robot.set_state(target_joint_angle)
-                
-                eef_pos, eef_orient = env.robot.get_pos_orient(target_link)
-                ik_error = np.linalg.norm(eef_pos - target_pos)
-                
-                # p.addUserDebugPoints([target_pos], [[1, 0, 0]], 10, physicsClientId=env.id)
-                
-                threshold = 0.001 if not env.mobile else 0.005
-                target_joint_angle = np.array(target_joint_angle)[:len(env.robot.right_arm_joint_indices)]
-                if np.all(target_joint_angle >= ik_lower_limits[:len(env.robot.right_arm_joint_indices)]) \
-                        and np.all(target_joint_angle <= ik_upper_limits[:len(env.robot.right_arm_joint_indices)]) \
-                        and pb_ompl_interface.is_state_valid(target_joint_angle) \
-                        and ik_error < threshold:
 
-                    ik_success = True
-                    solutions.append(target_joint_angle)
-                    # break
-                    # elif p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[0], -1, physicsClientId=env.id) \
-                    #     and p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[1], -1, physicsClientId=env.id):
-                    #     break
+                for target_joint_solution in target_joint_solutions:
+                    target_joint_angle = np.array(target_joint_angle)[:len(env.robot.right_arm_joint_indices)]
+                    ompl_robot.set_state(target_joint_angle)
+                    
+                    eef_pos, eef_orient = env.robot.get_pos_orient(target_link)
+                    ik_error = np.linalg.norm(eef_pos - target_pos)
+                    
+                    # p.addUserDebugPoints([target_pos], [[1, 0, 0]], 10, physicsClientId=env.id)
+                    
+                    threshold = 0.001 if not env.mobile else 0.005
+                    # import pdb; pdb.set_trace()
+                    cond1 = np.all(target_joint_angle >= ik_lower_limits[:len(env.robot.right_arm_joint_indices)])
+                    cond2 = np.all(target_joint_angle <= ik_upper_limits[:len(env.robot.right_arm_joint_indices)])
+                    cond3 = pb_ompl_interface.is_state_valid(target_joint_angle)
+                    cond4 = ik_error < threshold
+                    if  cond1 and cond2 and cond3 and cond4:
+                        ik_success = True
+                        solutions.append(target_joint_angle)
+                        # break
+                        # elif p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[0], -1, physicsClientId=env.id) \
+                        #     and p.getContactPoints(env.robot.body, object_id, env.robot.right_gripper_indices[1], -1, physicsClientId=env.id):
+                        #     break
+                    else:
+                        pass
+                        # print(f"> lower limit {cond1}; < upper limit {cond2}; valid state: {cond3}; ik error: {ik_error}")
+                        # import pdb; pdb.set_trace()
 
                 it += 1
 
@@ -98,7 +111,6 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                     ompl_robot.set_state(current_joint_angles)
                     # ik_success = False
                     break
-                
             
             if len(solutions) > 0:
                 solutions = np.array(solutions)
@@ -112,7 +124,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
             
             
         if not ik_success:
-            cprint(f"try_idx: {try_idx}, ik failed", "red")
+            # cprint(f"try_idx: {try_idx}, ik failed", "red")
             continue
         
         for planner in ["RRTstar", "BITstar", "ABITstar"]:
@@ -133,7 +145,7 @@ def motion_planning(env, target_pos, target_orientation, planner=None,
                 path_translation_lengths.append(translation_length)
                 path_rotation_lengths.append(rotation_length)
                 ompl_robot.set_state(current_joint_angles)
-                cprint(f"try_idx: {try_idx}, planner: {planner}, translation length: {translation_length}, rotation length: {rotation_length}", "red")
+                # cprint(f"try_idx: {try_idx}, planner: {planner}, translation length: {translation_length}, rotation length: {rotation_length}", "red")
     
     if len(paths) == 0:
         return None, None, None, None

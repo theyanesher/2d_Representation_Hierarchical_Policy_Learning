@@ -36,9 +36,11 @@ def render(data, cur_shape_dir):
     part_v = np.vstack(cur_v_list)
     part_f = np.vstack(cur_f_list)
 
+    if not os.path.exists(os.path.join(cur_shape_dir, "parts_render")):
+        os.makedirs(os.path.join(cur_shape_dir, "parts_render"))
     out_point_file = os.path.join(cur_shape_dir, "parts_render", str(data['id'])+str(data["name"])+'.obj')
     if not os.path.exists(out_point_file):
-        with open(out_point_file, 'w+') as fout:
+        with open(out_point_file, 'w') as fout:
             for i in range(part_v.shape[0]):
                 fout.write('v %f %f %f\n' % (part_v[i, 0], part_v[i, 1], part_v[i, 2]))
             for i in range(part_f.shape[0]):
@@ -46,18 +48,25 @@ def render(data, cur_shape_dir):
                         
     return part_v, part_f
 
-def main(category, obj_id):
-    if obj_id is not None:
-        cur_shape_dir = "data/dataset/{}".format(obj_id)
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--category', type=str, default='Microwave')
+    parser.add_argument('--obj_id', type=str, default=None)
+    args = parser.parse_args()
+    
+    if args.obj_id is not None:
+        cur_shape_dir = "data/dataset/{}".format(args.obj_id)
         cur_result_json = os.path.join(cur_shape_dir, 'result.json')
         with open(cur_result_json, 'r') as fin:
             tree_hier = json.load(fin)[0]
         data = tree_hier
         render(data, cur_shape_dir)
     else:
+        import json
         with open('data/partnet_mobility_dict.json', 'r') as fin:
             meta_dict = json.load(fin)
-        all_objects = meta_dict[category]
+        all_objects = meta_dict[args.category]
         for obj_id in all_objects:
             cur_shape_dir = "data/dataset/{}".format(obj_id)
             print(obj_id)
@@ -66,12 +75,3 @@ def main(category, obj_id):
                 tree_hier = json.load(fin)[0]
             data = tree_hier
             render(data, cur_shape_dir)
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--category', type=str, default='Microwave')
-    parser.add_argument('--obj_id', type=str, default=None)
-    args = parser.parse_args()
-
-    main(args.category, args.obj_id)

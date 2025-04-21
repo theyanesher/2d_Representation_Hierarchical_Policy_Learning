@@ -242,7 +242,8 @@ def render_to_get_link_com(simulator, object_name, urdf_link_name):
     obj_id = object_id
     min_aabb, max_aabb = simulator.get_aabb(obj_id)
     camera_target = (max_aabb + min_aabb) / 2
-    distance = np.linalg.norm(max_aabb - min_aabb) * 1.2
+    # distance = np.linalg.norm(max_aabb - min_aabb) * 1.2
+    distance = np.linalg.norm(max_aabb - min_aabb) * 1.2 if simulator.robot_name == 'panda' else np.linalg.norm(max_aabb - min_aabb) * 0.8
     elevation = 30
 
     ### get a round of images of the target object

@@ -1,22 +1,14 @@
-import wandb
 import numpy as np
 import torch
-import tqdm 
-from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, add_sphere, get_pixel_location, get_matrix_from_pos_rot
-from manipulation.gpt_reward_api import get_handle_pos, get_link_pc
-from manipulation.gpt_primitive_api import get_pc_num_within_gripper
+from manipulation.utils import get_pc, rotation_transfer_6D_to_matrix, rotation_transfer_matrix_to_6D, get_pixel_location, get_matrix_from_pos_rot
 import pybullet as p
 import numpy as np
 from copy import deepcopy
-# import pytorch3d.ops as torch3d_ops
-import gym
+import pytorch3d.ops as torch3d_ops
 from gym import spaces
 import open3d as o3d
-import matplotlib.pyplot as plt
 import time
-from termcolor import cprint
 from scipy.spatial.transform import Rotation as R
-from sklearn.neighbors import NearestNeighbors
 import fpsample
 import os
 import json
@@ -30,6 +22,7 @@ class RobogenPointCloudWrapper:
     def __init__(self, 
                  env, 
                  object_name, 
+                 link_name,
                  rpy_mean_list=[[0, 0, -45], [0, 0, -135]], 
                  seed=None, 
                  in_gripper_frame=False,
@@ -41,9 +34,6 @@ class RobogenPointCloudWrapper:
                  gripper_bbox=0.1, 
                  add_contact=False,
                  use_joint_angle=False,
-                 use_absolute_waypoint=False, # [Chialiang][CDDEBUG]
-                 use_chained_diffuser=False, # [Chialiang][CDDEBUG]
-                 dense_pcd_for_goal=False, # [Chialiang][DEBUG]
                  use_color=False,
                  use_segmask=False,
                  only_handle_points=False,
@@ -59,12 +49,15 @@ class RobogenPointCloudWrapper:
         np.random.seed(time.time_ns() % 2**32)
         if seed is not None:
             np.random.seed(seed)
-            
+
+        self.filter_with_plane = None # [a, b, c, d], filter the point cloud that ax + by + cz + d > 0
+
         self.noise_real_world_pcd = noise_real_world_pcd
         self.real_world_camera = real_world_camera
 
         self._env = env
         self._object_name = object_name
+        self._link_name = link_name
         self.horizon = horizon
         self.record_all_observation = record_all_observation
         
@@ -76,11 +69,6 @@ class RobogenPointCloudWrapper:
         self.gripper_bbox = gripper_bbox
         self.add_contact = add_contact
         self.use_joint_angle = use_joint_angle
-        self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
-        self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
-        self.dense_pcd_for_goal = dense_pcd_for_goal # [Chialiang][DEBUG]
-        print("************************** USING DENSE PCD **************************", dense_pcd_for_goal)
-        self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
         self.only_handle_points = only_handle_points
@@ -94,15 +82,6 @@ class RobogenPointCloudWrapper:
         self.action_high = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
-        self.observation_space = spaces.Dict({
-            'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
-            'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-        })
-        if 'goal' in observation_mode:
-            self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-        if 'displacement_gripper_to_object' in observation_mode:
-            self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
 
         if 'dp3' in observation_mode:
             self.observation_space = spaces.Dict({
@@ -115,41 +94,21 @@ class RobogenPointCloudWrapper:
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
-
-            if 'goal' in observation_mode:
-                self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            if 'displacement_gripper_to_object' in observation_mode:
-                self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-        
-        elif 'act3d' in observation_mode:
+        else:
             self.observation_space = spaces.Dict({
                 'point_cloud': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 3), dtype=np.float32),
                 'agent_pos': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 10), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
                 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'feature_map': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
+                'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             })
 
+        if 'act3d' in observation_mode: 
             if 'goal' in observation_mode:
                 self.observation_space['goal_gripper_pcd'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
             if 'displacement_gripper_to_object' in observation_mode:
                 self.observation_space['displacement_gripper_to_object'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32) # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            if dense_pcd_for_goal:
-                self.observation_space['dense_point_cloud'] = spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4500, 3), dtype=np.float32)
 
-        elif 'chained_diffuser' in observation_mode:
-
-            # [Chialiang] [CDDEBUG]
-            self.observation_space = spaces.Dict({
-                'visible_rgb': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                'visible_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 128, 128, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                # 'pcd_mask': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1280, 1), dtype=np.uint8), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                'curr_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                'goal_gripper': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 7), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                # 'gripper_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-                # 'goal_pcd': spaces.Box(low=-np.inf, high=np.inf, shape=(1, 4, 3), dtype=np.float32), # pos(3) + orient(6) + joint_angle(1): we use 6D representation for orientation
-            })
-        else :
-            raise NotImplementedError
 
         for name in self._env.urdf_ids: # randomly center at an object
             if name in ['robot', 'plane', 'init_table']: continue
@@ -163,8 +122,7 @@ class RobogenPointCloudWrapper:
         if self.rpy_mean_list is None:
             self.rpy_mean_list = [[0, 0, -45], [0, 0, -135]]
         
-        # [Chialiang] [CDDEBUG]
-        if 'act3d' in self.observation_mode or 'chained_diffuser' in self.observation_mode:
+        if 'act3d' in self.observation_mode:
             # TODO: handle multiple camera for act3d observation
             # TODO: figure out the right camera distance & position
             # self.rpy_mean_list = [[0, 0, -45]]
@@ -172,6 +130,7 @@ class RobogenPointCloudWrapper:
             self.mean_distance = np.linalg.norm(max_aabb - min_aabb) * 0.9
             self.camera_height = 256
             self.camera_width = 256
+            
 
         self.depth_near = 0.01
         self.depth_far = 100
@@ -186,37 +145,65 @@ class RobogenPointCloudWrapper:
             camera_center = self.mean_camera_target
             distance = self.mean_distance
 
+            ### TODO: check the aspect ratio
             view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=env.id)
+            # project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=0.01, farVal=100, physicsClientId=env.id)
             project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=1 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=env.id)
             self.view_matrices.append(view_matrix)
             self.project_matrices.append(project_matrix)
             
-        # self._env.view_matrix = self.view_matrices[0]
-        # self._env.projection_matrix = self.project_matrices[0] 
-            
         if self.real_world_camera:
-            self.randomize_real_world_camera()
+            # TODO: make the camera at real-world pose
+            self.camera_width = 640
+            self.camera_height = 576
+            
+            camera_ids = [0, 3]
+            view_matrices = []
+            project_matrices = []
+            camera_calibration_folder = os.path.join(os.environ["PROJECT_DIR"], 'data/real_world')
+            self.camera_eyes = []
+            for camera_id in camera_ids:
+                camera_parameter_file = os.path.join(camera_calibration_folder, "cam{}_calibration.npz".format(camera_id))
+                data = np.load(camera_parameter_file)
+                camera_extrinsic = data['T'] # 4x4
+
+
+                camera_eye = camera_extrinsic[:3, 3]
+                camera_eye[2] = 1.0
+                camera_target = [0.7, 0, 0.4]
+                camera_eye = camera_eye + np.random.normal(0, 0.1, 3)
+                camera_target = camera_target + np.random.normal(0, 0.1, 3)
+                self.camera_eyes.append(camera_eye)
+
+                view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1])
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/576 ,nearVal=self.depth_near, 
+                                                              farVal=self.depth_far, physicsClientId=self._env.id)
+                view_matrices.append(view_matrix)
+                project_matrices.append(project_matrix)
+
+            self.view_matrices = view_matrices
+            self.project_matrices = project_matrices
+
 
         self.time_step = 0
         
-        # [Chialiang] [CDDEBUG]
-        if ("act3d_goal" in self.observation_mode) or ('chained_diffuser' in self.observation_mode) or ('dp3_goal_gripper' in self.observation_mode):
+        # [Chialiang]
+        if "act3d_goal" in self.observation_mode or 'dp3_goal_gripper' in self.observation_mode:
 
             # [Chialiang]
             config_path = self._env.config_path
             task_name = self._env.task_name
             parent_path = os.path.dirname(config_path)
             if not self._env.mobile:
-                state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "states") 
+                state_path = os.path.join(parent_path, "states") 
             else:
-                state_path = os.path.join(parent_path, "{}_primitive".format(task_name), "mobile_states")
+                state_path = os.path.join(parent_path, "mobile_states")
                 
-            stage_lengths_json_file = os.path.join(parent_path, "{}_primitive".format(task_name), 'stage_lengths.json')
+            stage_lengths_json_file = os.path.join(parent_path, 'stage_lengths.json')
             with open(stage_lengths_json_file, 'r') as f:
                 stage_lengths = json.load(f)
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
             all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
-
             goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
             goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
             
@@ -226,26 +213,19 @@ class RobogenPointCloudWrapper:
             with open(goal_2_state, 'rb') as f:
                 goal_2_state = pickle.load(f)
             
-            self._env.reset(reset_state=goal_1_state)
+            self._env.reset(reset_state=goal_1_state, object_name=self._object_name)
             grasping_eef_pc = self.get_gripper_pc()
 
-            # # Chialiang for dense goal pcd
-            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            # self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
+            # Chialiang for dense goal pcd
+            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
-            self._env.reset(reset_state=goal_2_state)
+            self._env.reset(reset_state=goal_2_state, object_name=self._object_name)
             final_eef_pc = self.get_gripper_pc()
             
-            # # Chialiang for dense goal pcd
-            # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-            # self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
-
-            # grasping_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(open_begin_t_idx))
-            # final_eef_pc_path = os.path.join(parent_path, "{}_primitive".format(task_name), 'mobile_states', 'eef_pcd_{}.pcd'.format(all_time_steps - 1))
-            # with open(grasping_eef_pc_path, 'rb') as f:
-            #     grasping_eef_pc = pickle.load(f)
-            # with open(final_eef_pc_path, 'rb') as f:
-            #     final_eef_pc = pickle.load(f)
+            # Chialiang for dense goal pcd
+            eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            self.final_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
 
             self.grasping_goal = grasping_eef_pc
             self.final_goal = final_eef_pc
@@ -255,51 +235,19 @@ class RobogenPointCloudWrapper:
             self.goal_gripper_pcd = None
 
         self.only_object = only_object
-        
-    def randomize_real_world_camera(self):
-        # TODO: make the camera at real-world pose
-        self.camera_width = 640
-        self.camera_height = 576
-        
-        camera_ids = [0, 3]
-        view_matrices = []
-        project_matrices = []
-        camera_calibration_folder = os.path.join(os.environ["PROJECT_DIR"], 'data/real_world')
-        self.camera_eyes = []
-        for camera_id in camera_ids:
-            camera_parameter_file = os.path.join(camera_calibration_folder, "cam{}_calibration.npz".format(camera_id))
-            data = np.load(camera_parameter_file)
-            camera_extrinsic = data['T'] # 4x4
-
-
-            camera_eye = camera_extrinsic[:3, 3]
-            camera_eye[2] = 1.0
-            camera_target = [0.7, 0, 0.4]
-            camera_eye = camera_eye + np.random.normal(0, 0.1, 3)
-            camera_target = camera_target + np.random.normal(0, 0.1, 3)
-            self.camera_eyes.append(camera_eye)
-
-            view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1])
-            project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/576 ,nearVal=self.depth_near, 
-                                                            farVal=self.depth_far, physicsClientId=self._env.id)
-            view_matrices.append(view_matrix)
-            project_matrices.append(project_matrix)
-
-        self.view_matrices = view_matrices
-        self.project_matrices = project_matrices
-        
-        self._env.view_matrix = self.view_matrices[0]
-        self._env.projection_matrix = self.project_matrices[0]
 
     def reset_random_cameras(self):
         # do a while loop to sample a new camera view
         try_times = 0
+
         # get handle point cloud
-        link_pc = get_link_pc(self._env, self._object_name, 'link_0')
-        all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name, return_median=False)
+        # link_pc = get_link_pc(self._env, self._object_name, 'link_0')
+        # link_pc = self._env.get_link_pc(self._object_name, self._link_name)
+        all_handle_pos, _, _, _= self._env.get_handle_pos(self._object_name, return_median=False, custom_joint_name=self._env.handle_name)
         # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
         handle_pc = np.concatenate(all_handle_pos, axis=0)
-        while try_times < 5000:
+
+        while try_times < 1000:
             view_matrices = []
             project_matrices = []
             try_times += 1
@@ -313,39 +261,57 @@ class RobogenPointCloudWrapper:
                     rpy[2] = np.random.uniform(-110, -160)
                 else:
                     rpy[2] = np.random.uniform(-20, -70)
+
                 view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=self._env.id)
                 project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=self._env.id)
                 view_matrices.append(view_matrix)
                 project_matrices.append(project_matrix)
+
             self.view_matrices = view_matrices
             self.project_matrices = project_matrices
-            if self.check_handle_observed_in_pc(handle_pc=handle_pc) > 5:
-                self._env.projection_matrix = project_matrices[0]
-                self._env.view_matrix = view_matrices[0]
-                # import pdb; pdb.set_trace()
+            
+            if self.check_handle_observed_in_pc(handle_pc=handle_pc) > 3:
                 break
+
             # import pdb; pdb.set_trace()
-        if try_times >= 5000:
+
+        if try_times >= 1000:
             raise ValueError("Cannot find a camera view that has handle points in the point cloud")
 
-    def reset(self, **kwargs):
-        if "act3d_goal" in self.observation_mode:
-            self.grasped_handle = False
-        self._env.reset(**kwargs)
-        self._env._get_info()
-        self.time_step = 0
-        if "goal" in self.observation_mode:
-            self.grasped_handle = False
-        self.chained_diffuser_step = 0 # [Chialiang][CDDEBUG]
-        return self._get_observation(only_object=self.only_object)
-    
+    def reset_real_world_camera(self, camera_calibration_folder="/data/ziyuw2/Projects/RoboGen-sim2real/manipulation/real_world_camera_calibration", add_randomness=False):
+        # get the camera calibration parameters
+        camera_ids = [0, 2, 3]
+        view_matrices = []
+        project_matrices = []
+        for camera_id in camera_ids:
+            camera_parameter_file = os.path.join(camera_calibration_folder, "cam{}_calibration.npz".format(camera_id))
+            data = np.load(camera_parameter_file)
+            camera_extrinsic = data['T'] # 4x4
+            # view_matrix = np.linalg.inv(camera_extrinsic)
+            # # view_matrix = camera_extrinsic
+            # view_matrix = view_matrix.reshape(-1, order='F')
+            # print("view_matrix: ", view_matrix)
+
+            camera_eye = camera_extrinsic[:3, 3]
+            camera_target = [0.7, -0.3, 0.15]
+            if add_randomness:
+                camera_target = [0.7 + np.random.uniform(-0.05, 0.05), -0.3 + np.random.uniform(-0.05, 0.05), 0.15 + np.random.uniform(-0.05, 0.05)]
+                camera_eye = camera_eye + np.random.uniform(-0.05, 0.05, 3)
+            view_matrix = p.computeViewMatrix(camera_eye, camera_target, [0, 0, 1])
+            project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=self._env.id)
+            view_matrices.append(view_matrix)
+            project_matrices.append(project_matrix)
+
+        self.view_matrices = view_matrices
+        self.project_matrices = project_matrices
+
     def check_handle_observed_in_pc(self, handle_pc=None):
         # given the current camera view, check if the handle is observed in the point cloud
         # return the number of points that are close to the handle
         if handle_pc is None:
             # get handle point cloud
-            link_pc = get_link_pc(self._env, self._object_name, 'link_0')
-            all_handle_pos, handle_joint_id = get_handle_pos(self._env, self._object_name, return_median=False)
+            # link_pc = get_link_pc(self._env, self._object_name, 'link_0')
+            all_handle_pos, _, _, _ = self._env.get_handle_pos(self._object_name, return_median=False, custom_joint_name=self._env.handle_name)
             # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
             handle_pc = np.concatenate(all_handle_pos, axis=0)
         pcs = []
@@ -393,128 +359,49 @@ class RobogenPointCloudWrapper:
         
         return min_distance.shape[0]
 
-    # some util function to generate dense waypoints
-    def nth_root_rotation_matrix(self, A, n):
-        """
-        Compute the n-th root of a 3x3 rotation matrix A.
-        
-        Parameters:
-        A (numpy.ndarray): 3x3 rotation matrix.
-        n (int): The root to compute, e.g., n=3 for cubic root.
-        
-        Returns:
-        numpy.ndarray: The n-th root of the rotation matrix A.
-        """
-        # Step 1: Calculate the angle of rotation using the trace of the matrix
-        angle = np.arccos((np.trace(A) - 1) / 2)
-        
-        # Step 2: Calculate the rotation axis
-        if angle != 0:
-            axis = np.array([A[2, 1] - A[1, 2], A[0, 2] - A[2, 0], A[1, 0] - A[0, 1]]) / (2 * np.sin(angle))
-        else:
-            axis = np.array([1, 0, 0])  # Arbitrary axis for zero rotation
-        
-        # Step 3: Compute the new reduced angle by dividing the original angle by n
-        new_angle = angle / n
-        
-        # Step 4: Normalize the rotation axis
-        axis = axis / np.linalg.norm(axis)
-        
-        # Step 5: Construct the rotation matrix using Rodrigues' rotation formula
-        K = np.array([[0, -axis[2], axis[1]],
-                    [axis[2], 0, -axis[0]],
-                    [-axis[1], axis[0], 0]])
-        
-        I = np.eye(3)
-        A_n_root = I + np.sin(new_angle) * K + (1 - np.cos(new_angle)) * np.dot(K, K)
-        
-        return A_n_root
-
-    def get_dense_delta_waypoints(self, delta_action, threshold=0.005):
-        """
-        Get dense waypoints between the given waypoints.
-        
-        Parameters:
-        delta_action (numpy.ndarray): the delta action outputed from the model.
-        threshold (float): the maximum step length of the delta waypoint.
-        
-        Returns:
-        numpy.ndarray: The dense waypoints.
-        """
-        
-        num_steps = int(np.linalg.norm(delta_action[:3]) / threshold + 1)
-        dense_waypoint = np.zeros(10)
-        dense_waypoint[:3] = delta_action[:3] / num_steps
-        dense_waypoint[3:9] = rotation_transfer_matrix_to_6D(self.nth_root_rotation_matrix(rotation_transfer_6D_to_matrix(delta_action[3:9]), n=num_steps))
-        dense_waypoint[9] = delta_action[9] / num_steps
-
-        dense_waypoints = [dense_waypoint for _ in range(num_steps)]
-        return np.array(dense_waypoints)
-
+    def reset(self, **kwargs):
+        if "act3d_goal" in self.observation_mode:
+            self.grasped_handle = False
+        self._env.reset(**kwargs)
+        self._env._get_info(object_name=self._object_name, handle_name=self._env.handle_name, link_name=self._link_name)
+        self.time_step = 0
+        return self._get_observation(only_object=self.only_object)
     
     def step(self, action, render=True):
         # beg = time.time()
-
         if not self.use_joint_angle:
-
-            # [CDDEBUG] [CDHERE] modify the output action type
-            # [CDQUESTION] how to add gripper action in this mode? currently it only uses position and rotation
-            if self.use_chained_diffuser:
-                self.chained_diffuser_step = 1 # force set to post grasping
-
-                assert len(action) == 8 or len(action) == 10
-
-                pos = action[:3] 
-                if len(action) == 8:
-                    euler = p.getEulerFromQuaternion(action[3:7])
-                else :
-                    orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
-                    euler = p.getEulerFromQuaternion(orient)
-                target_joint_angle = action[-1]
-                action = pos.tolist() + list(euler) + [target_joint_angle]
-                self._env.take_direct_action(action) # directly use the action to control the robot
-
-            # [ABSDEBUG]
-            elif self.use_absolute_waypoint:
-                
-                pos = action[:3]
-                orient = R.from_matrix(rotation_transfer_6D_to_matrix(action[3:9])).as_quat()
-                euler = p.getEulerFromQuaternion(orient)
-                target_joint_angle = action[9]
-                action = list(pos) + list(euler) + [target_joint_angle]
-
-                self._env.take_direct_action(action)
+            # beg = time.time()
+            pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
+            current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
             
-            else :
-                # beg = time.time()
-
-                # dense_action = self.get_dense_delta_waypoints(action, threshold=0.005)
-
-                # for action in dense_action:
-                pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
-                current_rotate_matrix = np.array(p.getMatrixFromQuaternion(orient)).reshape(3, 3)
+            # transfer the action to the gripper frame
+            if self.in_gripper_frame:
+                action[:3] = current_rotate_matrix @ np.array(action[:3])
                 
-                # transfer the action to the gripper frame
-                if self.in_gripper_frame:
-                    action[:3] = current_rotate_matrix @ np.array(action[:3])
-                    
-                delta_orient = action[3:9]
 
-                delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
+            delta_orient = action[3:9]
 
-                after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
-                
-                orient = R.from_matrix(after_rotate_matrix).as_quat()
-                euler = p.getEulerFromQuaternion(orient)
+            delta_rotate_matrix = rotation_transfer_6D_to_matrix(delta_orient)
 
-                cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
+            after_rotate_matrix = current_rotate_matrix @ delta_rotate_matrix
+            
+            orient = R.from_matrix(after_rotate_matrix).as_quat()
+            euler = p.getEulerFromQuaternion(orient)
 
-                pos = pos + np.array(action[:3])
-                target_joint_angle = action[9] + cur_joint_angle[0]
-                
-                action = pos.tolist() + list(euler) + [target_joint_angle]
+            cur_joint_angle = p.getJointState(self._env.robot.body, self._env.robot.right_gripper_indices[0], physicsClientId=self._env.id)
 
-                self._env.take_direct_action(action)
+            pos = pos + np.array(action[:3])
+            target_joint_angle = action[9] + cur_joint_angle[0]
+            
+            action = pos.tolist() + list(euler) + [target_joint_angle]
+            # end = time.time()
+            # cprint("preprocessing time {}".format(end - beg), "green")
+
+            # beg = time.time()
+            self._env.take_direct_action(action)
+            # beg = time.time()
+            # end = time.time()
+            # cprint("take direct action time {}".format(end - beg), "blue")
         else:
             self._env.take_joint_action(action)
         
@@ -526,7 +413,7 @@ class RobogenPointCloudWrapper:
         # end = time.time()
 
         # beg = time.time()
-        info = self._env._get_info()            
+        info = self._env._get_info(object_name=self._object_name, handle_name=self._env.handle_name, link_name=self._link_name)
         done = self._env.time_step >= self.horizon
         # end = time.time()
         # cprint("compute reward & get info time {}".format(end - beg), "green")
@@ -550,7 +437,6 @@ class RobogenPointCloudWrapper:
         return gripper_pc.astype(np.float32)
     
     def _get_act3d_observation(self, rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=False, only_object=True):
-        obs_dict_input = {}
         pos, orient = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
 
         # get the 6D representation of orientation
@@ -571,9 +457,10 @@ class RobogenPointCloudWrapper:
         pcd_mask_indices = []
         for rgb, depth, segmask, view_matrix, project_matrix in zip(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices):
             
+            beg = time.time()
             pc = get_pc(proj_matrix=project_matrix, view_matrix=view_matrix, depth=depth, width=self.camera_width, height=self.camera_height, mask_infinite=False)
-                
-        
+            # print("get_pc time: ", time.time() - beg)
+    
             gripper_pc = self.get_gripper_pc()
             gripper_pcd.append(gripper_pc)
             
@@ -582,9 +469,10 @@ class RobogenPointCloudWrapper:
             robot_mask[segmask_obj_id == self._env.urdf_ids['robot']] = 1
             object_mask = np.zeros_like(depth).astype(np.float32)
             object_mask[segmask_obj_id == self._env.urdf_ids[self._object_name]] = 1
-
+            
             object_mask_ = np.flatnonzero(object_mask.flatten())
             pcs.append(pc[object_mask_])
+            
             if not only_object:
                 ret_object_mask = np.zeros_like(depth).astype(np.float32)
                 # get the bounding box of the object mask
@@ -614,7 +502,7 @@ class RobogenPointCloudWrapper:
                 
 
             if "displacement_to_handle" in self.observation_mode:
-                info = self._env._get_info()
+                info = self._env._get_info(object_name=self._object_name, handle_name=self._env.handle_name, link_name=self._link_name)
                 handle_pos = np.array(info['handle_pos'])
                 delta_to_handle = handle_pos.reshape(1, 3) - pc
                 feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])
@@ -640,8 +528,11 @@ class RobogenPointCloudWrapper:
                     # print("goal is to grasp the handle")
                     goal_gripper_pcd = self.grasping_goal
                 self.goal_gripper_pcd = goal_gripper_pcd
-            
+        
+        
         point_cloud = np.concatenate(pcs, axis=0)
+        
+        
         
         ### perform whatever we do in the real world 
         if self.noise_real_world_pcd:
@@ -679,99 +570,51 @@ class RobogenPointCloudWrapper:
             point_cloud = np.array(pcd3.points)
             distance_to_camera_eye_1 = np.linalg.norm(self.camera_eyes[0] - point_cloud, axis=1)
             distance_to_camera_eye_2 = np.linalg.norm(self.camera_eyes[1] - point_cloud, axis=1)
-            point_cloud = point_cloud[distance_to_camera_eye_1 > 0.1]
-            point_cloud = point_cloud[distance_to_camera_eye_2 > 0.1]
+            condition = np.logical_and(distance_to_camera_eye_1 > 0.1, distance_to_camera_eye_2 > 0.1)
+            point_cloud = point_cloud[condition]
             
             # pcd_o3d = o3d.geometry.PointCloud()
             # pcd_o3d.points = o3d.utility.Vector3dVector(point_cloud)
             # o3d.visualization.draw_geometries([pcd_o3d])
-            
         
+        # filter the point cloud with the segmentation plane
+        if self.filter_with_plane is not None:
+            # filter the point cloud that satisfies 
+            # self.filter_with_plane[0] * x + self.filter_with_plane[1] * y + self.filter_with_plane[2] * z + self.filter_with_plane[3] > 0
+            plane_normal = np.array(self.filter_with_plane[:3])
+            plane_d = self.filter_with_plane[3]
+            distance = np.dot(point_cloud, plane_normal) + plane_d
+            point_cloud = point_cloud[distance > 0]
+            
+        beg = time.time()
         num_points = self.num_points
         if using_torch:
-
-            # [Chialiang] for 
-            if self.dense_pcd_for_goal:
-
-                # get the cropped point cloud from feature_map
-                original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
-                cond = np.where(original_feature_map_faltten[...,1] > 0.5)
-                dense_pcd = original_feature_map_faltten[...,2:5][cond]
-
-                # downsampled pcd from FPS
-                dense_point_num = 500
-                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-                num_points = torch.tensor([num_points-dense_point_num]).cuda() # 4500 - 500
-                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-                sampled_indices = np.array(sorted(sampled_indices))
-                point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                point_cloud = point_cloud[sampled_indices]
-
-                # [TODO] find current goal
-                hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
-                nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
-                distances, indices = nn.kneighbors(hand_point)
-                distances, indices = distances[0], indices[0]
-                sorted_index = np.argsort(distances)
-                additional_index = indices[sorted_index[:dense_point_num]]
-
-                additional_pcd = dense_pcd[additional_index]
-                point_cloud = np.vstack([point_cloud, additional_pcd])
-
-            else :
-                
-                point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
-                num_points = torch.tensor([num_points]).cuda()
-                _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
-                sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
-                sampled_indices = np.array(sorted(sampled_indices))
-                point_cloud = point_cloud.squeeze(0).cpu().numpy()
-                point_cloud = point_cloud[sampled_indices]
-
+            point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).cuda()
+            num_points = torch.tensor([num_points]).cuda()
+            _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[...,:3], K=num_points)
+            sampled_indices = sampled_indices.squeeze(0).cpu().numpy()
+            sampled_indices = np.array(sorted(sampled_indices))
+            point_cloud = point_cloud.squeeze(0).cpu().numpy()
+            point_cloud = point_cloud[sampled_indices]
         else:
-
             if point_cloud.shape[0] < num_points:
                 to_add_points_num = num_points - point_cloud.shape[0]
                 random_sampled_points = np.random.choice(point_cloud.shape[0], to_add_points_num, replace=True)
                 point_cloud = np.concatenate([point_cloud, point_cloud[random_sampled_points]], axis=0)
             
-            # [Chialiang] for 
-            if self.dense_pcd_for_goal:
+            h = min(9, np.log2(num_points))
+            kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
+            kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
+            point_cloud = point_cloud[kdline_fps_samples_idx]
 
-                # get the cropped point cloud from feature_map
-                original_feature_map_faltten = np.stack(feature_maps, axis=0).astype(np.float32).reshape(-1, 5)
-                cond = np.where(original_feature_map_faltten[...,1] > 0.5)
-                dense_pcd = original_feature_map_faltten[...,2:5][cond]
-
-                # downsampled pcd from FPS
-                dense_point_num = 500
-                h = min(9, np.log2(num_points-dense_point_num))
-                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points-dense_point_num, h=h)
-                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
-                point_cloud = point_cloud[kdline_fps_samples_idx]
-
-                # [TODO] find current goal
-                hand_point = self.goal_gripper_pcd[0].reshape(1, -1)
-                nn = NearestNeighbors(n_neighbors=dense_point_num, algorithm='ball_tree').fit(dense_pcd)
-                distances, indices = nn.kneighbors(hand_point)
-                distances, indices = distances[0], indices[0]
-                sorted_index = np.argsort(distances)
-                additional_index = indices[sorted_index[:dense_point_num]]
-
-                additional_pcd = dense_pcd[additional_index]
-                point_cloud = np.vstack([point_cloud, additional_pcd])
-
-            else :
-
-                h = min(9, np.log2(num_points))
-                kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(point_cloud[:, :3], num_points, h=h)
-                kdline_fps_samples_idx = np.array(sorted(kdline_fps_samples_idx))
-                point_cloud = point_cloud[kdline_fps_samples_idx]
-           
+        # print("fps time: ", time.time() - beg)            
+        # pcd5 = o3d.geometry.PointCloud()
+        # pcd5.points = o3d.utility.Vector3dVector(point_cloud)
+        # o3d.visualization.draw_geometries([pcd5])
+        
         point_cloud = point_cloud.tolist()
         
-        
+        obs_dict_input = {}
         obs_dict_input['point_cloud'] = np.array(point_cloud).astype(np.float32)
         obs_dict_input['agent_pos'] = np.array(pos_ori).astype(np.float32)
         
@@ -956,6 +799,15 @@ class RobogenPointCloudWrapper:
         
         if self.handle_num_points > 0 or self.gripper_num_points > 0:
             full_point_cloud = deepcopy(point_cloud)
+
+        # filter the point cloud with the segmentation plane
+        if self.filter_with_plane is not None:
+            # filter the point cloud that satisfies 
+            # self.filter_with_plane[0] * x + self.filter_with_plane[1] * y + self.filter_with_plane[2] * z + self.filter_with_plane[3] > 0
+            plane_normal = np.array(self.filter_with_plane[:3])
+            plane_d = self.filter_with_plane[3]
+            distance = np.dot(point_cloud, plane_normal) + plane_d
+            point_cloud = point_cloud[distance > 0]
                 
         # do downsampling of the pcd
         num_points = self.num_points
@@ -1016,7 +868,7 @@ class RobogenPointCloudWrapper:
             obs_dict_input['agent_pos'] = np.concatenate((pos_ori, goal_gripper_pcd.reshape(-1)), axis=0)
             
         return obs_dict_input
-            
+    
     def add_edge_artifacts(self, depth_map):
         """
         Apply edge artifacts to a depth map using correlated depth noise via bilinear interpolation.
@@ -1060,6 +912,7 @@ class RobogenPointCloudWrapper:
             numpy.ndarray: The depth map with random holes applied.
         """
         if np.random.rand() > 0.5:
+        # if np.random.rand() > 1:
             # Skip random hole generation with probability 0.5
             return depth_map
 
@@ -1103,11 +956,11 @@ class RobogenPointCloudWrapper:
             
             # ax = plt.subplot(1, 4, 1)
             # ax.imshow(image)
-            # ax = plt.subplot(1, 4, 2)
+            # ax = plt.subplot(1, 3, 1)
             # ax.imshow(real_depth)
-            # ax = plt.subplot(1, 4, 3)
+            # ax = plt.subplot(1, 3, 2)
             # ax.imshow(edge_augmented_image)
-            # ax = plt.subplot(1, 4, 4)
+            # ax = plt.subplot(1, 3, 3)
             # ax.imshow(hole_augmented_image)
             # plt.show()
             
@@ -1117,11 +970,22 @@ class RobogenPointCloudWrapper:
     
     def _get_observation(self, render=True, using_torch=False, only_object=True):
         if render:
+            
+            beg = time.time()
             rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices = \
                 self.take_images_around_object(self._env, self._object_name.lower(), elevation=self.elevation,
                                                 return_camera_matrices=True, camera_height=self.camera_height, camera_width=self.camera_width, 
                                                 only_object=False)
-            
+            # print("take images time: ", time.time() - beg)
+
+            # ax = plt.subplot(1, 2, 1)
+#             ax.imshow(rgbs[0])
+#             ax = plt.subplot(1, 2, 2)
+#             ax.imshow(rgbs[1])
+#             plt.show()
+                
+            ### TODO: augment depth
+            beg = time.time()
             if self.noise_real_world_pcd:
                 depths = self.augment_depth_image(depths)
             # print("augment depth time: ", time.time() - beg)
@@ -1139,8 +1003,7 @@ class RobogenPointCloudWrapper:
                     
                     segmented_depths.append(depth)
                 depths = segmented_depths
-
-            
+                        
             if not self.record_all_observation:
                 if 'act3d' in self.observation_mode:
                     act3d_obs_dict = self._get_act3d_observation(rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices, using_torch=using_torch, only_object=only_object)
@@ -1166,7 +1029,7 @@ class RobogenPointCloudWrapper:
         else:
             obs_dict_input = {}
             obs_dict_input['point_cloud'] = np.zeros((1, 1280, 6))
-            obs_dict_input['agent_pos'] = np.array([0, 0, 0, 0, 0, 0, 0]).astype(np.float32)
+            obs_dict_input['agent_pos'] = np.array(pos_ori)
         
         return obs_dict_input
     
@@ -1213,8 +1076,8 @@ class RobogenPointCloudWrapper:
         ret_dict['gripper_pcd'] = np.zeros((1, 1, 1)).astype(np.float32)
         ret_dict['pcd_mask'] = np.zeros((1, 1, 1)).astype(np.uint8)
         return ret_dict
-    
-    
+            
+        
     def get_real_depth(self, depth):
         near = self.depth_near
         far = self.depth_far
@@ -1251,7 +1114,7 @@ class RobogenPointCloudWrapper:
 
     
     def render(self):
-        if 'goal' not in self.observation_mode or 'dp3' in self.observation_mode or self.goal_gripper_pcd is None:
+        if 'goal' not in self.observation_mode or 'dp3' in self.observation_mode:
             return self._env.render()
         else:
             image = self._env.render()
@@ -1284,13 +1147,11 @@ class RobogenPointCloudWrapper:
         segmasks = []
         view_camera_matrices = []
         project_camera_matrices = []
-        
         for view_matrix, project_matrix in zip(self.view_matrices, self.project_matrices):
             w, h, img, depth, segmask = p.getCameraImage(camera_width, camera_height, view_matrix, project_matrix, 
                                                          flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX, renderer=p.ER_BULLET_HARDWARE_OPENGL, physicsClientId=env.id)
             img = np.reshape(img, (h, w, 4))[:, :, :3]
             depth = np.reshape(depth, (h, w))
-
             if only_object:
                 segmask_obj_id = segmask & ((1 << 24) - 1)
                 object_mask = np.zeros_like(depth).astype(np.float32)
@@ -1318,81 +1179,71 @@ class RobogenPointCloudWrapper:
         #                 cnt += 1
 
         return rgbs, depths, segmasks, view_camera_matrices, project_camera_matrices
+    
+    def display_inlier_outlier(self, cloud, ind):
+        # Compute normals to help visualize
+        # cloud.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+
+        inlier_cloud = cloud.select_by_index(ind)
+        inlier_cloud.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        outlier_cloud = cloud.select_by_index(ind, invert=True)
+
+        print("Showing outliers (red) and inliers (gray): ")
+        outlier_cloud.paint_uniform_color([1, 0, 0])
+        inlier_cloud.paint_uniform_color([0.8, 0.8, 0.8])
+        o3d.visualization.draw_geometries([inlier_cloud, outlier_cloud])
+
+    def set_point_cloud_filter(self, filter_with_plane):
+        # filter_with_plane: [a, b, c, d] where a*x + b*y + c*z + d > 0
+        self.filter_with_plane = filter_with_plane
 
 
-    def motion_planning_to_goal(self, goal_pos, goal_orient, gt_collision_checker=True):
-        if not gt_collision_checker:
-            print("Only support gt collision checker for now")
-            return False, []
-        from manipulation.motion_planning_utils import motion_planning
-        simulator = self._env
-        current_pos, current_orient = simulator.robot.get_pos_orient(simulator.robot.right_end_effector)
-        
-        translation_length = np.linalg.norm(goal_pos - current_pos)
-        rotation_length = 2 * np.arccos(np.abs(np.dot(goal_orient, current_orient)))
-        rotation_length = np.rad2deg(rotation_length)
-        translation_steps = int(translation_length / 0.004) + 1
-        rotation_steps = int(rotation_length / 1.8) + 1
-        interpolation_steps = max(translation_steps, rotation_steps)
-        all_objects = list(simulator.urdf_ids.keys())
-        all_objects.remove("robot")
-        obstacles = [simulator.urdf_ids[x] for x in all_objects]
-        
-        res, path, _, _ = motion_planning(
-            simulator, goal_pos, goal_orient, obstacles=obstacles, allow_collision_links=[], 
-            smooth_path=True, interpolation_num=interpolation_steps
-        )
-        # res: succeed or not
-        # path: a list of joint angles: env.robot.set_joint_angles(env.robot.right_arm_joint_indices, q) for q in path
-        if not res:
-            cprint("Failed to find a collision free path to goal", "red")
-            return False, []
+def get_link_handle(all_handle_pos, handle_joint_id, link_pc):
+    handle_median_points = np.array([np.median(handle_pos, axis=0) for handle_pos in all_handle_pos]).reshape(-1, 3)
+    distance_handle_median_to_link_pc = scipy.spatial.distance.cdist(handle_median_points, link_pc)
+    min_distance = np.min(distance_handle_median_to_link_pc, axis=1)
+    min_distance_handle_idx = np.argmin(min_distance)
+    handle_joint_id = handle_joint_id[min_distance_handle_idx]
+    handle_pc = all_handle_pos[min_distance_handle_idx]
+    handle_median = handle_median_points[min_distance_handle_idx]
+    
+    threshold = 0.02
+    pc_to_handle_distance = scipy.spatial.distance.cdist(link_pc, handle_pc).min(axis=1)
+    handle_pc = link_pc[pc_to_handle_distance < threshold]
+    
+    return handle_pc, handle_joint_id, handle_median, min_distance_handle_idx
 
-        rgbs = []        
-        for idx, q in enumerate(path):
-            # control robot to target joint angles: q
-            agent_joint_angles = q
-            for _ in range(10):
-                simulator.robot.control(simulator.robot.controllable_joint_indices, agent_joint_angles)
-                p.stepSimulation(physicsClientId=simulator.id)
-                cur_joint_angles = simulator.robot.get_joint_angles(simulator.robot.controllable_joint_indices)
-                err = np.linalg.norm(cur_joint_angles - agent_joint_angles)
-                if err < 1e-4:
-                    break
-            rgb = self.render()
-            rgbs.append(rgb)
+from scipy.spatial import cKDTree
+def remove_radius_outliers_vectorized(pcd, nb_points, search_radius):
+    """
+    Removes radius outliers from a PointCloud using a fully vectorized approach.
 
-        return True, rgbs
+    Args:
+        pcd (open3d.geometry.PointCloud): The input point cloud.
+        nb_points (int): Minimum number of neighbors within the radius.
+        search_radius (float): Radius for searching neighbors.
 
-    def close_two_fingers(self, control_steps=10):
-        rgbs = []
-        for _ in range(control_steps):
-            if not self._env.use_suction:
-                self._env.robot.set_gripper_open_position(self._env.robot.right_gripper_indices, [0, 0], set_instantly=False)
-            p.stepSimulation(physicsClientId=self._env.id)
-            rgb = self.render()
-            rgbs.append(rgb)
-        
-        return True, rgbs
+    Returns:
+        open3d.geometry.PointCloud: Point cloud with outliers removed.
+        list[int]: Indices of the remaining points.
+    """
+    if nb_points < 1 or search_radius <= 0:
+        raise ValueError("The number of points and radius must be positive.")
 
+    # Convert the point cloud to a NumPy array
+    points = pcd
 
-    def move_to_by_ik(self, goal_pos, goal_orient):
-        action = np.zeros(7)
-        action[:3] = goal_pos
-        goal_orient_euler = p.getEulerFromQuaternion(goal_orient)
-        action[3:6] = goal_orient_euler
-        action[6] = 0
-        self._env.take_direct_action(actions=action, save_img_interval=1, ik_try_times=50, far_target=True)
-        rgbs = deepcopy(self._env.control_rgbs)
-        added_circle_rgbs = []
-        for image in rgbs:
-            image = np.array(image)
-            # import pdb; pdb.set_trace()
-            for point in self.goal_gripper_pcd:
-                pixel_x, pixel_y, _ = get_pixel_location(self._env.projection_matrix, self._env.view_matrix, point, self._env.camera_width, self._env.camera_height)
-                color = (0, 0, 255)  # Red color in BGR
-                thickness = 2
-                radius = 5
-                image = cv2.circle(image, (pixel_x, pixel_y), radius, color, thickness)
-            added_circle_rgbs.append(image)
-        return True, added_circle_rgbs
+    # Build a KDTree using scipy for efficient radius searches
+    kdtree = cKDTree(points)
+
+    # Perform a batch radius search
+    neighbors = kdtree.query_ball_point(points, search_radius)
+
+    # Determine which points have enough neighbors
+    mask = np.array([len(neigh) > nb_points for neigh in neighbors])
+
+    # Select the remaining points
+    indices = np.where(mask)[0]
+    inlier_pcd = points[indices]
+
+    return inlier_pcd, indices.tolist()

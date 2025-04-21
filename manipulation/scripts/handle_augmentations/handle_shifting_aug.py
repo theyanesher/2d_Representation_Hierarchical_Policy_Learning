@@ -2,18 +2,17 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 class Handle_Shift():
-    def __init__(self, handle_shift_sigma, num_samples_to_generate, max_iters):
-        
+    def __init__(self, handle_shift_sigma, num_samples_to_generate=1, max_iters=5):
         assert handle_shift_sigma[2] == 0, "There should be no shift ALong the Z axis and hence the handle_shift in the Z direction should be 0"
         self.handle_shift_cov = np.diag(handle_shift_sigma**2)
         self.num_samples = num_samples_to_generate
         self.max_iters = max_iters
 
 
-    def __call__(self, asset_id, multiaug_flag = False, link_name = 'link_0'):
+    def __call__(self, asset_id, input_urdf=None, link_name = 'link_0'):
         self.link_name = link_name  # The link whose data you want to extract
-        if multiaug_flag:
-            urdf_file = f"data/dataset/{asset_id}/mobility_modified.urdf"
+        if input_urdf is not None:
+            urdf_file = input_urdf
         else:
             urdf_file = f"data/dataset/{asset_id}/mobility.urdf"
         link_dict = extract_link_data(urdf_file, self.link_name)
@@ -463,10 +462,3 @@ if __name__ == "__main__":
                 origin = visual.find('origin')
                 xyz = origin.get("xyz")
                 print("XYZZZZZZZZZZZZ", xyz)
-    
-
-
-
-
-
-

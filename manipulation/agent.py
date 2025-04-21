@@ -4,6 +4,7 @@ from termcolor import cprint
 # import ikpy.chain
 from tracikpy import TracIKSolver
 import os
+import copy
 
 class Agent:
     def __init__(self):
@@ -29,6 +30,8 @@ class Agent:
         # self.franka_ikpy_chain = ikpy.chain.Chain.from_urdf_file(f"{current_path}/assets/panda_bullet/panda.urdf", base_elements=["panda_link0"], active_links_mask=active_masks)
         
         self.franka_tracik_solver = TracIKSolver(f"{current_path}/assets/panda_ik/franka.urdf", "panda_link0", "panda_grasptarget", 
+                                                 epsilon=1e-5, timeout=0.05)
+        self.xarm_tracik_solver = TracIKSolver(f"{current_path}/assets/xarm_description/urdf/xarm_7dof.urdf", "link_base", "link_tcp", 
                                                  epsilon=1e-5, timeout=0.05)
 
 
@@ -253,21 +256,53 @@ class Agent:
         # cprint("IK time: {}".format(end - beg), "blue")
         return solutions        
 
-        if len(solutions) == 0:
-            # cprint('After 100 tries, tracIK failed', 'red')
-            return solutions, False
-        
-        solution_np = np.array(solutions)
-        distances = np.linalg.norm(solution_np - original_joint_angles, axis=1)
-        joint_angles = solution_np[np.argmin(distances)]
+    def ik_tracik_xarm(self, target_pos, target_orient, ik_indices):
+        # p.addUserDebugPoints([target_pos], [[1,0,0]], 25)
+        original_joint_angles = self.get_joint_angles(self.all_joint_indices)
+        original_joint_angles = original_joint_angles[ik_indices]
 
-        # eef_out = self.franka_tracik_solver.fk(joint_angles)
-        # eef_out = eef_out[:3, 3]
-        # # import pdb; pdb.set_trace()
-        # if np.linalg.norm(eef_out - target_pos) > 1e-4:
-        #     cprint('tracIK failed', 'red')
-        #     return None, False
-        return joint_angles, True
+        # get robot base position and orientation
+        base_pos, base_orient = self.get_base_pos_orient()
+        base_pos = np.array(base_pos)
+
+        target_pos = target_pos - base_pos + np.array([0, 0, 0.05])
+        target_orient_quat = copy.deepcopy(target_orient)
+        target_orient = np.array(p.getMatrixFromQuaternion(target_orient)).reshape(3, 3)
+
+        target_eef = np.eye(4)
+        target_eef[:3, :3] = target_orient
+        target_eef[:3, 3] = target_pos
+
+        solutions = []
+        ik_lower_limits = self.ik_lower_limits 
+        ik_upper_limits = self.ik_upper_limits 
+            
+        import time
+        beg = time.time()
+        for try_time in range(25): # try 100 times
+            # TODO: sample different init joint angles
+            if try_time == 0:
+                ik_start_pose = original_joint_angles
+            else:
+                ik_start_pose = original_joint_angles + np.random.uniform(-0.3, 0.3, len(original_joint_angles))
+            joint_angles = self.xarm_tracik_solver.ik(target_eef, qinit=ik_start_pose)
+            if joint_angles is not None:
+                solutions.append(joint_angles)
+            if try_time == 0 and joint_angles is None:
+                return []
+        end = time.time()
+        
+        ### check the solution of trackik
+        # self.set_joint_angles(self.right_arm_joint_indices, solutions[0])
+        # ik_pos, ik_orient = self.get_pos_orient(self.right_end_effector)
+        # dist_pos = np.linalg.norm(target_pos - ik_pos)
+        # dist_orient = np.linalg.norm(target_orient_quat - ik_orient)
+        # cprint("IK distance pos: {} orient {}".format(dist_pos, dist_orient), "blue")
+        # import pdb; pdb.set_trace()
+        
+        
+        return solutions        
+
         
 
     def print_joint_info(self, show_fixed=True):
@@ -285,4 +320,4 @@ class Agent:
 
 
     def set_gravity(self, ax=0.0, ay=0.0, az=-9.81):
-        p.setGravity(ax, ay, az, physicsClientId=self.id)
+        p.setGravity(ax, ay, az, body=self.body, physicsClientId=self.id)

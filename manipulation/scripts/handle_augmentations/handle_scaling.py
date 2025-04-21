@@ -8,14 +8,20 @@ class Scale_Handle():
         assert scaling_factor != 0, "The scaling factor should not be = 0"
         self.mesh_output_path = mesh_output_path
 
-    def __call__(self, asset_id, multiaug_flag=False,  link_name = 'link_0'):
+    def __call__(self, asset_id, input_urdf=None, link_name = 'link_0'):
 
         self.link_name = link_name
-        if multiaug_flag:
-            urdf_file = f"data/dataset/{asset_id}/mobility_modified.urdf"
+        # if multiaug_flag:
+        #     urdf_file = f"data/dataset/{asset_id}/mobility_modified.urdf"
+        # else:
+        #     urdf_file = f"data/dataset/{asset_id}/mobility.urdf"
+        
+        if input_urdf is not None:
+            urdf_file = input_urdf
         else:
             urdf_file = f"data/dataset/{asset_id}/mobility.urdf"
-        #link_name = 'link_0'  # The link whose data you want to extract
+        
+        # link_name = 'link_0'  # The link whose data you want to extract
         link_dict = self.extract_link_data(urdf_file, link_name)
         visual_data_list = link_dict["visual"]
         global_coordinates_max_list = []
@@ -65,7 +71,6 @@ class Scale_Handle():
                 #break
         global_max_xyz = np.max(global_coordinates_max_list, axis = 0)
         global_min_xyz = np.min(global_coordinates_min_list, axis = 0)
-        print("DIFFFFFFFFFF BETWEEN MIN AND MAX COORDINATE IMP HERE", (scaled_global_coordinates_max_handle - scaled_global_coordinates_min_handle))
         #print("global check", global_max_xyz, global_min_xyz, scaled_global_coordinates_max_handle, scaled_global_coordinates_min_handle, len(scaled_global_coordinates_handle_list), scaled_global_coordinates_handle_list[0][:,:2].shape, scaled_global_coordinates_handle_list[1].shape, scaled_global_coordinates_handle_list[2].shape, scaled_global_coordinates_handle.shape)
         unsucessful_augmentation = True
         overflow_cond = True
@@ -96,9 +101,8 @@ class Scale_Handle():
             else:
                 unsucessful_augmentation = False
         print("SELF SCALING FACTOR", self.scaling_factor)
-        mesh_output_path = f"data/dataset/{asset_id}/handle_modified_scaled.obj"
         self.save_modified_handle_obj(mesh_path_list, mean_handle_list)
-        root = self.modify_urdf(urdf_file, self.link_name)
+        root = self.modify_urdf(urdf_file, link_name)
         return root, None
 
     def find_number_coordinates(self,s):
@@ -231,7 +235,6 @@ class Scale_Handle():
 
     def save_modified_handle_obj(self, mesh_path_list, mean_handle_list):
         
-        origin_coord = [-0.71301345, -0.5398004848, -0.47620011]
         for mesh_path, mesh_output_path, mean_handle in zip(mesh_path_list, self.mesh_output_name_list, mean_handle_list):
             mesh_list = []
             with open(mesh_path, 'r') as infile, open(mesh_output_path, 'w') as outfile:
@@ -249,16 +252,11 @@ class Scale_Handle():
                         '''x = (x - mean_handle[0])* self.scaling_factor
                         y = (y - mean_handle[1]) * self.scaling_factor
                         z = (z - mean_handle[2]) * self.scaling_factor'''
-                        coord = [x + origin_coord[0], y + origin_coord[1], z + origin_coord[2]]
-                        mesh_list.append(coord)
                         # Write the modified vertex to the output file
                         outfile.write(f"v {x} {y} {z}\n")
                     else:
                         # For all other lines (faces, normals, etc.), just copy as is
                         outfile.write(line)
-            scaled_global_coordinates_max_handle = np.max(mesh_list, axis = 0)
-            scaled_global_coordinates_min_handle = np.min(mesh_list, axis = 0)
-            print("RECHECK", scaled_global_coordinates_max_handle, scaled_global_coordinates_min_handle)
 
 
 
@@ -479,11 +477,3 @@ if __name__ == "__main__":
     mesh_output_path = f"data/dataset/{asset_id}/handle_modified_scaled.obj"
     scale_handle = Scale_Handle(scaling_factor = 2, mesh_output_path = mesh_output_path)
     scale_handle(asset_id = 40147)
-
-
-
-
-
-
-
-

@@ -10,27 +10,26 @@ class RandomApply():
     def __init__(self,transforms_and_probs):
         self.transforms_and_probs = transforms_and_probs
         
-    def __call__(self, asset_id, link_name = "link_0"):
-        output_urdf_path = f"data/dataset/{asset_id}/mobility.urdf"
-        random_number = np.random.rand()
-        itr = 0
+    def __call__(self, asset_id, link_name = "link_0", input_urdf_file=None, output_urdf_path = None):
+        if output_urdf_path is None:
+            output_urdf_path = f"data/dataset/{asset_id}/mobility_modified.urdf"
+        if input_urdf_file is not None:
+            input_urdf_file = f"data/dataset/{asset_id}/mobility.urdf"
         final_shift_coeff = None
         for transform_prob in self.transforms_and_probs:
             #print(transform_prob[1])
+            random_number = np.random.rand()
             assert transform_prob[1] <= 1.0 and transform_prob[1] >= 0.0, "Augmentation probabilities much be less than 1 and greater than 0"
             if random_number < transform_prob[1]:
-                if itr == 0:
-                    root, shift_coeff =  transform_prob[0](asset_id = asset_id, multiaug_flag = False, link_name=link_name)
-                else:
-                    root, shift_coeff =  transform_prob[0](asset_id = asset_id, multiaug_flag = True, link_name = link_name)
+                root, shift_coeff =  transform_prob[0](asset_id = asset_id, input_urdf=input_urdf_file, link_name=link_name)
+                input_urdf_file = output_urdf_path
                 if shift_coeff is not None:
                     final_shift_coeff = shift_coeff
                 modified_urdf_string = ET.tostring(root, encoding="unicode")
-                output_urdf_path = f"data/dataset/{asset_id}/mobility_modified.urdf"  # Permanent file path
+                # output_urdf_path = f"data/dataset/{asset_id}/mobility_modified.urdf"  # Permanent file path
                 os.makedirs(os.path.dirname(output_urdf_path), exist_ok=True)
                 with open(output_urdf_path, 'w') as f:
                     f.write(modified_urdf_string)
-                itr += 1
         return output_urdf_path, final_shift_coeff
     
 
@@ -44,8 +43,3 @@ if __name__ == "__main__":
     rand_apply = RandomApply(transforms_and_probs)
     output_urdf_path = rand_apply(asset_id = asset_id)
     print("OUTPUT URDF PATH =",output_urdf_path)
-
-
-
-
-

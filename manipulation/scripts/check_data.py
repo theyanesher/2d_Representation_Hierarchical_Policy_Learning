@@ -28,7 +28,7 @@ def load_data(zarr_path, keys):
 
 keys = ['state', 'action', 'point_cloud']
 keys += ['feature_map', 'gripper_pcd', 'pcd_mask', "goal_gripper_pcd"]
-zarr_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/data/debug/2024-07-30-21-58-36/100"
+zarr_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/RoboGen-sim2real/data/debug/2024-07-25-18-27-58/59"
 data = load_data(zarr_path, keys)
 
 from matplotlib import pyplot as plt
