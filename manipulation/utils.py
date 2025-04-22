@@ -20,6 +20,7 @@ import trimesh
 import random
 import scipy
 from objaverse_utils.utils import text_to_uid_dict, partnet_mobility_dict, sapaien_cannot_vhacd_part_dict
+from typing import Optional, List, Dict, Any, Tuple
 
 
 # Chialiang
@@ -151,7 +152,7 @@ def load_gif(gif_path):
 
 def build_up_env(task_config=None, env_name=None, task_name=None, object_name=None, link_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
-                    obj_id=0, **kwargs,
+                    obj_id=0, random_object_translation: Optional[List]=None, **kwargs,
                 ):
     
     save_config = copy.deepcopy(default_config)
@@ -164,6 +165,7 @@ def build_up_env(task_config=None, env_name=None, task_name=None, object_name=No
     save_config['gui'] = render
     save_config['randomize'] = randomize
     save_config['obj_id'] = obj_id
+    save_config['random_object_translation'] = random_object_translation
     for key, value in kwargs.items():
         save_config[key] = value
 
@@ -1284,6 +1286,17 @@ def draw_bbox(start, end):
         p.addUserDebugLine(points_bb[i], points_bb[(i + 1) % 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i + 4], points_bb[(i + 1) % 4 + 4], [1, 0, 0])
         p.addUserDebugLine(points_bb[i], points_bb[i + 4], [1, 0, 0])
+
+def radial_shift(x_coord: float, y_coord: float, noise_bounds: List[float]):
+    theta = np.arctan2(y_coord, x_coord)
+    theta_noise = np.random.uniform(-0.1, 0.1)
+    dist = np.linalg.norm([x_coord, y_coord])
+    dist_noise = np.random.uniform(noise_bounds[0],noise_bounds[1])
+    theta += theta_noise
+    dist += dist_noise
+    perturbed_x = dist * np.cos(theta)
+    perturbed_y = dist * np.sin(theta)
+    return perturbed_x, perturbed_y
 
 if __name__ == '__main__':
     
