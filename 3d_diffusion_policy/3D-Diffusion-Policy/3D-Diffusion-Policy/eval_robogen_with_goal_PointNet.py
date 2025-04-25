@@ -322,16 +322,16 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 'grasped_handle': float(info['grasped_handle'][-1]),
                 "exp_idx": exp_idx, 
             }
-                    
-            with open("{}/opened_joint_angles_{}.json".format(save_path, dataset_idx), "w") as f:
-                json.dump(opened_joint_angles, f, indent=4)
-            
-            gif_save_exp_name = experiment_folder.split("/")[-1]
-            gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)
+            gif_save_exp_name = experiment_folder.split("/")[-1] 
+            gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)                 
             if not os.path.exists(gif_save_folder):
                 os.makedirs(gif_save_folder, exist_ok=True)
-            gif_save_path = "{}/{}_{}_{}.gif".format(gif_save_folder, exp_idx, 
-                    float(info["improved_joint_angle"][-1]), expert_opened_angles[exp_idx] - np.pi /6 if object_name == "bucket" or object_name == "laptop" or object_name == "toilet" else expert_opened_angles[exp_idx])
+
+            with open("{}/opened_joint_angles.json".format(gif_save_folder), "w") as f:
+                json.dump(opened_joint_angles, f, indent=4)
+   
+            gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
+                    float(info["improved_joint_angle"][-1]))
             save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
 
         if calculate_distance_from_gt:
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--pos_ori_imp', action='store_true', help='Set the flag for 10D representation Training')
-    parser.add_argument('exp_dir', type=str, help='Experiment directory')
+    parser.add_argument('--exp_dir', type=str, help='Experiment directory')
     args = parser.parse_args()
     
     num_worker = 30
@@ -547,7 +547,7 @@ if __name__ == "__main__":
             pool=pool, 
             horizon=35,
             exp_beg_idx=0,
-            exp_end_idx=20,
+            exp_end_idx=25,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
             update_goal_freq=args.update_goal_freq,

@@ -32,7 +32,7 @@ def run_task(vv):
     os.system(command)
     time.sleep(5)
 
-bucket_tasks = [100444]#, 100452, 100454, 100460, 100461, 100462, 100469, 100472, 102352, 102365]
+bucket_tasks = [100444, 100452, 100454, 100460, 100461, 100462, 100469, 100472, 102352, 102365]
 faucet_tasks = [148, 149, 152, 153, 154, 168, 811, 857, 960, 991]
 foldingchair_tasks = [100520, 100521, 100526, 100562, 100586, 100590, 100599, 102263, 102269, 102314]
 laptop_tasks = [9748, 9912, 9960, 9968, 9992, 9996, 10040, 10098, 10101, 10238]
@@ -58,42 +58,42 @@ all_vvs = vg.variants()
 for vv in all_vvs:
     run_task(vv)
 
-# vg = VariantGenerator()
-# vg.add("folder_name", ["data/faucet/"])
-# vg.add("exp_folder", faucet_tasks)
+vg = VariantGenerator()
+vg.add("folder_name", ["data/faucet/"])
+vg.add("exp_folder", faucet_tasks)
 
-# all_vvs = vg.variants()
-# for vv in all_vvs:
-#     run_task(vv)
+all_vvs = vg.variants()
+for vv in all_vvs:
+    run_task(vv)
 
-# vg = VariantGenerator()
-# vg.add("folder_name", ["data/foldingchair/"])
-# vg.add("exp_folder", foldingchair_tasks)
+vg = VariantGenerator()
+vg.add("folder_name", ["data/foldingchair/"])
+vg.add("exp_folder", foldingchair_tasks)
 
-# all_vvs = vg.variants()
-# for vv in all_vvs:
-#     run_task(vv)
+all_vvs = vg.variants()
+for vv in all_vvs:
+    run_task(vv)
 
-# vg = VariantGenerator()
-# vg.add("folder_name", ["data/laptop/"])
-# vg.add("exp_folder", laptop_tasks)
+vg = VariantGenerator()
+vg.add("folder_name", ["data/laptop/"])
+vg.add("exp_folder", laptop_tasks)
 
-# all_vvs = vg.variants()
-# for vv in all_vvs:
-#     run_task(vv)
+all_vvs = vg.variants()
+for vv in all_vvs:
+    run_task(vv)
 
-# vg = VariantGenerator()
-# vg.add("folder_name", ["data/stapler/"])
-# vg.add("exp_folder", stapler_tasks)
+vg = VariantGenerator()
+vg.add("folder_name", ["data/stapler/"])
+vg.add("exp_folder", stapler_tasks)
 
-# all_vvs = vg.variants()
-# for vv in all_vvs:
-#     run_task(vv)
+all_vvs = vg.variants()
+for vv in all_vvs:
+    run_task(vv)
 
-# vg = VariantGenerator()
-# vg.add("folder_name", ["data/toilet/"])
-# vg.add("exp_folder", toilet_tasks)
+vg = VariantGenerator()
+vg.add("folder_name", ["data/toilet/"])
+vg.add("exp_folder", toilet_tasks)
 
-# all_vvs = vg.variants()
-# for vv in all_vvs:
-#     run_task(vv)
+all_vvs = vg.variants()
+for vv in all_vvs:
+    run_task(vv)
