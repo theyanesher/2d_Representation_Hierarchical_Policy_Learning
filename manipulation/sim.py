@@ -38,7 +38,7 @@ class SimpleEnv(gym.Env):
                     mobile=False,
                     # mobile=True,
                     task_name=None,
-                    open_gripper_at_reset=False,
+                    open_gripper_at_reset=True,
                     random_object_translation: Optional[List] = None,
                 ):
         
@@ -789,6 +789,12 @@ class SimpleEnv(gym.Env):
             
 
         self.ik_failure = False
+        
+        if open_gripper_at_reset:
+            print("open gripper initially!!!")
+            for _ in range(40):
+                self.robot.set_gripper_open_position(self.robot.right_gripper_indices, [0.04, 0.04], set_instantly=False)
+                p.stepSimulation()
 
         return self._get_obs()
 
