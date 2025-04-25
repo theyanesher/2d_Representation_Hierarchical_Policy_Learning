@@ -4,8 +4,7 @@ import torch
 from omegaconf import OmegaConf
 from train_ddp import TrainDP3Workspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
-from manipulation.utils import build_up_env, save_numpy_as_gif
-import numpy as np
+from manipulation.utils import build_up_env
 from copy import deepcopy
 from manipulation.robogen_wrapper import RobogenPointCloudWrapper
 from diffusion_policy_3d.gym_util.multistep_wrapper import MultiStepWrapper
@@ -13,7 +12,11 @@ import json
 import yaml
 import argparse
 from typing import Optional
-from collections import deque
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import imageio.v2 as imageio
+from io import BytesIO
+from tqdm import tqdm
 
 def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=None, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
@@ -68,15 +71,9 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         if dataset_index is not None:
             dataset_idx = dataset_index
 
-        if calculate_distance_from_gt:
-            all_obj_distances = []
-
         # if dataset_idx == 0:
         #     continue
-
-        after_reaching_init_state_files = []
-        init_state_files = []
-        config_files = []
+        
         experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
         experiment_name = experiment_name
         experiment_path = os.path.join(experiment_folder, "experiment", experiment_name)
@@ -91,8 +88,14 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     all_subfolder.remove(string)
             all_subfolder = sorted(all_subfolder)
             all_experiments = all_subfolder
-    
-        expert_opened_angles = []
+
+        if exp_end_ratio is not None:
+            exp_end_idx = int(exp_end_ratio * len(config_files))
+        if exp_beg_ratio is not None:
+            exp_beg_idx = int(exp_beg_ratio * len(config_files))
+
+        all_experiments = all_experiments[exp_beg_idx:exp_end_idx]
+
         for experiment in all_experiments:
             if "meta" in experiment:
                 continue
@@ -107,17 +110,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             expert_states = os.listdir(states_path)
             if len(expert_states) == 0:
                 continue
-                
-            expert_opened_angle_file = os.path.join(experiment_path, experiment, "opened_angle.txt")
-            if os.path.exists(expert_opened_angle_file):
-                with open(expert_opened_angle_file, "r") as f:
-                    angles = f.readlines()
-                    expert_opened_angle = float(angles[0].lstrip().rstrip())
-                    # max_angle = float(angles[-1].lstrip().rstrip())
-                    # ratio = expert_opened_angle / max_angle+0.001)
-                # if ratio < 0.65:
-                #     continue
-            expert_opened_angles.append(expert_opened_angle)
             
             stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
@@ -127,220 +119,99 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
             else:
                 reaching_phase = stage_lengths['reach_handle']
-                
-            after_init_state_file = os.path.join(states_path, "state_{}.pkl".format(reaching_phase))
-            after_reaching_init_state_files.append(after_init_state_file)
-            init_state_file = os.path.join(states_path, "state_0.pkl")
-            init_state_files.append(init_state_file)
+
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
-            config_files.append(config_file)
-                    
-        after_reaching_init_state_files = after_reaching_init_state_files
-        config_files = config_files
 
-        opened_joint_angles = {}
-
-        if exp_end_ratio is not None:
-            exp_end_idx = int(exp_end_ratio * len(config_files))
-        if exp_beg_ratio is not None:
-            exp_beg_idx = int(exp_beg_ratio * len(config_files))
-
-        config_files = config_files[exp_beg_idx:exp_end_idx]
-        init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
-        expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
-        # import pdb; pdb.set_trace()
-        all_distances = []
-        all_grasp_distances = []
-
-        for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
-                
             with open(config_file, 'r') as f:
                 config = yaml.safe_load(f)
 
-            link_name = 'link_0'
             for config_dict in config:
                 if 'name' in config_dict:
                     object_name = config_dict['name'].lower()
-                if 'link_name' in config_dict:
-                    link_name = config_dict['link_name']
 
-            env = construct_env(cfg, config_file, "articulated", init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
-                                randomize_camera)
-            
-            obs = env.reset(object_name=object_name, open_gripper_at_reset=True)
-            rgb = env.env.render()
-            info = env.env._env._get_info(object_name=object_name, handle_name=env.env._env.handle_name, link_name=link_name)
-
-            initial_info = info
-            all_rgbs = [rgb]
             goal_stage = 'first'
-            first_step_outputs = None
-            gripper_close_accumulation_buffer = deque(maxlen=5)
-            last_goal = None
-            for t in range(1, horizon):
-                parallel_input_dict = obs
-                parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
-                
-                # print("step: ", t)
-                
-                for key in obs:
-                    parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
-                
-                if t == 1 or (not args.predict_two_goals):
-                    if t == 1 or t % update_goal_freq == 0:
-                        with torch.no_grad():
-                            pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
-                            gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                            if not args.predict_two_goals:
-                                inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
-                            else:
-                                inputs = pointcloud
-                                
-                            if args.add_one_hot_encoding:
-                                # for pointcloud, we add (1, 0)
-                                # for gripper_pcd, we add (0, 1)
-                                pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2).float().to(pointcloud.device)
-                                pointcloud_one_hot[:, :, 0] = 1
-                                pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
-                                gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2).float().to(pointcloud.device)
-                                gripper_pcd_one_hot[:, :, 1] = 1
-                                gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
-                                inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
-                                
-                            inputs = inputs.to('cuda')
-                            inputs_ = inputs.permute(0, 2, 1)
-                            outputs = goal_prediction_model(inputs_)
-                            weights = outputs[:, :, -1] # B, N
-                            outputs = outputs[:, :, :-1] # B, N, 12
-                            if output_obj_pcd_only:
-                                # cprint("using only obj pcd output!", "red")
-                                weights = weights[:, :-4]
-                                outputs = outputs[:, :-4, :]
-                                inputs = inputs[:, :-4, :]
-
-                            B, N, _ = outputs.shape
-                            if not args.predict_two_goals:
-                                outputs = outputs.view(B, N, 4, 3)
-                            else:
-                                outputs = outputs.view(B, N, 8, 3)
-                                if first_step_outputs is None:
-                                    first_step_outputs = deepcopy(outputs)
-                                    
-                                if goal_stage == 'first':
-                                    outputs = outputs[:, :, :4, :]
-                                elif goal_stage == 'second':
-                                    outputs = outputs[:, :, 4:, :]
-                                    
-                            outputs = outputs + inputs[:, :, :3].unsqueeze(2)
-                            weights = torch.nn.functional.softmax(weights, dim=1)
-                            outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-                            outputs = outputs.sum(dim=1)
-                            outputs = outputs.unsqueeze(1)
-                            # visualize weights
-                            # import matplotlib.pyplot as plt
-                            # fig = plt.figure()
-                            # ax = fig.add_subplot(111, projection='3d')
-                            # pointcloud = pointcloud.squeeze(0).cpu().numpy()
-                            # print("pointcloud: ", pointcloud.shape)
-                            # print("weights: ", weights[0].shape)
-                            # if pointcloud.shape[0] != weights[0].shape[0]:
-                            #     import pdb; pdb.set_trace()
-                            # ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], c=weights[0].cpu().numpy(), cmap='seismic')
-                            # ax.view_init(elev=24, azim=-117) 
-                            # ax.axis("equal")
-                            # plt.show()
-                        last_goal = outputs
-                    else:
-                        outputs = last_goal
-                        
-                else:
-                    outputs = first_step_outputs
-                    if goal_stage == 'first':
-                        outputs = outputs[:, :, :4, :]
-                    elif goal_stage == 'second':
-                        outputs = outputs[:, :, 4:, :]
+            frames = []
+            with tqdm(total=len(expert_states)) as pbar:
+                for state_idx in range(len(expert_states)):
+                    state_file = os.path.join(states_path, f"state_{state_idx}.pkl")
+                    env = construct_env(cfg, config_file, "articulated", state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
+                                    randomize_camera)
+                    
+                    obs = env.reset(object_name=object_name)
+                    env.env._env.close()
+                    parallel_input_dict = dict_apply(obs, lambda x: torch.from_numpy(x).to('cuda'))
+                    for key in obs:
+                        parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
+                    with torch.no_grad():
+                        pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
+                        gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                        if not args.predict_two_goals:
+                            inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
+                        else:
+                            inputs = pointcloud
                             
-                    outputs = outputs + inputs.unsqueeze(2)
-                    weights = torch.nn.functional.softmax(weights, dim=1)
-                    outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-                    outputs = outputs.sum(dim=1)
-                    outputs = outputs.unsqueeze(1)
-                    
-                np_predicted_goal = outputs.detach().to('cpu').numpy()
-                
-                predicted_goal = outputs.repeat(1, 2, 1, 1)
+                        if args.add_one_hot_encoding:
+                            pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2).float().to(pointcloud.device)
+                            pointcloud_one_hot[:, :, 0] = 1
+                            pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
+                            gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2).float().to(pointcloud.device)
+                            gripper_pcd_one_hot[:, :, 1] = 1
+                            gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
+                            inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
+                            
+                        inputs = inputs.to('cuda')
+                        inputs_ = inputs.permute(0, 2, 1)
+                        outputs = goal_prediction_model(inputs_)
+                        weights = outputs[:, :, -1] # B, N
+                        outputs = outputs[:, :, :-1] # B, N, 12
+                        if output_obj_pcd_only:
+                            # cprint("using only obj pcd output!", "red")
+                            weights = weights[:, :-4]
+                            outputs = outputs[:, :-4, :]
+                            inputs = inputs[:, :-4, :]
 
-                #parallel_input_dict['goal_gripper_pcd'] = predicted_goal
-                if pos_ori_imp:
-                    from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
-                    #import pdb; pdb.set_trace();
-                    predicted_goal = predicted_goal.reshape(-1,4,3)
-                    predicted_goal = torch.from_numpy(gripper_pcd_to_10d_vector(predicted_goal.cpu().numpy())).to(torch.float32).cuda()
-                    predicted_goal = predicted_goal.reshape(1,-1,10)
-                    
-                    parallel_input_dict['goal_gripper_10d_repr'] = predicted_goal
-                else:
-                    parallel_input_dict['goal_gripper_pcd'] = predicted_goal
-                #import pdb; pdb.set_trace()
-                with torch.no_grad():
-                    batched_action = policy.predict_action(parallel_input_dict)
-                    gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
-                    gripper_close_accumulation_buffer.append(np.sum(gripper_close_actions))
-                    if np.sum(gripper_close_accumulation_buffer) < -0.006:
-                        # cprint("changing goal!", 'red')
-                        goal_stage = 'second'
-                    
-                    
-                np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
-                np_batched_action = np_batched_action['action']
-                
-                obs, reward, done, info = env.step(np_batched_action.squeeze(0))
-                if calculate_distance_from_gt:
-                    predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
-                    gt_goal = env.env.goal_gripper_pcd
-                    import pdb; pdb.set_trace()
-                    distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
-                    all_distances.append(distance)
-                    grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
-                    all_grasp_distances.append(grasp_distance)
-                    break
-                env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
-                rgb = env.env.render()
-                all_rgbs.append(rgb)
-            
-            env.env._env.close()
-
-            if calculate_distance_from_gt:
-                break
-            
-            opened_joint_angles[config_file] = \
-            {
-                "final_door_joint_angle": float(info['opened_joint_angle'][-1]), 
-                "expert_door_joint_angle": expert_opened_angles[exp_idx], 
-                "initial_joint_angle": float(info['initial_joint_angle'][-1]),
-                "ik_failure": float(info['ik_failure'][-1]),
-                'grasped_handle': float(info['grasped_handle'][-1]),
-                "exp_idx": exp_idx, 
-            }
-                    
-            with open("{}/opened_joint_angles_{}.json".format(save_path, dataset_idx), "w") as f:
-                json.dump(opened_joint_angles, f, indent=4)
-            
-            gif_save_exp_name = experiment_folder.split("/")[-1]
-            gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)
-            if not os.path.exists(gif_save_folder):
-                os.makedirs(gif_save_folder, exist_ok=True)
-            gif_save_path = "{}/{}_{}_{}.gif".format(gif_save_folder, exp_idx, 
-                    float(info["improved_joint_angle"][-1]), expert_opened_angles[exp_idx] - np.pi /6 if object_name == "bucket" or object_name == "laptop" or object_name == "toilet" else expert_opened_angles[exp_idx])
-            save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
-
-        if calculate_distance_from_gt:
-            print("average distance: {}".format(np.mean(all_distances)))
-            print("average grasp distance: {}".format(np.mean(all_grasp_distances)))
-            all_obj_distances.append(all_distances)
-
-    if calculate_distance_from_gt:
-        print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
+                        B, N, _ = outputs.shape
+                        if not args.predict_two_goals:
+                            outputs = outputs.view(B, N, 4, 3)
+                        else:
+                            outputs = outputs.view(B, N, 8, 3)
+                            if first_step_outputs is None:
+                                first_step_outputs = deepcopy(outputs)
+                            
+                            if state_idx >= reaching_phase:
+                                goal_stage = 'second'
+                            if goal_stage == 'first':
+                                outputs = outputs[:, :, :4, :]
+                            elif goal_stage == 'second':
+                                outputs = outputs[:, :, 4:, :]
+                                
+                        outputs = outputs + inputs[:, :, :3].unsqueeze(2)
+                        weights = torch.nn.functional.softmax(weights, dim=1)
+                        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                        outputs = outputs.sum(dim=1)
+                        outputs = outputs.unsqueeze(1)
+                        # visualize weights
+                        fig = plt.figure()
+                        ax = fig.add_subplot(111, projection='3d')
+                        pointcloud = pointcloud.squeeze(0).cpu().numpy()
+                        if pointcloud.shape[0] != weights[0].shape[0]:
+                            import pdb; pdb.set_trace()
+                        ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], c=weights[0].cpu().numpy(), cmap='seismic')
+                        ax.view_init(elev=24, azim=-117) 
+                        ax.axis("equal")
+                        ax.set_title("frame {}".format(state_idx))
+                        # plt.show()
+                        buf = BytesIO()
+                        plt.savefig(buf, format='png')
+                        buf.seek(0)
+                        frames.append(imageio.imread(buf))
+                        buf.close()
+                        plt.close()
+                    pbar.update(1)
+            gif_save_path = os.path.join(exp_folder, "weights_visualization.gif")
+            imageio.mimsave(gif_save_path, frames, duration=0.05)
+            print(f"GIF saved to {gif_save_path}")
+       
 
 if __name__ == "__main__":
     
@@ -363,7 +234,6 @@ if __name__ == "__main__":
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--pos_ori_imp', action='store_true', help='Set the flag for 10D representation Training')
-    parser.add_argument('exp_dir', type=str, help='Experiment directory')
     args = parser.parse_args()
     
     num_worker = 30
@@ -409,9 +279,8 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['seuss_gen' for _ in range(1)]
+    cfg.task.env_runner.experiment_name = ['seuss_gen' for _ in range(60)]
     cfg.task.env_runner.experiment_folder = [
-        args.exp_dir,
         # bucket_tasks
         # 'data/bucket/100444',
         # 'data/bucket/100452',
@@ -436,7 +305,7 @@ if __name__ == "__main__":
         # 'data/faucet/960',
         # 'data/faucet/991',
 
-        # foldingchair_tasks
+        # # foldingchair_tasks
         # 'data/foldingchair/100520',
         # 'data/foldingchair/100521',
         # 'data/foldingchair/100526',
@@ -484,7 +353,7 @@ if __name__ == "__main__":
         'data/toilet/102652',
         'data/toilet/102658',
     ]
-    cfg.task.env_runner.demo_experiment_path = [None for _ in range(1)]
+    cfg.task.env_runner.demo_experiment_path = [None for _ in range(60)]
     # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
     # cfg.task.env_runner.experiment_folder += [
     #     "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
@@ -547,7 +416,7 @@ if __name__ == "__main__":
             pool=pool, 
             horizon=35,
             exp_beg_idx=0,
-            exp_end_idx=20,
+            exp_end_idx=2,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
             update_goal_freq=args.update_goal_freq,
@@ -558,4 +427,3 @@ if __name__ == "__main__":
     )
 
 
-# python eval_robogen_with_goal_PointNet.py --high_level_ckpt_name /project_data/held/yufeiw2/RoboGen_sim2real/test_PointNet2/exps/pointnet2_super_model_invariant_2024-09-30_use_75_episodes_200-obj/model_39.pth --eval_exp_name eval_yufei_weighted_displacement_pointnet_large_200_invariant_reproduce --pointnet_class PointNet2_super --model_invariant True

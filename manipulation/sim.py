@@ -604,7 +604,7 @@ class SimpleEnv(gym.Env):
         return object_height
     
     def add_object_position_pertubations(self, state):
-        print(self.random_object_translation)
+        # print(self.random_object_translation)
         if self.random_object_translation is None:
             return
         for obj_name, obj_id in self.urdf_ids.items():

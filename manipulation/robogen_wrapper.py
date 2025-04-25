@@ -77,7 +77,7 @@ class RobogenPointCloudWrapper:
         self.use_absolute_waypoint = use_absolute_waypoint # [Chialiang][CDDEBUG]
         self.use_chained_diffuser = use_chained_diffuser # [Chialiang][CDDEBUG]
         self.dense_pcd_for_goal = dense_pcd_for_goal # [Chialiang][DEBUG]
-        print("************************** USING DENSE PCD **************************", dense_pcd_for_goal)
+        # print("************************** USING DENSE PCD **************************", dense_pcd_for_goal)
         self.chained_diffuser_step = 0  # [Chialiang][CDDEBUG] before grasping: 0, after grasping: 1
         self.use_color = use_color
         self.use_segmask = use_segmask
