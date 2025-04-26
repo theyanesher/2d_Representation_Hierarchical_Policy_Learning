@@ -473,16 +473,16 @@ if __name__ == "__main__":
         # 'data/stapler/103301',
 
         # # toilet_tasks
-        'data/toilet/101320',
-        'data/toilet/102621',
-        'data/toilet/102622',
-        'data/toilet/102630',
-        'data/toilet/102634',
-        'data/toilet/102645',
-        'data/toilet/102648',
-        'data/toilet/102651',
-        'data/toilet/102652',
-        'data/toilet/102658',
+        # 'data/toilet/101320',
+        # 'data/toilet/102621',
+        # 'data/toilet/102622',
+        # 'data/toilet/102630',
+        # 'data/toilet/102634',
+        # 'data/toilet/102645',
+        # 'data/toilet/102648',
+        # 'data/toilet/102651',
+        # 'data/toilet/102652',
+        # 'data/toilet/102658',
     ]
     cfg.task.env_runner.demo_experiment_path = [None for _ in range(1)]
     # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]

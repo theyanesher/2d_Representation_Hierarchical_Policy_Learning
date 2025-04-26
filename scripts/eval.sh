@@ -13,9 +13,9 @@ source prepare.sh
 python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet.py \
     --low_level_exp_dir  ckpt/low_level/ \
     --low_level_ckpt_name epoch-96.ckpt \
-    --high_level_ckpt_name  ckpt/high_level/model_60.pth \
+    --high_level_ckpt_name  /data/chenyuah/RoboGen-sim2real/ckpt/high_level/model_60.pth \
     --pointnet_class PointNet2_super \
     --model_invariant true \
     --output_obj_pcd_only \
-    --eval_exp_name  eval_test \
+    --eval_exp_name  eval_0425 \
     --exp_dir ${1}${2} \
