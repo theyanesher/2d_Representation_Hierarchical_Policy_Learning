@@ -150,16 +150,27 @@ def load_gif(gif_path):
     frames_arrays = [np.array(frame) for frame in frames]
     return frames_arrays
 
-def build_up_env(task_config=None, env_name=None, task_name=None, object_name=None, link_name=None, restore_state_file=None, return_env_class=False, 
+def build_up_env(task_config=None, env_name=None, task_name=None, restore_state_file=None, return_env_class=False, 
                     action_space='delta-translation', render=False, randomize=False, 
                     obj_id=0, random_object_translation: Optional[List]=None, **kwargs,
                 ):
-    
+    config = yaml.safe_load(open(task_config, "r"))
+    link_name = 'link_0'
+    init_angle = None
+    for config_dict in config:
+        if 'name' in config_dict:
+            object_name = config_dict['name'].lower()
+        if 'link_name' in config_dict:
+            link_name = config_dict['link_name']
+        if 'init_angle' in config_dict:
+            init_angle = config_dict['init_angle']
+
     save_config = copy.deepcopy(default_config)
     save_config['config_path'] = task_config
     save_config['task_name'] = task_name
     save_config['object_name'] = object_name
     save_config['link_name'] = link_name
+    save_config['init_angle'] = init_angle
     save_config['restore_state_file'] = restore_state_file
     save_config['translation_mode'] = action_space
     save_config['gui'] = render
@@ -985,6 +996,41 @@ def rotation_transfer_matrix_to_6D(rotate_matrix):
 
     orient = np.array([a1, a2], dtype=np.float64).flatten()
     return orient
+
+def rotation_transfer_6D_to_matrix_batch(orient):
+
+    # orient shape = (B, 6)
+    # return shape = (3, B * 3)
+
+    if type(orient) == list or type(orient) == tuple:
+        orient = np.array(orient, dtype=np.float64)
+    
+    assert orient.shape[-1] == 6
+
+    orient = orient.reshape(-1, 2, 3)
+    a1 = orient[:,0]
+    a2 = orient[:,1]
+
+    b1 = a1 / np.linalg.norm(a1, axis=-1).reshape(-1,1)
+    b2 = a2 - (np.sum(a2*b1, axis=-1).reshape(-1,1) * b1)
+    b2 = b2 / np.linalg.norm(b2, axis=-1).reshape(-1,1)
+    b3 = np.cross(b1, b2)
+
+    rotate_matrix = np.hstack((b1, b2, b3))
+    rotate_matrix = rotate_matrix.reshape(-1, 3).T
+
+    return rotate_matrix
+
+def rotation_transfer_matrix_to_6D_batch(rotate_matrix):
+
+    # rotate_matrix.shape = (B, 9) or (B x 3, 3) rotation transpose (i.e., row vectors instead of column vectors)
+    # return shape = (B, 6)
+
+    if type(rotate_matrix) == list or type(rotate_matrix) == tuple:
+        rotate_matrix = np.array(rotate_matrix, dtype=np.float64).reshape(-1, 9)
+    rotate_matrix = rotate_matrix.reshape(-1, 9)
+
+    return rotate_matrix[:,:6]
 
 ###########################################
 

@@ -1,4 +1,3 @@
-
 from manipulation.sim import SimpleEnv
 from manipulation.primitive_api import *
 import gym
@@ -14,13 +13,14 @@ handle_name_dict = {
 
 class articulated(SimpleEnv):
 
-    def __init__(self, task_name, object_name, link_name, *args, **kwargs):
+    def __init__(self, task_name, object_name, link_name, init_angle, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.task_name = task_name
         self.detected_position = dict()
         self.object_name = object_name
         self.link_name = link_name
         self.handle_name = handle_name_dict.get(object_name, 'handle')  # default handle name
+        self.init_angle = init_angle
         # default link name
         # link_1 for stapler
         # link_0 for other objects
@@ -42,8 +42,10 @@ class articulated(SimpleEnv):
         #     self.set_handle(angle=-np.pi/2)
         # if self.object_name == 'toilet':
         #     self.set_handle(angle=np.pi/6)
-        if (self.object_name == 'bucket' or self.object_name == 'laptop' or self.object_name == 'toilet') and reset_state is None:
-            self.set_handle(angle=np.pi/6)
+        if self.object_name == 'bucket' or self.object_name == 'laptop' or self.object_name == 'toilet':
+            if reset_state is None and self.init_angle is not None:
+                self.set_handle(angle=self.init_angle) 
+            
 gym.register(
     id='articulated-v0',
     entry_point=articulated,

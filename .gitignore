@@ -51,6 +51,7 @@ output/
 data_
 data_/
 ckpt/
+exps/
 sbatch_logs/
 robogen_*.out
 robogen_*.err

@@ -25,6 +25,36 @@ from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer
 from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
 
 def get_zarry_paths(zarr_path):
+    if zarr_path == 'articulated':
+        dataset_prefix = '/home/chenyuan/RoboGen-sim2real/data/dp3_demo_combined_2_step_0/seuss_gen'
+        data_name = [
+            save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4, save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
+            "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
+            "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102365",
+            
+            # faucet
+            "faucet_148", "faucet_149", "faucet_152", "faucet_153", "faucet_154",
+            "faucet_168", "faucet_811", "faucet_857", "faucet_960", "faucet_991",
+            
+            # foldingchair
+            "foldingchair_100520", "foldingchair_100521", "foldingchair_100526", "foldingchair_100562", "foldingchair_100586",
+            "foldingchair_100590", "foldingchair_100599", "foldingchair_102263", "foldingchair_102269", "foldingchair_102314",
+            
+            # laptop
+            "laptop_9748", "laptop_9912", "laptop_9960", "laptop_9968", "laptop_9992",
+            "laptop_9996", "laptop_10040", "laptop_10098", "laptop_10101", "laptop_10238",
+            
+            # stapler
+            "stapler_103095", "stapler_103099", "stapler_103100", "stapler_103104", "stapler_103111",
+            "stapler_103292", "stapler_103293", "stapler_103297", "stapler_103299", "stapler_103301",
+            
+            # toilet
+            "toilet_101320", "toilet_102621", "toilet_102622", "toilet_102630", "toilet_102634",
+            "toilet_102645", "toilet_102648", "toilet_102651", "toilet_102652", "toilet_102658",
+        ]
+        all_zarr_paths = [
+            "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+        ]
     if zarr_path == '10_object_high_level':
         dataset_prefix = '/scratch/yufeiw2/dp3_demo'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]

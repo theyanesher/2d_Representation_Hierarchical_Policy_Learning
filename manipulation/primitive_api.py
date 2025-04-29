@@ -126,8 +126,6 @@ def approach_object_link_parallel(simulator, object_name, link_name, debug=False
         "task_config": simulator.config_path, 
         "env_name": "articulated",
         "task_name": simulator.task_name, 
-        "link_name": link_name,
-        "object_name": object_name,
         "restore_state_file": simulator.restore_state_file, 
         "render": False if not debug else True, 
         "randomize": False, 
