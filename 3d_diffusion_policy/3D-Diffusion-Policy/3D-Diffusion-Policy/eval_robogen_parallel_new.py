@@ -14,7 +14,7 @@ import sys
 from termcolor import cprint
 from manipulation.robogen_wrapper import RobogenPointCloudWrapper
 from diffusion_policy_3d.gym_util.multistep_wrapper import MultiStepWrapper
-from manipulation.gpt_reward_api import get_joint_state
+# from manipulation.gpt_reward_api import get_joint_state
 import tqdm
 import json
 from multiprocessing import set_start_method
@@ -28,27 +28,25 @@ def parallel_eval(args):
     config_file = config_path
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
-    solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-    all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-    with open(all_substeps_path, "r") as f:
-        substeps = f.readlines()
-        first_step = substeps[0].lstrip().rstrip()
-        task_name = first_step.replace(" ", "_")
-    
+    # solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
+    link_name = 'link_0'
+    for config_dict in config:
+        if 'name' in config_dict:
+            object_name = config_dict['name'].lower()
+        if 'link_name' in config_dict:
+            link_name = config_dict['link_name']
     env, _ = build_up_env(
             config_path,
-            solution_path,
-            task_name,
-            None,
+            "articulated",
             render=False, 
             randomize=False,
             obj_id=0,
             horizon=600,
     )
     
-    object_name = "StorageFurniture".lower()
+    # object_name = "StorageFurniture".lower()
     env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
+    pointcloud_env = RobogenPointCloudWrapper(env, object_name, link_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                     gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
                                                     num_points=cfg.task.env_runner.num_point_in_pc,
                                                     use_joint_angle=cfg.task.env_runner.use_joint_angle, 
@@ -63,7 +61,7 @@ def parallel_eval(args):
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
     
-    env.reset(reset_state=init_state)
+    env.reset(object_name=object_name, reset_state=init_state)
     obs, reward, done, info = env.step(action)
     rgb = env.env.render()
     state = save_env(env.env._env)
@@ -76,18 +74,16 @@ def parallel_reset(args):
     config_file = config_path
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
-    solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-    all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-    with open(all_substeps_path, "r") as f:
-        substeps = f.readlines()
-        first_step = substeps[0].lstrip().rstrip()
-        task_name = first_step.replace(" ", "_")
+    link_name = 'link_0'
+    for config_dict in config:
+        if 'name' in config_dict:
+            object_name = config_dict['name'].lower()
+        if 'link_name' in config_dict:
+            link_name = config_dict['link_name']
     
     env, _ = build_up_env(
             config_path,
-            solution_path,
-            task_name,
-            None,
+            "articulated",
             render=False, 
             # render=True, 
             randomize=False,
@@ -96,9 +92,10 @@ def parallel_reset(args):
     )
     load_env(env, load_path=init_state_file)
     
-    object_name = "StorageFurniture".lower()
-    env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
+    # object_name = "StorageFurniture".lower()
+    env.reset(object_name=object_name)
+    pointcloud_env = RobogenPointCloudWrapper(env, object_name, link_name=link_name,    
+                                                  in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                   gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
                                                   num_points=cfg.task.env_runner.num_point_in_pc,
                                                   use_joint_angle=cfg.task.env_runner.use_joint_angle, 
@@ -111,7 +108,7 @@ def parallel_reset(args):
     env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
                         max_episode_steps=600, reward_agg_method='sum')
     
-    obs = env.reset()
+    obs = env.reset(object_name=object_name)
     # import pdb; pdb.set_trace()
     state = save_env(env.env._env)
     rgb = env.env.render()
@@ -185,10 +182,10 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             all_subfolder = sorted(all_subfolder)
             all_experiments = all_subfolder
             
-        all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
-        with open(all_substeps_path, "r") as f:
-            substeps = f.readlines()
-            first_step = substeps[0].lstrip().rstrip()
+        # all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
+        # with open(all_substeps_path, "r") as f:
+        #     substeps = f.readlines()
+        #     first_step = substeps[0].lstrip().rstrip()
         
 
         expert_opened_angles = []
@@ -196,19 +193,19 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             if "meta" in experiment:
                 continue
             
-            first_step_folder = first_step.replace(" ", "_") + "_primitive"
-            first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
+            # first_step_folder = first_step.replace(" ", "_") + "_primitive"
+            # first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
             # if os.path.exists(os.path.join(first_step_folder, "label.json")):
             #     with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
             #         label = json.load(f)
             #     if not label['good_traj']: continue
-                
-            first_stage_states_path = os.path.join(first_step_folder, "states")
-            expert_states = os.listdir(first_stage_states_path)
+            exp_path = os.path.join(experiment_path, experiment)
+            states_path = os.path.join(exp_path, "states")
+            expert_states = os.listdir(states_path)
             if len(expert_states) == 0:
                 continue
                 
-            expert_opened_angle_file = os.path.join(experiment_path, experiment, first_step_folder, "opened_angle.txt")
+            expert_opened_angle_file = os.path.join(experiment_path, experiment, "opened_angle.txt")
             if os.path.exists(expert_opened_angle_file):
                 with open(expert_opened_angle_file, "r") as f:
                     angles = f.readlines()
@@ -219,8 +216,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                 #     continue
             expert_opened_angles.append(expert_opened_angle)
             
-            first_stage_states_path = os.path.join(first_step_folder, "states")
-            stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
+            stage_lengths = os.path.join(exp_path, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
             
@@ -229,9 +225,9 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
             else:
                 reaching_phase = stage_lengths['reach_handle']
                 
-            after_init_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
+            after_init_state_file = os.path.join(states_path, "state_{}.pkl".format(reaching_phase))
             after_reaching_init_state_files.append(after_init_state_file)
-            init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
+            init_state_file = os.path.join(states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
             # config_file = os.path.join(experiment_path, experiment, "task_config_added_distractors.yaml")
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
@@ -330,7 +326,7 @@ def run_eval(cfg, policy, num_worker, save_path, exp_beg_idx=0, exp_end_idx=1000
                 with open("{}/opened_joint_angles{}.json".format(save_path, post_fix), "w") as f:
                     json.dump(opened_joint_angles, f, indent=4)
             
-            gif_save_exp_name = experiment_folder.split("/")[-2]
+            gif_save_exp_name = experiment_folder.split("/")[-1]
             gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)
             if not os.path.exists(gif_save_folder):
                 os.makedirs(gif_save_folder, exist_ok=True)

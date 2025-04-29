@@ -12,4 +12,4 @@ set -x
 
 
 echo "Starting job $SLURM_JOB_ID"
-singularity exec --bind /data/yufeiw2/RoboGen_sim2real:/mnt/RoboGen_sim2real/ --nv /data/yufeiw2/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/scripts/gen_data_parallel.sh ${1} ${2} ${3} ${4} 
+singularity exec --bind /data/chenyuah/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --nv /data/ziyuw2/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/scripts/gen_data_parallel.sh ${1} ${2}

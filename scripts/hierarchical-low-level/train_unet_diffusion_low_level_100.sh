@@ -2,7 +2,7 @@ pointcloud_num=4500
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
-source_dir="/home/yufei/projects/RoboGen-sim2real/data/dp3_demo_combined_2_step_0"
+source_dir="/home/chenyuan/RoboGen-sim2real/data/dp3_demo_combined_2_step_0"
 
 
 observation_mode="act3d_goal_mlp"
@@ -38,16 +38,16 @@ use_pretrained_high_level_policy_as_low_level_input=false
 ##########
 
 time_stamp=$(date +%m%d%H%M)
-exp_name="paper-hierarchical-low-level-unet-diffusion-100-training-objs-1230"
+exp_name="test-low-level"
 
 
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=4 \
+torchrun --standalone --nproc_per_node=2 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=100_object_low_level \
+    task.dataset.zarr_path=articulated \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
     task.env_runner.experiment_folder="[]" \
@@ -87,7 +87,8 @@ torchrun --standalone --nproc_per_node=4 \
     val_dataloader.batch_size="${batch_size}" \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
     policy.noise_model_type=unet \
-    policy.policy_type=low_level
+    policy.policy_type=low_level \
+    load_checkpoint_path=/home/chenyuan/RoboGen-sim2real/ckpt/low_level/checkpoints/epoch-96.ckpt
 
 
 

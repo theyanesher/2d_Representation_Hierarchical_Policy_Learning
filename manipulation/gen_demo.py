@@ -109,7 +109,7 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
 
     # create env
     
-    env, _ =  build_up_env(config_path, env_name, object_name=object_name, link_name=link_name, render=render)
+    env, _ =  build_up_env(config_path, env_name, render=render)
     env.reset(object_name=object_name)
 
     if on_table:
@@ -154,6 +154,14 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
         new_pos[1] = np.random.uniform(-0.1, 0.1) + base_pos[1]
         new_pos[2] = height + init_pos[2]
 
+        init_angle = None
+
+        if object_name == 'bucket' or object_name == 'laptop':
+            init_angle = np.random.uniform(-np.pi / 12, np.pi / 12) + np.pi / 6
+        elif object_name == 'toilet':
+            init_angle = np.random.uniform(-np.pi / 16, np.pi / 16) + np.pi / 8
+
+
         if env.robot_name == 'panda':
             new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], base_euler[2] + np.random.uniform(-np.pi / 6, np.pi / 6)])
         elif env.robot_name == 'xarm':
@@ -195,7 +203,7 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
         max_opened_joint = joint_limit_low + 0.2 * (joint_limit_high - joint_limit_low)
         random_joint = np.random.uniform(joint_limit_low, max_opened_joint)
         p.resetJointState(object_id, handle_joint_id, random_joint, physicsClientId=env.id)
-        
+
         for test_time in range(100):
             # randomly sample the joint angles of the robot arm
             for i in range(7):
@@ -265,6 +273,7 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
                 new_pos = [new_pos[0], new_pos[1], height]
             config_dict['center'] = str(tuple(new_pos))
             config_dict['orientation'] = str(tuple(new_orient))
+            config_dict['init_angle'] = init_angle
             config_dict['is_crop_size'] = False
             if 'initial_joint_angles' not in config_dict:
                 config_dict['initial_joint_angles'] = str(tuple(initial_joint_angles))
@@ -332,7 +341,7 @@ def _execute(q, config_path, env_name, solution_path, experiment_path, time_stri
     
     # execute primitive
     print("execute primitive")
-    env, _ = build_up_env(config_path, env_name, object_name=object_name, link_name=link_name)
+    env, _ = build_up_env(config_path, env_name)
     env.primitive_save_path = experiment_path
     np.random.seed(time.time_ns() % 2**32)
 
