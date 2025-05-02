@@ -221,8 +221,8 @@ class PointNetSetAbstractionMsg(nn.Module):
             last_channel = in_channel + 3
             for out_channel in mlp_list[i]:
                 convs.append(nn.Conv2d(last_channel, out_channel, 1))
-                # bns.append(nn.BatchNorm2d(out_channel))
-                bns.append(nn.InstanceNorm2d(out_channel))
+                bns.append(nn.BatchNorm2d(out_channel))
+                # bns.append(nn.InstanceNorm2d(out_channel))
                 last_channel = out_channel
             self.conv_blocks.append(convs)
             self.bn_blocks.append(bns)
@@ -276,8 +276,8 @@ class PointNetFeaturePropagation(nn.Module):
         last_channel = in_channel
         for out_channel in mlp:
             self.mlp_convs.append(nn.Conv1d(last_channel, out_channel, 1))
-            # self.mlp_bns.append(nn.BatchNorm1d(out_channel))
-            self.mlp_bns.append(nn.InstanceNorm1d(out_channel))
+            self.mlp_bns.append(nn.BatchNorm1d(out_channel))
+            # self.mlp_bns.append(nn.InstanceNorm1d(out_channel))
             last_channel = out_channel
 
     def forward(self, xyz1, xyz2, points1, points2):
@@ -498,8 +498,8 @@ class PointNet2_super(nn.Module):
         self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128])
         self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
         self.conv1 = nn.Conv1d(128, 128, 1)
-        # self.bn1 = nn.BatchNorm1d(128)
-        self.bn1 = nn.InstanceNorm1d(128)
+        self.bn1 = nn.BatchNorm1d(128)
+        # self.bn1 = nn.InstanceNorm1d(128)
         # self.drop1 = nn.Dropout(0.5)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
 

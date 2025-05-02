@@ -333,14 +333,14 @@ if __name__=="__main__":
     ]   
 
 
-    all_objs = os.listdir("/home/chenyuan/RoboGen-sim2real/data/dp3_demo/seuss_gen")
+    all_objs = os.listdir("data/dp3_demo/seuss_gen_random")
     all_objs = sorted(all_objs)
     src_dirs = all_objs
 
     dense_steps_around_goal = 0
     combine_step = 2
     
-    src_dirs = [os.path.join("/home/chenyuan/RoboGen-sim2real/data/dp3_demo/seuss_gen", x) for x in src_dirs]
+    src_dirs = [os.path.join("data/dp3_demo/seuss_gen_random", x) for x in src_dirs]
     dst_dirs = [x.replace("dp3_demo", "dp3_demo_combined_{}_step_{}".format(combine_step, dense_steps_around_goal)) for x in src_dirs]
 
 
