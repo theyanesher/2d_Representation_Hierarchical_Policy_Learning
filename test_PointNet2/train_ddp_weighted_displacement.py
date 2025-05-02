@@ -22,11 +22,15 @@ def ddp_setup():
 def train(args):
     gpu_id = int(os.environ["LOCAL_RANK"])
     device = torch.device(gpu_id)
-
     input_channel = 5 if args.add_one_hot_encoding else 3
 
     if not args.predict_two_goals: output_dim = 13 
     else: output_dim = 25
+
+    if args.category_embedding_type == "one_hot":
+        embedding_dim = args.num_categories
+    elif args.category_embedding_type == "siglip":
+        embedding_dim = 768
 
     if args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
@@ -38,7 +42,7 @@ def train(args):
         elif args.model_type == 'pointnet2_large':
             model = PointNet2(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_super':
-            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+            model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel, embedding_dim=embedding_dim).to(device)
         elif args.model_type == 'attn':
             model = AttnModel(num_classes=output_dim).to(device)
         elif args.model_type == 'pointnet2_superplus':
@@ -153,12 +157,19 @@ def train(args):
 
     global_step = 0
 
+    if args.category_embedding_type == "siglip":
+        siglip_text_features = torch.load("../siglip_text_features.pt")
+
     for epoch in range(args.num_epochs):
         running_loss = 0.0
         accumulated_displacement_loss = 0.0
         accumulated_weighting_loss = 0.0
         for i, data in enumerate(tqdm(dataloader)):
-            pointcloud, gripper_pcd, goal_gripper_pcd = data
+            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx = data
+            if args.category_embedding_type == "one_hot":
+                cat_embedding = torch.nn.functional.one_hot(cat_idx, num_classes=args.num_categories).float()
+            elif args.category_embedding_type == "siglip":
+                cat_embedding = siglip_text_features[cat_idx].float()
             # inputs: B, N, 3
             # gripper_pcd: B, 4, 3
             # goal_gripper_points: B, 4, 3
@@ -188,7 +199,7 @@ def train(args):
             inputs, labels = inputs.to(device), labels.to(device)
             inputs = inputs.permute(0, 2, 1)
             optimizer.zero_grad()
-            outputs = model(inputs) # B, N, 13
+            outputs = model(inputs, cat_embedding) # B, N, 13
             weights = outputs[:, :, -1] # B, N
             outputs = outputs[:, :, :-1] # B, N, 12
             if args.output_obj_pcd_only:
@@ -274,11 +285,14 @@ def parse_args():
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--using_weight', type=int, default=1)
     parser.add_argument('--exp_name', type=str, default="")
+    parser.add_argument('--num_categories', type=int, default=7)
+    parser.add_argument('--category_embedding_type', type=str, default="siglip")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     ddp_setup()
+    
     train(args)
     destroy_process_group()

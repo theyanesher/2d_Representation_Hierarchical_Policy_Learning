@@ -173,6 +173,23 @@ def sample_and_group_all(xyz, points):
         new_points = grouped_xyz
     return new_xyz, new_points
 
+class FiLM(nn.Module):
+    def __init__(self, embedding_dim, feature_dim):
+        super(FiLM, self).__init__()
+        self.scale = nn.Linear(embedding_dim, feature_dim)
+        self.shift = nn.Linear(embedding_dim, feature_dim)
+
+    def forward(self, x, embedding):
+        """
+        Input:
+            x: input points data, [B, D, N]
+            embedding: embedding data, [B, E]
+        Return:
+            transformed points data, [B, D, N]
+        """
+        gamma = self.scale(embedding).unsqueeze(-1)  # [B, D, 1]
+        beta = self.shift(embedding).unsqueeze(-1)  # [B, D, 1]
+        return x * gamma + beta
 
 class PointNetSetAbstraction(nn.Module):
     def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
@@ -402,7 +419,7 @@ class PointNet2_small2(nn.Module):
         return x # x shape: B, N, num_classes: outputing logtis
 
 class PointNet2_super(nn.Module):
-    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False):
+    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None):
         super(PointNet2_super, self).__init__()
         self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -411,6 +428,8 @@ class PointNet2_super(nn.Module):
         self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512])
+        if embedding_dim is not None:
+            self.film = FiLM(embedding_dim, 1024)
         self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512])
         self.fp4 = PointNetFeaturePropagation(1024, [256, 256])
         self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256])
@@ -421,7 +440,7 @@ class PointNet2_super(nn.Module):
         # self.drop1 = nn.Dropout(0.5)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
 
-    def forward(self, xyz):
+    def forward(self, xyz, embedding=None):
         l0_points = xyz
         l0_xyz = xyz[:, :3, :]
         
@@ -435,6 +454,10 @@ class PointNet2_super(nn.Module):
         l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # (B, 3, 128) (B, 1024, 16)
         l5_xyz, l5_points = self.sa5(l4_xyz, l4_points) # (B, 3, 64) (B , 1024, 64)
         l6_xyz, l6_points = self.sa6(l5_xyz, l5_points) # (B, 3, 16) (B, 1024, 16)
+
+        # add film
+        if embedding is not None:
+            l6_points = self.film(l6_points, embedding) # (B, 1024, 16)
 
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points) # (B, 512, 64)
         l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points) # (B, 512, 128)

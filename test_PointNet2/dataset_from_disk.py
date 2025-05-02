@@ -9,6 +9,8 @@ from tqdm import tqdm
 import pickle
 import random
 
+categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
+
 class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False, 
                  conditioning_on_demo=False):
@@ -30,11 +32,17 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         # for each trajectory of the object, record the grasping pose and opening pose. Store as a dictionary maybe, key is object_traj-id
 
         self.all_zarr_paths = []
+        self.all_zarr_categories = []
         self.episode_idx_to_obj_id = {}
         self.obj_id_to_all_episodes_indices = {}
         episode_idx = 0
         for obj_path in all_obj_paths:
             all_subfolder = os.listdir(obj_path)
+            cat_idx = 0
+            for i, cat in enumerate(categories):
+                if cat in obj_path:
+                    cat_idx = i + 1
+                    break
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
                 if s in all_subfolder:
                     all_subfolder.remove(s)
@@ -47,6 +55,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                 end = beg + eval_episode
             all_subfolder = all_subfolder[beg:end]
             self.all_zarr_paths += [os.path.join(obj_path, s) for s in all_subfolder]
+            self.all_zarr_categories += [cat_idx for s in all_subfolder]
             this_obj_episode_beg = episode_idx
             for s in all_subfolder:
                 self.episode_idx_to_obj_id[episode_idx] = obj_path
@@ -133,12 +142,13 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     
     def read_pickle_data(self, episode_idx, step_idx):
         step_path = os.path.join(self.all_zarr_paths[episode_idx], str(step_idx) + '.pkl')
+        cat_idx = self.all_zarr_categories[episode_idx]
         with open(step_path, 'rb') as f:
             data = pickle.load(f)
         pointcloud = data['point_cloud'][:][0].astype(np.float32)
         gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
         goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
-        return pointcloud, gripper_pcd, goal_gripper_pcd
+        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx
 
     def __getitem__(self, idx):
         # TODO for conditioning:
@@ -158,9 +168,10 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             # pointcloud = data['point_cloud'][:][0].astype(np.float32)
             # gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
             # goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
-            pointcloud, gripper_pcd, goal_gripper_pcd = self.read_pickle_data(episode_idx, start_idx)
+            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx = self.read_pickle_data(episode_idx, start_idx)
             
             if self.conditioning_on_demo:
+                raise NotImplementedError
                 obj_id = self.episode_idx_to_obj_id[episode_idx]
                 this_obj_episodes = self.obj_id_to_all_episodes_indices[obj_id]
                 random_other_traj_idx = random.choice(this_obj_episodes)
@@ -175,6 +186,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                 demo_open_pcd, demo_open_gripper_pcd, demo_open_goal_gripper_pcd = self.read_pickle_data(random_other_traj_idx, open_frame_idx)
                     
         else:
+            raise NotImplementedError
             zarr_path = self.all_zarr_paths[episode_idx]
             
             step_path = os.path.join(zarr_path, str(start_idx))
@@ -186,7 +198,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             goal_gripper_pcd = src_root['data']['goal_gripper_pcd'][:][0]
 
         if not self.conditioning_on_demo:
-            return pointcloud, gripper_pcd, goal_gripper_pcd
+            return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx
         else:
             if False:
                 from matplotlib import pyplot as plt
@@ -236,8 +248,14 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
             cprint(f'Only evaluating the first observation of {eval_episode} episodes', 'red')
 
         self.all_zarr_paths = []
+        self.all_zarr_categories = []
         for obj_path in all_obj_paths:
             all_subfolder = os.listdir(obj_path)
+            cat_idx = 0
+            for i, cat in enumerate(categories):
+                if cat in obj_path:
+                    cat_idx = i + 1
+                    break
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
                 if s in all_subfolder:
                     all_subfolder.remove(s)
@@ -250,6 +268,7 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
                 end = beg + eval_episode
             all_subfolder = all_subfolder[beg:end]
             self.all_zarr_paths += [os.path.join(obj_path, s) for s in all_subfolder]
+            self.all_zarr_categories += [cat_idx for s in all_subfolder]
 
         cprint('Preparing all zarr paths', 'green')
         self.episode_lengths = []
@@ -280,6 +299,7 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
 
             
             else:
+                raise NotImplementedError
                 all_substeps = os.listdir(zarr_path)
                 all_substeps = sorted(all_substeps, key=lambda x: int(x))
 
@@ -322,6 +342,7 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
 
         if self.is_pickle:
             step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
+            cat_idx = self.all_zarr_categories[episode_idx]
             with open(step_path, 'rb') as f:
                 data = pickle.load(f)
             pointcloud = data['point_cloud'][:][0]
@@ -333,6 +354,7 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
                 data_end = pickle.load(f)
             goal_gripper_pcd_end = data_end['goal_gripper_pcd'][:][0]
         else:
+            raise NotImplementedError
             zarr_path = self.all_zarr_paths[episode_idx]
             
             step_path = os.path.join(zarr_path, str(start_idx))
@@ -343,7 +365,7 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
             gripper_pcd = src_root['data']['gripper_pcd'][:][0]
             goal_gripper_pcd = src_root['data']['goal_gripper_pcd'][:][0]
 
-        return pointcloud, gripper_pcd, np.concatenate([goal_gripper_pcd, goal_gripper_pcd_end], axis=0)
+        return pointcloud, gripper_pcd, np.concatenate([goal_gripper_pcd, goal_gripper_pcd_end], axis=0), cat_idx
         
 def get_dataloader(all_obj_paths=None, batch_size=32, beg_ratio=0, end_ratio=0.9, shuffle=True, eval_episode=None, only_first_stage=False):
     if all_obj_paths is None:
@@ -395,7 +417,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             dataset_prefix='/scratch/chialiang/dp3_demo_combine_2_new'
     
     if all_obj_paths is None:
-        print("num_train_objects: ", num_train_objects)
+        print(" ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
@@ -641,7 +663,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             
         else:
             raise ValueError('num_train_objects not supported')
-        
+    print(f"prediction mode: {predict_two_goals}")
     if not predict_two_goals:
         dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
                                           is_pickle=True, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo)    
