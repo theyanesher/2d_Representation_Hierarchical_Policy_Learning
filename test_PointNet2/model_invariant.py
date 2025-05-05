@@ -427,9 +427,9 @@ class PointNet2_super(nn.Module):
         self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
-        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512])
         if embedding_dim is not None:
             self.film = FiLM(embedding_dim, 1024)
+        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512])
         self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512])
         self.fp4 = PointNetFeaturePropagation(1024, [256, 256])
         self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256])
