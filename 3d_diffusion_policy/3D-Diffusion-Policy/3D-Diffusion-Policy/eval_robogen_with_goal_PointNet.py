@@ -72,7 +72,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         # if dataset_idx == 0:
         #     continue
 
-        after_reaching_init_state_files = []
         init_state_files = []
         config_files = []
         experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
@@ -120,20 +119,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
-            
-            if 'stage' in stage_lengths:
-                reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
-            else:
-                reaching_phase = stage_lengths['reach_handle']
                 
-            after_init_state_file = os.path.join(states_path, "state_{}.pkl".format(reaching_phase))
-            after_reaching_init_state_files.append(after_init_state_file)
             init_state_file = os.path.join(states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
             config_files.append(config_file)
                     
-        after_reaching_init_state_files = after_reaching_init_state_files
         config_files = config_files
 
         opened_joint_angles = {}
@@ -142,6 +133,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             exp_end_idx = int(exp_end_ratio * len(config_files))
         if exp_beg_ratio is not None:
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
+
+        angle_threshold = np.quantile(expert_opened_angles, 0.1)
+        selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
+        config_files = [config_files[i] for i in selected_idx]
+        init_state_files = [init_state_files[i] for i in selected_idx]
+        expert_opened_angles = [expert_opened_angles[i] for i in selected_idx]
 
         config_files = config_files[exp_beg_idx:exp_end_idx]
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
