@@ -17,6 +17,6 @@ torchrun --standalone --nproc_per_node=8 train_ddp_weighted_displacement_gmm.py 
     --num_epochs 60 --model_type pointnet2_super --model_invariant \
     --exp_path exps \
     --num_train_objects articulated \
-    --dataset_prefix ../data/dp3_demo/seuss_gen \
+    --dataset_prefix ../data/dp3_demo/seuss_gen_random \
     --exp_name test_0424
 

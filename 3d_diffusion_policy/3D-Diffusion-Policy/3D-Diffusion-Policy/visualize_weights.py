@@ -279,7 +279,7 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['seuss_gen' for _ in range(60)]
+    cfg.task.env_runner.experiment_name = ['seuss_gen_random' for _ in range(60)]
     cfg.task.env_runner.experiment_folder = [
         # bucket_tasks
         # 'data/bucket/100444',
