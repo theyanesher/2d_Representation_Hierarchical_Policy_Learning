@@ -66,6 +66,13 @@ class TrainDP3Workspace:
             except: # minkowski engine could not be copied. recreate it
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
 
+        if cfg.load_policy_path is not None:
+            # payload = torch.load(cfg.load_policy_path.open('rb'), pickle_module=dill, map_location='cpu')
+            # self.model.load_state_dict(payload['state_dicts']['model'])
+            self.load_policy(cfg.load_policy_path)
+            
+        self.model.train()
+
         self.pretrained_goal_model = pretrained_goal_model
         if cfg.training.pretrained_weighted_displacement_goal_model is not None:
             from test_PointNet2.model_invariant import PointNet2_small2, PointNet2, PointNet2_super
@@ -112,16 +119,16 @@ class TrainDP3Workspace:
         RUN_VALIDATION = True # reduce time cost
         
         # resume training
-        if cfg.training.resume:
-            lastest_ckpt_path = self.get_checkpoint_path()
-            if lastest_ckpt_path.is_file():
-                print(f"Resuming from checkpoint {lastest_ckpt_path}")
-                self.load_checkpoint(path=lastest_ckpt_path)
-        if cfg.load_checkpoint_path is not None:
-            print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
-            self.load_checkpoint(path=cfg.load_checkpoint_path)
-        if cfg.load_policy_path is not None:
-            self.load_policy(path=cfg.load_policy_path)
+        # if cfg.training.resume:
+        #     print("Resuming from checkpoint")
+        #     lastest_ckpt_path = self.get_checkpoint_path()
+        #     if lastest_ckpt_path.is_file():
+        #         print(f"Resuming from checkpoint {lastest_ckpt_path}")
+        #         self.load_checkpoint(path=lastest_ckpt_path)
+        # if cfg.load_checkpoint_path is not None:
+        #     print(f"Resuming from checkpoint {cfg.load_checkpoint_path}")
+        #     self.load_checkpoint(path=cfg.load_checkpoint_path)
+        
 
         # configure dataset
         dataset: BaseDataset
@@ -251,63 +258,15 @@ class TrainDP3Workspace:
                         
                         reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
 
-                        batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
-                        
-                    # p = np.random.rand()
-                    # if self.pretrained_weighted_displacement_goal_model is not None and p > 0.75:
-                    #     object_pcd = batch['obs']['point_cloud'][:, -1, :, :] # B, 4500, 3
-                    #     gripper_pcd = batch['obs']['gripper_pcd'][:, -1, :, :] # B, 4, 3
-                    #     model_input = torch.cat([object_pcd, gripper_pcd], dim=1)
-                    #     inputs_ = model_input.permute(0, 2, 1)
-                    #     with torch.no_grad():
-                    #         outputs = self.pretrained_weighted_displacement_goal_model(inputs_)
-                    #         weights = outputs[:, :, -1] # B, N
-                    #         outputs = outputs[:, :, :-1] # B, N, 12
-                    #         # use only object weights
-                    #         weights = weights[:, :-4]
-                    #         outputs = outputs[:, :-4, :]
-                    #         inputs = model_input[:, :-4, :]
-                            
-                    #         B, N, _ = outputs.shape
-                    #         outputs = outputs.view(B, N, 4, 3)
-                    #         outputs = outputs + inputs.unsqueeze(2)
-                    #         weights = torch.nn.functional.softmax(weights, dim=1)
-                    #         outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-                    #         outputs = outputs.sum(dim=1)
-                    #         outputs = outputs.unsqueeze(1)
-                    #         predicted_goal = outputs.repeat(1, self.cfg.n_obs_steps, 1, 1)
-                    #     batch['obs']['goal_gripper_pcd'] = predicted_goal
-                        
-                    # if self.cfg.training.add_noise_to_goal_gripper_pcd:
-                    #     if p < 0.25:
-                    #         # shift the goal gripper pcd as a whole
-                    #         noise = torch.randn(batch['obs']['goal_gripper_pcd'].shape[0], 4, device=torch.device(self.gpu_id)) * 0.05
-                    #         noise = noise.unsqueeze(1).unsqueeze(-1).repeat(1, batch['obs']['goal_gripper_pcd'].shape[1], 1, 3)
-                    #         batch['obs']['goal_gripper_pcd'] += noise
-                            
-                    #     elif p >= 0.25 and p < 0.5:
-                    #         # shift each point individually
-                    #         noise = torch.randn(batch['obs']['goal_gripper_pcd'].shape[0], 4, 3, device=torch.device(self.gpu_id)) * 0.02
-                    #         noise = noise.unsqueeze(1).repeat(1, batch['obs']['goal_gripper_pcd'].shape[1], 1, 1)
-                    #         batch['obs']['goal_gripper_pcd'] += noise
+                        batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output                    
                                 
                         
                     # compute loss
                     t1_1 = time.time()
                     
-                    ### pytorch amp example
-                    # with torch.autocast(device_type=device, dtype=torch.float16, enabled=use_amp):
-                    #     output = net(input)
-                    #     loss = loss_fn(output, target)
-                    # scaler.scale(loss).backward()
-                    # scaler.step(opt)
-                    # scaler.update()
-                    # opt.zero_grad() # set_to_none=True here can modestly improve performance
-                    
                     with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.cfg.training.use_amp):
                         raw_loss, loss_dict = self.model(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
-                        
                     loss.backward()
                     # self.amp_scaler.scale(loss).backward()    
                     
@@ -315,12 +274,16 @@ class TrainDP3Workspace:
 
                     # step optimizer
                     if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                        weight = self.model.module.model.final_conv[0].block[0].weight.clone()
                         self.optimizer.step()
                         self.optimizer.zero_grad()
+                        new_weight = self.model.module.model.final_conv[0].block[0].weight.clone()
+                        print("weight diff: ", torch.sum(torch.abs(weight - new_weight)))
                         # self.amp_scaler.step(self.optimizer)
                         # self.amp_scaler.update()
                         # self.optimizer.zero_grad()
                         lr_scheduler.step()
+                        print("lr: ", lr_scheduler.get_last_lr()[0])
                         
                     t1_3 = time.time()
                     # update ema
@@ -433,19 +396,6 @@ class TrainDP3Workspace:
             if (self.epoch % cfg.training.sample_every) == 0:
                 with torch.no_grad():
                     # sample trajectory from training set, and evaluate difference
-                    # cprint("test sampling batch {}".format(self.epoch), 'red')
-                    
-                    # train_sampling_batch = torch.load("/mnt/RoboGen_sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/tmp_obs.pkl")
-                    # batch = dict_apply(train_sampling_batch, lambda x: torch.from_numpy(x).unsqueeze(0).to(device, non_blocking=True))
-                    # obs_dict = batch
-                    # gt_action = batch['goal_gripper_pcd'][:, 0, :, :]
-                    # result = policy.predict_action(obs_dict)
-                    # pred_action = result['action'][:, 0, :]
-                    # # mse = torch.nn.functional.mse_loss(pred_action, gt_action.reshape(1, 12))
-                    # norm = torch.norm(pred_action.reshape(4, 3) - gt_action.reshape(4, 3), dim=1).mean()
-                    # mse = norm
-                    # cprint(f"epoch {self.epoch} action prediction mse {mse}", "green")
-                    # step_log['train_action_mse_error'] = mse.item()
                     
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
@@ -488,9 +438,6 @@ class TrainDP3Workspace:
                         for key, value in step_log.items() :
                             new_key = key.replace('/', '_')
                             metric_dict[new_key] = value
-                        # for key, value in runner_log.items():
-                        #     new_key = key.replace('/', '_')
-                        #     metric_dict[new_key] = value
                         
                         # We can't copy the last checkpoint here
                         # since save_checkpoint uses threads.
