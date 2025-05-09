@@ -26,9 +26,15 @@ from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
 
 def get_zarry_paths(zarr_path):
     if zarr_path == 'articulated':
-        dataset_prefix = '/home/chenyuan/RoboGen-sim2real/data/dp3_demo_combined_2_step_0/seuss_gen'
+        dataset_prefix = '/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0/seuss_gen_random'
         data_name = [
             save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4, save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
+
+            save_data_name_10, save_data_name_11, save_data_name_12, save_data_name_13, save_data_name_14, save_data_name_15, save_data_name_16, save_data_name_17, save_data_name_18, save_data_name_19,
+            save_data_name_20, save_data_name_21, save_data_name_22, save_data_name_23, save_data_name_24, save_data_name_25, save_data_name_26, save_data_name_27, save_data_name_28, save_data_name_29,
+            save_data_name_30, save_data_name_31, save_data_name_32, save_data_name_33, save_data_name_34, save_data_name_35, save_data_name_36, save_data_name_37, save_data_name_38, save_data_name_39,
+            save_data_name_40, save_data_name_41, save_data_name_42, save_data_name_43, save_data_name_44, save_data_name_45, save_data_name_46, save_data_name_47, save_data_name_48, save_data_name_49,
+            
             "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
             "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102365",
             

@@ -1,8 +1,21 @@
+#!/bin/bash
+
+
+cd /mnt/RoboGen_sim2real
+export PATH=/opt/conda/bin:$PATH
+source /opt/conda/etc/profile.d/conda.sh
+conda activate unisim
+export PYTHONPATH=${PWD}:$PYTHONPATH
+export PYTHONPATH=${PWD}/rl_games:$PYTHONPATH
+export PYTHONPATH=${PWD}/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy:$PYTHONPATH
+export PROJECT_DIR=${PWD}
+export WANDB_API_KEY=c9187c7dfcc339af75f2f47c3b80c95743057b42
+export HYDRA_FULL_ERROR=1
 pointcloud_num=4500
 
 cd 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy
 
-source_dir="/home/chenyuan/RoboGen-sim2real/data/dp3_demo_combined_2_step_0"
+source_dir="/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0"
 
 
 observation_mode="act3d_goal_mlp"
@@ -44,7 +57,7 @@ exp_name="test-low-level"
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=2 \
+torchrun --standalone --nproc_per_node=8 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
     task.dataset.zarr_path=articulated \
@@ -88,7 +101,7 @@ torchrun --standalone --nproc_per_node=2 \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'displacement_gripper_to_object', 'goal_gripper_pcd']" \
     policy.noise_model_type=unet \
     policy.policy_type=low_level \
-    load_checkpoint_path=/home/chenyuan/RoboGen-sim2real/ckpt/low_level/checkpoints/epoch-96.ckpt
+    load_checkpoint_path=/mnt/RoboGen_sim2real/ckpt/low_level/checkpoints/epoch-96.ckpt
 
 
 
