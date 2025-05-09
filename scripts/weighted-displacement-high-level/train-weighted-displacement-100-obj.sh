@@ -13,10 +13,10 @@ export WANDB_API_KEY=c9187c7dfcc339af75f2f47c3b80c95743057b42
 
 source prepare.sh
 cd test_PointNet2
-torchrun --standalone --nproc_per_node=2 train_ddp_weighted_displacement.py --batch_size 32 \
+torchrun --standalone --nproc_per_node=8 train_ddp_weighted_displacement.py --batch_size 32 \
     --num_epochs 60 --model_type pointnet2_super --model_invariant \
     --exp_path exps \
-    --num_train_objects  foldingchair \
+    --num_train_objects  articulated \
     --dataset_prefix ../data/dp3_demo/seuss_gen_random \
-    --exp_name single_foldingchair \
+    --exp_name siglip \
 
