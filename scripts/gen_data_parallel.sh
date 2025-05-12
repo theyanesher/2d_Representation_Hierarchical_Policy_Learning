@@ -11,7 +11,7 @@ export PROJECT_DIR=${PWD}
 export YUFEI_OPENAI_API_KEY=xxx
 source prepare.sh
 
-demo_name=seuss_gen
+demo_name=seuss_gen_random
 observation_mode=act3d_goal_displacement_gripper_to_object
 pointcloud_num=4500
 
