@@ -60,12 +60,14 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
     
     return env
 
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, exp_beg_idx=0,
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, cat_idx, exp_beg_idx=0,
                           exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
                           randomize_camera=False, pos_ori_imp=False):
-    
+    if args.category_embedding_type == "siglip":
+            siglip_text_features = torch.load("../siglip_text_features.pt")
+    cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
         if dataset_index is not None:
@@ -145,6 +147,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     with torch.no_grad():
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                        if args.category_embedding_type == "one_hot":
+                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float()
+                        elif args.category_embedding_type == "siglip":
+                                cat_embedding = siglip_text_features[cat_idx].float()
                         if not args.predict_two_goals:
                             inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
                         else:
@@ -161,7 +167,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                             
                         inputs = inputs.to('cuda')
                         inputs_ = inputs.permute(0, 2, 1)
-                        outputs = goal_prediction_model(inputs_)
+                        outputs = goal_prediction_model(inputs_, cat_embedding)
                         weights = outputs[:, :, -1] # B, N
                         outputs = outputs[:, :, :-1] # B, N, 12
                         if output_obj_pcd_only:
@@ -234,10 +240,21 @@ if __name__ == "__main__":
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--pos_ori_imp', action='store_true', help='Set the flag for 10D representation Training')
+    parser.add_argument('--exp_dir', type=str, help='Experiment directory')
+    parser.add_argument('--num_categories', type=int, default=7)
+    parser.add_argument('--category_embedding_type', type=str, default="one_hot")
     args = parser.parse_args()
     
     num_worker = 30
     pool=None
+
+    categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
+    cat_idx = 0
+    for i, cat in enumerate(categories):
+        if cat in args.exp_dir:
+            cat_idx = i + 1
+            break
+
 
     if args.low_level_exp_dir is None:
         # best 50 objects
@@ -279,8 +296,9 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['seuss_gen_random' for _ in range(60)]
+    cfg.task.env_runner.experiment_name = ['seuss_gen_random' for _ in range(1)]
     cfg.task.env_runner.experiment_folder = [
+        args.exp_dir,
         # bucket_tasks
         # 'data/bucket/100444',
         # 'data/bucket/100452',
@@ -342,18 +360,18 @@ if __name__ == "__main__":
         # 'data/stapler/103301',
 
         # # toilet_tasks
-        'data/toilet/101320',
-        'data/toilet/102621',
-        'data/toilet/102622',
-        'data/toilet/102630',
-        'data/toilet/102634',
-        'data/toilet/102645',
-        'data/toilet/102648',
-        'data/toilet/102651',
-        'data/toilet/102652',
-        'data/toilet/102658',
+        # 'data/toilet/101320',
+        # 'data/toilet/102621',
+        # 'data/toilet/102622',
+        # 'data/toilet/102630',
+        # 'data/toilet/102634',
+        # 'data/toilet/102645',
+        # 'data/toilet/102648',
+        # 'data/toilet/102651',
+        # 'data/toilet/102652',
+        # 'data/toilet/102658',
     ]
-    cfg.task.env_runner.demo_experiment_path = [None for _ in range(60)]
+    cfg.task.env_runner.demo_experiment_path = [None for _ in range(1)]
     # cfg.task.env_runner.experiment_name += ['0822-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(6)]
     # cfg.task.env_runner.experiment_folder += [
     #     "data/diverse_objects_other/open_the_door_7167/task_open_the_door_of_the_storagefurniture_by_its_handle",
@@ -371,6 +389,12 @@ if __name__ == "__main__":
     num_class = 13 if not args.predict_two_goals else 25
     input_channel = 5 if args.add_one_hot_encoding else 3
     print(args.pointnet_class)
+
+    if args.category_embedding_type == "one_hot":
+        embedding_dim = args.num_categories
+    elif args.category_embedding_type == "siglip":
+        embedding_dim = 768
+
     if not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
         if args.pointnet_class == "PointNet2":
@@ -385,7 +409,7 @@ if __name__ == "__main__":
         if args.pointnet_class == 'PointNet2_large':
             pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == 'PointNet2_super':
-            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel, embedding_dim=embedding_dim).to("cuda")
         elif args.pointnet_class == "PointNet2_superplus":
             pointnet2_model = PointNet2_superplus(num_classes=13).to("cuda")
             
@@ -412,7 +436,7 @@ if __name__ == "__main__":
     cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
     run_eval_non_parallel(
             cfg, policy, pointnet2_model,
-            num_worker, save_path, 
+            num_worker, save_path, cat_idx,
             pool=pool, 
             horizon=35,
             exp_beg_idx=0,

@@ -15,4 +15,4 @@ set -x
 
 
 echo "Starting job $SLURM_JOB_ID"
-singularity exec --bind /data/chenyuah/RoboGen-sim2real:/mnt/RoboGen-sim2real/ --nv /data/yufeiw2/robogen-dp3-act3d.sif /mnt/RoboGen-sim2real/scripts/weighted-displacement-high-level/train-weighted-displacement-100-obj.sh 
+singularity exec --bind /project_data/held/chenyuah/RoboGen-sim2real:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif /mnt/RoboGen_sim2real/scripts/weighted-displacement-high-level/train-weighted-displacement-100-obj.sh 
