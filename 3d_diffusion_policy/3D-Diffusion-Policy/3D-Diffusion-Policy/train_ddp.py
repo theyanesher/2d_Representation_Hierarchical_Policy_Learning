@@ -329,130 +329,130 @@ class TrainDP3Workspace:
             train_loss = np.mean(train_losses)
             step_log['train_loss'] = train_loss
 
-            # ========= eval for this epoch ==========
-            policy = self.model
-            if cfg.training.use_ema:
-                policy = self.ema_model
-            policy.eval()
+            # # ========= eval for this epoch ==========
+            # policy = self.model
+            # if cfg.training.use_ema:
+            #     policy = self.ema_model
+            # policy.eval()
 
-            # run rollout
-            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and os.environ['LOCAL_RANK'] == '0':
-                # first checkpointing then running the eval
-                if cfg.checkpoint.save_last_ckpt:
-                    self.save_checkpoint()
-                if cfg.checkpoint.save_last_snapshot:
-                    self.save_snapshot()
+            # # run rollout
+            # if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and os.environ['LOCAL_RANK'] == '0':
+            #     # first checkpointing then running the eval
+            #     if cfg.checkpoint.save_last_ckpt:
+            #         self.save_checkpoint()
+            #     if cfg.checkpoint.save_last_snapshot:
+            #         self.save_snapshot()
                 
-                if self.epoch == 0 and not cfg.eval_first:
-                    pass
-                elif env_runner is None:
-                    pass
-                else:
-                    t3 = time.time()
-                    # runner_log = env_runner.run(policy, dataset=dataset)
-                    runner_log = env_runner.run(cfg, policy, self.epoch)
-                    # wandb_run.log(runner_log, step=self.epoch)
-                    t4 = time.time()
-                    cprint(f"rollout time: {t4-t3:.3f}", "red")
-                    # log all
-                    step_log.update(runner_log)
+            #     if self.epoch == 0 and not cfg.eval_first:
+            #         pass
+            #     elif env_runner is None:
+            #         pass
+            #     else:
+            #         t3 = time.time()
+            #         # runner_log = env_runner.run(policy, dataset=dataset)
+            #         runner_log = env_runner.run(cfg, policy, self.epoch)
+            #         # wandb_run.log(runner_log, step=self.epoch)
+            #         t4 = time.time()
+            #         cprint(f"rollout time: {t4-t3:.3f}", "red")
+            #         # log all
+            #         step_log.update(runner_log)
 
-                # TODO: add dagger here
-                # 1. should store the final state in env_runner.run
-                # 2. judge based on the opened door angles -- if it is below a certain threshold, should rerun demonstration generation code on it
-                # 3. add the new demonstration to the dataset & dataloader. 
+            #     # TODO: add dagger here
+            #     # 1. should store the final state in env_runner.run
+            #     # 2. judge based on the opened door angles -- if it is below a certain threshold, should rerun demonstration generation code on it
+            #     # 3. add the new demonstration to the dataset & dataloader. 
                 
-            # run validation
-            if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
-                print("Validation epoch {}/{}".format(self.epoch, cfg.training.num_epochs))
-                with torch.no_grad():
-                    val_losses = list()
-                    with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
-                            leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
-                        for batch_idx, batch in enumerate(tepoch):
-                            batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+            # # run validation
+            # if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
+            #     print("Validation epoch {}/{}".format(self.epoch, cfg.training.num_epochs))
+            #     with torch.no_grad():
+            #         val_losses = list()
+            #         with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
+            #                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+            #             for batch_idx, batch in enumerate(tepoch):
+            #                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
 
-                            if self.pretrained_goal_model is not None:
-                                with torch.no_grad():
-                                    goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
-                                goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
-                                goal_model_output = goal_model_output['action']
+            #                 if self.pretrained_goal_model is not None:
+            #                     with torch.no_grad():
+            #                         goal_model_output = self.pretrained_goal_model.predict_action(batch['obs'])
+            #                     goal_model_output = dict_apply(goal_model_output, lambda x: x.to(device))
+            #                     goal_model_output = goal_model_output['action']
                                 
-                                reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
+            #                     reshaped_goal_model_output = goal_model_output[:, :2, :].reshape((-1, 2, 4, 3))
 
-                                batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
+            #                     batch['obs']['goal_gripper_pcd'] = reshaped_goal_model_output
 
-                            loss, loss_dict = self.model(batch)
-                            val_losses.append(loss)
-                            if (cfg.training.max_val_steps is not None) \
-                                and batch_idx >= (cfg.training.max_val_steps-1):
-                                break
-                    if len(val_losses) > 0:
-                        val_loss = torch.mean(torch.tensor(val_losses)).item()
-                        # log epoch average validation loss
-                        step_log['val_loss'] = val_loss
+            #                 loss, loss_dict = self.model(batch)
+            #                 val_losses.append(loss)
+            #                 if (cfg.training.max_val_steps is not None) \
+            #                     and batch_idx >= (cfg.training.max_val_steps-1):
+            #                     break
+            #         if len(val_losses) > 0:
+            #             val_loss = torch.mean(torch.tensor(val_losses)).item()
+            #             # log epoch average validation loss
+            #             step_log['val_loss'] = val_loss
 
-            # run diffusion sampling on a training batch
-            if (self.epoch % cfg.training.sample_every) == 0:
-                with torch.no_grad():
-                    # sample trajectory from training set, and evaluate difference
+            # # run diffusion sampling on a training batch
+            # if (self.epoch % cfg.training.sample_every) == 0:
+            #     with torch.no_grad():
+            #         # sample trajectory from training set, and evaluate difference
                     
-                    batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
-                    obs_dict = batch['obs']
-                    if self.cfg.policy.prediction_target == 'action':
-                        gt_action = batch['action']
-                    else:
-                        gt_action = batch['obs'][self.cfg.policy.prediction_target].flatten(start_dim=2)
+            #         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
+            #         obs_dict = batch['obs']
+            #         if self.cfg.policy.prediction_target == 'action':
+            #             gt_action = batch['action']
+            #         else:
+            #             gt_action = batch['obs'][self.cfg.policy.prediction_target].flatten(start_dim=2)
                     
-                    result = policy.predict_action(obs_dict)
-                    pred_action = result['action_pred']
-                    mse = torch.nn.functional.mse_loss(pred_action, gt_action)
-                    step_log['train_action_mse_error'] = mse.item()
-                    del batch
-                    del obs_dict
-                    del gt_action
-                    del result
-                    del pred_action
-                    del mse
+            #         result = policy.predict_action(obs_dict)
+            #         pred_action = result['action_pred']
+            #         mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+            #         step_log['train_action_mse_error'] = mse.item()
+            #         del batch
+            #         del obs_dict
+            #         del gt_action
+            #         del result
+            #         del pred_action
+            #         del mse
 
-            if env_runner is None:
-                step_log['test_mean_score'] = - train_loss
+            # if env_runner is None:
+            #     step_log['test_mean_score'] = - train_loss
                 
-            # checkpoint
-            if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt: 
-                if self.epoch == 0 and not cfg.eval_first:
-                    pass
-                else:
-                    # checkpointing
-                    if cfg.checkpoint.save_last_ckpt:
-                        self.save_checkpoint()
-                    if self.epoch % 10 == 0 and self.epoch > 0:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
-                    # if cfg.checkpoint.save_last_snapshot:
-                    #     self.save_snapshot()
+            # # checkpoint
+            # if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt: 
+            #     if self.epoch == 0 and not cfg.eval_first:
+            #         pass
+            #     else:
+            #         # checkpointing
+            #         if cfg.checkpoint.save_last_ckpt:
+            #             self.save_checkpoint()
+            #         if self.epoch % 10 == 0 and self.epoch > 0:
+            #             self.save_checkpoint(tag=f'epoch-{self.epoch}')
+            #         # if cfg.checkpoint.save_last_snapshot:
+            #         #     self.save_snapshot()
 
-                    if 'test_mean_score' in step_log:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
-                        # sanitize metric names
-                        metric_dict = dict()
-                        for key, value in step_log.items() :
-                            new_key = key.replace('/', '_')
-                            metric_dict[new_key] = value
+            #         if 'test_mean_score' in step_log:
+            #             self.save_checkpoint(tag=f'epoch-{self.epoch}-test_mean_score-{step_log["test_mean_score"]:.3f}')
+            #             # sanitize metric names
+            #             metric_dict = dict()
+            #             for key, value in step_log.items() :
+            #                 new_key = key.replace('/', '_')
+            #                 metric_dict[new_key] = value
                         
-                        # We can't copy the last checkpoint here
-                        # since save_checkpoint uses threads.
-                        # therefore at this point the file might have been empty!
-                        topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+            #             # We can't copy the last checkpoint here
+            #             # since save_checkpoint uses threads.
+            #             # therefore at this point the file might have been empty!
+            #             topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                        if topk_ckpt_path is not None:
-                            self.save_checkpoint(path=topk_ckpt_path)
-                    else:
-                        self.save_checkpoint(tag=f'epoch-{self.epoch}')
+            #             if topk_ckpt_path is not None:
+            #                 self.save_checkpoint(path=topk_ckpt_path)
+            #         else:
+            #             self.save_checkpoint(tag=f'epoch-{self.epoch}')
                     
                     
                         
             # ========= eval end for this epoch ==========
-            policy.train()
+            # policy.train()
 
             # end of epoch
             # log of last step is combined with validation and rollout
