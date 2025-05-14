@@ -274,16 +274,16 @@ class TrainDP3Workspace:
 
                     # step optimizer
                     if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                        weight = self.model.module.model.final_conv[0].block[0].weight.clone()
+                        # weight = self.model.module.model.final_conv[0].block[0].weight.clone()
                         self.optimizer.step()
                         self.optimizer.zero_grad()
-                        new_weight = self.model.module.model.final_conv[0].block[0].weight.clone()
-                        print("weight diff: ", torch.sum(torch.abs(weight - new_weight)))
+                        # new_weight = self.model.module.model.final_conv[0].block[0].weight.clone()
+                        # print("weight diff: ", torch.sum(torch.abs(weight - new_weight)))
                         # self.amp_scaler.step(self.optimizer)
                         # self.amp_scaler.update()
                         # self.optimizer.zero_grad()
                         lr_scheduler.step()
-                        print("lr: ", lr_scheduler.get_last_lr()[0])
+                        # print("lr: ", lr_scheduler.get_last_lr()[0])
                         
                     t1_3 = time.time()
                     # update ema

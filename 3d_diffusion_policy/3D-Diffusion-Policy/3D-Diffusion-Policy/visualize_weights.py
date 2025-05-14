@@ -60,11 +60,10 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
     
     return env
 
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, cat_idx, exp_beg_idx=0,
-                          exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
-                          dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
-                          update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False, pos_ori_imp=False):
+def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_beg_idx=0,
+                          exp_end_idx=1000, exp_beg_ratio=None, exp_end_ratio=None,
+                          dataset_index=None, output_obj_pcd_only=False, obj_translation: Optional[list]= None, real_world_camera=False, noise_real_world_pcd=False,
+                          randomize_camera=False):
     if args.category_embedding_type == "siglip":
             siglip_text_features = torch.load("../siglip_text_features.pt")
     cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
@@ -72,9 +71,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         
         if dataset_index is not None:
             dataset_idx = dataset_index
-
-        # if dataset_idx == 0:
-        #     continue
         
         experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
         experiment_name = experiment_name
@@ -83,7 +79,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         all_experiments = sorted(all_experiments)
         
         if demo_experiment_path is not None:
-            # demo_experiment_path = demo_experiment_path[demo_experiment_path.find("RoboGen_sim2real/") + len("RoboGen_sim2real/"):]
             all_subfolder = os.listdir(demo_experiment_path)
             for string in ["action_dist", "demo_rgbs", "all_demo_path.txt", "meta_info.json", 'example_pointcloud']:
                 if string in all_subfolder:
@@ -92,11 +87,14 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             all_experiments = all_subfolder
 
         if exp_end_ratio is not None:
-            exp_end_idx = int(exp_end_ratio * len(config_files))
+            exp_end_idx = int(exp_end_ratio * len(all_experiments))
         if exp_beg_ratio is not None:
-            exp_beg_idx = int(exp_beg_ratio * len(config_files))
+            exp_beg_idx = int(exp_beg_ratio * len(all_experiments))
 
         all_experiments = all_experiments[exp_beg_idx:exp_end_idx]
+
+        cnt = 0
+        avg_error = []
 
         for experiment in all_experiments:
             if "meta" in experiment:
@@ -116,7 +114,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
-            
+            open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
             if 'stage' in stage_lengths:
                 reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
             else:
@@ -132,8 +130,13 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     object_name = config_dict['name'].lower()
 
             goal_stage = 'first'
-            frames = []
-            with tqdm(total=len(expert_states)) as pbar:
+
+            all_pointclouds = []
+            all_gripper_pcds = []
+            all_weights = []
+            all_outputs = []
+            all_errors = []
+            with tqdm(total=len(expert_states), desc=f"Processing {experiment}") as pbar:
                 for state_idx in range(len(expert_states)):
                     state_file = os.path.join(states_path, f"state_{state_idx}.pkl")
                     env = construct_env(cfg, config_file, "articulated", state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
@@ -148,9 +151,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
                         if args.category_embedding_type == "one_hot":
-                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float()
+                            cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float()
                         elif args.category_embedding_type == "siglip":
-                                cat_embedding = siglip_text_features[cat_idx].float()
+                            cat_embedding = siglip_text_features[cat_idx].float()
+                        else:
+                            cat_embedding = None
                         if not args.predict_two_goals:
                             inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
                         else:
@@ -196,28 +201,82 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
                         outputs = outputs.sum(dim=1)
                         outputs = outputs.unsqueeze(1)
-                        # visualize weights
-                        fig = plt.figure()
-                        ax = fig.add_subplot(111, projection='3d')
-                        pointcloud = pointcloud.squeeze(0).cpu().numpy()
-                        if pointcloud.shape[0] != weights[0].shape[0]:
-                            import pdb; pdb.set_trace()
-                        ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], c=weights[0].cpu().numpy(), cmap='seismic')
-                        ax.view_init(elev=24, azim=-117) 
-                        ax.axis("equal")
-                        ax.set_title("frame {}".format(state_idx))
-                        # plt.show()
-                        buf = BytesIO()
-                        plt.savefig(buf, format='png')
-                        buf.seek(0)
-                        frames.append(imageio.imread(buf))
-                        buf.close()
-                        plt.close()
+                        print(outputs.shape)
+
+                    # save data
+                    all_pointclouds.append(pointcloud.squeeze(0).cpu().numpy())
+                    all_gripper_pcds.append(gripper_pcd.squeeze(0,1).cpu().numpy())
+                    all_weights.append(weights[0].cpu().numpy())
+                    all_outputs.append(outputs.squeeze(0,1).cpu().numpy())
                     pbar.update(1)
-            gif_save_path = os.path.join(exp_folder, "weights_visualization.gif")
-            imageio.mimsave(gif_save_path, frames, duration=0.05)
-            print(f"GIF saved to {gif_save_path}")
-       
+    
+            goal_gripper_pcd_at_grasping = all_gripper_pcds[min(open_time_idx, len(all_gripper_pcds)-1)]
+            goal_gripper_pcd_at_end =  all_gripper_pcds[-1]
+
+            frames_weight = []
+            frames_goal = []
+            with tqdm(total=len(all_pointclouds), desc=f"Visualizing {experiment}") as pbar:
+                for idx, (pointcloud, weight, output) in enumerate(zip(all_pointclouds, all_weights, all_outputs)):
+                    goal_gripper_pcd = goal_gripper_pcd_at_grasping if idx < open_time_idx else goal_gripper_pcd_at_end
+                    all_errors.append(((output - goal_gripper_pcd) ** 2).sum(axis=1).mean().item())
+                    # visualize weights
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111, projection='3d')
+                    if pointcloud.shape[0] != weight.shape[0]:
+                        import pdb; pdb.set_trace()
+                    ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], c=weight, cmap='seismic')
+                    ax.view_init(elev=24, azim=-117) 
+                    ax.axis("equal")
+                    ax.set_title("frame {}".format(idx))
+                    # plt.show()
+                    buf = BytesIO()
+                    plt.savefig(buf, format='png')
+                    buf.seek(0)
+                    frames_weight.append(imageio.imread(buf))
+                    buf.close()
+                    plt.close()
+
+                    # visualize gripper pcd
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111, projection='3d')
+                    ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], color='lightgray', s=1, label='PointCloud')
+                    ax.scatter(output[:, 0], output[:, 1], output[:, 2], color='blue', s=30, label='Output')
+                    ax.scatter(goal_gripper_pcd[:, 0], goal_gripper_pcd[:, 1], goal_gripper_pcd[:, 2], color='green', s=30, label='Goal')
+                    ax.view_init(elev=24, azim=-117) 
+                    ax.axis("equal")
+                    ax.set_title("frame {}".format(idx))
+                    buf = BytesIO()
+                    plt.savefig(buf, format='png')
+                    buf.seek(0)
+                    frames_goal.append(imageio.imread(buf))
+                    buf.close()
+                    plt.close()
+                    pbar.update(1)
+
+            # save gif
+            if not os.path.exists(os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'weights_visualization')):
+                os.makedirs(os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'weights_visualization'))
+            gif_save_path = os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'weights_visualization', f'{cnt}.gif')
+            imageio.mimsave(gif_save_path, frames_weight, duration=0.05)
+            print(f"Weight GIF saved to {gif_save_path}")
+
+            if not os.path.exists(os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'goal_visualization')):
+                os.makedirs(os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'goal_visualization'))
+            gif_save_path = os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'goal_visualization', f'{cnt}.gif')
+            imageio.mimsave(gif_save_path, frames_goal, duration=0.05)
+            print(f"Goal GIF saved to {gif_save_path}")
+            # compute average error
+            avg_error.append(sum(all_errors) / len(all_errors))
+            cnt += 1
+        save_avg_error_path = os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}', 'error.json')
+        if not os.path.exists(os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}')):
+            os.makedirs(os.path.join(save_path, f'{experiment_path.split("/")[-4]}/{experiment_path.split("/")[-3]}'))
+        err_data = {
+            "avg": sum(avg_error) / len(avg_error),
+            "all_errors": avg_error,
+        }
+        with open(save_avg_error_path, 'w') as f:
+            json.dump(err_data, f, indent=4)
 
 if __name__ == "__main__":
     
@@ -242,7 +301,7 @@ if __name__ == "__main__":
     parser.add_argument('--pos_ori_imp', action='store_true', help='Set the flag for 10D representation Training')
     parser.add_argument('--exp_dir', type=str, help='Experiment directory')
     parser.add_argument('--num_categories', type=int, default=7)
-    parser.add_argument('--category_embedding_type', type=str, default="one_hot")
+    parser.add_argument('--category_embedding_type', type=str, default="none")
     args = parser.parse_args()
     
     num_worker = 30
@@ -394,6 +453,8 @@ if __name__ == "__main__":
         embedding_dim = args.num_categories
     elif args.category_embedding_type == "siglip":
         embedding_dim = 768
+    else:
+        embedding_dim = None
 
     if not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
@@ -435,19 +496,14 @@ if __name__ == "__main__":
     cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
     cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
     run_eval_non_parallel(
-            cfg, policy, pointnet2_model,
-            num_worker, save_path, cat_idx,
-            pool=pool, 
-            horizon=35,
+            cfg, pointnet2_model, save_path, cat_idx,
             exp_beg_idx=0,
             exp_end_idx=2,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
-            update_goal_freq=args.update_goal_freq,
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
             randomize_camera=args.randomize_camera,
-            pos_ori_imp=args.pos_ori_imp
     )
 
 

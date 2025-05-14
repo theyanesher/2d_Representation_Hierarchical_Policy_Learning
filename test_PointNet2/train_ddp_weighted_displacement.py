@@ -31,6 +31,8 @@ def train(args):
         embedding_dim = args.num_categories
     elif args.category_embedding_type == "siglip":
         embedding_dim = 768
+    else:
+        embedding_dim = None
 
     if args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
@@ -170,6 +172,8 @@ def train(args):
                 cat_embedding = torch.nn.functional.one_hot(cat_idx, num_classes=args.num_categories).float()
             elif args.category_embedding_type == "siglip":
                 cat_embedding = siglip_text_features[cat_idx].float()
+            else:
+                cat_embedding = None
             # inputs: B, N, 3
             # gripper_pcd: B, 4, 3
             # goal_gripper_points: B, 4, 3
@@ -286,7 +290,7 @@ def parse_args():
     parser.add_argument('--using_weight', type=int, default=1)
     parser.add_argument('--exp_name', type=str, default="")
     parser.add_argument('--num_categories', type=int, default=7)
-    parser.add_argument('--category_embedding_type', type=str, default="siglip")
+    parser.add_argument('--category_embedding_type', type=str, default="none")
     return parser.parse_args()
 
 
