@@ -148,7 +148,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         all_grasp_distances = []
 
         if args.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("../siglip_text_features.pt")
+            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt")
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
 
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
@@ -191,9 +191,9 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                             pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                             gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
                             if args.category_embedding_type == "one_hot":
-                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float()
+                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float().to(pointcloud.device)
                             elif args.category_embedding_type == "siglip":
-                                cat_embedding = siglip_text_features[cat_idx].float()
+                                cat_embedding = siglip_text_features[cat_idx].float().to(pointcloud.device)
                             else:
                                 cat_embedding = None
                             if not args.predict_two_goals:
@@ -423,7 +423,8 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['seuss_gen' for _ in range(1)]
+    exp_name = 'seuss_gen_random' if 'bucket' in args.exp_dir or 'laptop' in args.exp_dir or 'toilet' in args.exp_dir else 'seuss_gen'
+    cfg.task.env_runner.experiment_name = [exp_name for _ in range(1)]
     cfg.task.env_runner.experiment_folder = [
         args.exp_dir,
         # bucket_tasks
@@ -547,7 +548,7 @@ if __name__ == "__main__":
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     
-    save_path = "data/{}".format(args.eval_exp_name)
+    save_path = "data/{}/rollout".format(args.eval_exp_name)
     if args.noise is not None:
         save_path = "data/{}_{}_{}".format(args.eval_exp_name, args.noise[0], args.noise[1])
     if not os.path.exists(save_path):

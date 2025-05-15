@@ -65,7 +65,7 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
                           dataset_index=None, output_obj_pcd_only=False, obj_translation: Optional[list]= None, real_world_camera=False, noise_real_world_pcd=False,
                           randomize_camera=False):
     if args.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("../siglip_text_features.pt")
+            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt").to('cuda')
     cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
     for dataset_idx, (experiment_folder, experiment_name, demo_experiment_path) in enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name, cfg.task.env_runner.demo_experiment_path)):
         
