@@ -159,7 +159,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         all_grasp_distances = []
 
         if args.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("../siglip_text_features.pt")
+            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt").to('cuda')
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
 
         for exp_idx, (config_file, init_state_file, open_state_file, end_state_file) in enumerate(zip(config_files, init_state_files, open_state_files, end_state_files)):
