@@ -16,6 +16,7 @@ from scipy import ndimage
 import os
 import json
 from typing import Optional, List
+import open3d as o3d
 
 class SimpleEnv(gym.Env):
     def __init__(self, 
@@ -1261,24 +1262,34 @@ class SimpleEnv(gym.Env):
         num_handle_points_within_gripper = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_points)
         # cprint("num_handle_points_within_gripper: {}".format(num_handle_points_within_gripper), "red")
         distance_eef_to_handle = np.linalg.norm(self.handle_pos.flatten() - cur_eef_pos.flatten())
+        grasped_handle = False
         if num_handle_points_within_gripper > 0:
-            # left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
-            # right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
-            # distance_left = np.linalg.norm(handle_points - left_finger_pos.reshape(1, 3), axis=1)
-            # distance_right = np.linalg.norm(handle_points - right_finger_pos.reshape(1, 3), axis=1)
-            points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
-            points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
-            if len(points_left_finger) > 0 and len(points_right_finger) > 0:
-                contact_points_left = np.array([point[6] for point in points_left_finger])
-                contact_points_right = np.array([point[6] for point in points_right_finger])
-                left_distance = scipy.spatial.distance.cdist(handle_points, contact_points_left)
-                right_distance = scipy.spatial.distance.cdist(handle_points, contact_points_right)
-                min_distance_left = np.min(left_distance)
-                min_distance_right = np.min(right_distance)
-                # if min_distance_left < 0.015 and min_distance_right < 0.015:
-                if min_distance_left < 0.01 or min_distance_right < 0.01:
-                    grasped_handle = True
-                    self.grasped_handle = self.grasped_handle or grasped_handle
+            left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+            right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+            distance_left = np.linalg.norm(handle_points - left_finger_pos.reshape(1, 3), axis=1)
+            distance_right = np.linalg.norm(handle_points - right_finger_pos.reshape(1, 3), axis=1)
+            min_distance_left = np.min(distance_left)
+            min_distance_right = np.min(distance_right)
+            # print("min_distance_left: ", min_distance_left)
+            # print("min_distance_right: ", min_distance_right)
+            if min_distance_left < 0.015 or min_distance_right < 0.015:
+                grasped_handle = True
+                self.grasped_handle = self.grasped_handle or grasped_handle
+            # points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
+            # points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
+            # print("points_left_finger: ", points_left_finger)
+            # print("points_right_finger: ", points_right_finger)
+            # if len(points_left_finger) > 0 and len(points_right_finger) > 0:
+            #     contact_points_left = np.array([point[6] for point in points_left_finger])
+            #     contact_points_right = np.array([point[6] for point in points_right_finger])
+            #     left_distance = scipy.spatial.distance.cdist(handle_points, contact_points_left)
+            #     right_distance = scipy.spatial.distance.cdist(handle_points, contact_points_right)
+            #     min_distance_left = np.min(left_distance)
+            #     min_distance_right = np.min(right_distance)
+            #     # if min_distance_left < 0.015 and min_distance_right < 0.015:
+            #     if min_distance_left < 0.01 or min_distance_right < 0.01:
+            #         grasped_handle = True
+            #         self.grasped_handle = self.grasped_handle or grasped_handle
         
         right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
         left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
@@ -1291,6 +1302,7 @@ class SimpleEnv(gym.Env):
             "initial_joint_angle": self.init_joint_angle,
             "ik_failure": self.ik_failure,
             "grasped_handle": self.grasped_handle,
+            "current_grasped_handle": grasped_handle,
             "finger_distance": finger_distance, 
         }
 
@@ -1468,30 +1480,44 @@ class SimpleEnv(gym.Env):
         ### use subtraction to get the link mask
         max_num_diff_pixels = 0
         best_idx = 0
+        all_pc = []
         for idx, (depth, depth_) in enumerate(zip(depths, depths_link_invisible)):
             diff_image = np.abs(depth - depth_)
-            diff_pixels = np.sum(diff_image > 0)
+            mask = diff_image > 0
+            diff_pixels = np.sum(mask)
             if diff_pixels > max_num_diff_pixels:
                 max_num_diff_pixels = diff_pixels
                 best_idx = idx
-        best_mask = np.abs(depths[best_idx] - depths_link_invisible[best_idx]) > 0
-        # best_mask = np.any(best_mask)
+            pc = get_pc(projection_matrices[idx], view_matrices[idx], depths[idx], camera_width, camera_height)
+            pc = pc.reshape((camera_height, camera_width, 3))
+            pc_masked = pc[mask]
+            all_pc.append(pc_masked)
+        
+        all_pc = np.concatenate(all_pc, axis=0)
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(all_pc)
+        downsampled_pcd = pcd.voxel_down_sample(voxel_size=0.005)
+        all_pc = np.asarray(downsampled_pcd.points)
+
+        # best_mask = np.abs(depths[best_idx] - depths_link_invisible[best_idx]) > 0
+        # # best_mask = np.any(best_mask)
 
 
         ### get the link mask center
 
-        center = ndimage.measurements.center_of_mass(best_mask)
-        center = [int(center[0]), int(center[1])]
+        # center = ndimage.measurements.center_of_mass(best_mask)
+        # center = [int(center[0]), int(center[1])]
 
         ### back project the link mask center to get the link com in 3d coordinate
-        best_pc = get_pc(projection_matrices[best_idx], view_matrices[best_idx], depths[best_idx], camera_width, camera_height)
+        # best_pc = get_pc(projection_matrices[best_idx], view_matrices[best_idx], depths[best_idx], camera_width, camera_height)
 
         import imageio
         imageio.imwrite("img_invisible.png", img_invisible[best_idx])
-        pt_idx = center[0] * camera_width + center[1]
-        link_com = best_pc[pt_idx]
-        best_pc = best_pc.reshape((camera_height, camera_width, 3))
-        all_pc = best_pc[best_mask]
+        # pt_idx = center[0] * camera_width + center[1]
+        # link_com = best_pc[pt_idx]
+        # best_pc = best_pc.reshape((camera_height, camera_width, 3))
+        # best_pc = best_pc[best_mask]
 
         best_view_matrix = view_matrices[best_idx]
         best_projection_matrix = projection_matrices[best_idx]

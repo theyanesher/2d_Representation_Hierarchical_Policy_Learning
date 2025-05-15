@@ -14,6 +14,7 @@ import yaml
 import argparse
 from typing import Optional
 from collections import deque
+import pybullet as p
 
 def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=None, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
@@ -184,6 +185,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             # get stage 2 goal gripper pcd
             env = construct_env(cfg, config_file, "articulated", end_state_file, obj_translation, real_world_camera, noise_real_world_pcd,
                                 randomize_camera)
+            link_pos_at_end, link_orient_at_end = env.env._env.get_link_pose(object_name, link_name)
             obs = env.reset(object_name=object_name)
             env.env._env.close()
             goal_gripper_pcd_at_end = obs['gripper_pcd'][np.newaxis, np.newaxis, -1, :]
@@ -207,7 +209,22 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 for key in obs:
                     parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
 
-                np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else goal_gripper_pcd_at_end
+                current_link_pos, current_link_orient = env.env._env.get_link_pose(object_name, link_name)
+                inv_current_link_pos, inv_current_link_orient = p.invertTransform(current_link_pos, current_link_orient)
+                gripper_pcd = obs['gripper_pcd'][-1, :]
+                if goal_stage == 'second':
+                    transformed_goal_gripper_pcd = []
+                    for pt in gripper_pcd:
+                        pt, _ = p.multiplyTransforms(inv_current_link_pos, inv_current_link_orient, pt, [0, 0, 0, 1])
+                        pt, _ = p.multiplyTransforms(link_pos_at_end, link_orient_at_end, pt, [0, 0, 0, 1])
+                        transformed_goal_gripper_pcd.append(pt)
+                    transformed_goal_gripper_pcd = np.array(transformed_goal_gripper_pcd).reshape(1, 1, -1, 3).astype(np.float32)
+                    # print("transformed_goal_gripper_pcd: ", transformed_goal_gripper_pcd.dtype)
+                    # print("goal_gripper_pcd_at_end: ", goal_gripper_pcd_at_end.dtype)
+
+                # np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else goal_gripper_pcd_at_end
+                # print("info['grasped_handle']: ", info['grasped_handle'])
+                np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else transformed_goal_gripper_pcd if info['current_grasped_handle'].any() else goal_gripper_pcd_at_end
                 predicted_goal = torch.from_numpy(np_predicted_goal).to('cuda').repeat(1, 2, 1, 1)
                 if pos_ori_imp:
                     from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector

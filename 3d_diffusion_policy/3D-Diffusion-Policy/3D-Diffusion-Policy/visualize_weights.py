@@ -201,7 +201,7 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
                         outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
                         outputs = outputs.sum(dim=1)
                         outputs = outputs.unsqueeze(1)
-                        print(outputs.shape)
+                        # print(outputs.shape)
 
                     # save data
                     all_pointclouds.append(pointcloud.squeeze(0).cpu().numpy())
