@@ -44,6 +44,7 @@ foldingchair_tasks = [str(i) for i in foldingchair_tasks]
 laptop_tasks = [str(i) for i in laptop_tasks]
 stapler_tasks = [str(i) for i in stapler_tasks]
 toilet_tasks = [str(i) for i in toilet_tasks]
+# print(len(faucet_tasks)+len(bucket_tasks)+len(foldingchair_tasks)+len(laptop_tasks)+len(stapler_tasks)+len(toilet_tasks))
 
 
 

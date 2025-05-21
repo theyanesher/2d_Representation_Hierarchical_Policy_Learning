@@ -110,7 +110,7 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
     # create env
     
     env, _ =  build_up_env(config_path, env_name, render=render)
-    env.reset(object_name=object_name)
+    env.reset()
 
     if on_table:
         table_bbox_min, table_bbox_max = env.table_bbox_min, env.table_bbox_max
@@ -345,7 +345,7 @@ def _execute(q, config_path, env_name, solution_path, experiment_path, time_stri
     env.primitive_save_path = experiment_path
     np.random.seed(time.time_ns() % 2**32)
 
-    env.reset(object_name=object_name)
+    env.reset()
     rgbs, states = env.execute()
     p.disconnect(env.id)
     # execute the primitive from the environment to get the trajectory.

@@ -36,7 +36,7 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
                     horizon=600,
                     random_object_translation=obj_translation,
             )
-    env.reset(object_name=object_name)
+    env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, link_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                 gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
                                                 num_points=cfg.task.env_runner.num_point_in_pc,
@@ -178,7 +178,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             # get stage 1 goal gripper pcd
             env = construct_env(cfg, config_file, "articulated", open_state_file, obj_translation, real_world_camera, noise_real_world_pcd,
                                 randomize_camera)
-            obs = env.reset(object_name=object_name)
+            obs = env.reset()
             env.env._env.close()
             # print("goal gripper pcd: ", obs['gripper_pcd'].shape)
             goal_gripper_pcd_at_grasping = obs['gripper_pcd'][np.newaxis, np.newaxis, -1, :]
@@ -186,14 +186,14 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             env = construct_env(cfg, config_file, "articulated", end_state_file, obj_translation, real_world_camera, noise_real_world_pcd,
                                 randomize_camera)
             link_pos_at_end, link_orient_at_end = env.env._env.get_link_pose(object_name, link_name)
-            obs = env.reset(object_name=object_name)
+            obs = env.reset()
             env.env._env.close()
             goal_gripper_pcd_at_end = obs['gripper_pcd'][np.newaxis, np.newaxis, -1, :]
 
             env = construct_env(cfg, config_file, "articulated", init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                 randomize_camera)
             
-            obs = env.reset(object_name=object_name, open_gripper_at_reset=True)
+            obs = env.reset(open_gripper_at_reset=True)
             rgb = env.env.render()
             info = env.env._env._get_info(object_name=object_name, handle_name=env.env._env.handle_name, link_name=link_name)
 
@@ -372,7 +372,7 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['seuss_gen' for _ in range(1)]
+    cfg.task.env_runner.experiment_name = ['165-obj' for _ in range(1)]
     cfg.task.env_runner.experiment_folder = [
         args.exp_dir,
         # bucket_tasks

@@ -5,6 +5,7 @@ from omegaconf import OmegaConf
 from train_ddp import TrainDP3Workspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from manipulation.utils import build_up_env
+import numpy as np
 from copy import deepcopy
 from manipulation.robogen_wrapper import RobogenPointCloudWrapper
 from diffusion_policy_3d.gym_util.multistep_wrapper import MultiStepWrapper
@@ -40,7 +41,7 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
                     horizon=600,
                     random_object_translation=obj_translation,
             )
-    env.reset(object_name=object_name)
+    env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, link_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                 gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
                                                 num_points=cfg.task.env_runner.num_point_in_pc,
@@ -90,12 +91,9 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
             exp_end_idx = int(exp_end_ratio * len(all_experiments))
         if exp_beg_ratio is not None:
             exp_beg_idx = int(exp_beg_ratio * len(all_experiments))
-
-        all_experiments = all_experiments[exp_beg_idx:exp_end_idx]
-
-        cnt = 0
-        avg_error = []
-
+        
+        expert_opened_angles = []
+        selected_experiments = []
         for experiment in all_experiments:
             if "meta" in experiment:
                 continue
@@ -110,7 +108,27 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
             expert_states = os.listdir(states_path)
             if len(expert_states) == 0:
                 continue
-            
+                
+            expert_opened_angle_file = os.path.join(experiment_path, experiment, "opened_angle.txt")
+            if os.path.exists(expert_opened_angle_file):
+                with open(expert_opened_angle_file, "r") as f:
+                    angles = f.readlines()
+                    expert_opened_angle = float(angles[0].lstrip().rstrip())
+                    # max_angle = float(angles[-1].lstrip().rstrip())
+                    # ratio = expert_opened_angle / max_angle+0.001)
+                # if ratio < 0.65:
+                #     continue
+            expert_opened_angles.append(expert_opened_angle)
+            selected_experiments.append(experiment)
+        angle_threshold = np.quantile(expert_opened_angles, 0.1)
+        selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
+        all_experiments = [selected_experiments[i] for i in selected_idx]
+        all_experiments = all_experiments[exp_beg_idx:exp_end_idx]
+        print(f"Evaluating {len(all_experiments)} experiments: {all_experiments}")
+        cnt = 0
+        avg_error = []
+
+        for experiment in all_experiments:
             stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
@@ -142,7 +160,7 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
                     env = construct_env(cfg, config_file, "articulated", state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                     randomize_camera)
                     
-                    obs = env.reset(object_name=object_name)
+                    obs = env.reset()
                     env.env._env.close()
                     parallel_input_dict = dict_apply(obs, lambda x: torch.from_numpy(x).to('cuda'))
                     for key in obs:
@@ -216,7 +234,7 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
             frames_weight = []
             frames_goal = []
             with tqdm(total=len(all_pointclouds), desc=f"Visualizing {experiment}") as pbar:
-                for idx, (pointcloud, weight, output) in enumerate(zip(all_pointclouds, all_weights, all_outputs)):
+                for idx, (pointcloud, weight, output, gripper_pc) in enumerate(zip(all_pointclouds, all_weights, all_outputs, all_gripper_pcds)):
                     goal_gripper_pcd = goal_gripper_pcd_at_grasping if idx < open_time_idx else goal_gripper_pcd_at_end
                     all_errors.append(((output - goal_gripper_pcd) ** 2).sum(axis=1).mean().item())
                     # visualize weights
@@ -242,6 +260,7 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
                     ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], color='lightgray', s=1, label='PointCloud')
                     ax.scatter(output[:, 0], output[:, 1], output[:, 2], color='blue', s=30, label='Output')
                     ax.scatter(goal_gripper_pcd[:, 0], goal_gripper_pcd[:, 1], goal_gripper_pcd[:, 2], color='green', s=30, label='Goal')
+                    ax.scatter(gripper_pc[:, 0], gripper_pc[:, 1], gripper_pc[:, 2], color='red', s=30, label='Gripper PCD')
                     ax.view_init(elev=24, azim=-117) 
                     ax.axis("equal")
                     ax.set_title("frame {}".format(idx))
@@ -355,7 +374,7 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['seuss_gen_random' for _ in range(1)]
+    cfg.task.env_runner.experiment_name = ['165-obj' for _ in range(1)]
     cfg.task.env_runner.experiment_folder = [
         args.exp_dir,
         # bucket_tasks
@@ -498,7 +517,7 @@ if __name__ == "__main__":
     run_eval_non_parallel(
             cfg, pointnet2_model, save_path, cat_idx,
             exp_beg_idx=0,
-            exp_end_idx=2,
+            exp_end_idx=10,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
             real_world_camera=args.real_world_camera,

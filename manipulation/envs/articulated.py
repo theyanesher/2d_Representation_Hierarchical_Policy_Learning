@@ -36,14 +36,16 @@ class articulated(SimpleEnv):
         cur_angle = p.getJointState(self.urdf_ids[self.object_name], handle_joint_id, physicsClientId=self.id)[0]
         p.resetJointState(self.urdf_ids[self.object_name], handle_joint_id, cur_angle + angle, physicsClientId=self.id)
 
-    def reset(self, reset_state=None, object_name='StorageFurniture', open_gripper_at_reset=False):
+    def reset(self, reset_state=None, object_name=None, open_gripper_at_reset=False):
+        if object_name is None:
+            object_name = self.object_name
         super().reset(reset_state, object_name, open_gripper_at_reset)
         # if self.object_name == 'laptop':
         #     self.set_handle(angle=-np.pi/2)
         # if self.object_name == 'toilet':
         #     self.set_handle(angle=np.pi/6)
         if self.object_name == 'bucket' or self.object_name == 'laptop' or self.object_name == 'toilet':
-            if reset_state is None and self.init_angle is not None:
+            if reset_state is None and self.init_angle is not None and self.restore_state_file is None:
                 self.set_handle(angle=self.init_angle) 
             
 gym.register(
