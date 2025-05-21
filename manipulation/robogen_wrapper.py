@@ -26,7 +26,6 @@ class RobogenPointCloudWrapper:
     def __init__(self, 
                  env, 
                  object_name, 
-                 link_name,
                  rpy_mean_list=[[0, 0, -45], [0, 0, -135]], 
                  seed=None, 
                  in_gripper_frame=False,
@@ -62,7 +61,6 @@ class RobogenPointCloudWrapper:
 
         self._env = env
         self._object_name = object_name
-        self._link_name = link_name
         self.horizon = horizon
         self.record_all_observation = record_all_observation
         
@@ -224,14 +222,14 @@ class RobogenPointCloudWrapper:
             with open(goal_2_state, 'rb') as f:
                 goal_2_state = pickle.load(f)
             
-            self._env.reset(reset_state=goal_1_state, object_name=self._object_name)
+            self._env.reset(reset_state=goal_1_state)
             grasping_eef_pc = self.get_gripper_pc()
 
             # # Chialiang for dense goal pcd
             # eef_pos, eef_rot = self._env.robot.get_pos_orient(self._env.robot.right_end_effector)
             # self.grasping_goal_pose = get_matrix_from_pos_rot(eef_pos, eef_rot)
             
-            self._env.reset(reset_state=goal_2_state, object_name=self._object_name)
+            self._env.reset(reset_state=goal_2_state)
             final_eef_pc = self.get_gripper_pc()
             
             # # Chialiang for dense goal pcd
@@ -294,7 +292,7 @@ class RobogenPointCloudWrapper:
         try_times = 0
         # get handle point cloud
         # link_pc = get_link_pc(self._env, self._object_name, 'link_0')
-        all_handle_pos, _, _, _ = self._env.get_handle_pos(self._object_name, return_median=False, custom_joint_name=self._env.handle_name)
+        all_handle_pos, _, _, _ = self._env.get_handle_pos(return_median=False, custom_joint_name=self._env.handle_name)
         # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
         handle_pc = np.concatenate(all_handle_pos, axis=0)
         while try_times < 5000:
@@ -330,7 +328,7 @@ class RobogenPointCloudWrapper:
         if "act3d_goal" in self.observation_mode:
             self.grasped_handle = False
         self._env.reset(**kwargs)
-        self._env._get_info(object_name=self._object_name, handle_name=self._env.handle_name, link_name=self._link_name)
+        self._env._get_info()
         self.time_step = 0
         if "goal" in self.observation_mode:
             self.grasped_handle = False
@@ -343,7 +341,7 @@ class RobogenPointCloudWrapper:
         if handle_pc is None:
             # get handle point cloud
             # link_pc = get_link_pc(self._env, self._object_name, 'link_0')
-            all_handle_pos, _, _, _ = self._env.get_handle_pos(self._object_name, return_median=False, custom_joint_name=self._env.handle_name)
+            all_handle_pos, _, _, _ = self._env.get_handle_pos(return_median=False, custom_joint_name=self._env.handle_name)
             # handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc)
             handle_pc = np.concatenate(all_handle_pos, axis=0)
         pcs = []
@@ -524,7 +522,7 @@ class RobogenPointCloudWrapper:
         # end = time.time()
 
         # beg = time.time()
-        info = self._env._get_info(object_name=self._object_name, handle_name=self._env.handle_name, link_name=self._link_name)       
+        info = self._env._get_info()       
         done = self._env.time_step >= self.horizon
         # end = time.time()
         # cprint("compute reward & get info time {}".format(end - beg), "green")
@@ -612,7 +610,7 @@ class RobogenPointCloudWrapper:
                 
 
             if "displacement_to_handle" in self.observation_mode:
-                info = self._env._get_info(object_name=self._object_name, handle_name=self._env.handle_name, link_name=self._link_name)
+                info = self._env._get_info()
                 handle_pos = np.array(info['handle_pos'])
                 delta_to_handle = handle_pos.reshape(1, 3) - pc
                 feature_map = np.dstack([robot_mask, object_mask, pc.reshape(self.camera_height, self.camera_width, 3), delta_to_handle.reshape(self.camera_height, self.camera_width, 3)])

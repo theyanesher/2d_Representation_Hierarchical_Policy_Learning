@@ -56,7 +56,7 @@ def approach_object_link_parallel(simulator, object_name, link_name, debug=False
     pcd.estimate_normals()
     object_normal = np.asarray(pcd.normals)
 
-    all_handle_pos, handle_joint_id, axis_world, axis_end_world = simulator.get_handle_pos(object_name, return_median=False, custom_joint_name=simulator.handle_name)
+    all_handle_pos, handle_joint_id, axis_world, axis_end_world = simulator.get_handle_pos(return_median=False, custom_joint_name=simulator.handle_name)
     if simulator.robot_name == 'panda':
         threshold = 0.02
     elif simulator.robot_name == 'xarm':
@@ -284,7 +284,7 @@ def approach_object_link_parallel(simulator, object_name, link_name, debug=False
             f.write(str(best_opened_angle) + "\n")
             f.write(str(joint_limit_low) + "\n")
             f.write(str(joint_limit_high) + "\n")
-        simulator.reset(ori_simulator_state, object_name=object_name)
+        simulator.reset(ori_simulator_state)
         
         best_stage_length = all_stage_lengths[best_idx]
         with open(os.path.join(save_path, "stage_lengths.json"), "w") as f:
@@ -353,7 +353,7 @@ def reach_till_contact(simulator, real_target_pos, target_orientation, return_co
             
             if simulator.robot_name == "panda":
                 if len(intermediate_states) >= 3:
-                    simulator.reset(reset_state=intermediate_states[-3], object_name=simulator.object_name)
+                    simulator.reset(reset_state=intermediate_states[-3])
             # elif simulator.robot_name == "xarm": # NOTE: for x arm we need to back up more to account for the gripper lenght change when closed
             #     back_idx = max(0, len(intermediate_states) - 3)
             #     simulator.reset(reset_state=intermediate_states[back_idx])
@@ -541,7 +541,7 @@ def parallel_motion_planning(args):
         **env_kwargs
     )
     # load_env(simulator, state=ori_simulator_state)
-    simulator.reset(ori_simulator_state, object_name=object_name)
+    simulator.reset(ori_simulator_state)
     object_id = simulator.urdf_ids[object_name]
     # current_pos, current_orient = p.getBasePositionAndOrientation(object_id, physicsClientId=simulator.id)
     # print("current pos: ", current_pos)

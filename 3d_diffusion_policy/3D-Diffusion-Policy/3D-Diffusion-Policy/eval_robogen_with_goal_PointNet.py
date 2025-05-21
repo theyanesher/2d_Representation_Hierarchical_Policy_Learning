@@ -18,12 +18,9 @@ from collections import deque
 def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=None, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
     config = yaml.safe_load(open(config_file, "r"))
-    link_name = 'link_0'
     for config_dict in config:
         if 'name' in config_dict:
             object_name = config_dict['name'].lower()
-        if 'link_name' in config_dict:
-            link_name = config_dict['link_name']
     env, _ = build_up_env(
                     task_config=config_file,
                     env_name=env_name,
@@ -36,7 +33,7 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
                     random_object_translation=obj_translation,
             )
     env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, link_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
+    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                 gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
                                                 num_points=cfg.task.env_runner.num_point_in_pc,
                                                 use_joint_angle=cfg.task.env_runner.use_joint_angle, 
@@ -152,23 +149,13 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
 
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
-                
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-
-            link_name = 'link_0'
-            for config_dict in config:
-                if 'name' in config_dict:
-                    object_name = config_dict['name'].lower()
-                if 'link_name' in config_dict:
-                    link_name = config_dict['link_name']
 
             env = construct_env(cfg, config_file, "articulated", init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                 randomize_camera)
             
             obs = env.reset(open_gripper_at_reset=True)
             rgb = env.env.render()
-            info = env.env._env._get_info(object_name=object_name, handle_name=env.env._env.handle_name, link_name=link_name)
+            info = env.env._env._get_info()
 
             initial_info = info
             all_rgbs = [rgb]
