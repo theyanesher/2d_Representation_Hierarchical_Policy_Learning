@@ -7,6 +7,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from time import time
 import numpy as np
+from pointnet2_ops import pointnet2_utils
+
+def fps(data, number):
+    '''
+        data B N 3
+        number int
+    '''
+    fps_idx = pointnet2_utils.furthest_point_sample(data, number) 
+    fps_data = pointnet2_utils.gather_operation(data.transpose(1, 2).contiguous(), fps_idx).transpose(1,2).contiguous()
+    return fps_data
 
 def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))
@@ -270,7 +280,8 @@ class PointNetSetAbstractionMsg(nn.Module):
 
         B, N, C = xyz.shape
         S = self.npoint
-        new_xyz = index_points(xyz, farthest_point_sample(xyz, S, self.keep_gripper_in_fps))
+        # new_xyz = index_points(xyz, farthest_point_sample(xyz, S, self.keep_gripper_in_fps))
+        new_xyz = fps(xyz, S)
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
             K = self.nsample_list[i]
