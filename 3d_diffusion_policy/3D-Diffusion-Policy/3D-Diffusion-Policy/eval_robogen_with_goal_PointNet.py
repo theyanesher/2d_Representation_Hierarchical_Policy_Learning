@@ -327,7 +327,8 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 'grasped_handle': float(info['grasped_handle'][-1]),
                 "exp_idx": exp_idx, 
             }
-            gif_save_exp_name = experiment_folder.split("/")[-1] 
+            # gif_save_exp_name = experiment_folder.split("/")[-1] 
+            gif_save_exp_name = experiment_folder.split("/")[-2] + "/" + experiment_folder.split("/")[-1]
             gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)                 
             if not os.path.exists(gif_save_folder):
                 os.makedirs(gif_save_folder, exist_ok=True)
