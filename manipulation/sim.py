@@ -139,6 +139,7 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
+        self.oversized_joint_distance = False
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -790,6 +791,7 @@ class SimpleEnv(gym.Env):
             
 
         self.ik_failure = False
+        self.oversized_joint_distance = False
         
         if open_gripper_at_reset:
             print("open gripper initially!!!")
@@ -887,6 +889,7 @@ class SimpleEnv(gym.Env):
             action_index += agent_action_len
             translation = action[:3]
             rotation = action[3:6]
+            original_pos, original_orient = agent.get_pos_orient(agent.right_end_effector)
             finger_joint_angle = action[6]
             original_joint_angles = agent.get_joint_angles(agent.all_joint_indices)
 
@@ -899,43 +902,57 @@ class SimpleEnv(gym.Env):
             # agent.ik_ikpy_franka(pos, orient, ik_indices)
             # trying to use tracik
             # agent_joint_angles, ik_success = agent.ik_tracik_franka(pos, orient, ik_indices)
-            if not self.mobile and self.robot_name == 'panda':
-                tracIK_solutions = agent.ik_tracik_franka(pos, orient, ik_indices)
-            elif not self.mobile and self.robot_name == 'xarm':
-                tracIK_solutions = agent.ik_tracik_xarm(pos, orient, ik_indices)
-            else:
-                tracIK_solutions = []
-            # if not ik_success:
-            #     cprint("tracIK failed, maintain current joint angle", "red")
-            #     agent_joint_angles = original_joint_angles
-            
-            bullet_solutions = []
-            old_state = save_env(self)
-            ik_indices = [_ for _ in range(len(self.robot.right_arm_joint_indices))]
-            for try_idx in range(25):
-                if try_idx > 0: 
-                    new_joint_angles = original_joint_angles[ik_indices] + np.random.uniform(-0.3, 0.3, size=len(ik_indices))
-                    self.robot.set_joint_angles(ik_indices, new_joint_angles)
-
-                ik_joint_angles = self.robot.ik(self.robot.right_end_effector, pos, orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
+            for rescale_factor in [1, 0.8, 0.6, 0.4, 0.2, 0.1]:
+                rescaled_pos = original_pos + (pos - original_pos) * rescale_factor
+                rescaled_orient = p.getQuaternionSlerp(original_orient, orient, rescale_factor)
+                # print("pos: ", pos)
+                # print("orient: ", orient)
+                # print("ik_indices: ", ik_indices)
+                # print("original_joint_angles: ", original_joint_angles)
+                # print("finger_joint_angle: ", finger_joint_angle)
+                # import pdb; pdb.set_trace()
+                if not self.mobile and self.robot_name == 'panda':
+                    tracIK_solutions = agent.ik_tracik_franka(rescaled_pos, rescaled_orient, ik_indices)
+                elif not self.mobile and self.robot_name == 'xarm':
+                    tracIK_solutions = agent.ik_tracik_xarm(rescaled_pos, rescaled_orient, ik_indices)
+                else:
+                    tracIK_solutions = []
+                # if not ik_success:
+                #     cprint("tracIK failed, maintain current joint angle", "red")
+                #     agent_joint_angles = original_joint_angles
                 
-                if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
-                    bullet_solutions.append(ik_joint_angles)
+                bullet_solutions = []
+                old_state = save_env(self)
+                ik_indices = [_ for _ in range(len(self.robot.right_arm_joint_indices))]
+                for try_idx in range(25):
+                    if try_idx > 0: 
+                        new_joint_angles = original_joint_angles[ik_indices] + np.random.uniform(-0.3, 0.3, size=len(ik_indices))
+                        self.robot.set_joint_angles(ik_indices, new_joint_angles)
 
-            load_env(self, state = old_state)
-            all_possible_solutions = tracIK_solutions + bullet_solutions
-            if len(all_possible_solutions) > 0:
-                all_possible_solutions = np.array(all_possible_solutions).reshape(-1, len(ik_indices))
-                distance_to_cur_angle = np.linalg.norm(all_possible_solutions - original_joint_angles[agent.controllable_joint_indices].reshape(1, -1), axis=1)
-                min_idx = np.argmin(distance_to_cur_angle)
-                min_joint_distance = distance_to_cur_angle[min_idx]
-                best_joint_angles = all_possible_solutions[min_idx]
-                agent_joint_angles = best_joint_angles
-                ik_success = min_joint_distance < 0.3
-            else:
-                ik_success = False
+                    ik_joint_angles = self.robot.ik(self.robot.right_end_effector, rescaled_pos, rescaled_orient, ik_indices=ik_indices, max_iterations=10000, residualThreshold=1e-4)
+                    
+                    if np.all(ik_joint_angles >= self.robot.ik_lower_limits[ik_indices]) and np.all(ik_joint_angles <= self.robot.ik_upper_limits[ik_indices]):
+                        bullet_solutions.append(ik_joint_angles)
+
+                load_env(self, state = old_state)
+                all_possible_solutions = tracIK_solutions + bullet_solutions
+                ik_success = True
+                oversized_joint_distance = False
+                if len(all_possible_solutions) > 0:
+                    all_possible_solutions = np.array(all_possible_solutions).reshape(-1, len(ik_indices))
+                    distance_to_cur_angle = np.linalg.norm(all_possible_solutions - original_joint_angles[agent.controllable_joint_indices].reshape(1, -1), axis=1)
+                    min_idx = np.argmin(distance_to_cur_angle)
+                    min_joint_distance = distance_to_cur_angle[min_idx]
+                    best_joint_angles = all_possible_solutions[min_idx]
+                    agent_joint_angles = best_joint_angles
+                    oversized_joint_distance = min_joint_distance >= 0.3
+                else:
+                    ik_success = False
+                if ik_success or oversized_joint_distance:
+                    break
 
             self.ik_failure = (not ik_success) or self.ik_failure
+            self.oversized_joint_distance = oversized_joint_distance or self.oversized_joint_distance
             
             # agent_joint_angles = agent_joint_angles[ik_indices]
             it = 0
@@ -1266,15 +1283,31 @@ class SimpleEnv(gym.Env):
         if num_handle_points_within_gripper > 0:
             left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
             right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
-            distance_left = np.linalg.norm(handle_points - left_finger_pos.reshape(1, 3), axis=1)
-            distance_right = np.linalg.norm(handle_points - right_finger_pos.reshape(1, 3), axis=1)
-            min_distance_left = np.min(distance_left)
-            min_distance_right = np.min(distance_right)
-            # print("min_distance_left: ", min_distance_left)
-            # print("min_distance_right: ", min_distance_right)
-            if min_distance_left < 0.015 or min_distance_right < 0.015:
-                grasped_handle = True
-                self.grasped_handle = self.grasped_handle or grasped_handle
+            finger_vec = right_finger_pos - left_finger_pos
+            finger_length = np.linalg.norm(finger_vec)
+            
+            if finger_length < 1e-6:
+                grasped_handle = False  # Prevent division by zero if fingers overlap
+            else:
+                finger_dir = finger_vec / finger_length  # Unit direction vector of gripper axis
+
+                # Project handle points onto gripper axis to check if they are between fingers
+                vecs = handle_points - left_finger_pos
+                projections = np.dot(vecs, finger_dir)
+                between_mask = np.logical_and(projections > -0.01, projections < finger_length + 0.01)
+                handle_points_between_fingers = handle_points[between_mask]
+
+                if handle_points_between_fingers.shape[0] > 0:
+                    # Compute distances from these points to each finger
+                    distance_left = np.linalg.norm(handle_points_between_fingers - left_finger_pos.reshape(1, 3), axis=1)
+                    distance_right = np.linalg.norm(handle_points_between_fingers - right_finger_pos.reshape(1, 3), axis=1)
+                    min_distance_left = np.min(distance_left)
+                    min_distance_right = np.min(distance_right)
+
+                    # Use a more lenient threshold (0.025 instead of 0.015)
+                    if min_distance_left < 0.05 and min_distance_right < 0.05:
+                        grasped_handle = True
+                        self.grasped_handle = self.grasped_handle or grasped_handle
             # points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
             # points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
             # print("points_left_finger: ", points_left_finger)
@@ -1301,6 +1334,7 @@ class SimpleEnv(gym.Env):
             "handle_pos": self.handle_pos, 
             "initial_joint_angle": self.init_joint_angle,
             "ik_failure": self.ik_failure,
+            "oversized_joint_distance": self.oversized_joint_distance,
             "grasped_handle": self.grasped_handle,
             "current_grasped_handle": grasped_handle,
             "finger_distance": finger_distance, 

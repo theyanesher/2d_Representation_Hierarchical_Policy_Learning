@@ -105,7 +105,11 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
                 if not label['good_traj']: continue
                 
             states_path = os.path.join(exp_folder, "states")
-            expert_states = os.listdir(states_path)
+            if not os.path.exists(states_path):
+                continue
+            if len(os.listdir(states_path)) <= 1 or not os.path.exists(os.path.join(exp_folder, "all.gif")):
+                continue
+            expert_states = [f for f in os.listdir(states_path) if f.startswith("state")]
             if len(expert_states) == 0:
                 continue
                 
@@ -124,12 +128,16 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
         selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
         all_experiments = [selected_experiments[i] for i in selected_idx]
         all_experiments = all_experiments[exp_beg_idx:exp_end_idx]
-        print(f"Evaluating {len(all_experiments)} experiments: {all_experiments}")
+        # all_experiments = ['2025-05-13-08-46-19']
+        # print(f"Evaluating {len(all_experiments)} experiments: {all_experiments}")
         cnt = 0
         avg_error = []
 
         for experiment in all_experiments:
+            exp_folder = os.path.join(experiment_path, experiment)
+            states_path = os.path.join(exp_folder, "states")
             stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
+            expert_states = [f for f in os.listdir(states_path) if f.startswith("state")]
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
             open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
@@ -156,6 +164,10 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
             all_errors = []
             with tqdm(total=len(expert_states), desc=f"Processing {experiment}") as pbar:
                 for state_idx in range(len(expert_states)):
+                    pbar.update(1)
+                    if state_idx % 4 != 0:
+                        continue
+                    # print(f"Processing {state_idx}/{len(expert_states)}")
                     state_file = os.path.join(states_path, f"state_{state_idx}.pkl")
                     env = construct_env(cfg, config_file, "articulated", state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                     randomize_camera)
@@ -226,7 +238,7 @@ def run_eval_non_parallel(cfg, goal_prediction_model, save_path, cat_idx, exp_be
                     all_gripper_pcds.append(gripper_pcd.squeeze(0,1).cpu().numpy())
                     all_weights.append(weights[0].cpu().numpy())
                     all_outputs.append(outputs.squeeze(0,1).cpu().numpy())
-                    pbar.update(1)
+                    
     
             goal_gripper_pcd_at_grasping = all_gripper_pcds[min(open_time_idx, len(all_gripper_pcds)-1)]
             goal_gripper_pcd_at_end =  all_gripper_pcds[-1]

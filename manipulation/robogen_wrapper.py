@@ -215,7 +215,7 @@ class RobogenPointCloudWrapper:
             open_begin_t_idx = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper']
             all_time_steps = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door']
 
-            goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx))
+            goal_1_state = os.path.join(state_path, "state_{}.pkl".format(open_begin_t_idx - 1))
             goal_2_state = os.path.join(state_path, "state_{}.pkl".format(all_time_steps - 1))
             
             # NOTE: load the goal state, reset the robot to there, record the eef pose as the goal.

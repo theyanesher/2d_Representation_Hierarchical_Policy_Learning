@@ -104,7 +104,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 if not label['good_traj']: continue
                 
             states_path = os.path.join(exp_folder, "states")
-            expert_states = os.listdir(states_path)
+            if not os.path.exists(states_path):
+                continue
+            if len(os.listdir(states_path)) <= 1 or not os.path.exists(os.path.join(exp_folder, "all.gif")):
+                continue
+            expert_states = [f for f in os.listdir(states_path) if f.startswith("state")]
             if len(expert_states) == 0:
                 continue
                 
@@ -273,6 +277,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 "expert_door_joint_angle": expert_opened_angles[exp_idx], 
                 "initial_joint_angle": float(info['initial_joint_angle'][-1]),
                 "ik_failure": float(info['ik_failure'][-1]),
+                'oversized_joint_distance': float(info['oversized_joint_distance'][-1]),
                 'grasped_handle': float(info['grasped_handle'][-1]),
                 "exp_idx": exp_idx, 
             }
