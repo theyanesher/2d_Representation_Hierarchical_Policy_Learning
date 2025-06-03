@@ -77,7 +77,7 @@ class PbOMPLRobot():
             if not self.env.mobile:
                 if i in self.joint_idx:
                     if i != 9 and i != 10:
-                        delta = 0.05 * (high - low)
+                        delta = 0.01 * (high - low)
                         low += delta
                         high -= delta
 

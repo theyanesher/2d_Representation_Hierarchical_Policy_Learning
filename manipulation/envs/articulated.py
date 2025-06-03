@@ -260,6 +260,7 @@ class articulated(SimpleEnv):
             "handle_pos": self.handle_pos, 
             "initial_joint_angle": self.init_joint_angle,
             "ik_failure": self.ik_failure,
+            "oversized_joint_distance": self.oversized_joint_distance,
             "grasped_handle": self.grasped_handle,
             "current_grasped_handle": grasped_handle,
             "finger_distance": finger_distance, 

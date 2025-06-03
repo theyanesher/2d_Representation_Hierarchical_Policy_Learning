@@ -35,8 +35,8 @@ def train(args):
         embedding_dim = None
 
     if args.model_transormer:
-        from test_PointNet2.model_transformer import PointTransformer_super 
-        model = PointTransformer_super(num_classes=output_dim, input_channel=input_channel).to(device)
+        from test_PointNet2.ptv3.highlevel_ptv3 import HighlevelPTv3 
+        model = HighlevelPTv3(num_classes=output_dim, grid_size=0.02).to(device)
     elif args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
         from test_PointNet2.model_invariant import PointNet2

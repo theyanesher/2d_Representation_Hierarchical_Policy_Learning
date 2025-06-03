@@ -422,7 +422,13 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
-        if num_train_objects == 'articulated':
+        if num_train_objects == 'test_5':
+            data_name = [save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4]
+            all_obj_paths = [
+                "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+            ]
+            
+        elif num_train_objects == 'articulated':
             data_name = [
                 save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
                 save_data_name_10, save_data_name_11, save_data_name_12, save_data_name_13, save_data_name_14, save_data_name_15, save_data_name_16, save_data_name_17, save_data_name_18, save_data_name_19,

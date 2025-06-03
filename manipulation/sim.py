@@ -139,6 +139,7 @@ class SimpleEnv(gym.Env):
         self.control_rgbs = []
         self.init_joint_angle = None
         self.ik_failure = False
+        self.oversized_joint_distance = False
         
     def normalize_position(self, pos):
         if self.translation_mode == 'normalized-direct-translation':
@@ -790,6 +791,7 @@ class SimpleEnv(gym.Env):
             
 
         self.ik_failure = False
+        self.oversized_joint_distance = False
         
         if open_gripper_at_reset:
             print("open gripper initially!!!")
@@ -934,6 +936,8 @@ class SimpleEnv(gym.Env):
 
                 load_env(self, state = old_state)
                 all_possible_solutions = tracIK_solutions + bullet_solutions
+                ik_success = True
+                oversized_joint_distance = False
                 if len(all_possible_solutions) > 0:
                     all_possible_solutions = np.array(all_possible_solutions).reshape(-1, len(ik_indices))
                     distance_to_cur_angle = np.linalg.norm(all_possible_solutions - original_joint_angles[agent.controllable_joint_indices].reshape(1, -1), axis=1)
@@ -941,13 +945,14 @@ class SimpleEnv(gym.Env):
                     min_joint_distance = distance_to_cur_angle[min_idx]
                     best_joint_angles = all_possible_solutions[min_idx]
                     agent_joint_angles = best_joint_angles
-                    ik_success = min_joint_distance < 0.3
+                    oversized_joint_distance = min_joint_distance >= 0.3
                 else:
                     ik_success = False
-                if ik_success:
+                if ik_success and not oversized_joint_distance:
                     break
 
             self.ik_failure = (not ik_success) or self.ik_failure
+            self.oversized_joint_distance = oversized_joint_distance or self.oversized_joint_distance
             
             # agent_joint_angles = agent_joint_angles[ik_indices]
             it = 0

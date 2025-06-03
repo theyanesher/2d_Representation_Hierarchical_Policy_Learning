@@ -14,8 +14,10 @@ import yaml
 import argparse
 from typing import Optional
 from collections import deque
-import pybullet as p
-from tqdm import tqdm
+from manipulation.utils import save_env
+import time
+import datetime
+import pickle
 
 def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=None, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
@@ -75,8 +77,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         #     continue
 
         init_state_files = []
-        open_state_files = []
-        end_state_files = []
         config_files = []
         experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
         experiment_name = experiment_name
@@ -127,14 +127,9 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
-            open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+                
             init_state_file = os.path.join(states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
-            open_state_file = os.path.join(states_path, "state_{}.pkl".format(open_time_idx))
-            open_state_files.append(open_state_file)
-            end_state_file = os.path.join(states_path, "state_{}.pkl".format(open_time_idx + stage_lengths['open_door'] - 1))
-            end_state_files.append(end_state_file)
-
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
             config_files.append(config_file)
                     
@@ -151,24 +146,20 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
         config_files = [config_files[i] for i in selected_idx]
         init_state_files = [init_state_files[i] for i in selected_idx]
-        open_state_files = [open_state_files[i] for i in selected_idx]
-        end_state_files = [end_state_files[i] for i in selected_idx]
         expert_opened_angles = [expert_opened_angles[i] for i in selected_idx]
 
         config_files = config_files[exp_beg_idx:exp_end_idx]
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
-        open_state_files = open_state_files[exp_beg_idx:exp_end_idx]
-        end_state_files = end_state_files[exp_beg_idx:exp_end_idx]
         expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
         # import pdb; pdb.set_trace()
         all_distances = []
         all_grasp_distances = []
 
         if args.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt").to('cuda')
+            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt")
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
 
-        for exp_idx, (config_file, init_state_file, open_state_file, end_state_file) in enumerate(zip(config_files, init_state_files, open_state_files, end_state_files)):
+        for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
                 
             with open(config_file, 'r') as f:
                 config = yaml.safe_load(f)
@@ -180,27 +171,15 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 if 'link_name' in config_dict:
                     link_name = config_dict['link_name']
 
-            # get stage 1 goal gripper pcd
-            env = construct_env(cfg, config_file, "articulated", open_state_file, obj_translation, real_world_camera, noise_real_world_pcd,
-                                randomize_camera)
-            obs = env.reset()
-            env.env._env.close()
-            # print("goal gripper pcd: ", obs['gripper_pcd'].shape)
-            goal_gripper_pcd_at_grasping = obs['gripper_pcd'][np.newaxis, np.newaxis, -1, :]
-            # get stage 2 goal gripper pcd
-            env = construct_env(cfg, config_file, "articulated", end_state_file, obj_translation, real_world_camera, noise_real_world_pcd,
-                                randomize_camera)
-            link_pos_at_end, link_orient_at_end = env.env._env.get_link_pose(object_name, link_name)
-            obs = env.reset()
-            env.env._env.close()
-            goal_gripper_pcd_at_end = obs['gripper_pcd'][np.newaxis, np.newaxis, -1, :]
-
             env = construct_env(cfg, config_file, "articulated", init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                 randomize_camera)
             
             obs = env.reset(open_gripper_at_reset=True)
+            states = []
+            state = save_env(env.env._env)
+            states.append(state)
             rgb = env.env.render()
-            info = env.env._env._get_info()
+            info = env.env._env._get_info(object_name=object_name, handle_name=env.env._env.handle_name, link_name=link_name)
 
             initial_info = info
             all_rgbs = [rgb]
@@ -208,66 +187,144 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             first_step_outputs = None
             gripper_close_accumulation_buffer = deque(maxlen=5)
             last_goal = None
-            with tqdm(total=horizon) as pbar:
-                for t in range(1, horizon):
-                    parallel_input_dict = obs
-                    parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
-                    for key in obs:
-                        parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
+            for t in range(1, horizon):
+                parallel_input_dict = obs
+                parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
+                
+                # print("step: ", t)
+                
+                for key in obs:
+                    parallel_input_dict[key] = parallel_input_dict[key].unsqueeze(0)
+                
+                if t == 1 or (not args.predict_two_goals):
+                    if t == 1 or t % update_goal_freq == 0:
+                        with torch.no_grad():
+                            pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
+                            gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                            if args.category_embedding_type == "one_hot":
+                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float().to(pointcloud.device)
+                            elif args.category_embedding_type == "siglip":
+                                cat_embedding = siglip_text_features[cat_idx].float().to(pointcloud.device)
+                            else:
+                                cat_embedding = None
+                            if not args.predict_two_goals:
+                                inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
+                            else:
+                                inputs = pointcloud
+                                
+                            if args.add_one_hot_encoding:
+                                # for pointcloud, we add (1, 0)
+                                # for gripper_pcd, we add (0, 1)
+                                pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2).float().to(pointcloud.device)
+                                pointcloud_one_hot[:, :, 0] = 1
+                                pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
+                                gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2).float().to(pointcloud.device)
+                                gripper_pcd_one_hot[:, :, 1] = 1
+                                gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
+                                inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
+                                
+                            inputs = inputs.to('cuda')
+                            inputs_ = inputs.permute(0, 2, 1)
+                            outputs = goal_prediction_model(inputs_, cat_embedding)
+                            weights = outputs[:, :, -1] # B, N
+                            outputs = outputs[:, :, :-1] # B, N, 12
+                            if output_obj_pcd_only:
+                                # cprint("using only obj pcd output!", "red")
+                                weights = weights[:, :-4]
+                                outputs = outputs[:, :-4, :]
+                                inputs = inputs[:, :-4, :]
 
-                    current_link_pos, current_link_orient = env.env._env.get_link_pose(object_name, link_name)
-                    inv_current_link_pos, inv_current_link_orient = p.invertTransform(current_link_pos, current_link_orient)
-                    gripper_pcd = obs['gripper_pcd'][-1, :]
-                    if goal_stage == 'second':
-                        transformed_goal_gripper_pcd = []
-                        for pt in gripper_pcd:
-                            pt, _ = p.multiplyTransforms(inv_current_link_pos, inv_current_link_orient, pt, [0, 0, 0, 1])
-                            pt, _ = p.multiplyTransforms(link_pos_at_end, link_orient_at_end, pt, [0, 0, 0, 1])
-                            transformed_goal_gripper_pcd.append(pt)
-                        transformed_goal_gripper_pcd = np.array(transformed_goal_gripper_pcd).reshape(1, 1, -1, 3).astype(np.float32)
-                        # print("transformed_goal_gripper_pcd: ", transformed_goal_gripper_pcd.dtype)
-                        # print("goal_gripper_pcd_at_end: ", goal_gripper_pcd_at_end.dtype)
-
-                    # np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else goal_gripper_pcd_at_end
-                    # print("info['grasped_handle']: ", info['grasped_handle'])
-                    np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else transformed_goal_gripper_pcd if info['current_grasped_handle'].any() else goal_gripper_pcd_at_end
-                    predicted_goal = torch.from_numpy(np_predicted_goal).to('cuda').repeat(1, 2, 1, 1)
-                    if pos_ori_imp:
-                        from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
-                        #import pdb; pdb.set_trace();
-                        predicted_goal = predicted_goal.reshape(-1,4,3)
-                        predicted_goal = torch.from_numpy(gripper_pcd_to_10d_vector(predicted_goal.cpu().numpy())).to(torch.float32).cuda()
-                        predicted_goal = predicted_goal.reshape(1,-1,10)
-                        
-                        parallel_input_dict['goal_gripper_10d_repr'] = predicted_goal
+                            B, N, _ = outputs.shape
+                            if not args.predict_two_goals:
+                                outputs = outputs.view(B, N, 4, 3)
+                            else:
+                                outputs = outputs.view(B, N, 8, 3)
+                                if first_step_outputs is None:
+                                    first_step_outputs = deepcopy(outputs)
+                                    
+                                if goal_stage == 'first':
+                                    outputs = outputs[:, :, :4, :]
+                                elif goal_stage == 'second':
+                                    outputs = outputs[:, :, 4:, :]
+                                    
+                            outputs = outputs + inputs[:, :, :3].unsqueeze(2)
+                            weights = torch.nn.functional.softmax(weights, dim=1)
+                            outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                            outputs = outputs.sum(dim=1)
+                            outputs = outputs.unsqueeze(1)
+                            # visualize weights
+                            # import matplotlib.pyplot as plt
+                            # fig = plt.figure()
+                            # ax = fig.add_subplot(111, projection='3d')
+                            # pointcloud = pointcloud.squeeze(0).cpu().numpy()
+                            # print("pointcloud: ", pointcloud.shape)
+                            # print("weights: ", weights[0].shape)
+                            # if pointcloud.shape[0] != weights[0].shape[0]:
+                            #     import pdb; pdb.set_trace()
+                            # ax.scatter(pointcloud[:, 0], pointcloud[:, 1], pointcloud[:, 2], c=weights[0].cpu().numpy(), cmap='seismic')
+                            # ax.view_init(elev=24, azim=-117) 
+                            # ax.axis("equal")
+                            # plt.show()
+                        last_goal = outputs
                     else:
-                        parallel_input_dict['goal_gripper_pcd'] = predicted_goal
-
-                    with torch.no_grad():
-                        batched_action = policy.predict_action(parallel_input_dict)
-                        gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
-                        gripper_close_accumulation_buffer.append(np.sum(gripper_close_actions))
-                        if np.sum(gripper_close_accumulation_buffer) < -0.006:
-                            # cprint("changing goal!", 'red')
-                            goal_stage = 'second'
-                                        
-                    np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
-                    np_batched_action = np_batched_action['action']
+                        outputs = last_goal
+                        
+                else:
+                    outputs = first_step_outputs
+                    if goal_stage == 'first':
+                        outputs = outputs[:, :, :4, :]
+                    elif goal_stage == 'second':
+                        outputs = outputs[:, :, 4:, :]
+                            
+                    outputs = outputs + inputs.unsqueeze(2)
+                    weights = torch.nn.functional.softmax(weights, dim=1)
+                    outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+                    outputs = outputs.sum(dim=1)
+                    outputs = outputs.unsqueeze(1)
                     
-                    obs, reward, done, info = env.step(np_batched_action.squeeze(0))
-                    if calculate_distance_from_gt:
-                        predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
-                        gt_goal = env.env.goal_gripper_pcd
-                        import pdb; pdb.set_trace()
-                        distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
-                        all_distances.append(distance)
-                        grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
-                        all_grasp_distances.append(grasp_distance)
-                        break
-                    env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
-                    rgb = env.env.render()
-                    all_rgbs.append(rgb)
-                    pbar.update(1)
+                np_predicted_goal = outputs.detach().to('cpu').numpy()
+                
+                predicted_goal = outputs.repeat(1, 2, 1, 1)
+
+                #parallel_input_dict['goal_gripper_pcd'] = predicted_goal
+                if pos_ori_imp:
+                    from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
+                    #import pdb; pdb.set_trace();
+                    predicted_goal = predicted_goal.reshape(-1,4,3)
+                    predicted_goal = torch.from_numpy(gripper_pcd_to_10d_vector(predicted_goal.cpu().numpy())).to(torch.float32).cuda()
+                    predicted_goal = predicted_goal.reshape(1,-1,10)
+                    
+                    parallel_input_dict['goal_gripper_10d_repr'] = predicted_goal
+                else:
+                    parallel_input_dict['goal_gripper_pcd'] = predicted_goal
+                #import pdb; pdb.set_trace()
+                with torch.no_grad():
+                    batched_action = policy.predict_action(parallel_input_dict)
+                    gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
+                    gripper_close_accumulation_buffer.append(np.sum(gripper_close_actions))
+                    if np.sum(gripper_close_accumulation_buffer) < -0.006:
+                        # cprint("changing goal!", 'red')
+                        goal_stage = 'second'
+                    
+                    
+                np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
+                np_batched_action = np_batched_action['action']
+                
+                obs, reward, done, info = env.step(np_batched_action.squeeze(0))
+                state = save_env(env.env._env)
+                states.append(state)
+                if calculate_distance_from_gt:
+                    predicted_goal = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
+                    gt_goal = env.env.goal_gripper_pcd
+                    import pdb; pdb.set_trace()
+                    distance = np.linalg.norm(predicted_goal - gt_goal, axis=1).mean()
+                    all_distances.append(distance)
+                    grasp_distance = np.linalg.norm(predicted_goal[-1] - gt_goal[-1])
+                    all_grasp_distances.append(grasp_distance)
+                    break
+                env.env.goal_gripper_pcd = np_predicted_goal.squeeze(0)[0].reshape(4, 3)
+                rgb = env.env.render()
+                all_rgbs.append(rgb)
             
             env.env._env.close()
 
@@ -293,9 +350,27 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             with open("{}/opened_joint_angles.json".format(gif_save_folder), "w") as f:
                 json.dump(opened_joint_angles, f, indent=4)
    
-            gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
-                    float(info["improved_joint_angle"][-1]))
+            
+            ts = time.time()
+            time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
+            experiment_save_path = "{}/{}_rollout".format(gif_save_folder, time_string)
+            # save config
+            if not os.path.exists(experiment_save_path):
+                os.makedirs(experiment_save_path, exist_ok=True)
+            with open("{}/task_config.yaml".format(experiment_save_path), "w") as f:
+                yaml.dump(config, f, default_flow_style=False)
+            # save states
+            states_save_path = "{}/states".format(experiment_save_path)
+            if not os.path.exists(states_save_path):
+                os.makedirs(states_save_path, exist_ok=True)
+            for i, state in enumerate(states):
+                state_save_path = "{}/state_{}.pkl".format(states_save_path, i)
+                with open(state_save_path, 'wb') as f:
+                    pickle.dump(state, f, pickle.HIGHEST_PROTOCOL)
+            # save rgb
+            gif_save_path = "{}/all.gif".format(experiment_save_path)
             save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+
 
         if calculate_distance_from_gt:
             print("average distance: {}".format(np.mean(all_distances)))
@@ -505,7 +580,7 @@ if __name__ == "__main__":
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     
-    save_path = "data/{}".format(args.eval_exp_name)
+    save_path = "data/{}/rollout".format(args.eval_exp_name)
     if args.noise is not None:
         save_path = "data/{}_{}_{}".format(args.eval_exp_name, args.noise[0], args.noise[1])
     if not os.path.exists(save_path):
