@@ -422,31 +422,59 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
-        if num_train_objects == 'articulated':
+        if num_train_objects == 'test_5':
+            data_name = [save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4]
+            all_obj_paths = [
+                "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+            ]
+            
+        elif num_train_objects == 'articulated':
             data_name = [
-                save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4, save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
-                "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
-                "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102365",
-                
-                # faucet
-                "faucet_148", "faucet_149", "faucet_152", "faucet_153", "faucet_154",
-                "faucet_168", "faucet_811", "faucet_857", "faucet_960", "faucet_991",
-                
-                # foldingchair
-                "foldingchair_100520", "foldingchair_100521", "foldingchair_100526", "foldingchair_100562", "foldingchair_100586",
-                "foldingchair_100590", "foldingchair_100599", "foldingchair_102263", "foldingchair_102269", "foldingchair_102314",
-                
-                # laptop
-                "laptop_9748", "laptop_9912", "laptop_9960", "laptop_9968", "laptop_9992",
-                "laptop_9996", "laptop_10040", "laptop_10098", "laptop_10101", "laptop_10238",
-                
-                # stapler
-                "stapler_103095", "stapler_103099", "stapler_103100", "stapler_103104", "stapler_103111",
-                "stapler_103292", "stapler_103293", "stapler_103297", "stapler_103299", "stapler_103301",
-                
-                # toilet
-                "toilet_101320", "toilet_102621", "toilet_102622", "toilet_102630", "toilet_102634",
-                "toilet_102645", "toilet_102648", "toilet_102651", "toilet_102652", "toilet_102658",
+                save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
+                save_data_name_10, save_data_name_11, save_data_name_12, save_data_name_13, save_data_name_14, save_data_name_15, save_data_name_16, save_data_name_17, save_data_name_18, save_data_name_19,
+                save_data_name_20, save_data_name_21, save_data_name_22, save_data_name_23, save_data_name_24, save_data_name_25, save_data_name_26, save_data_name_27, save_data_name_28, save_data_name_29,
+                save_data_name_30, save_data_name_31, save_data_name_32, save_data_name_33, save_data_name_34, save_data_name_35, save_data_name_36, save_data_name_37, save_data_name_38, save_data_name_39,
+                save_data_name_40, save_data_name_41, save_data_name_42, save_data_name_43, save_data_name_44, save_data_name_45, save_data_name_46, save_data_name_47, save_data_name_48, save_data_name_49,
+                # Bucket
+                "bucket_100443", "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
+                "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102358", "bucket_102365",
+
+                # Faucet
+                "faucet_148", "faucet_152", "faucet_153", "faucet_154", "faucet_168", "faucet_811", "faucet_822",
+                "faucet_857", "faucet_908", "faucet_929", "faucet_1028", "faucet_1052", "faucet_1053", "faucet_1288",
+                "faucet_1343", "faucet_1370", "faucet_1466", "faucet_1492", "faucet_1528", "faucet_1626", "faucet_1633",
+                "faucet_1646", "faucet_1668", "faucet_1741", "faucet_1794", "faucet_1795", "faucet_1802", "faucet_1885",
+                "faucet_1901", "faucet_1903", "faucet_1925", "faucet_1961", "faucet_1986", "faucet_2054",
+
+                # Foldingchair
+                "foldingchair_100531", "foldingchair_100532", "foldingchair_100557", "foldingchair_100561",
+                "foldingchair_100562", "foldingchair_100568", "foldingchair_100579", "foldingchair_100586",
+                "foldingchair_100590", "foldingchair_100599", "foldingchair_100600", "foldingchair_100608",
+                "foldingchair_100609", "foldingchair_100611", "foldingchair_100616", "foldingchair_102255",
+                "foldingchair_102263", "foldingchair_102269", "foldingchair_102314",
+
+                # Laptop
+                "laptop_9968", "laptop_9992", "laptop_9996", "laptop_10040", "laptop_10098", "laptop_10101",
+                "laptop_10238", "laptop_10243", "laptop_10248", "laptop_10269", "laptop_10270", "laptop_10280",
+                "laptop_10289", "laptop_10305", "laptop_10306", "laptop_10383", "laptop_10626", "laptop_10697",
+                "laptop_10885", "laptop_10915", "laptop_11075", "laptop_11156", "laptop_11242", "laptop_11248",
+                "laptop_11395", "laptop_11405", "laptop_11406", "laptop_11429", "laptop_11477", "laptop_11581",
+                "laptop_11586", "laptop_11691", "laptop_11778", "laptop_11876", "laptop_11888", "laptop_11945",
+                "laptop_12073",
+
+                # Stapler
+                "stapler_103099", "stapler_103100", "stapler_103104", "stapler_103111", "stapler_103113",
+                "stapler_103271", "stapler_103275", "stapler_103276", "stapler_103280", "stapler_103292",
+                "stapler_103293", "stapler_103297", "stapler_103299", "stapler_103301", "stapler_103303",
+                "stapler_103305", "stapler_103789", "stapler_103792",
+
+                # Toilet
+                "toilet_102622", "toilet_102630", "toilet_102634", "toilet_102645", "toilet_102648",
+                "toilet_102651", "toilet_102652", "toilet_102654", "toilet_102658", "toilet_102663",
+                "toilet_102666", "toilet_102667", "toilet_102668", "toilet_102669", "toilet_102670",
+                "toilet_102675", "toilet_102676", "toilet_102677", "toilet_102687", "toilet_102689",
+                "toilet_102692", "toilet_102694", "toilet_102697", "toilet_102699", "toilet_102701",
+                "toilet_102703", "toilet_102707", "toilet_102708", "toilet_103234"
             ]
             all_obj_paths = [
                 "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
