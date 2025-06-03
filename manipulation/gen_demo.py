@@ -190,7 +190,7 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
 
         
         # ensure the handle is not too far away from the robot base
-        info = env._get_info(env.object_name, env.handle_name, env.link_name)
+        info = env._get_info()
         handle_joint_id = env.handle_joint
         handle_pos = info['handle_pos']
         robot_base = p.getBasePositionAndOrientation(env.robot.body, physicsClientId=env.id)[0]

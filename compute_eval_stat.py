@@ -5,7 +5,7 @@ eval_result_path = 'data/0520_low_level_70-obj_finetune_unlimited/'
 
 bucket_tasks = [100435, 100441]
 faucet_tasks = [149, 960, 991]
-foldingchair_tasks = [100520, 100526]
+foldingchair_tasks = [100520, 100521, 100526]
 laptop_tasks = [9748, 9912, 9960]
 stapler_tasks = [102990, 103095]
 toilet_tasks = [101320, 102620, 102621]

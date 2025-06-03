@@ -42,7 +42,7 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
                     random_object_translation=obj_translation,
             )
     env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, link_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
+    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                 gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
                                                 num_points=cfg.task.env_runner.num_point_in_pc,
                                                 use_joint_angle=cfg.task.env_runner.use_joint_angle, 

@@ -113,12 +113,9 @@ def extract_pc_states_for_all_trajectories(pool_args):
             filter_obs_pcd_plane = get_filter_obs_pcd_plane(task_config_path, solution_path, first_step, object_name, handle_length_offset=handle_length_offset)
 
         config = yaml.safe_load(open(task_config_path, "r"))
-        link_name = 'link_0'
         for config_dict in config:
             if 'name' in config_dict:
                 object_name = config_dict['name'].lower()
-            if 'link_name' in config_dict:
-                link_name = config_dict['link_name']
 
         simulator, _ = build_up_env(
             task_config=task_config_path,
@@ -129,7 +126,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
             obj_id=0,
         )
         simulator = RobogenPointCloudWrapper(simulator, 
-            object_name, link_name, seed=0,
+            object_name, seed=0,
             gripper_num_points=gripper_num_points, add_contact=add_contact, num_points=args.pointcloud_num,
             use_segmask=args.use_segmask, only_handle_points=args.only_handle_points,
             observation_mode=args.observation_mode, record_all_observation=False, 
@@ -166,7 +163,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
                 #     print("extracting step {}".format(t_idx), flush=True)
                 load_env(simulator._env, load_path=state)
                 
-                info = simulator._env._get_info(object_name, simulator._env.handle_name, link_name)
+                info = simulator._env._get_info()
                 joint_angle = info['opened_joint_angle']
                 door_joint_angles.append(joint_angle)
                 

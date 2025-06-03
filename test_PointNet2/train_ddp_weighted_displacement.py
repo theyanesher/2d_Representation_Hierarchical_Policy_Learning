@@ -34,7 +34,10 @@ def train(args):
     else:
         embedding_dim = None
 
-    if args.model_invariant:
+    if args.model_transormer:
+        from test_PointNet2.model_transformer import PointTransformer_super 
+        model = PointTransformer_super(num_classes=output_dim, input_channel=input_channel).to(device)
+    elif args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
         from test_PointNet2.model_invariant import PointNet2
         from test_PointNet2.model_invariant import PointNet2_super
@@ -203,7 +206,10 @@ def train(args):
             inputs, labels = inputs.to(device), labels.to(device)
             inputs = inputs.permute(0, 2, 1)
             optimizer.zero_grad()
-            outputs = model(inputs, cat_embedding) # B, N, 13
+            if args.category_embedding_type != "none":
+                outputs = model(inputs, cat_embedding) # B, N, 13
+            else:
+                outputs = model(inputs) # B, N, 13
             weights = outputs[:, :, -1] # B, N
             outputs = outputs[:, :, :-1] # B, N, 12
             if args.output_obj_pcd_only:
@@ -284,6 +290,7 @@ def parse_args():
     parser.add_argument('--use_all_data', action='store_true')
     parser.add_argument('--use_combined_action', action='store_true')
     parser.add_argument('--model_invariant', action='store_true')
+    parser.add_argument('--model_transormer', action='store_true')
     parser.add_argument('--predict_two_goals', action='store_true')
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
