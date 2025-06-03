@@ -1,0 +1,148 @@
+# custom setting
+epoch: 800
+batch_size: 512
+patch_size: 128
+in_channels: 3
+num_train_objects: dmpbox-7obj-crop
+exp_name: dmpbox-highlevel-ptv3-7obj-crop
+data_beg_ratio: 0.0
+data_end_ratio: 1.0
+data_val_ratio: 0.1
+
+# model settings
+model:
+  _target_: ptv3.highlevel_ptv3.HighlevelPTv3
+  grid_size: 0.02
+  ptv3_config:
+    in_channels: ${in_channels}
+    order:
+      - z
+      - z-trans
+      - hilbert
+      - hilbert-trans
+    stride:
+      - 2
+      - 2
+      - 2
+      - 2
+    enc_depths:
+      - 2
+      - 2
+      - 2
+      - 6
+      - 2
+    enc_channels:
+      - 32
+      - 64
+      - 128
+      - 256
+      - 512
+    enc_num_head:
+      - 2
+      - 4
+      - 8
+      - 16
+      - 32
+    enc_patch_size:
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+    dec_depths:
+      - 2
+      - 2
+      - 2
+      - 2
+    dec_channels:
+      - 64
+      - 64
+      - 128
+      - 256
+    dec_num_head:
+      - 4
+      - 4
+      - 8
+      - 16
+    dec_patch_size:
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+    mlp_ratio: 4
+    qkv_bias: true
+    qk_scale: null
+    attn_drop: 0.0
+    proj_drop: 0.0
+    drop_path: 0.3
+    shuffle_orders: true
+    pre_norm: true
+    enable_rpe: false
+    enable_flash: true
+    upcast_attention: false
+    upcast_softmax: false
+    cls_mode: false
+    pdnorm_bn: false
+    pdnorm_ln: false
+    pdnorm_decouple: true
+    pdnorm_adaptive: false
+    pdnorm_affine: true
+    pdnorm_conditions:
+      - ScanNet
+      - S3DIS
+      - Structured3D
+  head_mlp_config:
+    hidden_channels:
+      - 64
+      - 13 # output dim
+
+training:
+  seed: 42
+  log_every_batches: 2
+  checkpoint_every_epoch: 1
+  pc_with_onehot_foreground: false
+  add_one_hot_encoding: false
+  output_obj_pcd_only: false
+  weight_loss_weight: 10.0
+
+# scheduler settings
+optimizer:
+  type: AdamW
+  lr: 0.006
+  weight_decay: 0.05
+scheduler:
+  type: OneCycleLR
+  max_lr:
+    - 0.006
+    - 0.0006
+  pct_start: 0.05
+  anneal_strategy: cos
+  div_factor: 10.0
+  final_div_factor: 1000.0
+param_dicts:
+  - keyword: block
+    lr: 0.0006
+
+dataloader:
+  batch_size: ${batch_size}
+  num_workers: 12
+  shuffle: false
+  pin_memory: true
+  persistent_workers: false
+
+dataset:
+  only_first_stage: false
+  use_all_data: true
+  use_combined_action: false
+  dataset_prefix: null
+  num_train_objects: ${num_train_objects}
+  predict_two_goals: false
+
+hydra:
+  job:
+    override_dirname: ${exp_name}
+  run:
+    dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${num_train_objects}
+  sweep:
+    dir: data/${exp_name}/${now:%Y.%m.%d}/${now:%H.%M.%S}_${num_train_objects}
+    subdir: ${hydra.job.num}
