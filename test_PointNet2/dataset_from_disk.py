@@ -407,6 +407,72 @@ def get_dataloader_from_pickle(all_obj_paths=None, batch_size=32, beg_ratio=0, e
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True)    
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
+def get_class_weights(num_train_objects):
+    if num_train_objects == 'test_5':
+        data_name = [save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4]
+            
+    elif num_train_objects == 'articulated':
+        data_name = [
+            save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
+            save_data_name_10, save_data_name_11, save_data_name_12, save_data_name_13, save_data_name_14, save_data_name_15, save_data_name_16, save_data_name_17, save_data_name_18, save_data_name_19,
+            save_data_name_20, save_data_name_21, save_data_name_22, save_data_name_23, save_data_name_24, save_data_name_25, save_data_name_26, save_data_name_27, save_data_name_28, save_data_name_29,
+            save_data_name_30, save_data_name_31, save_data_name_32, save_data_name_33, save_data_name_34, save_data_name_35, save_data_name_36, save_data_name_37, save_data_name_38, save_data_name_39,
+            save_data_name_40, save_data_name_41, save_data_name_42, save_data_name_43, save_data_name_44, save_data_name_45, save_data_name_46, save_data_name_47, save_data_name_48, save_data_name_49,
+            # Bucket
+            "bucket_100443", "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
+            "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102358", "bucket_102365",
+
+            # Faucet
+            "faucet_148", "faucet_152", "faucet_153", "faucet_154", "faucet_168", "faucet_811", "faucet_822",
+            "faucet_857", "faucet_908", "faucet_929", "faucet_1028", "faucet_1052", "faucet_1053", "faucet_1288",
+            "faucet_1343", "faucet_1370", "faucet_1466", "faucet_1492", "faucet_1528", "faucet_1626", "faucet_1633",
+            "faucet_1646", "faucet_1668", "faucet_1741", "faucet_1794", "faucet_1795", "faucet_1802", "faucet_1885",
+            "faucet_1901", "faucet_1903", "faucet_1925", "faucet_1961", "faucet_1986", "faucet_2054",
+
+            # Foldingchair
+            "foldingchair_100531", "foldingchair_100532", "foldingchair_100557", "foldingchair_100561",
+            "foldingchair_100562", "foldingchair_100568", "foldingchair_100579", "foldingchair_100586",
+            "foldingchair_100590", "foldingchair_100599", "foldingchair_100600", "foldingchair_100608",
+            "foldingchair_100609", "foldingchair_100611", "foldingchair_100616", "foldingchair_102255",
+            "foldingchair_102263", "foldingchair_102269", "foldingchair_102314",
+
+            # Laptop
+            "laptop_9968", "laptop_9992", "laptop_9996", "laptop_10040", "laptop_10098", "laptop_10101",
+            "laptop_10238", "laptop_10243", "laptop_10248", "laptop_10269", "laptop_10270", "laptop_10280",
+            "laptop_10289", "laptop_10305", "laptop_10306", "laptop_10383", "laptop_10626", "laptop_10697",
+            "laptop_10885", "laptop_10915", "laptop_11075", "laptop_11156", "laptop_11242", "laptop_11248",
+            "laptop_11395", "laptop_11405", "laptop_11406", "laptop_11429", "laptop_11477", "laptop_11581",
+            "laptop_11586", "laptop_11691", "laptop_11778", "laptop_11876", "laptop_11888", "laptop_11945",
+            "laptop_12073",
+
+            # Stapler
+            "stapler_103099", "stapler_103100", "stapler_103104", "stapler_103111", "stapler_103113",
+            "stapler_103271", "stapler_103275", "stapler_103276", "stapler_103280", "stapler_103292",
+            "stapler_103293", "stapler_103297", "stapler_103299", "stapler_103301", "stapler_103303",
+            "stapler_103305", "stapler_103789", "stapler_103792",
+
+            # Toilet
+            "toilet_102622", "toilet_102630", "toilet_102634", "toilet_102645", "toilet_102648",
+            "toilet_102651", "toilet_102652", "toilet_102654", "toilet_102658", "toilet_102663",
+            "toilet_102666", "toilet_102667", "toilet_102668", "toilet_102669", "toilet_102670",
+            "toilet_102675", "toilet_102676", "toilet_102677", "toilet_102687", "toilet_102689",
+            "toilet_102692", "toilet_102694", "toilet_102697", "toilet_102699", "toilet_102701",
+            "toilet_102703", "toilet_102707", "toilet_102708", "toilet_103234"
+        ]
+    num_categories = len(categories) + 1 
+    class_counts = np.zeros(num_categories)
+    for i, obj_path in enumerate(data_name):
+        for cat_idx, cat in enumerate(categories):
+            if cat in obj_path:
+                class_counts[cat_idx + 1] += 1
+                break
+    class_counts[0] = len(data_name) - np.sum(class_counts[1:])
+    class_weights = [1.0 / count if count > 0 else 0.0 for count in class_counts]
+    class_weights = torch.tensor(class_weights, dtype=torch.float32)
+    num_existing_classes = torch.sum(class_weights > 0).item()
+    class_weights *= len(data_name) / num_existing_classes
+    return class_weights
+
 def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, 
                             use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, 
                             predict_two_goals=False, conditioning_on_demo=False):
