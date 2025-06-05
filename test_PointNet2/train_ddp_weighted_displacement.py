@@ -195,7 +195,7 @@ def train(args):
         accumulated_weighting_loss = 0.0
         for i, data in enumerate(tqdm(dataloader)):
             pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
-            print("class_weight: ", class_weight)
+            # print("class_weight: ", class_weight)
             class_weight = class_weight.to(device)
             if args.category_embedding_type == "one_hot":
                 cat_embedding = torch.nn.functional.one_hot(cat_idx, num_classes=args.num_categories).float()
