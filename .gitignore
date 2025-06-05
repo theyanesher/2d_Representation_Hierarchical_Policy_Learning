@@ -59,3 +59,5 @@ robogen_*.out
 robogen_*.err
 img.png
 img_invisible.png
+first_frame.png
+slurm-*
