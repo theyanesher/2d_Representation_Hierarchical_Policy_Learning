@@ -9,33 +9,31 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import datetime
 import os
 from torch.utils.data import DataLoader
-from test_PointNet2.dataset_from_disk import get_dataset_from_pickle, get_class_weights
+from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 import wandb
 
-def weighted_mse_loss(outputs, labels, cat_idx, class_weights):
+def weighted_mse_loss(outputs, labels, class_weight):
     """
     Compute weighted MSE loss based on per-sample class index.
     
     Args:
         outputs (Tensor): Predicted output, shape [B, N, C]
         labels (Tensor): Ground truth labels, shape [B, N, C]
-        cat_idx (Tensor): Class index for each sample in the batch, shape [B]
-        class_weights (Tensor): Class weights, shape [num_classes]
+        class_weights (Tensor): Class weights for each sample, shape [B]
 
     Returns:
         Tensor: Scalar loss value
     """
-    # Look up the class weight for each sample using cat_idx
-    weights = class_weights[cat_idx]  # shape: [B]
+
     
     # Reshape to enable broadcasting during element-wise multiplication
-    weights = weights.view(-1, 1, 1)  # shape: [B, 1, 1]
+    class_weights = class_weight.view(-1, 1, 1)  # shape: [B, 1, 1]
 
     # Compute element-wise MSE loss without reduction
     mse = torch.nn.functional.mse_loss(outputs, labels, reduction='none')  # shape: [B, N, C]
 
     # Apply per-sample weights
-    weighted_mse = mse * weights  # shape: [B, N, C]
+    weighted_mse = mse * class_weights  # shape: [B, N, C]
 
     # Final reduction: mean over the entire batch
     return weighted_mse.mean()
@@ -178,8 +176,6 @@ def train(args):
 
     print("trying to load dataset")
     dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, num_train_objects=args.num_train_objects, predict_two_goals=args.predict_two_goals)
-    class_weights = get_class_weights(num_train_objects=args.num_train_objects).to(device)
-    print("class weights: ", class_weights)
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
@@ -198,7 +194,9 @@ def train(args):
         accumulated_displacement_loss = 0.0
         accumulated_weighting_loss = 0.0
         for i, data in enumerate(tqdm(dataloader)):
-            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx = data
+            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
+            print("class_weight: ", class_weight)
+            class_weight = class_weight.to(device)
             if args.category_embedding_type == "one_hot":
                 cat_embedding = torch.nn.functional.one_hot(cat_idx, num_classes=args.num_categories).float()
             elif args.category_embedding_type == "siglip":
@@ -246,7 +244,7 @@ def train(args):
                 labels = labels[:, :-4, :]
                 inputs = inputs[:, :, :-4]
                 N = N - 4
-            loss = criterion(outputs, labels, cat_idx, class_weights)
+            loss = criterion(outputs, labels, class_weight)
             accumulated_displacement_loss += loss.item()
 
             if args.using_weight:
@@ -263,7 +261,7 @@ def train(args):
                 # sum the displacement of the predicted gripper point cloud according to the weights
                 outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
                 outputs = outputs.sum(dim=1)
-                avg_loss = criterion(outputs, gripper_points.to(device), cat_idx, class_weights)
+                avg_loss = criterion(outputs, gripper_points.to(device), class_weight)
 
                 loss = loss + avg_loss * args.weight_loss_weight
                 accumulated_weighting_loss += (avg_loss * args.weight_loss_weight).item()

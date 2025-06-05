@@ -212,7 +212,7 @@ class TrainHighlevelPTv3Workspace:
         device = torch.device(self.rank)
         args = self.cfg.training
 
-        pointcloud, gripper_pcd, goal_gripper_pcd, _ = batch
+        pointcloud, gripper_pcd, goal_gripper_pcd, _, _ = batch
         # inputs: B, N, 3
         # gripper_pcd: B, 4, 3
         # goal_gripper_points: B, 4, 3
