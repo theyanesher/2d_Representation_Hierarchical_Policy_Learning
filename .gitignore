@@ -27,6 +27,7 @@ ompl-1.5.2/
 rq.txt
 dp3_demo/
 data
+data_new
 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
 dump_each_results.py
 legacy/
@@ -52,6 +53,7 @@ data_
 data_/
 ckpt/
 exps/
+ptv3/outputs/
 sbatch_logs/
 robogen_*.out
 robogen_*.err

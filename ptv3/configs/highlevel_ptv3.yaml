@@ -1,10 +1,10 @@
 # custom setting
-epoch: 800
-batch_size: 512
+epoch: 80
+batch_size: 50
 patch_size: 128
 in_channels: 3
-num_train_objects: dmpbox-7obj-crop
-exp_name: dmpbox-highlevel-ptv3-7obj-crop
+num_train_objects: articulated
+exp_name: 0605_test_ptv3_highlevel
 data_beg_ratio: 0.0
 data_end_ratio: 1.0
 data_val_ratio: 0.1
@@ -134,7 +134,7 @@ dataset:
   only_first_stage: false
   use_all_data: true
   use_combined_action: false
-  dataset_prefix: null
+  dataset_prefix: ../data_new/dp3_demo/165-obj
   num_train_objects: ${num_train_objects}
   predict_two_goals: false
 

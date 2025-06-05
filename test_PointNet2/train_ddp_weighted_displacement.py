@@ -34,10 +34,7 @@ def train(args):
     else:
         embedding_dim = None
 
-    if args.model_transormer:
-        from test_PointNet2.ptv3.highlevel_ptv3 import HighlevelPTv3 
-        model = HighlevelPTv3(num_classes=output_dim, grid_size=0.02).to(device)
-    elif args.model_invariant:
+    if args.model_invariant:
         from test_PointNet2.model_invariant import PointNet2_small2
         from test_PointNet2.model_invariant import PointNet2
         from test_PointNet2.model_invariant import PointNet2_super
@@ -290,7 +287,6 @@ def parse_args():
     parser.add_argument('--use_all_data', action='store_true')
     parser.add_argument('--use_combined_action', action='store_true')
     parser.add_argument('--model_invariant', action='store_true')
-    parser.add_argument('--model_transormer', action='store_true')
     parser.add_argument('--predict_two_goals', action='store_true')
     parser.add_argument('--keep_gripper_in_fps', type=int, default=0)
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)

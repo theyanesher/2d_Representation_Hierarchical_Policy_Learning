@@ -22,7 +22,7 @@ try:
 except ImportError:
     flash_attn = None
 
-from test_PointNet2.ptv3.serialization import encode
+from .serialization import encode
 
 
 @torch.inference_mode()
