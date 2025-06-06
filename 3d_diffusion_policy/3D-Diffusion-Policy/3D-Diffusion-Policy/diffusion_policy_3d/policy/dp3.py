@@ -540,7 +540,10 @@ class DP3(BasePolicy):
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
         #import pdb; pdb.set_trace()
+        cat_weights = batch['cat_weights'].unsqueeze(-1)
+        # print(f"cat_weights: {cat_weights}")
         loss = F.mse_loss(pred, target, reduction='none')
+        loss = loss * cat_weights
         loss = loss * loss_mask.type(loss.dtype)
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
         loss = loss.mean()

@@ -12,6 +12,8 @@ from collections import defaultdict
 import pickle
 from tqdm import tqdm
 
+categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
+
 class WelfordOnlineStatistics:
     def __init__(self):
         self.mean = None
@@ -74,8 +76,9 @@ class ReplayBuffer:
     Zarr-based temporal datastructure.
     Every time we need data, we load from disk.
     """
-    def __init__(self, all_path_list, episode_lengths, accumulated_episode_lengths, keys, action_welford, pcd_welford=None, agent_pos_welford=None, load_per_step=True, is_pickle=False):
+    def __init__(self, all_path_list, episode_cat_idxs, episode_lengths, accumulated_episode_lengths, keys, action_welford, pcd_welford=None, agent_pos_welford=None, load_per_step=True, is_pickle=False):
         self.all_path_list = all_path_list
+        self.episode_cat_idxs = episode_cat_idxs
         self.episode_lengths = episode_lengths
         self.accumulated_episode_lengths = accumulated_episode_lengths
         self.keys_ = keys
@@ -104,6 +107,7 @@ class ReplayBuffer:
         self.is_pickle = is_pickle
 
         episode_lengths = []
+        episode_cat_idxs = []
 
         action_welford = WelfordOnlineStatistics()
         if dp3:
@@ -111,6 +115,11 @@ class ReplayBuffer:
             agent_pos_welford = WelfordOnlineStatistics()
 
         for idx, zarr_path  in enumerate(tqdm(path_list)):
+            cat_idx = 0
+            for i, cat in enumerate(categories):
+                if cat in zarr_path:
+                    cat_idx = i + 1
+                    break
 
             if not load_per_step:
                 if is_pickle:
@@ -122,6 +131,7 @@ class ReplayBuffer:
                     else:
                         self.keys_ = keys
                     episode_lengths.append(len(data[keys[0]][:]))
+                    episode_cat_idxs.append(cat_idx)
                     if target_action == 'action':
                         action = data['action'][:]
                     elif target_action == 'delta_to_goal_gripper':
@@ -142,6 +152,7 @@ class ReplayBuffer:
 
                     # print("episode {} lenght {}".format(idx, len(src_root['data'][keys[0]][:])))
                     episode_lengths.append(len(src_root['data'][keys[0]][:]))
+                    episode_cat_idxs.append(cat_idx)
 
                     action = None
                     if target_action == 'action':
@@ -158,7 +169,7 @@ class ReplayBuffer:
                 first_goal = None
 
                 if is_pickle:
-                    all_substeps = os.listdir(zarr_path)
+                    all_substeps = [f for f in os.listdir(zarr_path) if f.endswith('.pkl')]
                     all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0])) # ex: 0.pkl -> 0
                     for i, substep in enumerate(all_substeps):
                         substep_path = os.path.join(zarr_path, substep)
@@ -185,6 +196,7 @@ class ReplayBuffer:
                             first_goal = current_goal
                         elif not np.allclose(first_goal, current_goal) and only_reach_stage:
                             episode_lengths.append(i)
+                            episode_cat_idxs.append(cat_idx)
                             break
 
                         action_welford.add(action)
@@ -229,16 +241,19 @@ class ReplayBuffer:
                             first_goal = current_goal
                         elif not np.allclose(first_goal, current_goal) and only_reach_stage:
                             episode_lengths.append(i)
+                            episode_cat_idxs.append(cat_idx)
                             break
 
                         action_welford.add(action)
 
                 if not only_reach_stage:
                     episode_lengths.append(len(all_substeps))
+                    episode_cat_idxs.append(cat_idx)
                     
         # exit()
         
         self.episode_lengths = np.array(episode_lengths)
+        self.episode_cat_idxs = np.array(episode_cat_idxs)
         self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
         
         # we might need the min, max, mean, std of every data
@@ -250,7 +265,7 @@ class ReplayBuffer:
         else:
             self.pcd_welford = self.agent_pos_welford = None
 
-        return ReplayBuffer(self.all_path_list, self.episode_lengths, self.accumulated_episode_lengths, self.keys_, self.action_welford, self.pcd_welford, self.agent_pos_welford, load_per_step=load_per_step, is_pickle=is_pickle)
+        return ReplayBuffer(self.all_path_list, self.episode_cat_idxs, self.episode_lengths, self.accumulated_episode_lengths, self.keys_, self.action_welford, self.pcd_welford, self.agent_pos_welford, load_per_step=load_per_step, is_pickle=is_pickle)
 
     def get_data_disk(self, start_idx, end_idx):
         """
