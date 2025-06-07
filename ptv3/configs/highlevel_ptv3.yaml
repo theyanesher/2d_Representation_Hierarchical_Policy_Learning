@@ -1,6 +1,6 @@
 # custom setting
 epoch: 80
-batch_size: 50
+batch_size: 100
 patch_size: 128
 in_channels: 3
 num_train_objects: articulated

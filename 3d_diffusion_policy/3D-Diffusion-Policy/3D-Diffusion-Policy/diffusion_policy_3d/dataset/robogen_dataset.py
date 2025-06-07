@@ -470,6 +470,8 @@ class RobogenDataset(BaseDataset):
         agent_pos = copy.deepcopy(sample['state'][:,])
         point_cloud = copy.deepcopy(sample['point_cloud'][:,])
         action = copy.deepcopy(sample['action'])
+        cat_idx = copy.deepcopy(sample['cat_idx'])
+        cat_weights = copy.deepcopy(sample['cat_weights'])
 
 
         #10D GRIPPER BASELINE EXPERIMENT
@@ -693,7 +695,9 @@ class RobogenDataset(BaseDataset):
                 'gripper_pcd': gripper_pcd.astype(np.float32),
                 'goal_gripper_pcd': goal_gripper_pcd.astype(np.float32)
                 },
-                'action': action.astype(np.float32)
+                'action': action.astype(np.float32),
+                'cat_idx': cat_idx.astype(np.int64),
+                'cat_weights': cat_weights.astype(np.float32)
             }
             for key in self.keys_:
                 if key not in ['state', 'action', 'point_cloud', 'gripper_pcd', 'goal_gripper_pcd']:
@@ -708,7 +712,9 @@ class RobogenDataset(BaseDataset):
                     'goal_gripper_pcd': goal_gripper_pcd.astype(np.float32),
                     'displacement_gripper_to_object': displacement_gripper_to_object.astype(np.float32)
                 },
-                'action': action.astype(np.float32)
+                'action': action.astype(np.float32),
+                'cat_idx': cat_idx.astype(np.int64),
+                'cat_weights': cat_weights.astype(np.float32)
             }
             for key in self.keys_:
                 if key not in ['state', 'action', 'point_cloud', 'gripper_pcd', 'goal_gripper_pcd', 'displacement_gripper_to_object']:
@@ -720,7 +726,9 @@ class RobogenDataset(BaseDataset):
                     'point_cloud': point_cloud.astype(np.float32), # T, 1280, 
                     'agent_pos': agent_pos.astype(np.float32), # T, D_pos
                 },
-                'action': action.astype(np.float32)
+                'action': action.astype(np.float32),
+                'cat_idx': cat_idx.astype(np.int64),
+                'cat_weights': cat_weights.astype(np.float32)
             }
 
             # if 'act3d' in self.observation_mode:

@@ -3,19 +3,24 @@ import numpy as np
 import numba
 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
 
+categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
 
 @numba.jit(nopython=True)
 def create_indices(
-    episode_ends:np.ndarray, sequence_length:int, 
+    episode_ends:np.ndarray, 
+    episode_cat_idxs:np.ndarray,
+    sequence_length:int, 
     episode_mask: np.ndarray,
+    num_categories: int = len(categories) + 1,  
     pad_before: int=0, pad_after: int=0,
     debug:bool=True) -> np.ndarray:
     episode_mask.shape == episode_ends.shape        
     pad_before = min(max(pad_before, 0), sequence_length-1)
     pad_after = min(max(pad_after, 0), sequence_length-1)
-
+    cat_counts = np.zeros(num_categories, dtype=np.int64)
     indices = list()
     for i in range(len(episode_ends)):
+        cat_idx = episode_cat_idxs[i]
         if not episode_mask[i]:
             # skip episode
             continue
@@ -42,9 +47,19 @@ def create_indices(
                 assert (sample_end_idx - sample_start_idx) == (buffer_end_idx - buffer_start_idx)
             indices.append([
                 buffer_start_idx, buffer_end_idx, 
-                sample_start_idx, sample_end_idx])
+                sample_start_idx, sample_end_idx,
+                cat_idx
+            ])
+            cat_counts[cat_idx] += 1
     indices = np.array(indices)
-    return indices
+    class_weights = [1.0 / count if count > 0 else 0.0 for count in cat_counts]
+    class_weights = np.array(class_weights)
+    num_existing_classes = np.sum(class_weights > 0)
+    class_weights *= np.sum(cat_counts) / num_existing_classes  # normalize to have sum of weights equal to number of classes
+    # print(f'Class weights: {class_weights}')
+    # print(f'Cat_counts: {cat_counts}')
+
+    return indices, class_weights
 
 
 def get_val_mask(n_episodes, val_ratio, seed=0):
@@ -95,21 +110,26 @@ class SequenceSampler:
             keys = list(replay_buffer.keys())
         
         episode_ends = replay_buffer.episode_ends[:]
+        episode_cat_idxs = replay_buffer.episode_cat_idxs[:]
         if episode_mask is None:
             episode_mask = np.ones(episode_ends.shape, dtype=bool)
 
         if np.any(episode_mask):
-            indices = create_indices(episode_ends, 
+            indices, cat_weights = create_indices(episode_ends, 
+                episode_cat_idxs,
                 sequence_length=sequence_length, 
                 pad_before=pad_before, 
                 pad_after=pad_after,
                 episode_mask=episode_mask
                 )
         else:
-            indices = np.zeros((0,4), dtype=np.int64)
+            indices = np.zeros((0,5), dtype=np.int64)
+            cat_weights = np.ones(len(categories) + 1, dtype=np.float32)
+        # print(f"Cat_weights: {cat_weights}")
 
         # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
         self.indices = indices 
+        self.cat_weights = cat_weights
         self.keys = list(keys) # prevent OmegaConf list performance problem
         self.sequence_length = sequence_length
         self.replay_buffer = replay_buffer
@@ -119,9 +139,8 @@ class SequenceSampler:
         return len(self.indices)
         
     def sample_sequence(self, idx):
-        buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx \
+        buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx, cat_idx \
             = self.indices[idx]
-        
         # get the stored data from replay buffer
         data_from_buffer = self.replay_buffer.get_data_disk(
             start_idx=buffer_start_idx, end_idx=buffer_end_idx)
@@ -155,4 +174,9 @@ class SequenceSampler:
                     data[sample_end_idx:] = sample[-1]
                 data[sample_start_idx:sample_end_idx] = sample
             result[key] = data
+        result['cat_idx'] = np.array([cat_idx], dtype=np.int64)
+        result['cat_weights'] = np.array(
+            [self.cat_weights[cat_idx]], dtype=np.float32)
+        # print(f"result keys: {result.keys()}")
+        # print(f"result shape: {[v.shape for v in result.values()]}")
         return result
