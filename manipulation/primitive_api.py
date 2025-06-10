@@ -87,9 +87,21 @@ def approach_object_link_parallel(simulator, object_name, link_name, debug=False
     # colors[selected_idx] = [1, 0, 0]
     # pcd.colors = o3d.utility.Vector3dVector(colors)
     # o3d.visualization.draw_geometries([pcd])
-    # # import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     handle_pc = handle_pc[selected_idx]
     print("handle pc: ", handle_pc.shape)
+
+    if object_name == "foldingchair":
+        handle_pc = filter_pointcloud_by_line(handle_pc, axis, axis_end)
+
+    # pcd = o3d.geometry.PointCloud()
+    # pcd.points = o3d.utility.Vector3dVector(handle_pc)
+    # colors = np.zeros_like(handle_pc)
+    # colors[selected_idx] = [1, 0, 0]
+    # pcd.colors = o3d.utility.Vector3dVector(colors)
+    # o3d.visualization.draw_geometries([pcd])
+    # # import pdb; pdb.set_trace()
+
     handle_dir = estimate_line_direction(handle_pc)
     handle_pc_project = np.dot(handle_pc, handle_dir)
     min_handle_pc_project = np.min(handle_pc_project)
@@ -103,6 +115,7 @@ def approach_object_link_parallel(simulator, object_name, link_name, debug=False
     # pcd.colors = o3d.utility.Vector3dVector(colors)
     # o3d.visualization.draw_geometries([pcd])
     handle_pc = handle_pc[selected_idx]
+    print("handle pc: ", handle_pc.shape)
     handle_median = np.median(handle_pc, axis=0)
    
     # print("handle dir: ", handle_dir)

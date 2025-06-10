@@ -1297,6 +1297,57 @@ def pc_to_line_distance(pc, line_start, line_end):
     distances = np.linalg.norm(cross_prod, axis=1) / np.linalg.norm(line_vec)
     return distances
 
+def filter_pointcloud_by_line(pointcloud, point1, point2):
+    """
+    Filter point cloud based on line projection in xoy plane, keeping points on the same side as origin [0,0]
+    
+    Args:
+        pointcloud: numpy array, shape [n, 3], each row is [x, y, z]
+        point1: list/array, first point [x1, y1, z1] (only x,y coordinates are used)
+        point2: list/array, second point [x2, y2, z2] (only x,y coordinates are used)
+    
+    Returns:
+        numpy array: filtered point cloud
+    """
+    
+    # Extract xy coordinates
+    point1_xy = np.array(point1[:2])  # [x1, y1]
+    point2_xy = np.array(point2[:2])  # [x2, y2]
+    origin = np.array([0.0, 0.0])
+    
+    # Calculate direction vector of the line
+    direction = point2_xy - point1_xy
+    
+    # Calculate normal vector (perpendicular to the line)
+    # If direction vector is [a, b], then normal vector is [-b, a] or [b, -a]
+    normal = np.array([-direction[1], direction[0]])
+    
+    # Ensure normal vector is not zero vector
+    if np.linalg.norm(normal) == 0:
+        raise ValueError("Two points are coincident or on the same vertical line, cannot form a valid dividing line")
+    
+    # Normalize the normal vector
+    normal = normal / np.linalg.norm(normal)
+    
+    # Calculate signed distance from origin to the line
+    # Line equation: normal[0] * (x - x1) + normal[1] * (y - y1) = 0
+    origin_distance = np.dot(normal, origin - point1_xy)
+    
+    # Calculate signed distance from each point in point cloud to the line
+    pointcloud_xy = pointcloud[:, :2]  # Extract only x,y coordinates
+    point_distances = np.dot(pointcloud_xy - point1_xy, normal)
+    
+    # Filter points on the same side as origin (same sign)
+    if origin_distance >= 0:
+        # Origin is on positive side of line, select points on positive side
+        mask = point_distances >= 0
+    else:
+        # Origin is on negative side of line, select points on negative side
+        mask = point_distances <= 0
+    
+    return pointcloud[mask]
+
+
 def estimate_line_direction(pc):
     centered = pc - np.mean(pc, axis=0)
     cov = np.cov(centered.T)
