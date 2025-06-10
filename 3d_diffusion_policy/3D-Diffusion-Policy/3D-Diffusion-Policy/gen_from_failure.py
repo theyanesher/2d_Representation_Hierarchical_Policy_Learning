@@ -13,7 +13,8 @@ import numpy as np
 from manipulation.utils import build_up_env, load_env, save_numpy_as_gif
 import pybullet as p
 
-def check_failure(
+def _check_failure(
+    q: mp.Queue,
     exp_path: str,
     angle_threshold: float = 0.8,
     env_name: str = 'articulated'
@@ -22,6 +23,7 @@ def check_failure(
     states_path = os.path.join(exp_path, 'states')
     all_states = [f for f in os.listdir(states_path) if f.startswith('state_') and f.endswith('.pkl')]
     if len(all_states) == 0:
+        q.put(-1)
         return -1
     all_grasped_handles = [False for _ in range(2)]
     current_grasped_handle = False
@@ -58,6 +60,7 @@ def check_failure(
         # initial_joint_angle = info['initial_joint_angle']
         # print(f"Opened joint angle at state {state_idx}: {joint_angle - initial_joint_angle}")
         if joint_angle - initial_joint_angle > angle_threshold:
+            q.put(-1)
             return -1  # If the joint angle exceeds the threshold, success
         if last_joint_angle is not None:
             grasped_handle = abs(joint_angle - last_joint_angle) > 1e-6
@@ -69,12 +72,31 @@ def check_failure(
             if not any(all_grasped_handles[-1:]):
                 # If the current state is not grasped, consider it a failure
                 print(f"Failure detected at state {state_idx} in {exp_path}.")
+                q.put(state_idx)
                 return state_idx
         else:
             if all(all_grasped_handles[-2:]):
                 # If the last 2 states are grasped, consider the current state successful
                 current_grasped_handle = True
+    q.put(-1)  # If all states are successful, return -1
     return -1  # If all states are successful, return -1
+
+def check_failure(
+    exp_path: str,
+    angle_threshold: float = 0.8,
+    env_name: str = 'articulated'
+):
+    """
+    Check if the experiment has failed based on the joint angles.
+    Returns the index of the first failure state, or -1 if no failure is detected.
+    """
+    q = mp.Queue()
+    p = mp.Process(target=_check_failure, args=(q, exp_path, angle_threshold, env_name))
+    p.start()
+    p.join()
+    failure_idx = q.get()
+    return failure_idx
+
 
 def get_failure_exps(
     all_exps_path: str,
@@ -225,7 +247,7 @@ def gen_from_failure(
     all_exps_path: str,
     output_path: str,
     num_exps: int = 50,
-    resume: bool = True,
+    resume: bool = False,
 ):
     if not os.path.exists(all_exps_path):
         raise ValueError(f"Path {all_exps_path} does not exist.")
