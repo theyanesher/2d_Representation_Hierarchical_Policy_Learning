@@ -179,7 +179,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             state = save_env(env.env._env)
             states.append(state)
             rgb = env.env.render()
-            info = env.env._env._get_info(object_name=object_name, handle_name=env.env._env.handle_name, link_name=link_name)
+            info = env.env._env._get_info()
 
             initial_info = info
             all_rgbs = [rgb]

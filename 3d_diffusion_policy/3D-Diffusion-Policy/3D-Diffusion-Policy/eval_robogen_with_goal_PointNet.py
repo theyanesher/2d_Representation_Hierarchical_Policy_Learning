@@ -205,7 +205,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                                 
                             inputs = inputs.to('cuda')
                             inputs_ = inputs.permute(0, 2, 1)
-                            outputs = goal_prediction_model(inputs_, cat_embedding)
+                            if args.model_transformer:
+                                outputs = goal_prediction_model(inputs)
+                            else:
+                                outputs = goal_prediction_model(inputs_, cat_embedding)
                             weights = outputs[:, :, -1] # B, N
                             outputs = outputs[:, :, :-1] # B, N, 12
                             if output_obj_pcd_only:
@@ -351,6 +354,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument("--test_cross_category", type=bool, default=False)
     parser.add_argument("--model_invariant", type=bool, default=True)
+    parser.add_argument("--model_transformer", action='store_true')
     parser.add_argument('--predict_two_goals', action='store_true')
     parser.add_argument('--output_obj_pcd_only', action='store_true')
     parser.add_argument("--update_goal_freq", type=int, default=1)
@@ -515,8 +519,26 @@ if __name__ == "__main__":
         embedding_dim = 768
     else:
         embedding_dim = None
-
-    if not args.model_invariant:
+    if args.model_transformer:
+        from ptv3.highlevel_ptv3 import HighlevelPTv3
+        config_file = "ptv3/configs/highlevel_ptv3.yaml"
+        if os.path.exists(config_file):
+            model_cfg = OmegaConf.load(config_file)
+            
+            # if there are no args, we use default values
+            if hasattr(args, 'in_channels'):
+                model_cfg.in_channels = args.in_channels
+            else:
+                model_cfg.in_channels = 3  # default value
+                
+            if hasattr(args, 'patch_size'):
+                model_cfg.patch_size = args.patch_size  
+            else:
+                model_cfg.patch_size = 48  # default value
+            pointnet2_model: HighlevelPTv3 = hydra.utils.instantiate(model_cfg.model)
+            pointnet2_model = pointnet2_model.to('cuda')
+        
+    elif not args.model_invariant:
         from test_PointNet2.model import PointNet2_small2, PointNet2, PointNet2_super
         if args.pointnet_class == "PointNet2":
             pointnet2_model = PointNet2_small2(num_classes=num_class).to('cuda')
@@ -535,7 +557,12 @@ if __name__ == "__main__":
             pointnet2_model = PointNet2_superplus(num_classes=13).to("cuda")
             
     #High Level Policy Loading    
-    pointnet2_model.load_state_dict(torch.load(load_model_path))
+    if args.model_transformer:
+        state_dict = torch.load(load_model_path)['model']
+        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        pointnet2_model.load_state_dict(state_dict)
+    else:
+        pointnet2_model.load_state_dict(torch.load(load_model_path))
     pointnet2_model.eval()
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
