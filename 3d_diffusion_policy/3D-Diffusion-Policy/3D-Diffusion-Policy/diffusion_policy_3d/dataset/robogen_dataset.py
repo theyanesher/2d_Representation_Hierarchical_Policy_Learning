@@ -25,8 +25,19 @@ from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer
 from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
 
 def get_zarry_paths(zarr_path):
+
+    dataset_prefix = '/media/chenyuan/7e1e609b-387d-4a95-9219-2535fbbecfe9/dp3_demo/165-obj'
+
+    if zarr_path == 'test_5':
+        data_name = [
+            save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4,
+        ]
+        all_zarr_paths = [
+            "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+        ]
+
     if zarr_path == 'articulated':
-        dataset_prefix = '/mnt/RoboGen_sim2real/data_new/dp3_demo_combined_2_step_0/165-obj'
+    
         data_name = [
             # save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4, 
             save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,

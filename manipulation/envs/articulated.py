@@ -1,5 +1,6 @@
 from manipulation.sim import SimpleEnv
 from manipulation.primitive_api import *
+from manipulation.push_primitive_api import push_object_link_parallel
 import gym
 
 handle_name_dict = {
