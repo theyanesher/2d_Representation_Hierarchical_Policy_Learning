@@ -55,6 +55,12 @@ def extract_pc_states_for_all_trajectories(pool_args):
         experiment_folder = os.path.join(solution_path, "experiment")
     else:
         experiment_folder = os.path.join(solution_path, "experiment", exp_name)
+    if not os.path.exists(experiment_folder):
+        print("Experiment folder does not exist: ", experiment_folder)
+        if exp_name is not None:
+            experiment_folder = solution_path
+        else:
+            experiment_folder = os.path.join(solution_path, exp_name)
         
     all_traj_stage_lengths = []
     all_traj_store_label_paths = []
@@ -227,16 +233,25 @@ def extract_demos_from_a_directory(dirtory_path, exp_name=None, env_name=None, e
         if file_or_folder.endswith(".yaml"):
             task_config_path = os.path.join(dirtory_path, task_path, file_or_folder)
     if task_config_path is None:
-        print("No solution path or task config path found for task: ", task_path)
-        return
-    
+        task_config_path = os.path.join('/mnt/RoboGen_sim2real/data/', solution_path.split("/")[-2], solution_path.split("/")[-1], "base_config.yaml")
+        print("task_config_path is not found, using default path: ", task_config_path)
+        if not os.path.exists(task_config_path):
+            print("No task config found for task: ", task_path)
+            return
     if exp_name is None:
         experiment_folder = os.path.join(solution_path, "experiment")
     else:
         experiment_folder = os.path.join(solution_path, "experiment", exp_name)
-    all_experiments = os.listdir(experiment_folder)
+    if not os.path.exists(experiment_folder):
+        print("Experiment folder does not exist: ", experiment_folder)
+        if exp_name is not None:
+            experiment_folder = solution_path
+        else:
+            experiment_folder = os.path.join(solution_path, exp_name)
+    # all_experiments = os.listdir(experiment_folder)
+    all_experiments = [x for x in os.listdir(experiment_folder) if os.path.isdir(os.path.join(experiment_folder, x)) and not x.startswith(".")]
     all_experiments = sorted(all_experiments)
-
+    print("all experiments: ", all_experiments)
     # filter out successful experiments
     success_experiments = []
     for exp in all_experiments:
