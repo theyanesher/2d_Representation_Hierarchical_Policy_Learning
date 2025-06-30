@@ -89,7 +89,7 @@ def create_config_variant(config_path):
 
     return new_config_path
 
-def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=False, far_distance=0.7, near_distance=0.3):
+def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=False, far_distance=0.7, near_distance=0.3, invert=False):
     # get table bbox
     config = yaml.safe_load(open(config_path, "r"))
     on_table = False
@@ -156,11 +156,36 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
 
         init_angle = None
 
-        if object_name == 'bucket' or object_name == 'laptop':
-            init_angle = np.random.uniform(-np.pi / 12, np.pi / 12) + np.pi / 6
-        elif object_name == 'toilet':
-            init_angle = np.random.uniform(-np.pi / 16, np.pi / 16) + np.pi / 8
-
+        if invert:
+            info = env._get_info()
+            handle_joint_id = env.handle_joint
+            print("handle joint id: ", handle_joint_id)
+            joint_limit_max = p.getJointInfo(env.urdf_ids[object_name], handle_joint_id, physicsClientId=env.id)[9]
+            joint_limit_min = p.getJointInfo(env.urdf_ids[object_name], handle_joint_id, physicsClientId=env.id)[8]
+            joint_limit = joint_limit_max - joint_limit_min
+            if object_name == 'bucket':
+                init_angle = np.random.uniform(-np.pi / 6, np.pi / 6) + np.pi / 6 * 5
+            elif object_name == 'laptop':
+                init_angle = np.random.uniform(np.pi / 3, min(np.pi * 2 / 3, joint_limit - np.pi / 6))
+            elif object_name == 'toilet':
+                init_angle = np.random.uniform(np.pi / 6, min(np.pi / 3, joint_limit - np.pi / 6))
+            elif object_name == 'faucet':
+                init_angle = joint_limit - np.random.uniform(0, np.pi / 3)
+            elif object_name == 'foldingchair':
+                init_angle = np.random.uniform(np.pi / 4, min(np.pi / 3, joint_limit - np.pi / 6))
+            elif object_name == 'stapler':
+                init_angle = np.random.uniform(np.pi / 3, min(np.pi * 2 / 3, joint_limit - np.pi / 6))
+            elif object_name == 'storagefurniture':
+                init_angle = np.random.uniform(0.5, 1.0) * joint_limit 
+            
+            
+        else:
+            if object_name == 'bucket' or object_name == 'laptop':
+                init_angle = np.random.uniform(-np.pi / 12, np.pi / 12) + np.pi / 6
+            elif object_name == 'toilet':
+                init_angle = np.random.uniform(-np.pi / 16, np.pi / 16) + np.pi / 8
+            elif object_name == 'storagefurniture':
+                init_angle = np.random.uniform(0, 0.8) * joint_limit
 
         if env.robot_name == 'panda':
             new_orient = p.getQuaternionFromEuler([init_euler[0], init_euler[1], base_euler[2] + np.random.uniform(-np.pi / 6, np.pi / 6)])
@@ -308,15 +333,15 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
     q.put(True)
     return True
 # handle memory leak             
-def gen_init_state(config_path, env_name, render, mobile=False, step_stone=False, far_distance=0.7, near_distance=0.3):
+def gen_init_state(config_path, env_name, render, mobile=False, step_stone=False, far_distance=0.7, near_distance=0.3, invert=False):
     q = mp.Queue()  
-    p = mp.Process(target=_gen_init_state, args=(q, config_path, env_name, render, mobile, step_stone, far_distance, near_distance))
+    p = mp.Process(target=_gen_init_state, args=(q, config_path, env_name, render, mobile, step_stone, far_distance, near_distance, invert))
     p.start()
     p.join()
     success = q.get()
     return success
 
-def _execute(q, config_path, env_name, solution_path, experiment_path, time_string=None):
+def _execute(q, config_path, env_name, solution_path, experiment_path, time_string=None, invert=False):
     # get time string
     if time_string is None:
         ts = time.time()
@@ -346,7 +371,7 @@ def _execute(q, config_path, env_name, solution_path, experiment_path, time_stri
     np.random.seed(time.time_ns() % 2**32)
 
     env.reset()
-    rgbs, states = env.execute()
+    rgbs, states = env.execute(invert=invert)
     p.disconnect(env.id)
     # execute the primitive from the environment to get the trajectory.
     if len(states) > 10:
@@ -359,9 +384,9 @@ def _execute(q, config_path, env_name, solution_path, experiment_path, time_stri
         q.put(False)
         return False
 # handle memory leak
-def execute(config_path, env_name, solution_path, experiment_path):
+def execute(config_path, env_name, solution_path, experiment_path, invert=False):
     q = mp.Queue()  
-    p = mp.Process(target=_execute, args=(q, config_path, env_name, solution_path, experiment_path))
+    p = mp.Process(target=_execute, args=(q, config_path, env_name, solution_path, experiment_path, None, invert))
     p.start()
     p.join()
     success = q.get()
@@ -380,6 +405,7 @@ parser.add_argument("--render", type=int, default=0) # folder name: data/diverse
 parser.add_argument("--use_augmented_handle", type=int, default=0)
 parser.add_argument("--num_augmented_handle", type=int, default=0)
 parser.add_argument("--log_path", type=str, default="./log.txt") 
+parser.add_argument("--invert", action='store_true')
 
 
 args = parser.parse_args()
@@ -440,12 +466,12 @@ for i in range(generate_times):
             new_config_path = create_config_variant(config_path)
 
             # generate initial state
-            success = gen_init_state(new_config_path, env_name, args.render, mobile=mobile, step_stone=False)
+            success = gen_init_state(new_config_path, env_name, args.render, mobile=mobile, step_stone=False, invert=args.invert)
 
             if not success:
                 continue
 
-            sucess = execute(new_config_path, env_name, solution_path, experiment_path)
+            sucess = execute(new_config_path, env_name, solution_path, experiment_path, invert=args.invert)
             try_times += 1
             if sucess:
                 num_demos += 1

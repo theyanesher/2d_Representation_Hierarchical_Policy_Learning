@@ -194,6 +194,10 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         print(f'Class weights: {self.class_weights}')
         print(f'Cat_counts: {self.cat_counts}')
 
+        self.cat_idxs = np.repeat(self.all_zarr_categories, self.episode_lengths)
+        self.all_weights = self.class_weights[self.cat_idxs]
+        self.all_weights /= np.sum(self.all_weights)  # normalize weights to sum to 1
+
     def __len__(self):
         return self.accumulated_episode_lengths[-1]
     

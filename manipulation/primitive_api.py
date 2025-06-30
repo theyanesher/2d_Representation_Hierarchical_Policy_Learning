@@ -37,7 +37,7 @@ def get_save_path(simulator):
     return simulator.primitive_save_path
 
 #USED
-def approach_object_link_parallel(simulator, object_name, link_name, debug=False):    
+def approach_object_link_parallel(simulator, object_name, link_name, invert=False, debug=False):    
     save_path = get_save_path(simulator)
     ori_simulator_state = save_env(simulator, None)
     object_name = object_name.lower()
@@ -236,7 +236,7 @@ def approach_object_link_parallel(simulator, object_name, link_name, debug=False
     #     handle_pc, handle_joint_id, save_path, ori_simulator_state, \
     #     it, link_name = args
     args = [[env_kwargs, object_name, real_target_poses[it], mp_target_poses[it], target_orientations[it],\
-            handle_pc, handle_joint_id, save_path, ori_simulator_state, it, link_name] for it in range(len(target_orientations))]
+            handle_pc, handle_joint_id, save_path, ori_simulator_state, it, link_name, invert] for it in range(len(target_orientations))]
 
     if debug:
         results = parallel_motion_planning(args[0])
@@ -450,7 +450,7 @@ def open_gripper(simulator):
     
     return intermediate_states, rgbs
 #USED
-def open_door(simulator, object_name, link_name, handle_joint_id, handle_pc):
+def open_door(simulator, object_name, link_name, handle_joint_id, handle_pc, invert=False):
     intermediate_states = []
     rgbs = []
     
@@ -466,9 +466,14 @@ def open_door(simulator, object_name, link_name, handle_joint_id, handle_pc):
     timesteps = 100 if simulator.robot_name == 'panda' else 120
     
     ratio = 0.8
+    if invert:
+        ratio = 0.95
     # ratio = 1.2
     cur_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[0]
-    target = joint_limit[0] + ratio * (joint_limit[1] - joint_limit[0])
+    if invert:
+        target = joint_limit[1] - ratio * (joint_limit[1] - joint_limit[0])
+    else:
+        target = joint_limit[0] + ratio * (joint_limit[1] - joint_limit[0])
     cur_move_amount = target - cur_joint_angle
     full_move_amount = ratio * (joint_limit[1] - joint_limit[0])
     timesteps = int(timesteps * np.abs(cur_move_amount) / full_move_amount)
@@ -536,7 +541,10 @@ def open_door(simulator, object_name, link_name, handle_joint_id, handle_pc):
     final_joint_angle = p.getJointState(simulator.urdf_ids[object_name], handle_joint_id, physicsClientId=simulator.id)[0]
     # NOTE: change to return the ratio of the door opened to the upper limit
     joint_limit_high = joint_limit[1]
-    final_joint_angle_ratio = (final_joint_angle - joint_limit[0]) / (joint_limit_high - joint_limit[0])
+    if invert:
+        final_joint_angle_ratio = (joint_limit_high - final_joint_angle) / (joint_limit_high - joint_limit[0])
+    else:
+        final_joint_angle_ratio = (final_joint_angle - joint_limit[0]) / (joint_limit_high - joint_limit[0])
     return intermediate_states, rgbs, (final_joint_angle_ratio, final_joint_angle)
 #USED
 def parallel_motion_planning(args):
@@ -545,7 +553,7 @@ def parallel_motion_planning(args):
     
     env_kwargs, object_name, real_target_pos, mp_target_pos, target_orientation, \
         handle_pc, handle_joint_id, save_path, ori_simulator_state, \
-        it, link_name = args
+        it, link_name, invert = args
         
     stage_length = {}
     object_name = object_name.lower()
@@ -652,7 +660,7 @@ def parallel_motion_planning(args):
         # # pull out following the rotation axis
         if debug:
             import pdb; pdb.set_trace()
-        open_door_states, open_door_rgbs, final_joint_angle_ratio = open_door(simulator, object_name, link_name, handle_joint_id, handle_pc)
+        open_door_states, open_door_rgbs, final_joint_angle_ratio = open_door(simulator, object_name, link_name, handle_joint_id, handle_pc, invert=invert)
         
         intermediate_states += open_door_states
         rgbs += open_door_rgbs
