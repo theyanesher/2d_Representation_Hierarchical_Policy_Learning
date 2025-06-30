@@ -8,7 +8,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import datetime
 import os
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 import wandb
 
@@ -176,13 +176,28 @@ def train(args):
 
     print("trying to load dataset")
     dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, only_first_stage=args.only_first_stage, use_all_data=args.use_all_data, use_combined_action=args.use_combined_action, dataset_prefix=args.dataset_prefix, num_train_objects=args.num_train_objects, predict_two_goals=args.predict_two_goals)
-    dataloader = DataLoader(dataset, 
-                shuffle=False,
-                sampler=DistributedSampler(dataset),
-                batch_size=args.batch_size,
-                num_workers=4,
-                pin_memory=True,
-                )
+    print(dataset.all_weights.shape)
+    print(dataset.all_weights)
+    sampler = WeightedRandomSampler(
+        weights=dataset.all_weights,
+        num_samples=len(dataset),
+        replacement=True
+    )
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,  # We use a sampler, so no need to shuffle
+        sampler=sampler,
+        num_workers=4,
+        pin_memory=True,
+    )
+    # dataloader = DataLoader(dataset, 
+    #             shuffle=False,
+    #             sampler=DistributedSampler(dataset),
+    #             batch_size=args.batch_size,
+    #             num_workers=4,
+    #             pin_memory=True,
+    #             )
 
     global_step = 0
 
