@@ -24,9 +24,58 @@ import pybullet as p
 from manipulation.utils import get_pc, get_pc_in_camera_frame, rotation_transfer_6D_to_matrix_batch, rotation_transfer_matrix_to_6D_batch, add_sphere, get_pixel_location, get_matrix_from_pos_rot
 from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
 
+articulated_new = [
+    # Bucket
+    "bucket_100443", "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
+    "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102358", "bucket_102365",
+
+    # Faucet
+    "faucet_148", "faucet_152", "faucet_153", "faucet_154", "faucet_168", "faucet_811", "faucet_822",
+    "faucet_857", "faucet_908", "faucet_929", "faucet_1028", "faucet_1052", "faucet_1053", "faucet_1288",
+    "faucet_1343", "faucet_1370", "faucet_1466", "faucet_1492", "faucet_1528", "faucet_1626", "faucet_1633",
+    "faucet_1646", "faucet_1668", "faucet_1741", "faucet_1794", "faucet_1795", "faucet_1802", "faucet_1885",
+    "faucet_1901", "faucet_1903", "faucet_1925", "faucet_1961", "faucet_1986", "faucet_2054",
+
+    # Foldingchair
+    "foldingchair_100531", "foldingchair_100532", "foldingchair_100557", "foldingchair_100561",
+    "foldingchair_100562", "foldingchair_100568", "foldingchair_100579", "foldingchair_100586",
+    "foldingchair_100590", "foldingchair_100599", "foldingchair_100600", "foldingchair_100608",
+    "foldingchair_100609", "foldingchair_100611", "foldingchair_100616", "foldingchair_102255",
+    "foldingchair_102263", "foldingchair_102269", "foldingchair_102314",
+
+    # Laptop
+    "laptop_9968", "laptop_9992", "laptop_9996", "laptop_10040", "laptop_10098", "laptop_10101",
+    "laptop_10238", "laptop_10243", "laptop_10248", "laptop_10269", "laptop_10270", "laptop_10280",
+    "laptop_10289", "laptop_10305", "laptop_10306", "laptop_10383", "laptop_10626", "laptop_10697",
+    "laptop_10885", "laptop_10915", "laptop_11075", "laptop_11156", "laptop_11242", "laptop_11248",
+    "laptop_11395", "laptop_11405", "laptop_11406", "laptop_11429", "laptop_11477", "laptop_11581",
+    "laptop_11586", "laptop_11691", "laptop_11778", "laptop_11876", "laptop_11888", "laptop_11945",
+    "laptop_12073",
+
+    # Stapler
+    "stapler_103099", "stapler_103100", "stapler_103104", "stapler_103111", "stapler_103113",
+    "stapler_103271", "stapler_103275", "stapler_103276", "stapler_103280", "stapler_103292",
+    "stapler_103293", "stapler_103297", "stapler_103299", "stapler_103301", "stapler_103303",
+    "stapler_103305", "stapler_103789", "stapler_103792",
+
+    # Toilet
+    "toilet_102622", "toilet_102630", "toilet_102634", "toilet_102645", "toilet_102648",
+    "toilet_102651", "toilet_102652", "toilet_102654", "toilet_102658", "toilet_102663",
+    "toilet_102666", "toilet_102667", "toilet_102668", "toilet_102669", "toilet_102670",
+    "toilet_102675", "toilet_102676", "toilet_102677", "toilet_102687", "toilet_102689",
+    "toilet_102692", "toilet_102694", "toilet_102697", "toilet_102699", "toilet_102701",
+    "toilet_102703", "toilet_102707", "toilet_102708", "toilet_103234"
+    ]
+
 def get_zarry_paths(zarr_path):
+    dataset_prefix = '/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0/165-obj'
+
+    if zarr_path == 'test_1':
+        data_name = [save_data_name_0]
+        all_zarr_paths = [
+            "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+        ]
     if zarr_path == 'articulated':
-        dataset_prefix = '/mnt/RoboGen_sim2real/data_new/dp3_demo_combined_2_step_0/165-obj'
         data_name = [
             # save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4, 
             save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
@@ -35,50 +84,36 @@ def get_zarry_paths(zarr_path):
             save_data_name_30, save_data_name_31, save_data_name_32, save_data_name_33, save_data_name_34, save_data_name_35, save_data_name_36, save_data_name_37, save_data_name_38, save_data_name_39,
             save_data_name_40, save_data_name_41, save_data_name_42, save_data_name_43, save_data_name_44, save_data_name_45, save_data_name_46, save_data_name_47, save_data_name_48, save_data_name_49,
             
-            # Bucket
-            "bucket_100443", "bucket_100444", "bucket_100452", "bucket_100454", "bucket_100460", "bucket_100461",
-            "bucket_100462", "bucket_100469", "bucket_100472", "bucket_102352", "bucket_102358", "bucket_102365",
-
-            # Faucet
-            "faucet_148", "faucet_152", "faucet_153", "faucet_154", "faucet_168", "faucet_811", "faucet_822",
-            "faucet_857", "faucet_908", "faucet_929", "faucet_1028", "faucet_1052", "faucet_1053", "faucet_1288",
-            "faucet_1343", "faucet_1370", "faucet_1466", "faucet_1492", "faucet_1528", "faucet_1626", "faucet_1633",
-            "faucet_1646", "faucet_1668", "faucet_1741", "faucet_1794", "faucet_1795", "faucet_1802", "faucet_1885",
-            "faucet_1901", "faucet_1903", "faucet_1925", "faucet_1961", "faucet_1986", "faucet_2054",
-
-            # Foldingchair
-            "foldingchair_100531", "foldingchair_100532", "foldingchair_100557", "foldingchair_100561",
-            "foldingchair_100562", "foldingchair_100568", "foldingchair_100579", "foldingchair_100586",
-            "foldingchair_100590", "foldingchair_100599", "foldingchair_100600", "foldingchair_100608",
-            "foldingchair_100609", "foldingchair_100611", "foldingchair_100616", "foldingchair_102255",
-            "foldingchair_102263", "foldingchair_102269", "foldingchair_102314",
-
-            # Laptop
-            "laptop_9968", "laptop_9992", "laptop_9996", "laptop_10040", "laptop_10098", "laptop_10101",
-            "laptop_10238", "laptop_10243", "laptop_10248", "laptop_10269", "laptop_10270", "laptop_10280",
-            "laptop_10289", "laptop_10305", "laptop_10306", "laptop_10383", "laptop_10626", "laptop_10697",
-            "laptop_10885", "laptop_10915", "laptop_11075", "laptop_11156", "laptop_11242", "laptop_11248",
-            "laptop_11395", "laptop_11405", "laptop_11406", "laptop_11429", "laptop_11477", "laptop_11581",
-            "laptop_11586", "laptop_11691", "laptop_11778", "laptop_11876", "laptop_11888", "laptop_11945",
-            "laptop_12073",
-
-            # Stapler
-            "stapler_103099", "stapler_103100", "stapler_103104", "stapler_103111", "stapler_103113",
-            "stapler_103271", "stapler_103275", "stapler_103276", "stapler_103280", "stapler_103292",
-            "stapler_103293", "stapler_103297", "stapler_103299", "stapler_103301", "stapler_103303",
-            "stapler_103305", "stapler_103789", "stapler_103792",
-
-            # Toilet
-            "toilet_102622", "toilet_102630", "toilet_102634", "toilet_102645", "toilet_102648",
-            "toilet_102651", "toilet_102652", "toilet_102654", "toilet_102658", "toilet_102663",
-            "toilet_102666", "toilet_102667", "toilet_102668", "toilet_102669", "toilet_102670",
-            "toilet_102675", "toilet_102676", "toilet_102677", "toilet_102687", "toilet_102689",
-            "toilet_102692", "toilet_102694", "toilet_102697", "toilet_102699", "toilet_102701",
-            "toilet_102703", "toilet_102707", "toilet_102708", "toilet_103234"
-        ]
+        ] + articulated_new
         all_zarr_paths = [
             "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
         ]
+    if zarr_path == 'articulated_250':
+        data_name = [
+            # save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4, 
+            save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,
+            save_data_name_10, save_data_name_11, save_data_name_12, save_data_name_13, save_data_name_14, save_data_name_15, save_data_name_16, save_data_name_17, save_data_name_18, save_data_name_19,
+            save_data_name_20, save_data_name_21, save_data_name_22, save_data_name_23, save_data_name_24, save_data_name_25, save_data_name_26, save_data_name_27, save_data_name_28, save_data_name_29,
+            save_data_name_30, save_data_name_31, save_data_name_32, save_data_name_33, save_data_name_34, save_data_name_35, save_data_name_36, save_data_name_37, save_data_name_38, save_data_name_39,
+            save_data_name_40, save_data_name_41, save_data_name_42, save_data_name_43, save_data_name_44, save_data_name_45, save_data_name_46, save_data_name_47, save_data_name_48, save_data_name_49,
+            save_data_name_50, save_data_name_51, save_data_name_52, save_data_name_53, save_data_name_54, save_data_name_55, save_data_name_56, save_data_name_57, save_data_name_58, save_data_name_59,
+            save_data_name_60, save_data_name_61, save_data_name_62, save_data_name_63, save_data_name_64, save_data_name_65, save_data_name_66, save_data_name_67, save_data_name_68, save_data_name_69,
+            save_data_name_70, save_data_name_71, save_data_name_72, save_data_name_73, save_data_name_74, save_data_name_75, save_data_name_76, save_data_name_77, save_data_name_78, save_data_name_79,
+            save_data_name_80, save_data_name_81, save_data_name_82, save_data_name_83, save_data_name_84, save_data_name_85, save_data_name_86, save_data_name_87, save_data_name_88, save_data_name_89,
+            save_data_name_90, save_data_name_91, save_data_name_92, save_data_name_93, save_data_name_94, save_data_name_95, save_data_name_96, save_data_name_97, save_data_name_98, save_data_name_99] + articulated_new
+        all_zarr_paths = [
+            "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+        ]
+    
+    if zarr_path == 'articulated_full':
+            all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+            all_subfolders = sorted(os.listdir(dataset_prefix))
+            object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+            all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+            all_zarr_paths_part_3 = articulated_new
+            all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
+            all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
+
     if zarr_path == '10_object_high_level':
         dataset_prefix = '/scratch/yufeiw2/dp3_demo'
         all_zarr_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]

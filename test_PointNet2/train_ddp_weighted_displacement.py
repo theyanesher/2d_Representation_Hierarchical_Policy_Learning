@@ -12,6 +12,19 @@ from torch.utils.data import DataLoader
 from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 import wandb
 
+def mse_loss(outputs, labels, *args, **kwargs):
+    """
+    Compute MSE loss between outputs and labels.
+    
+    Args:
+        outputs (Tensor): Predicted output, shape [B, N, C]
+        labels (Tensor): Ground truth labels, shape [B, N, C]
+
+    Returns:
+        Tensor: Scalar loss value
+    """
+    return torch.nn.functional.mse_loss(outputs, labels)
+
 def weighted_mse_loss(outputs, labels, class_weight):
     """
     Compute weighted MSE loss based on per-sample class index.
@@ -100,8 +113,8 @@ def train(args):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     # criterion = torch.nn.MSELoss()
-    criterion = weighted_mse_loss
-
+    # criterion = weighted_mse_loss
+    criterion = mse_loss
     # dataloader = get_dataloader(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
     # dataloader = get_dataloader_from_pickle(all_obj_paths=args.all_zarr_path, batch_size=args.batch_size, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, shuffle=True, only_first_stage=args.only_first_stage)
     
