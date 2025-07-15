@@ -66,6 +66,9 @@ def approach_object_link_parallel(simulator, object_name, link_name, invert=Fals
     
     handle_pc, handle_joint_id, handle_median, _ = get_link_handle(all_handle_pos, handle_joint_id, link_pc, threshold=threshold)
     print(handle_pc.shape)
+    if handle_pc.shape[0] <= 5:
+        print("No handle point cloud found, return")
+        return [], []
     axis = axis_world[0]
     axis_end = axis_end_world[0]
     handle_orientation = get_handle_orient(handle_pc)
@@ -74,7 +77,7 @@ def approach_object_link_parallel(simulator, object_name, link_name, invert=Fals
 
     # clip the handle point cloud to get graspable points
     max_distance = np.max(distance_pc)
-    handle_clip_factor = handle_clip[object_name] if object_name in handle_clip else (0.4, 0.8, 0.0, 1.0, 0.0)
+    handle_clip_factor = handle_clip[object_name] if object_name in handle_clip else (0.0, 1.0, 0.0, 1.0, 0.0)
     selected_idx_screw= np.where((distance_pc > max_distance * handle_clip_factor[0]) & (distance_pc < max_distance * handle_clip_factor[1]))[0]
     max_z = np.max(handle_pc[:, 2])
     min_z = np.min(handle_pc[:, 2])
@@ -90,6 +93,10 @@ def approach_object_link_parallel(simulator, object_name, link_name, invert=Fals
     # import pdb; pdb.set_trace()
     handle_pc = handle_pc[selected_idx]
     print("handle pc: ", handle_pc.shape)
+    # return if there is no handle point cloud
+    if handle_pc.shape[0] <= 5:
+        print("No handle point cloud found, return")
+        return [], []
 
     if object_name == "foldingchair":
         handle_pc = filter_pointcloud_by_line(handle_pc, axis, axis_end)

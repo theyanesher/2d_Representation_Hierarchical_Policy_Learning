@@ -21,6 +21,8 @@ from add_distractors_around_target import add_distractors_around_target
 from collections import defaultdict
 # from filter_obs_pcd_only_door_utils import get_filter_obs_pcd_plane
 
+invert = False
+
 def sort_states_file_by_file_number(state_path):
     # all the file are named as state_0.pkl, state_1.pkl, ...
     ret_files = []
@@ -41,6 +43,8 @@ def get_all_expert_angles(all_experiments):
                 angles = f.readlines()
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
+                if invert:
+                    opened_angle = max_angle - opened_angle
                 ratio = opened_angle / max_angle
                 ratios.append(ratio)
                 opened_angles.append(opened_angle)
@@ -85,6 +89,13 @@ def extract_pc_states_for_all_trajectories(pool_args):
         stage_lengths = os.path.join(experiment_path, "stage_lengths.json")
         with open(stage_lengths, "r") as f:
             stage_lengths = json.load(f)
+
+        reach_till_contact_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"]
+        open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+
+        if len(expert_states) - open_time_idx < 5: # if the opening time is too short, skip this trajectory
+            print("Opening time is too short, continue")
+            continue
     
         opened_angle_file = os.path.join(experiment_path, "opened_angle.txt")
         if os.path.exists(opened_angle_file): 
@@ -92,6 +103,8 @@ def extract_pc_states_for_all_trajectories(pool_args):
                 angles = f.readlines()
                 opened_angle = float(angles[0].lstrip().rstrip())
                 max_angle = float(angles[-1].lstrip().rstrip())
+                if invert:
+                    opened_angle = max_angle - opened_angle
                 ratio = opened_angle / max_angle
             if opened_angle < angle_threshold or ratio < args.min_opened_ratio:
                 print("not open enough, continue")
@@ -145,9 +158,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
 
         door_joint_angles = []
         traj_list = defaultdict(list)
-
-        reach_till_contact_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"]
-        open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+        
         reach_till_contact_idx = reach_till_contact_idx // args.combine_action_steps
         open_time_idx = open_time_idx // args.combine_action_steps
 

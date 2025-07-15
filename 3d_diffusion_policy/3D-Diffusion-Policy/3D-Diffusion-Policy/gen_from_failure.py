@@ -247,7 +247,7 @@ def gen_from_failure(
     all_exps_path: str,
     output_path: str,
     num_exps: int = 50,
-    resume: bool = False,
+    resume: bool = True,
 ):
     if not os.path.exists(all_exps_path):
         raise ValueError(f"Path {all_exps_path} does not exist.")

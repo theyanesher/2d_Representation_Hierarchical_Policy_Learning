@@ -456,7 +456,10 @@ if __name__ == "__main__":
     #     'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
         
     #     ]
-    cfg.task.env_runner.experiment_name = ['165-obj' for _ in range(1)]
+    if 'diverse_objects' in args.exp_dir:
+        cfg.task.env_runner.experiment_name = ['articubot_all' for _ in range(1)]
+    else: 
+        cfg.task.env_runner.experiment_name = ['165-obj' for _ in range(1)]
     cfg.task.env_runner.experiment_folder = [
         args.exp_dir,
         # bucket_tasks

@@ -176,7 +176,7 @@ def _gen_init_state(q, config_path, env_name, render, mobile=False, step_stone=F
             elif object_name == 'stapler':
                 init_angle = np.random.uniform(np.pi / 3, min(np.pi * 2 / 3, joint_limit - np.pi / 6))
             elif object_name == 'storagefurniture':
-                init_angle = np.random.uniform(0.5, 1.0) * joint_limit 
+                init_angle = np.random.uniform(0.3, 0.6) * joint_limit 
             
             
         else:
