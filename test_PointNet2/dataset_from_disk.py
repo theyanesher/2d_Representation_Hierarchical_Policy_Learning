@@ -10,6 +10,7 @@ import pickle
 import random
 
 categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
+num_cats = 12
 
 articulated_new = [
     # Bucket
@@ -61,7 +62,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.beg_ratio = beg_ratio
         self.end_ratio = end_ratio
         self.is_pickle = is_pickle
-        self.cat_counts = np.zeros(len(categories) + 1)  # +1 for the background category
+        self.cat_counts = np.zeros(num_cats)  # +1 for the background category
         self.use_all_data = use_all_data
         self.conditioning_on_demo = conditioning_on_demo
         
@@ -87,6 +88,13 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                 if cat in obj_path:
                     cat_idx = i + 1
                     break
+            if 'invert' in obj_path:
+                if cat_idx == 0:
+                    cat_idx = 7
+                else:
+                    cat_idx += 5
+                    
+            # storage furniture, bucket, faucet, foldingchair, laptop, stapler, toilet, invert storage furniture, invert foldingchair, invert laptop, invert stapler, invert toilet
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
                 if s in all_subfolder:
                     all_subfolder.remove(s)
@@ -318,6 +326,11 @@ class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
                 if cat in obj_path:
                     cat_idx = i + 1
                     break
+            if 'invert' in obj_path:
+                if cat_idx == 0:
+                    cat_idx = 7
+                else:
+                    cat_idx += 5
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
                 if s in all_subfolder:
                     all_subfolder.remove(s)
@@ -484,8 +497,8 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
-        if num_train_objects == 'test_5':
-            data_name = [save_data_name_0, save_data_name_1, save_data_name_2, save_data_name_3, save_data_name_4]
+        if num_train_objects == 'test':
+            data_name = [save_data_name_0]
             all_obj_paths = [
                 "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
             ]
@@ -525,7 +538,39 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_zarr_paths_part_3 = articulated_new
             all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
             all_obj_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
-        
+        elif num_train_objects == 'full_and_close':
+            all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+            all_subfolders = sorted(os.listdir(dataset_prefix))
+            object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+            all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+            all_zarr_paths_part_3 = articulated_new
+            all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
+            all_obj_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
+            close_prefix = '/mnt/RoboGen_sim2real/data/dp3_demo/invert'
+            close_prefix_2 = '/mnt/RoboGen_sim2real/data/dp3_demo/invert_new'
+            close_names = os.listdir(close_prefix)
+            close_names = [name for name in close_names if name[0].isalpha()]
+            close_names_2 = os.listdir(close_prefix_2)
+            close_obj_paths = [
+                "{}/{}".format(close_prefix, close_names[i]) for i in range(len(close_names))
+            ] + [
+                "{}/{}".format(close_prefix_2, close_names_2[i]) for i in range(len(close_names_2))
+            ]
+            all_obj_paths += close_obj_paths
+        elif num_train_objects == 'articulated_full_dagger':
+            all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+            all_subfolders = sorted(os.listdir(dataset_prefix))
+            object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+            all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+            all_zarr_paths_part_3 = articulated_new
+            all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
+            all_obj_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
+            dagger_prefix = '/mnt/RoboGen_sim2real/data/weighted_full_dagger'
+            dagger_names = os.listdir(dagger_prefix)
+            dagger_obj_paths = [
+                "{}/{}".format(dagger_prefix, dagger_names[i]) for i in range(len(dagger_names))
+            ]
+            all_obj_paths += dagger_obj_paths
         elif num_train_objects == 'dagger':
             data_name = [
                 save_data_name_5, save_data_name_6, save_data_name_7, save_data_name_8, save_data_name_9,

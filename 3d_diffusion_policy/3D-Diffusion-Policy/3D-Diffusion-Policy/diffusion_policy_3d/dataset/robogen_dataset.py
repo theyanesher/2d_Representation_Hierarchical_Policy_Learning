@@ -106,13 +106,32 @@ def get_zarry_paths(zarr_path):
         ]
     
     if zarr_path == 'articulated_full':
-            all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
-            all_subfolders = sorted(os.listdir(dataset_prefix))
-            object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
-            all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
-            all_zarr_paths_part_3 = articulated_new
-            all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
-            all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
+        all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+        all_subfolders = sorted(os.listdir(dataset_prefix))
+        object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+        all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+        all_zarr_paths_part_3 = articulated_new
+        all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
+        all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
+    if zarr_path == 'full_and_close':
+        all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
+        all_subfolders = sorted(os.listdir(dataset_prefix))
+        object_other_categories_no_cam_rand = [x for x in all_subfolders if "1121-other-cat-no-cam-rand" in x]
+        all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
+        all_zarr_paths_part_3 = articulated_new
+        all_zarr_paths_part_3 = ["{}/{}".format(dataset_prefix, name) for name in all_zarr_paths_part_3]
+        all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2 + all_zarr_paths_part_3
+        close_prefix = '/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0/invert'
+        close_prefix_2 = '/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0/invert_new'
+        close_names = os.listdir(close_prefix)
+        close_names = [name for name in close_names if name[0].isalpha()]
+        close_names_2 = os.listdir(close_prefix_2)
+        close_obj_paths = [
+            "{}/{}".format(close_prefix, close_names[i]) for i in range(len(close_names))
+        ] + [
+            "{}/{}".format(close_prefix_2, close_names_2[i]) for i in range(len(close_names_2))
+        ]
+        all_zarr_paths += close_obj_paths
 
     if zarr_path == '10_object_high_level':
         dataset_prefix = '/scratch/yufeiw2/dp3_demo'

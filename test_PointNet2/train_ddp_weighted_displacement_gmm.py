@@ -15,6 +15,45 @@ import wandb
 import numpy as np
 from termcolor import cprint
 
+def mse_loss(outputs, labels, *args, **kwargs):
+    """
+    Compute MSE loss between outputs and labels.
+    
+    Args:
+        outputs (Tensor): Predicted output, shape [B, N, C]
+        labels (Tensor): Ground truth labels, shape [B, N, C]
+
+    Returns:
+        Tensor: Scalar loss value
+    """
+    return torch.nn.functional.mse_loss(outputs, labels)
+
+def weighted_mse_loss(outputs, labels, class_weight):
+    """
+    Compute weighted MSE loss based on per-sample class index.
+    
+    Args:
+        outputs (Tensor): Predicted output, shape [B, N, C]
+        labels (Tensor): Ground truth labels, shape [B, N, C]
+        class_weights (Tensor): Class weights for each sample, shape [B]
+
+    Returns:
+        Tensor: Scalar loss value
+    """
+
+    
+    # Reshape to enable broadcasting during element-wise multiplication
+    class_weights = class_weight.view(-1, 1, 1)  # shape: [B, 1, 1]
+
+    # Compute element-wise MSE loss without reduction
+    mse = torch.nn.functional.mse_loss(outputs, labels, reduction='none')  # shape: [B, N, C]
+
+    # Apply per-sample weights
+    weighted_mse = mse * class_weights  # shape: [B, N, C]
+
+    # Final reduction: mean over the entire batch
+    return weighted_mse.mean()
+
 def ddp_setup():
     os.environ["NCCL_P2P_LEVEL"] = "NVL"
     init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=5400))
@@ -122,7 +161,8 @@ def train(args):
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
     elif args.optimizer == 'adamw':
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
-    criterion = torch.nn.MSELoss()
+    # criterion = torch.nn.MSELoss()
+    criterion = weighted_mse_loss
     
     # for name, param in model.named_parameters():
     #     print(f"{name}: requires_grad={param.requires_grad}")  # Should be True only for `another_model`
@@ -251,13 +291,14 @@ def train(args):
         accumulated_weighting_loss = 0.0
         for i, data in enumerate(tqdm(dataloader)):
             if not args.conditioning_on_demo:
-                pointcloud, gripper_pcd, goal_gripper_pcd = data
+                pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
+                class_weight = class_weight.to(device)
             else:
                 #import pdb; pdb.set_trace();
                 data = {k: v.to('cuda') for k, v in data.items()}
                 pointcloud, gripper_pcd, goal_gripper_pcd = data['pointcloud'], data['gripper_pcd'], data['goal_gripper_pcd']
+                cat_idx, class_weight = data['cat_idx'], data['class_weight']
                 #import pdb; pdb.set_trace();
-                
             # inputs: B, N, 3
             # gripper_pcd: B, 4, 3
             # goal_gripper_points: B, 4, 3
@@ -311,13 +352,13 @@ def train(args):
                 max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
                 log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
                 
-                        
-                loss = -torch.mean(log_probs) # mean of the negative log likelihood
+                # loss = -torch.mean(log_probs)
+                loss = -torch.mean(log_probs * class_weight)  # B,
                 accumulated_displacement_loss += loss.item()
 
                
             else:
-                loss = criterion(outputs, labels)
+                loss = criterion(outputs, labels, class_weight)
                 accumulated_displacement_loss += loss.item()
 
                 if args.using_weight:
@@ -390,7 +431,7 @@ def parse_args():
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--using_weight', type=int, default=1)
     parser.add_argument('--exp_name', type=str, default="")
-    parser.add_argument('--fixed_variance', type=float, default=0.05)
+    parser.add_argument('--fixed_variance', type=float, default=0.01)
     parser.add_argument('--conditioning_on_demo', type=int, default=0)
     parser.add_argument('--demo_attn_embedding_dim', type=int, default=240)
     parser.add_argument('--demo_use_attn', type=int, default=0)
