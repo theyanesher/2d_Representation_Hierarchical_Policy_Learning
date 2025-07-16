@@ -26,8 +26,9 @@ class articulated(SimpleEnv):
         # link_1 for stapler
         # link_0 for other objects
 
-    def execute(self):
-        rgbs, final_state = approach_object_link_parallel(self, self.object_name, self.link_name, debug=False)  
+    def execute(self, invert=False):
+        rgbs, final_state = approach_object_link_parallel(self, self.object_name, self.link_name, invert=invert, debug=False) 
+        # rgbs, final_state = push_object_link_parallel(self, self.object_name, self.link_name,debug=False) 
         return rgbs, final_state
     
     def set_handle(self, angle=0.5):
