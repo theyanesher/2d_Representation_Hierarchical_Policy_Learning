@@ -53,7 +53,7 @@ def construct_env(cfg, config_file, env_name, init_state_file, obj_translation=N
     return env
 
 def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, cat_idx, exp_beg_idx=0,
-                          exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
+                          exp_end_idx=1000, embedding_dim=None, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
                           randomize_camera=False, pos_ori_imp=False):
@@ -125,8 +125,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             init_state_files.append(init_state_file)
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
             config_files.append(config_file)
-                    
-        config_files = config_files
 
         opened_joint_angles = {}
 
@@ -593,6 +591,7 @@ if __name__ == "__main__":
             horizon=35,
             exp_beg_idx=0,
             exp_end_idx=25,
+            embedding_dim=embedding_dim,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
             update_goal_freq=args.update_goal_freq,

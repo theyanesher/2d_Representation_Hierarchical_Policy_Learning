@@ -1,39 +1,32 @@
 import os
 import hydra
 import torch
-import dill
 from omegaconf import OmegaConf
-import pathlib
 from train_ddp import TrainDP3Workspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from manipulation.utils import build_up_env, save_numpy_as_gif, save_env
-import pybullet as p
 import numpy as np
 from copy import deepcopy
-import sys
 from termcolor import cprint
 from manipulation.robogen_wrapper import RobogenPointCloudWrapper
 from diffusion_policy_3d.gym_util.multistep_wrapper import MultiStepWrapper
-from manipulation.gpt_reward_api import get_joint_state
-import tqdm
 import json
-from multiprocessing import set_start_method
-from multiprocessing import Pool
-import time
 import yaml
-import pickle as pkl
 import argparse
-from typing import List, Optional
+from typing import Optional
 from collections import deque
 from manipulation.utils import load_env
 
-def construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,
+def construct_env(cfg, config_file, env_name, init_state_file, obj_translation, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
+    config = yaml.safe_load(open(config_file, "r"))
+    for config_dict in config:
+        if 'name' in config_dict:
+            object_name = config_dict['name'].lower()
     env, _ = build_up_env(
-                    config_file,
-                    solution_path,
-                    task_name,
-                    init_state_file,
+                    task_config=config_file,
+                    env_name=env_name,
+                    restore_state_file=init_state_file,
                     # render=False, 
                     render=False, 
                     randomize=False,
@@ -41,8 +34,6 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, o
                     horizon=600,
                     random_object_translation=obj_translation,
             )
-            
-    object_name = "StorageFurniture".lower()
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
                                                 gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
@@ -62,125 +53,9 @@ def construct_env(cfg, config_file, solution_path, task_name, init_state_file, o
                         max_episode_steps=600, reward_agg_method='sum')
     
     return env
-
-def parallel_eval(args):
-    config_path, init_state, action, cfg, idx = args 
-    config_file = config_path
-    with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
-    solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-    all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-    with open(all_substeps_path, "r") as f:
-        substeps = f.readlines()
-        first_step = substeps[0].lstrip().rstrip()
-        task_name = first_step.replace(" ", "_")
-    
-    env, _ = build_up_env(
-            config_path,
-            solution_path,
-            task_name,
-            None,
-            render=False, 
-            randomize=False,
-            obj_id=0,
-            horizon=600,
-    )
-    
-    object_name = "StorageFurniture".lower()
-    env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
-                                                  gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
-                                                  num_points=cfg.task.env_runner.num_point_in_pc,
-                                                  use_joint_angle=cfg.task.env_runner.use_joint_angle, 
-                                                  use_segmask=cfg.task.env_runner.use_segmask,
-                                                  only_handle_points=cfg.task.env_runner.only_handle_points,
-                                                  observation_mode=cfg.task.env_runner.observation_mode,
-                                                  only_object=cfg.task.env_runner.only_object,
-                                                  )
-        
-    env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
-                        max_episode_steps=600, reward_agg_method='sum')
-    
-    env.reset(reset_state=init_state)
-    obs, reward, done, info = env.step(action)
-    rgb = env.env.render()
-    state = save_env(env.env._env)
-        
-    pointcloud_env._env.close()
-    return obs, rgb, info, state, idx
-
-def parallel_reset(args):
-    config_path, init_state_file, cfg, idx = args 
-    config_file = config_path
-    with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
-    solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-    all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-    with open(all_substeps_path, "r") as f:
-        substeps = f.readlines()
-        first_step = substeps[0].lstrip().rstrip()
-        task_name = first_step.replace(" ", "_")
-    
-    env, _ = build_up_env(
-            config_path,
-            solution_path,
-            task_name,
-            init_state_file,
-            render=False, 
-            # render=True, 
-            randomize=False,
-            obj_id=0,
-            horizon=600,
-    )
-    
-    object_name = "StorageFurniture".lower()
-    env.reset()
-    pointcloud_env = RobogenPointCloudWrapper(env, object_name, in_gripper_frame=cfg.task.env_runner.in_gripper_frame, 
-                                                  gripper_num_points=cfg.task.env_runner.gripper_num_points, add_contact=cfg.task.env_runner.add_contact,
-                                                  num_points=cfg.task.env_runner.num_point_in_pc,
-                                                  use_joint_angle=cfg.task.env_runner.use_joint_angle, 
-                                                  use_segmask=cfg.task.env_runner.use_segmask,
-                                                  only_handle_points=cfg.task.env_runner.only_handle_points,
-                                                  observation_mode=cfg.task.env_runner.observation_mode,
-                                                  only_object=cfg.task.env_runner.only_object,
-                                                  )
-        
-    env = MultiStepWrapper(pointcloud_env, n_obs_steps=cfg.n_obs_steps, n_action_steps=cfg.n_action_steps, 
-                        max_episode_steps=600, reward_agg_method='sum')
-    
-    obs = env.reset()
-    # import pdb; pdb.set_trace()
-    state = save_env(env.env._env)
-    rgb = env.env.render()
-    info = env.env._env._get_info()
-    env.env._env.close()
-    return obs, state, rgb, info, idx
-
-def parallel_save_gif(args):
-    rgbs, save_path = args
-    
-    save_numpy_as_gif(np.array(rgbs), save_path)
-
-def wrap_obs(list_of_obs):
-    parallel_input_dict = {}
-    # parallel_input_dict['point_cloud'] = np.concatenate([x['point_cloud'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['agent_pos'] = np.concatenate([x['agent_pos'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['feature_map'] = np.concatenate([x['feature_map'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['gripper_pcd'] = np.concatenate([x['gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
-    # parallel_input_dict['pcd_mask'] = np.concatenate([x['pcd_mask'][None, ...] for x in list_of_obs], axis=0)
-    # # TODO: add goal key
-    # if 'goal_gripper_pcd' in list_of_obs[0]:
-    #     parallel_input_dict['goal_gripper_pcd'] = np.concatenate([x['goal_gripper_pcd'][None, ...] for x in list_of_obs], axis=0)
-    for key in list_of_obs[0]:
-        parallel_input_dict[key] = np.concatenate([x[key][None, ...] for x in list_of_obs], axis=0)
-    
-    parallel_input_dict = dict_apply(parallel_input_dict, lambda x: torch.from_numpy(x).to('cuda'))
-    return parallel_input_dict
-
-
             
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, exp_beg_idx=0,
-                          exp_end_idx=1000, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, cat_idx, exp_beg_idx=0,
+                          exp_end_idx=1000, embedding_dim=None, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False, obj_translation: Optional[list]= None,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
                           randomize_camera=False, conditioning_on_demo=False,
@@ -199,7 +74,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         # if dataset_idx == 0:
         #     continue
 
-        opening_state_files = []
         init_state_files = []
         config_files = []
         experiment_folder = "{}/{}".format(os.environ['PROJECT_DIR'], experiment_folder)
@@ -216,55 +90,51 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     all_subfolder.remove(string)
             all_subfolder = sorted(all_subfolder)
             all_experiments = all_subfolder
-            
-        all_substeps_path = os.path.join(experiment_folder, "substeps.txt")
-        with open(all_substeps_path, "r") as f:
-            substeps = f.readlines()
-            first_step = substeps[0].lstrip().rstrip()
-        
-
+                    
         expert_opened_angles = []
         for experiment in all_experiments:
             if "meta" in experiment:
                 continue
             
-            first_step_folder = first_step.replace(" ", "_") + "_primitive"
-            first_step_folder = os.path.join(experiment_path, experiment, first_step_folder)
-            if os.path.exists(os.path.join(first_step_folder, "label.json")):
-                with open(os.path.join(first_step_folder, "label.json"), 'r') as f:
+            exp_folder = os.path.join(experiment_path, experiment)
+            if os.path.exists(os.path.join(exp_folder, "label.json")):
+                with open(os.path.join(exp_folder, "label.json"), 'r') as f:
                     label = json.load(f)
                 if not label['good_traj']: continue
                 
-            first_stage_states_path = os.path.join(first_step_folder, "states")
-            expert_states = os.listdir(first_stage_states_path)
+            states_path = os.path.join(exp_folder, "states")
+            if not os.path.exists(states_path):
+                continue
+            if len(os.listdir(states_path)) <= 1 or not os.path.exists(os.path.join(exp_folder, "all.gif")):
+                continue
+            expert_states = [f for f in os.listdir(states_path) if f.startswith("state")]
             if len(expert_states) == 0:
                 continue
                 
-            expert_opened_angle_file = os.path.join(experiment_path, experiment, first_step_folder, "opened_angle.txt")
+            expert_opened_angle_file = os.path.join(experiment_path, experiment, "opened_angle.txt")
             if os.path.exists(expert_opened_angle_file):
                 with open(expert_opened_angle_file, "r") as f:
                     angles = f.readlines()
                     expert_opened_angle = float(angles[0].lstrip().rstrip())
-                    max_angle = float(angles[-1].lstrip().rstrip())
-                    ratio = expert_opened_angle / max_angle
+                    # max_angle = float(angles[-1].lstrip().rstrip())
+                    # ratio = expert_opened_angle / max_angle
                 # if ratio < 0.65:
                 #     continue
             expert_opened_angles.append(expert_opened_angle)
             
-            first_stage_states_path = os.path.join(first_step_folder, "states")
-            stage_lengths = os.path.join(first_step_folder, "stage_lengths.json")
+            stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
             with open(stage_lengths, "r") as f:
                 stage_lengths = json.load(f)
             
-            if 'stage' in stage_lengths:
-                reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
-            else:
-                # This is actually the -10 timestep which we used for the demo conditioning
-                reaching_phase = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 1
+            # if 'stage' in stage_lengths:
+            #     reaching_phase = stage_lengths.get('open_gripper', 0) + stage_lengths['grasp_handle']
+            # else:
+            #     # This is actually the -10 timestep which we used for the demo conditioning
+            #     reaching_phase = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 1
                 
-            opening_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
-            opening_state_files.append(opening_state_file)
-            init_state_file = os.path.join(first_stage_states_path, "state_0.pkl")
+            # opening_state_file = os.path.join(first_stage_states_path, "state_{}.pkl".format(reaching_phase))
+            # opening_state_files.append(opening_state_file)
+            init_state_file = os.path.join(states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
             config_file = os.path.join(experiment_path, experiment, "task_config.yaml")
             config_files.append(config_file)
@@ -275,35 +145,30 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             exp_end_idx = int(exp_end_ratio * len(config_files))
         if exp_beg_ratio is not None:
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
+
+        angle_threshold = np.quantile(expert_opened_angles, 0.1)
+        selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
+        config_files = [config_files[i] for i in selected_idx]
+        init_state_files = [init_state_files[i] for i in selected_idx]
+        expert_opened_angles = [expert_opened_angles[i] for i in selected_idx]
             
         if conditioning_on_demo: # construct the env using the last episode as demo
             if conditional_demo_folder is None:
                 config_file = config_files[exp_end_idx]
                 init_state_file = init_state_files[exp_end_idx]
-                opening_state_file = opening_state_files[exp_end_idx]
             else:
                 config_file = os.path.join(conditional_demo_folder, "task_config.yaml")
-                init_state_file = os.path.join(conditional_demo_folder, "grasp_the_handle_of_the_storage_furniture_door_primitive", "states", "state_0.pkl")
-                stage_lengths = os.path.join(conditional_demo_folder, "grasp_the_handle_of_the_storage_furniture_door_primitive", "stage_lengths.json")
+                init_state_file = os.path.join(conditional_demo_folder, "states", "state_0.pkl")
+                stage_lengths = os.path.join(conditional_demo_folder,  "stage_lengths.json")
                 with open(stage_lengths, 'r') as f:
                     stage_lengths = json.load(f)
                 opening_state = stage_lengths['reach_handle'] + stage_lengths['reach_to_contact'] + stage_lengths['close_gripper'] + stage_lengths['open_door'] - 1
-                opening_state_file = os.path.join(conditional_demo_folder, "grasp_the_handle_of_the_storage_furniture_door_primitive", "states", "state_{}.pkl".format(opening_state))
+                opening_state_file = os.path.join(conditional_demo_folder, "states", "state_{}.pkl".format(opening_state))
 
             # from termcolor import cprint
             cprint(f"exp_end_idx {exp_end_idx}", "red")
             cprint(f"demo config file {config_file}", "red")
             cprint(f"demo init state file {init_state_file}", "red")
-            cprint(f"demo opening state file {opening_state_file}", "red")
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-            solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-            all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-            with open(all_substeps_path, "r") as f:
-                substeps = f.readlines()
-                first_step = substeps[0].lstrip().rstrip()
-                task_name = first_step.replace(" ", "_")
-            
             env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                 randomize_camera)
             
@@ -327,28 +192,18 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         config_files = config_files[exp_beg_idx:exp_end_idx]
         init_state_files = init_state_files[exp_beg_idx:exp_end_idx]
         expert_opened_angles = expert_opened_angles[exp_beg_idx:exp_end_idx]
-        opening_state_files = opening_state_files[exp_beg_idx:exp_end_idx]
         
         all_distances = []
         all_grasp_distances = []
 
-        
+        if args.category_embedding_type == "siglip":
+            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt")
+        cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
+
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
                 
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-            solution_path = [x['solution_path'] for x in config if "solution_path" in x][0]
-            all_substeps_path = os.path.join(os.environ['PROJECT_DIR'], solution_path, "substeps.txt")
-            with open(all_substeps_path, "r") as f:
-                substeps = f.readlines()
-                first_step = substeps[0].lstrip().rstrip()
-                task_name = first_step.replace(" ", "_")
-            
-            cprint(f"eval config file {config_file}", "red")
-            cprint(f"eval init state file {init_state_file}", "red")
-            env = construct_env(cfg, config_file, solution_path, task_name, init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
+            env = construct_env(cfg, config_file, "articulated", init_state_file, obj_translation, real_world_camera, noise_real_world_pcd, 
                                 randomize_camera)
-            
             obs = env.reset()
             rgb = env.env.render()
             info = env.env._env._get_info()
@@ -407,6 +262,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     with torch.no_grad():
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
+                        if args.category_embedding_type == "one_hot":
+                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float().to(pointcloud.device)
+                        elif args.category_embedding_type == "siglip":
+                            cat_embedding = siglip_text_features[cat_idx].float().to(pointcloud.device)
+                        else:
+                            cat_embedding = None
                         if not args.predict_two_goals:
                             inputs = torch.cat([pointcloud, gripper_pcd], dim=1)
                         else:
@@ -423,11 +284,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                             gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
                             inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
                         
-                        fixed_variance = args.fixed_variance
                         inputs = inputs.to('cuda')
                         inputs_ = inputs.permute(0, 2, 1)
                         if not args.conditioning_on_demo:
-                            outputs = goal_prediction_model(inputs_)
+                            outputs = goal_prediction_model(inputs_, cat_embedding)
                         else:
                             if args.eval_condition_on_demo:
                                 outputs = goal_prediction_model(inputs_, demo_data)
@@ -522,21 +382,33 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 "expert_door_joint_angle": expert_opened_angles[exp_idx], 
                 "initial_joint_angle": float(info['initial_joint_angle'][-1]),
                 "ik_failure": float(info['ik_failure'][-1]),
+                'oversized_joint_distance': float(info['oversized_joint_distance'][-1]),
                 'grasped_handle': float(info['grasped_handle'][-1]),
                 "exp_idx": exp_idx, 
             }
-                    
-            with open("{}/opened_joint_angles_{}.json".format(save_path, dataset_idx), "w") as f:
-                json.dump(opened_joint_angles, f, indent=4)
-            
-            gif_save_exp_name = experiment_folder.split("/")[-2]
-            gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)
+            # gif_save_exp_name = experiment_folder.split("/")[-1] 
+            gif_save_exp_name = experiment_folder.split("/")[-2] + "/" + experiment_folder.split("/")[-1]
+            gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)                 
             if not os.path.exists(gif_save_folder):
                 os.makedirs(gif_save_folder, exist_ok=True)
+
+            with open("{}/opened_joint_angles.json".format(gif_save_folder), "w") as f:
+                json.dump(opened_joint_angles, f, indent=4)
+   
             gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
                     float(info["improved_joint_angle"][-1]))
-            
             save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
+            # with open("{}/opened_joint_angles_{}.json".format(save_path, dataset_idx), "w") as f:
+            #     json.dump(opened_joint_angles, f, indent=4)
+            
+            # gif_save_exp_name = experiment_folder.split("/")[-2]
+            # gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)
+            # if not os.path.exists(gif_save_folder):
+            #     os.makedirs(gif_save_folder, exist_ok=True)
+            # gif_save_path = "{}/{}_{}.gif".format(gif_save_folder, exp_idx, 
+            #         float(info["improved_joint_angle"][-1]))
+            
+            # save_numpy_as_gif(np.array(all_rgbs), gif_save_path)
 
         if calculate_distance_from_gt:
             print("average distance: {}".format(np.mean(all_distances)))
@@ -584,10 +456,20 @@ if __name__ == "__main__":
     parser.add_argument('--eval_unseen', type=int, default=1)
     parser.add_argument('--flip_goal', type=int, default=0)
     parser.add_argument('--small_film', type=int, default=0)
+    parser.add_argument('--exp_dir', type=str, help='Experiment directory')
+    parser.add_argument('--num_categories', type=int, default=7)
+    parser.add_argument('--category_embedding_type', type=str, default="none")
     args = parser.parse_args()
     
     num_worker = 30
     pool=None
+
+    categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
+    cat_idx = 0
+    for i, cat in enumerate(categories):
+        if cat in args.exp_dir:
+            cat_idx = i + 1
+            break
 
     if args.low_level_exp_dir is None:
         # best 50 objects
@@ -616,51 +498,68 @@ if __name__ == "__main__":
     policy = policy.to('cuda')
     
     conditional_demo_folders = [None for _ in range(10)]
-    if args.eval_unseen:
-        cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
-        cfg.task.env_runner.experiment_folder = [
-            'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
-            ]
-        cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
+    # if args.eval_unseen:
+    #     cfg.task.env_runner.experiment_name = ['0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first' for _ in range(10)]
+    #     cfg.task.env_runner.experiment_folder = [
+    #         'data/diverse_objects/open_the_door_40147/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_44962/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+    #         ]
+    #     cfg.task.env_runner.demo_experiment_path = [None for _ in range(10)]
         
-        # conditional_demo_folders = [
-        #     "/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-07-06-05-06-58"
-        # ]
+    #     # conditional_demo_folders = [
+    #     #     "/project_data/held/yufeiw2/RoboGen_sim2real/data/diverse_objects/open_the_door_44817/task_open_the_door_of_the_storagefurniture_by_its_handle/experiment/0705-diverse-objects-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first/2024-07-06-05-06-58"
+    #     # ]
     
-    else:
-        cfg.task.env_runner.experiment_name = [
-            "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
-            "0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
-            "0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
-        ]
-        cfg.task.env_runner.experiment_folder = [
-            'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
-            # 'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
-        ]
-        cfg.task.env_runner.demo_experiment_path = [None for _ in range(3)]
-    
+    # else:
+    #     cfg.task.env_runner.experiment_name = [
+    #         "0511-vary-obj-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
+    #         "0511-vary-obj-2-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
+    #         "0511-vary-obj-4-loc-ori-init-angle-robot-init-joint-near-handle-300-demo-0.4-0.15-translation-first",
+    #     ]
+    #     cfg.task.env_runner.experiment_folder = [
+    #         'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_41510_2024-03-27-15-59-54/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_45448_2024-03-27-22-40-39/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         'data/temp/open_the_door_of_the_storagefurniture_by_its_handle_StorageFurniture_46462_2024-03-27-23-35-10/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45132/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45219/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45243/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45332/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45378/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45384/task_open_the_door_of_the_storagefurniture_by_its_handle',
+    #         # 'data/diverse_objects/open_the_door_45463/task_open_the_door_of_the_storagefurniture_by_its_handle'
+    #     ]
+        # cfg.task.env_runner.demo_experiment_path = [None for _ in range(3)]
+    if 'diverse_objects' in args.exp_dir:
+        cfg.task.env_runner.experiment_name = ['0705' for _ in range(1)]
+    else: 
+        cfg.task.env_runner.experiment_name = ['165-obj' for _ in range(1)]
+
+    cfg.task.env_runner.experiment_folder = [
+        args.exp_dir,
+    ]
+
+    cfg.task.env_runner.demo_experiment_path = [None for _ in range(1)]
+
     load_model_path = args.high_level_ckpt_name
         
     
     num_class = 13 if not args.predict_two_goals else 25
     input_channel = 5 if args.add_one_hot_encoding else 3
+    print(args.pointnet_class)
+    if args.category_embedding_type == "one_hot":
+        embedding_dim = args.num_categories
+    elif args.category_embedding_type == "siglip":
+        embedding_dim = 768
+    else:
+        embedding_dim = None
     if args.conditioning_on_demo and not args.demo_cross_attn_bottleneck and not args.demo_hadamard_production and not args.demo_aligned_cross_attn and not args.bottleneck_film_cond:
         input_channel += args.demo_attn_embedding_dim
     if args.conditioning_on_demo and args.demo_just_use_pn:
@@ -673,7 +572,7 @@ if __name__ == "__main__":
         elif args.pointnet_class == "PointNet2_large":
             pointnet2_model = PointNet2(num_classes=num_class).to('cuda')
         elif args.pointnet_class == "PointNet2_super":
-            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel, embedding_dim=embedding_dim).to("cuda")
         
     else:
         if args.conditioning_on_demo:
@@ -696,7 +595,7 @@ if __name__ == "__main__":
                                 ).to("cuda")
         else:
             from test_PointNet2.model_invariant import PointNet2_super
-            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to("cuda")
+            pointnet2_model = PointNet2_super(num_classes=num_class, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel, embedding_dim=embedding_dim).to("cuda")
             
         
     pointnet2_model.load_state_dict(torch.load(load_model_path))
@@ -727,6 +626,7 @@ if __name__ == "__main__":
             horizon=35,
             exp_beg_idx=0,
             exp_end_idx=25,
+            embedding_dim=embedding_dim,
             obj_translation=args.noise,
             output_obj_pcd_only=args.output_obj_pcd_only,
             update_goal_freq=args.update_goal_freq,
