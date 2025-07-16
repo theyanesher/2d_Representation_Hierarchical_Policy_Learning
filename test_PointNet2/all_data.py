@@ -9,7 +9,7 @@ save_data_name_7='0628-act3d-obj-46966-gripper-goal-1-displacement-to-object-1-c
 save_data_name_8='0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1'
 save_data_name_9='0628-act3d-obj-47578-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1'
 save_data_name_10='0628-act3d-obj-48700-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1'
-
+# diverse objects
 save_data_name_11='0705-obj-45526'
 save_data_name_12='0705-obj-45661'
 save_data_name_13='0705-obj-45694'

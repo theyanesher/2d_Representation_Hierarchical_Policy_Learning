@@ -4,7 +4,7 @@ from manipulation.push_primitive_api import push_object_link_parallel
 import gym
 
 handle_name_dict = {
-    'busket': 'handle',
+    'bucket': 'handle',
     'faucet': 'switch',
     'foldingchair': 'seat',
     'laptop': 'screen_frame',

@@ -3,23 +3,23 @@ import os
 
 eval_result_path = 'data/0520_low_level_70-obj_finetune_unlimited/'
 
-bucket_tasks = [100435, 100441]
-faucet_tasks = [149, 960, 991]
-foldingchair_tasks = [100520, 100521, 100526]
-laptop_tasks = [9748, 9912, 9960]
-stapler_tasks = [102990, 103095]
-toilet_tasks = [101320, 102620, 102621]
-storagefurniture_tasks = [41510, 45448, 46462, 46732, 46801]
-bucket_tasks = [str(i) for i in bucket_tasks]
-faucet_tasks = [str(i) for i in faucet_tasks]
-foldingchair_tasks = [str(i) for i in foldingchair_tasks]
-laptop_tasks = [str(i) for i in laptop_tasks]
-stapler_tasks = [str(i) for i in stapler_tasks]
-toilet_tasks = [str(i) for i in toilet_tasks]
-storagefurniture_tasks = [str(i) for i in storagefurniture_tasks]
+bucket_tasks = os.listdir(os.path.join(eval_result_path, "bucket"))
+faucet_tasks = os.listdir(os.path.join(eval_result_path, "faucet"))
+foldingchair_tasks = os.listdir(os.path.join(eval_result_path, "foldingchair"))
+laptop_tasks = os.listdir(os.path.join(eval_result_path, "laptop"))
+stapler_tasks = os.listdir(os.path.join(eval_result_path, "stapler"))
+toilet_tasks = os.listdir(os.path.join(eval_result_path, "toilet"))
+storagefurniture_tasks = os.listdir(os.path.join(eval_result_path, "diverse_objects_all"))
+# bucket_tasks = [str(i) for i in bucket_tasks]
+# faucet_tasks = [str(i) for i in faucet_tasks]
+# foldingchair_tasks = [str(i) for i in foldingchair_tasks]
+# laptop_tasks = [str(i) for i in laptop_tasks]
+# stapler_tasks = [str(i) for i in stapler_tasks]
+# toilet_tasks = [str(i) for i in toilet_tasks]
+# storagefurniture_tasks = [str(i) for i in storagefurniture_tasks]
 
 all_tasks = [bucket_tasks, faucet_tasks, foldingchair_tasks, laptop_tasks, stapler_tasks, toilet_tasks, storagefurniture_tasks]
-all_task_names = ["bucket", "faucet", "foldingchair", "laptop", "stapler", "toilet", "storagefurniture"]
+all_task_names = ["bucket", "faucet", "foldingchair", "laptop", "stapler", "toilet", "diverse_objects_all"]
 all_open_ratios = []
 all_ik_failures = []
 all_oversized_ratios = []
@@ -62,17 +62,17 @@ for i, task_list in enumerate(all_tasks):
         avg_ik_failures.append(avg_ik_failure)
         avg_oversized_ratios.append(avg_oversized_ratio)
         avg_grasp_ratios.append(avg_grasp_ratio)
-    # print("Average open ratio for category "+ all_task_names[i] + ": " + str(sum(avg_open_ratios) / len(avg_open_ratios)))
-    print("Average ik failure for category "+ all_task_names[i] + ": " + str(sum(avg_ik_failures) / len(avg_ik_failures)))
-    print("Average oversized ratio for category "+ all_task_names[i] + ": " + str(sum(avg_oversized_ratios) / len(avg_oversized_ratios)))
+    print("Average open ratio for category "+ all_task_names[i] + ": " + str(sum(avg_open_ratios) / len(avg_open_ratios)))
+    # print("Average ik failure for category "+ all_task_names[i] + ": " + str(sum(avg_ik_failures) / len(avg_ik_failures)))
+    # print("Average oversized ratio for category "+ all_task_names[i] + ": " + str(sum(avg_oversized_ratios) / len(avg_oversized_ratios)))
     # print("Average grasp ratio for category "+ all_task_names[i] + ": " + str(sum(avg_grasp_ratios) / len(avg_grasp_ratios)))
     all_open_ratios.append(sum(avg_open_ratios) / len(avg_open_ratios))
-    all_ik_failures.append(sum(avg_ik_failures) / len(avg_ik_failures))
-    all_oversized_ratios.append(sum(avg_oversized_ratios) / len(avg_oversized_ratios))
-    all_grasp_ratios.append(sum(avg_grasp_ratios) / len(avg_grasp_ratios))
-# print("Average open ratio for all categories: " + str(sum(all_open_ratios) / len(all_open_ratios)))
-print("Average ik failure for all categories: " + str(sum(all_ik_failures) / len(all_ik_failures)))
-print("Average oversized ratio for all categories: " + str(sum(all_oversized_ratios) / len(all_oversized_ratios)))
+    # all_ik_failures.append(sum(avg_ik_failures) / len(avg_ik_failures))
+    # all_oversized_ratios.append(sum(avg_oversized_ratios) / len(avg_oversized_ratios))
+    # all_grasp_ratios.append(sum(avg_grasp_ratios) / len(avg_grasp_ratios))
+print("Average open ratio for all categories: " + str(sum(all_open_ratios) / len(all_open_ratios)))
+# print("Average ik failure for all categories: " + str(sum(all_ik_failures) / len(all_ik_failures)))
+# print("Average oversized ratio for all categories: " + str(sum(all_oversized_ratios) / len(all_oversized_ratios)))
 # print("Average grasp ratio for all categories: " + str(sum(all_grasp_ratios) / len(all_grasp_ratios)))
 
         

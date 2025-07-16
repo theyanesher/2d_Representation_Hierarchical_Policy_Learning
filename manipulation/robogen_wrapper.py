@@ -298,6 +298,7 @@ class RobogenPointCloudWrapper:
         while try_times < 5000:
             view_matrices = []
             project_matrices = []
+            camera_eyes = []
             try_times += 1
             distance = np.random.uniform(0.8, 1.2) * self.mean_distance + np.random.normal(0, 0.05, 1)
             camera_center = self.mean_camera_target + np.random.normal(0, 0.05, 3)
@@ -313,8 +314,10 @@ class RobogenPointCloudWrapper:
                 project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=640/480 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=self._env.id)
                 view_matrices.append(view_matrix)
                 project_matrices.append(project_matrix)
+                camera_eyes.append(camera_center)
             self.view_matrices = view_matrices
             self.project_matrices = project_matrices
+            self.camera_eyes = camera_eyes
             if self.check_handle_observed_in_pc(handle_pc=handle_pc) > 5:
                 self._env.projection_matrix = project_matrices[0]
                 self._env.view_matrix = view_matrices[0]
@@ -675,9 +678,9 @@ class RobogenPointCloudWrapper:
             point_cloud = np.array(pcd3.points)
             distance_to_camera_eye_1 = np.linalg.norm(self.camera_eyes[0] - point_cloud, axis=1)
             distance_to_camera_eye_2 = np.linalg.norm(self.camera_eyes[1] - point_cloud, axis=1)
-            point_cloud = point_cloud[distance_to_camera_eye_1 > 0.1]
-            point_cloud = point_cloud[distance_to_camera_eye_2 > 0.1]
-            
+            # point_cloud = point_cloud[distance_to_camera_eye_1 > 0.1]
+            # point_cloud = point_cloud[distance_to_camera_eye_2 > 0.1]
+            point_cloud = point_cloud[(distance_to_camera_eye_1 > 0.1) & (distance_to_camera_eye_2 > 0.1)]
             # pcd_o3d = o3d.geometry.PointCloud()
             # pcd_o3d.points = o3d.utility.Vector3dVector(point_cloud)
             # o3d.visualization.draw_geometries([pcd_o3d])
