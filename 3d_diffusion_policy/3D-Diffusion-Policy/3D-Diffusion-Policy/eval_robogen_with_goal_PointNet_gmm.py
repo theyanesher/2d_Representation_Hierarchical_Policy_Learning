@@ -621,7 +621,7 @@ if __name__ == "__main__":
     cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
     run_eval_non_parallel(
             cfg, policy, pointnet2_model,
-            num_worker, save_path, 
+            num_worker, save_path, cat_idx,
             pool=pool, 
             horizon=35,
             exp_beg_idx=0,
