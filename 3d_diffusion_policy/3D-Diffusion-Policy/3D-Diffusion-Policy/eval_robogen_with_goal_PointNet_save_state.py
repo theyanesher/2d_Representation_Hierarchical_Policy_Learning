@@ -112,6 +112,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             expert_states = [f for f in os.listdir(states_path) if f.startswith("state")]
             if len(expert_states) == 0:
                 continue
+            stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
+            with open(stage_lengths, "r") as f:
+                stage_lengths = json.load(f)
+            open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+            if len(expert_states) - open_time_idx < 5: # if the opening time is too short, skip this trajectory
+                continue    
                 
             expert_opened_angle_file = os.path.join(experiment_path, experiment, "opened_angle.txt")
             if os.path.exists(expert_opened_angle_file):
@@ -123,10 +129,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 # if ratio < 0.65:
                 #     continue
             expert_opened_angles.append(expert_opened_angle)
-            
-            stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
-            with open(stage_lengths, "r") as f:
-                stage_lengths = json.load(f)
+        
                 
             init_state_file = os.path.join(states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
@@ -142,7 +145,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         if exp_beg_ratio is not None:
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
 
-        angle_threshold = np.quantile(expert_opened_angles, 0.1)
+        angle_threshold = np.quantile(expert_opened_angles, 0.5)
         selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
         config_files = [config_files[i] for i in selected_idx]
         init_state_files = [init_state_files[i] for i in selected_idx]
