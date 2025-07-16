@@ -21,7 +21,6 @@ from add_distractors_around_target import add_distractors_around_target
 from collections import defaultdict
 # from filter_obs_pcd_only_door_utils import get_filter_obs_pcd_plane
 
-invert = False
 
 def sort_states_file_by_file_number(state_path):
     # all the file are named as state_0.pkl, state_1.pkl, ...
@@ -33,7 +32,7 @@ def sort_states_file_by_file_number(state_path):
     ret_files = sorted(ret_files, key=lambda x: int(x.split("_")[1].split(".")[0]))
     return ret_files
 
-def get_all_expert_angles(all_experiments):
+def get_all_expert_angles(all_experiments, invert=False):
     ratios = []
     opened_angles = []
     for experiment_path in all_experiments:
@@ -53,7 +52,7 @@ def get_all_expert_angles(all_experiments):
 
 def extract_pc_states_for_all_trajectories(pool_args):
     task_config_path, solution_path, env_name, exp_name, gripper_num_points, add_contact, \
-        experiments, save_path, add_distractors, angle_threshold, args = pool_args
+        experiments, save_path, add_distractors, angle_threshold, invert, args = pool_args
        
     if exp_name is None:
         experiment_folder = os.path.join(solution_path, "experiment")
@@ -225,7 +224,7 @@ def extract_pc_states_for_all_trajectories(pool_args):
     
     return all_traj_obs_dict_of_list, all_traj_stage_lengths, all_traj_store_label_paths
     
-def extract_demos_from_a_directory(dirtory_path, exp_name=None, env_name=None, extract_name=None, parallel=True, 
+def extract_demos_from_a_directory(dirtory_path, invert=False, exp_name=None, env_name=None, extract_name=None, parallel=True, 
                                     gripper_num_points=0, add_contact=False, save_path=None, add_distractors=False):
     
     action_dist_save_path = os.path.join(save_path, "action_dist")
@@ -274,7 +273,7 @@ def extract_demos_from_a_directory(dirtory_path, exp_name=None, env_name=None, e
     all_experiments = success_experiments
     num_experiment = len(all_experiments)
     
-    _, all_expert_opened_angles = get_all_expert_angles([os.path.join(experiment_folder, exp) for exp in all_experiments])
+    _, all_expert_opened_angles = get_all_expert_angles([os.path.join(experiment_folder, exp) for exp in all_experiments], invert=invert)
     angle_threshold = np.quantile(all_expert_opened_angles, 0.1)
     
     num_experiment = min(num_experiment, args.num_experiment)        
@@ -293,13 +292,13 @@ def extract_demos_from_a_directory(dirtory_path, exp_name=None, env_name=None, e
                     gripper_num_points, add_contact, 
                     all_experiments[beg_idx:end_idx], 
                     save_path, add_distractors,
-                    angle_threshold, args
+                    angle_threshold, invert, args
                 ])
             # import pdb; pdb.set_trace()
         else:
             pool_args = [
                 [task_config_path, solution_path, env_name, exp_name, gripper_num_points, add_contact, \
-                all_experiments[i:i+1], save_path, add_distractors, angle_threshold, args] for i in range(beg_idx, end_idx)
+                all_experiments[i:i+1], save_path, add_distractors, angle_threshold, invert, args] for i in range(beg_idx, end_idx)
             ]
             beg = time.time()
             res = pool.map(extract_pc_states_for_all_trajectories, pool_args)
@@ -575,7 +574,7 @@ def save_example_pointcloud(pc_list, save_dir, name='example_pointcloud'):
         plt.close()
 
 
-def main(folder_name, save_path, exp_name=None, env_name=None, extract_name=None, parallel=True,
+def main(folder_name, save_path, invert=False, exp_name=None, env_name=None, extract_name=None, parallel=True,
          gripper_num_points=0, add_contact=False, add_distractors=False):
     
     if not os.path.exists(save_path):
@@ -589,7 +588,7 @@ def main(folder_name, save_path, exp_name=None, env_name=None, extract_name=None
     with open(os.path.join(save_path, "meta_info.json"), "w") as f:
         json.dump(meta_info, f, indent=4)
     
-    extract_demos_from_a_directory(folder_name,exp_name=exp_name, env_name=env_name, extract_name=extract_name, parallel=parallel, 
+    extract_demos_from_a_directory(folder_name, invert=invert, exp_name=exp_name, env_name=env_name, extract_name=extract_name, parallel=parallel, 
         gripper_num_points=gripper_num_points, add_contact=add_contact, save_path=save_path, add_distractors=add_distractors)
     
 
@@ -624,6 +623,7 @@ if __name__ == "__main__":
     args.add_argument("--num_worker", type=int, default=20)
     args.add_argument("--add_distractors", type=int, default=0)
     args.add_argument("--filter_pcd_only_door", type=int, default=0, help="whether to filter the point cloud only containing the door, filter out the pointcloud of the 4 walls")
+    args.add_argument("--invert", action='store_true')
     args = args.parse_args()
     
     if args.generate:
@@ -631,7 +631,7 @@ if __name__ == "__main__":
             set_start_method('spawn', force=True)
             num_worker = args.num_worker
             pool = Pool(processes=num_worker)
-        main(args.folder_name, args.save_path, exp_name=args.exp_name, env_name=args.env_name, extract_name=args.extract_name,
+        main(args.folder_name, args.save_path, invert=args.invert, exp_name=args.exp_name, env_name=args.env_name, extract_name=args.extract_name,
              parallel=args.parallel, 
              gripper_num_points=args.gripper_num_points, add_contact=args.add_contact, add_distractors=args.add_distractors)
     else:
