@@ -1,0 +1,1 @@
+### TODO: make sure we can get the 4 points from the pose consistently between cgn and articubot
