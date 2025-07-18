@@ -121,77 +121,45 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.episode_idx_to_open_frame_idx = {}
         for idx, zarr_path in enumerate(tqdm(self.all_zarr_paths)):
             cat_idx = self.all_zarr_categories[idx]
-        # for idx, (zarr_path, cat_idx) in enumerate(tqdm(zip(self.all_zarr_paths, self.all_zarr_categories))):
-            if is_pickle:
-                all_substeps = os.listdir(zarr_path)
-                all_substeps = [s for s in all_substeps if s.endswith('.pkl')]
-                all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0]))
-                    
-                first_goal = None
-
-                for i, substep in enumerate(all_substeps):
-                    if eval_episode is not None and i >=1:
-                        self.episode_lengths.append(i)
-                        self.cat_counts[cat_idx] += i
-                        break
-
-                    substep_path = os.path.join(zarr_path, substep)
-                    with open(substep_path, 'rb') as f:
-                        try:
-                            data = pickle.load(f)
-                        except:
-                            print(substep_path)
-                    action = data['action'][:]
-
-                    current_goal = data['goal_gripper_pcd'][:]
-                    if first_goal is None:
-                        first_goal = current_goal
-                    elif only_first_stage and not np.allclose(first_goal, current_goal):
-                        self.episode_lengths.append(i)
-                        self.cat_counts[cat_idx] += i
-                        break
-                    
-                    if not np.allclose(first_goal, current_goal):
-                        self.episode_idx_to_grasp_frame_idx[idx] = i
+            all_substeps = os.listdir(zarr_path)
+            all_substeps = [s for s in all_substeps if s.endswith('.pkl')]
+            all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0]))
                 
-                # assume -10 erases all the distorted goal. This is just an approximation. 
-                self.episode_idx_to_open_frame_idx[idx] = len(all_substeps) - 1 #- 10
+            first_goal = None
+
+            # for i, substep in enumerate(all_substeps):
+            #     if eval_episode is not None and i >=1:
+            #         self.episode_lengths.append(i)
+            #         self.cat_counts[cat_idx] += i
+            #         break
+
+            #     substep_path = os.path.join(zarr_path, substep)
+            #     with open(substep_path, 'rb') as f:
+            #         try:
+            #             data = pickle.load(f)
+            #         except:
+            #             print(substep_path)
+            #     action = data['action'][:]
+
+            #     current_goal = data['goal_gripper_pcd'][:]
+            #     if first_goal is None:
+            #         first_goal = current_goal
+            #     elif only_first_stage and not np.allclose(first_goal, current_goal):
+            #         self.episode_lengths.append(i)
+            #         self.cat_counts[cat_idx] += i
+            #         break
+                
+            #     if not np.allclose(first_goal, current_goal):
+            #         self.episode_idx_to_grasp_frame_idx[idx] = i
+            
+            # # assume -10 erases all the distorted goal. This is just an approximation. 
+            # self.episode_idx_to_open_frame_idx[idx] = len(all_substeps) - 1 #- 10
 
             
-            else:
-                all_substeps = os.listdir(zarr_path)
-                all_substeps = sorted(all_substeps, key=lambda x: int(x))
-
-                first_goal = None
-
-                for i, substep in enumerate(all_substeps):
-                    
-                    if eval_episode is not None and i >=1:
-                        self.episode_lengths.append(i)
-                        self.cat_counts[cat_idx] += i
-                        break
-
-                    substep_path = os.path.join(zarr_path, substep)
-                    group = zarr.open(substep_path, 'r')
-                    src_store = group.store
-                    src_root = zarr.group(src_store)
-
-                    action = src_root['data']['action'][:]
-
-                    current_goal = src_root['data']['goal_gripper_pcd'][:]
-                    if first_goal is None:
-                        first_goal = current_goal
-                    elif only_first_stage and not np.allclose(first_goal, current_goal):
-                        self.episode_lengths.append(i)
-                        self.cat_counts[cat_idx] += i
-                        break
-
             if not only_first_stage and eval_episode is None:
                 self.episode_lengths.append(len(all_substeps))
                 self.cat_counts[cat_idx] += len(all_substeps)
                 
-        # exit()
-
         self.episode_lengths = np.array(self.episode_lengths)
         self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
         cprint(f'Finished preparing all zarr paths with total datapoints: {self.accumulated_episode_lengths[-1]}', 'green')
@@ -800,10 +768,6 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             
         else:
             raise ValueError('num_train_objects not supported')
-    print(f"prediction mode: {predict_two_goals}")
-    if not predict_two_goals:
-        dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
-                                          is_pickle=True, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo)    
-    else:
-        dataset = PredictTwoGoalsDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, is_pickle=True, use_all_data=use_all_data)
+    dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
+                                        is_pickle=True, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo)    
     return dataset

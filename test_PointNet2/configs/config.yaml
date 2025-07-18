@@ -1,26 +1,30 @@
 articubot:
   all_zarr_path: null
-  num_train_objects: 200
-  dataset_prefix: null
-  batch_size: 50
+  num_train_objects: articulated
+  dataset_prefix: /project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj
+  batch_size: 20
   beg_ratio: 0
   end_ratio: 1
-  exp_path: /project_data/held/ziyuw2/Robogen-sim2real/test_PointNet2/exps
   output_obj_pcd_only: 0
   use_all_data: 0
-  fixed_variance: 0.05
+  # fixed_variance: 0.05
+  fixed_variance: [0.001, 0.01, 0.05]
+  add_one_hot_encoding: 0
 
 general:
-  num_iterations: 20000
-  save_freq: 5
+  num_iterations: 100000
+  save_freq: 2000
   lr: 0.001
   load_model_path: null
-  exp_name: test
+  exp_name: articubot_cgn_first_try-2
   optimizer: adamw
   add_one_hot_encoding: 0
   keep_gripper_in_fps: 0
+  exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
+  tasks: [articubot, cgn]
 
 cgn: 
+  batch_size: 5
   DATA:
     classes: null
     data_path: /project_data/held/yufeiw2/contact_graspnet_pytorch/acronym
@@ -89,7 +93,7 @@ cgn:
     offset_loss_type: sigmoid_cross_entropy
     too_small_offset_pred_bin_factor: 0
     topk_confidence: 512
-    gmm_fixed_variance: 0.001
+    gmm_fixed_variance: [0.001, 0.01, 0.05]
   MODEL:
     model_type: default_cgn # articubot_pointnet_super
     loss_mode: articubot_gmm # contact_graspnet_4_points, articubot_gmm
@@ -198,7 +202,7 @@ cgn:
     approach_cosine_loss_weight: 0
     four_points_loss_weight: 10
     backup_every: 2000
-    batch_size: 6
+    batch_size: 5
     bn_decay_clip: 0.99
     bn_decay_decay_rate: 0.5
     bn_decay_decay_step: 200000

@@ -1,0 +1,1 @@
+torchrun --standalone --nproc_per_node=4 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs general.tasks="['cgn']" cgn.batch_size=6 cgn.OPTIMIZER.batch_size=6 general.exp_name=cgn_single_multiple_variance

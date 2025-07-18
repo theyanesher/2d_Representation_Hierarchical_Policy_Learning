@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from test_PointNet2.cgn import utils
+import random
 
 class ContactGraspnetLoss(nn.Module):
     def __init__(self, global_config, device):
@@ -437,7 +438,7 @@ class ContactGraspnetLoss(nn.Module):
             gt_4_points_expanded = gt_4_points.unsqueeze(2) # B x N x 1 x 4 x 3
             pred_points_expanded = pred_points.unsqueeze(1).unsqueeze(3) # B x 1 x N x 1 x 3
 
-            
+            fixed_variance = random.choice(self.global_config["LOSS"]['gmm_fixed_variance'])
             if not self.global_config['MODEL'].get('gmm_take_min_over_sym', False):
                 if not self.global_config['MODEL'].get('grad_schimit_4_points', False):
                     gt_label_diff = gt_4_points_expanded - pred_points_expanded  # B x N x N x 4 x 3 ### first N is all grasps, second N is all points
@@ -445,7 +446,6 @@ class ContactGraspnetLoss(nn.Module):
                     outputs = pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted displacement to the goal points
                     diff = outputs - labels  # Shape: B x N x N x 4 x 3
                     diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                    fixed_variance = self.global_config["LOSS"]['gmm_fixed_variance']
                     exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=-1)  # Shape: (B, N, N), sum over the guassian dimension
                     
                     log_gaussians = exponent 
@@ -467,7 +467,6 @@ class ContactGraspnetLoss(nn.Module):
                     
                     diff = orthog_pred_4_points - gt_4_points_expanded  # Shape: B x N x N x 4 x 3
                     diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                    fixed_variance = self.global_config["LOSS"]['gmm_fixed_variance']
                     exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=-1)
                     log_gaussians = exponent  # Shape: (B, N, N), sum over the guassian dimension
             else:
@@ -478,7 +477,6 @@ class ContactGraspnetLoss(nn.Module):
                 outputs = pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted displacement to the goal points
                 diff = outputs - labels  # Shape: B x N x N x 4 x 3
                 diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                fixed_variance = self.global_config["LOSS"]['gmm_fixed_variance']
                 diff_squared = diff ** 2
                 
                 sym_diff = outputs - sym_labels  # Shape: B x N x N x 4 x 3
@@ -520,9 +518,7 @@ class ContactGraspnetLoss(nn.Module):
                 topk_losses = 0
             
             loss_info = {
-                'gmm_loss': loss,  # Grasp success loss
-                "topk_4_point_loss": topk_losses if compute_topk_4_points_loss else torch.tensor(0),  # Top-k 4 points loss
-                "four_point_loss": torch.tensor(0),
+                'gmm_loss_{}'.format(fixed_variance): loss.item(),  # Grasp success loss
             }
 
             return loss, loss_info      

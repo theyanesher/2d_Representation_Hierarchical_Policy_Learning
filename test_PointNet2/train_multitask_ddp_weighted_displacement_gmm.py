@@ -1,5 +1,4 @@
 import torch
-from test_PointNet2.model_attn import AttnModel
 from tqdm import tqdm
 import argparse
 import einops
@@ -9,18 +8,25 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import datetime
 import os
 from torch.utils.data import DataLoader
-from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 import wandb
 import numpy as np
 from termcolor import cprint
-from itertools import cycle
 from omegaconf import OmegaConf
 import json
+import random
+
+### articubot imports
+from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 
 ### cgn imports
 from test_PointNet2.cgn.acronym_dataloader import AcryonymDataset
 from test_PointNet2.cgn import utils as cgn_utils
 from test_PointNet2.cgn.cgn_loss import ContactGraspnetLoss
+
+def infinite_loader(dl):
+    while True:
+        for batch in dl:
+            yield batch
 
 def setup_articubot_dataloader(args):
     dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, 
@@ -41,7 +47,7 @@ def setup_cgn_dataloader(global_config, device):
     batch_size = global_config['OPTIMIZER']['batch_size']
     num_workers = 6  # Increase after debug
     train_dataset = AcryonymDataset(global_config, train=True, device=device, use_saved_renders=True)
-    test_dataset = AcryonymDataset(global_config, train=False, device=device, use_saved_renders=True)
+    # test_dataset = AcryonymDataset(global_config, train=False, device=device, use_saved_renders=True)
 
     train_dataloader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=batch_size,
@@ -62,7 +68,7 @@ def setup_cgn_dataloader(global_config, device):
 def compute_articubot_loss(data, model, optimizer, device, args):
     pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
     class_weight = class_weight.to(device)
-    gripper_points = goal_gripper_pcd
+    gripper_points = goal_gripper_pcd.to(device)
     
     if args.add_one_hot_encoding:
         # for pointcloud, we add (1, 0)
@@ -77,16 +83,21 @@ def compute_articubot_loss(data, model, optimizer, device, args):
     else:
         inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
 
-    labels = gripper_points.unsqueeze(1) - inputs[:, :, :3].unsqueeze(2)
-    B, N, _, _ = labels.shape
-    labels = labels.view(B, N, -1) # B, N, 12
-
-    inputs, labels = inputs.to(device), labels.to(device)
+    
+    inputs= inputs.to(device)
     inputs = inputs.permute(0, 2, 1)
 
-    outputs = model(inputs) # B, N, 13
-    weights = outputs[:, :, -1] # B, N
-    outputs = outputs[:, :, :-1] # B, N, 12 ### now the outputs is a per-point Gaussian
+    pred_dict = model(inputs) 
+    outputs = pred_dict['pred_offsets']
+    pred_points = pred_dict['pred_points'] 
+    weights = pred_dict['pred_scores'].squeeze(-1)
+        
+    labels = gripper_points.unsqueeze(1) - pred_points.unsqueeze(2)
+    B, N, _, _ = labels.shape
+    labels = labels.view(B, N, -1) # B, N, 12
+    
+    # weights = outputs[:, :, -1] # B, N
+    # outputs = outputs[:, :, :-1] # B, N, 12 ### now the outputs is a per-point Gaussian
     if args.output_obj_pcd_only:
         weights = weights[:, :-4]
         outputs = outputs[:, :-4, :]
@@ -94,8 +105,10 @@ def compute_articubot_loss(data, model, optimizer, device, args):
         inputs = inputs[:, :, :-4]
         N = N - 4
         
+    outputs = outputs.view(B, N, -1)
     diff = outputs - labels  # Shape: (B, N, 12)
-    fixed_variance = args.fixed_variance
+    # fixed_variance = args.fixed_variance
+    fixed_variance = random.choice(args.fixed_variance)
     exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
     log_gaussians = exponent 
 
@@ -112,10 +125,11 @@ def compute_articubot_loss(data, model, optimizer, device, args):
     optimizer.step()
         
     log_info = {
-        'loss': loss.item(),
+        'loss_{}'.format(fixed_variance): loss.item(),
     }
 
-    return loss, log_info
+    del pred_dict
+    return log_info
 
 def compute_cgn_loss(data, model, optimizer, device, global_config):
     loss_fn = ContactGraspnetLoss(global_config, device).to(device)
@@ -123,6 +137,8 @@ def compute_cgn_loss(data, model, optimizer, device, global_config):
     cgn_utils.send_dict_to_device(data, device)
     # Target contains input and target values
     pc_cam = data['pc_cam']
+    # import pdb; pdb.set_trace()
+    pc_cam = pc_cam.permute(0, 2, 1)
 
     pred = model(pc_cam)
     loss, loss_info = loss_fn(pred, data)
@@ -130,7 +146,8 @@ def compute_cgn_loss(data, model, optimizer, device, global_config):
     loss.backward()
     optimizer.step()
     
-    return loss, loss_info
+    del data, pred
+    return loss_info
 
 def ddp_setup():
     os.environ["NCCL_P2P_LEVEL"] = "NVL"
@@ -142,41 +159,42 @@ def train(args):
     ### setup model
     gpu_id = int(os.environ["LOCAL_RANK"])
     device = torch.device(gpu_id)
-    input_channel = 5 if args.add_one_hot_encoding else 3
+    general_args = args.general
+    input_channel = 5 if general_args.add_one_hot_encoding else 3
     output_dim = 13 
-    from test_PointNet2.model_invariant import PointNet2_super
-    model = PointNet2_super(num_classes=output_dim, keep_gripper_in_fps=args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+    from test_PointNet2.model_invariant import PointNet2_super_multitask
+    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
-    if args.load_model_path is not None:
-        model.load_state_dict(torch.load(args.load_model_path, map_location=device))
-        print("Successfully load model from: ", args.load_model_path)
+    if general_args.load_model_path is not None:
+        model.load_state_dict(torch.load(general_args.load_model_path, map_location=device))
+        print("Successfully load model from: ", general_args.load_model_path)
     model.train()
     model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
-    if args.optimizer == 'adam':
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
-    elif args.optimizer == 'adamw':
-        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+    if general_args.optimizer == 'adam':
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=general_args.lr)
+    elif general_args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=general_args.lr)
     
     ### setup logging
     output_dir = "GMM_" 
     output_dir = output_dir + "_" + str(datetime.date.today())
-    output_dir += args.exp_name
-    args.exp_path = os.path.join(args.exp_path, output_dir)
+    output_dir += general_args.exp_name
+    general_args.exp_path = os.path.join(general_args.exp_path, output_dir)
     if os.environ['LOCAL_RANK'] == '0':
-        if not os.path.exists(args.exp_path):
-            os.makedirs(args.exp_path)
+        if not os.path.exists(general_args.exp_path):
+            os.makedirs(general_args.exp_path)
         wandb_run = wandb.init(
                 project="articubot_multitask",
                 name=str(output_dir),
-                dir=str(args.exp_path),
+                dir=str(general_args.exp_path),
             )
         
         cfg_dict = OmegaConf.to_container(args, resolve=True)
         wandb.config.update(cfg_dict)
 
         # save the config file
-        with open(os.path.join(args.exp_path, "config.json"), "w") as f:
+        with open(os.path.join(general_args.exp_path, "config.json"), "w") as f:
             json.dump(cfg_dict, f, indent=4)
             
     ### setup all dataloaders
@@ -187,16 +205,18 @@ def train(args):
         "articubot": articubot_dataloader,
         "cgn": cgn_dataloader, 
     }
-    all_tasks = list(all_task_dataloaders.keys())
+    # all_tasks = list(all_task_dataloaders.keys())
+    all_tasks = args.general.tasks
+    # all_tasks = ['cgn']
     all_dataloaders = [all_task_dataloaders[task] for task in all_tasks]
-    dataloader_iters = [cycle(loader) for loader in all_dataloaders]
+    dataloader_iters = [infinite_loader(loader) for loader in all_dataloaders]
     
     forward_functions = {
         "articubot": compute_articubot_loss,
-        "cgn": None,  # TODO: set up contact graspnet forward function
+        "cgn": compute_cgn_loss,  # TODO: set up contact graspnet forward function
     }
     
-    num_iterations = args.num_epochs * len(articubot_dataloader) // args.batch_size
+    num_iterations = args.general.num_iterations
     for global_step in range(num_iterations):  
         
         samples = [next(it) for it in dataloader_iters]
@@ -204,23 +224,34 @@ def train(args):
         for task_idx in range(len(all_tasks)):
             task = all_tasks[task_idx]
             forward_func = forward_functions[all_tasks[task_idx]]
-            loss, log = forward_func(samples[task_idx], model, optimizer, device, args)
+            log = forward_func(samples[task_idx], model, optimizer, device, args[task])
             for key in log:
+                assert not torch.is_tensor(log[key])
                 all_logs[f"{task}_{key}"] = log[key]
         
         if os.environ['LOCAL_RANK'] == '0':
             ### TODO: log the losses here
             for task in all_tasks:
                 dataloader_length = len(all_task_dataloaders[task])
-                epoch = global_step * args.batch_size / dataloader_length
+                epoch = global_step * args[task]['batch_size'] / dataloader_length
                 all_logs[f"{task}_epoch"] = epoch
                 
             wandb_run.log(all_logs, step=global_step)
             
+            print(f"{global_step} {all_logs}")
+            
             ### TODO: save the model here
-            if (global_step + 1) % args.save_freq == 0:
-                save_path = f"{args.exp_path}/model_{global_step + 1}.pth"
-                torch.save(model.module.state_dict(), save_path)
+            if (global_step + 1) % args.general.save_freq == 0:
+                save_path = f"{general_args.exp_path}/model_{global_step + 1}.pth"
+                save_dict = {
+                    "model": model.module.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    
+                }
+                torch.save(save_dict, save_path)
+        
+        torch.cuda.empty_cache()        
+        torch.cuda.ipc_collect()         
 
     print('Finished Training')
 
@@ -232,7 +263,7 @@ def load_and_parse_config():
 
     this_file_path = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(this_file_path, "configs/config.yaml")
-    cfg = OmegaConf.load("config.yaml")
+    cfg = OmegaConf.load(config_path)
     cli_cfg = OmegaConf.from_dotlist(args.arg_configs)
     cfg = OmegaConf.merge(cfg, cli_cfg)
     return cfg

@@ -1,6 +1,6 @@
 # bin/sh
 
-singularity shell --bind /project_data/held/yufeiw2/RoboGen_sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif
+singularity shell --bind /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/:/mnt/RoboGen_sim2real/ --nv /project_data/held/yufeiw2/uni3d_articubot.sif
 
 cd /mnt/RoboGen_sim2real
 export PATH=/opt/conda/bin:$PATH
@@ -12,6 +12,7 @@ export PYTHONPATH=${PWD}/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Po
 export PROJECT_DIR=${PWD}
 source prepare.sh
 export YUFEI_OPENAI_API_KEY="xxx" # TODO: embed this in singularity
+cd test_PointNet2
 
 singularity shell --bind ./:/mnt/ch/ --nv /project_data/held/yufeiw2/robogen-dp3-act3d.sif
 

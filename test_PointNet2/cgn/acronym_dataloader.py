@@ -10,7 +10,7 @@ import cv2
 import glob
 import trimesh.transformations as tra
 from scipy.spatial import cKDTree
-import provider
+# import provider
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
@@ -206,7 +206,7 @@ class AcryonymDataset(Dataset):
                 try:
                     self.change_scene(obj_paths, obj_scales, obj_transforms, visualize=False)
                 except:
-                    print('Error loading scene %s' % scene_id)
+                    # print('Error loading scene %s' % scene_id)
                     return self.__getitem__(self._generate_new_idx())
                 pc_cam, pc_normals, camera_pose, depth = self.render_scene(estimate_normals=estimate_normals, cam_id=cam_pose_index, augment=False)
                 camera_pose, pc_cam = self._center_pc_convert_cam(camera_pose, pc_cam)
