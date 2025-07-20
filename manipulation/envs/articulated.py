@@ -27,7 +27,8 @@ class articulated(SimpleEnv):
         # link_0 for other objects
 
     def execute(self, invert=False):
-        rgbs, final_state = approach_object_link_parallel(self, self.object_name, self.link_name, invert=invert, debug=False)  
+        rgbs, final_state = approach_object_link_parallel(self, self.object_name, self.link_name, invert=invert, debug=False) 
+        # rgbs, final_state = push_object_link_parallel(self, self.object_name, self.link_name,debug=False) 
         return rgbs, final_state
     
     def set_handle(self, angle=0.5):
@@ -199,42 +200,47 @@ class articulated(SimpleEnv):
         opened_joint_angle = p.getJointState(self.urdf_ids[self.object_name], self.handle_joint, physicsClientId=self.id)[0]
         if self.init_joint_angle is None:
             self.init_joint_angle = opened_joint_angle
+            grasped_handle = False
+        else:
+            grasped_handle = (self.last_joint_angle - opened_joint_angle) > 1e-6  # threshold to determine if the handle is grasped
+        self.last_joint_angle = opened_joint_angle
+        self.grasped_handle = self.grasped_handle or grasped_handle
             
-        cur_eef_pos, cur_eef_orient = self.robot.get_pos_orient(self.robot.right_end_effector)
-        handle_points = self.all_handle_points
-        num_handle_points_within_gripper = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_points)
+        # cur_eef_pos, cur_eef_orient = self.robot.get_pos_orient(self.robot.right_end_effector)
+        # handle_points = self.all_handle_points
+        # num_handle_points_within_gripper = get_pc_num_within_gripper(cur_eef_pos, cur_eef_orient, handle_points)
         # cprint("num_handle_points_within_gripper: {}".format(num_handle_points_within_gripper), "red")
         # distance_eef_to_handle = np.linalg.norm(self.handle_pos.flatten() - cur_eef_pos.flatten())
-        grasped_handle = False
-        if num_handle_points_within_gripper > 0:
-            # Compute vector between fingers
-            left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
-            right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
-            finger_vec = right_finger_pos - left_finger_pos
-            finger_length = np.linalg.norm(finger_vec)
+        # grasped_handle = False
+        # if num_handle_points_within_gripper > 0:
+        #     # Compute vector between fingers
+        #     left_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[0])
+        #     right_finger_pos, _ = self.robot.get_pos_orient(self.robot.right_gripper_indices[1])
+        #     finger_vec = right_finger_pos - left_finger_pos
+        #     finger_length = np.linalg.norm(finger_vec)
             
-            if finger_length < 1e-6:
-                grasped_handle = False  # Prevent division by zero if fingers overlap
-            else:
-                finger_dir = finger_vec / finger_length  # Unit direction vector of gripper axis
+        #     if finger_length < 1e-6:
+        #         grasped_handle = False  # Prevent division by zero if fingers overlap
+        #     else:
+        #         finger_dir = finger_vec / finger_length  # Unit direction vector of gripper axis
 
-                # Project handle points onto gripper axis to check if they are between fingers
-                vecs = handle_points - left_finger_pos
-                projections = np.dot(vecs, finger_dir)
-                between_mask = np.logical_and(projections > -0.01, projections < finger_length + 0.01)
-                handle_points_between_fingers = handle_points[between_mask]
+        #         # Project handle points onto gripper axis to check if they are between fingers
+        #         vecs = handle_points - left_finger_pos
+        #         projections = np.dot(vecs, finger_dir)
+        #         between_mask = np.logical_and(projections > -0.01, projections < finger_length + 0.01)
+        #         handle_points_between_fingers = handle_points[between_mask]
 
-                if handle_points_between_fingers.shape[0] > 0:
-                    # Compute distances from these points to each finger
-                    distance_left = np.linalg.norm(handle_points_between_fingers - left_finger_pos.reshape(1, 3), axis=1)
-                    distance_right = np.linalg.norm(handle_points_between_fingers - right_finger_pos.reshape(1, 3), axis=1)
-                    min_distance_left = np.min(distance_left)
-                    min_distance_right = np.min(distance_right)
+        #         if handle_points_between_fingers.shape[0] > 0:
+        #             # Compute distances from these points to each finger
+        #             distance_left = np.linalg.norm(handle_points_between_fingers - left_finger_pos.reshape(1, 3), axis=1)
+        #             distance_right = np.linalg.norm(handle_points_between_fingers - right_finger_pos.reshape(1, 3), axis=1)
+        #             min_distance_left = np.min(distance_left)
+        #             min_distance_right = np.min(distance_right)
 
-                    # Use a more lenient threshold (0.025 instead of 0.015)
-                    if min_distance_left < 0.05 and min_distance_right < 0.05:
-                        grasped_handle = True
-                        self.grasped_handle = self.grasped_handle or grasped_handle
+        #             # Use a more lenient threshold (0.025 instead of 0.015)
+        #             if min_distance_left < 0.05 and min_distance_right < 0.05:
+        #                 grasped_handle = True
+        #                 self.grasped_handle = self.grasped_handle or grasped_handle
             # points_left_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[0], physicsClientId=self.id)
             # points_right_finger = p.getContactPoints(bodyA=self.robot.body, linkIndexA=self.robot.right_gripper_indices[1], physicsClientId=self.id)
             # print("points_left_finger: ", points_left_finger)

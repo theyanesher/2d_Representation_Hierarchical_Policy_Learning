@@ -112,6 +112,12 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             expert_states = [f for f in os.listdir(states_path) if f.startswith("state")]
             if len(expert_states) == 0:
                 continue
+            stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
+            with open(stage_lengths, "r") as f:
+                stage_lengths = json.load(f)
+            open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
+            if len(expert_states) - open_time_idx < 5: # if the opening time is too short, skip this trajectory
+                continue    
                 
             expert_opened_angle_file = os.path.join(experiment_path, experiment, "opened_angle.txt")
             if os.path.exists(expert_opened_angle_file):
@@ -124,10 +130,6 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                 #     continue
             expert_opened_angles.append(expert_opened_angle)
             
-            stage_lengths = os.path.join(exp_folder, "stage_lengths.json")
-            with open(stage_lengths, "r") as f:
-                stage_lengths = json.load(f)
-            open_time_idx = stage_lengths['reach_handle'] + stage_lengths["reach_to_contact"] + stage_lengths["close_gripper"]
             init_state_file = os.path.join(states_path, "state_0.pkl")
             init_state_files.append(init_state_file)
             open_state_file = os.path.join(states_path, "state_{}.pkl".format(open_time_idx))
@@ -147,7 +149,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         if exp_beg_ratio is not None:
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
 
-        angle_threshold = np.quantile(expert_opened_angles, 0.1)
+        angle_threshold = np.quantile(expert_opened_angles, 0.5)
         selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
         config_files = [config_files[i] for i in selected_idx]
         init_state_files = [init_state_files[i] for i in selected_idx]
@@ -208,6 +210,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
             first_step_outputs = None
             gripper_close_accumulation_buffer = deque(maxlen=5)
             last_goal = None
+            last_grasp = False
             with tqdm(total=horizon) as pbar:
                 for t in range(1, horizon):
                     parallel_input_dict = obs
@@ -218,7 +221,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     current_link_pos, current_link_orient = env.env._env.get_link_pose(object_name, link_name)
                     inv_current_link_pos, inv_current_link_orient = p.invertTransform(current_link_pos, current_link_orient)
                     gripper_pcd = obs['gripper_pcd'][-1, :]
-                    if goal_stage == 'second':
+                    if goal_stage == 'second' and last_grasp:
                         transformed_goal_gripper_pcd = []
                         for pt in gripper_pcd:
                             pt, _ = p.multiplyTransforms(inv_current_link_pos, inv_current_link_orient, pt, [0, 0, 0, 1])
@@ -230,7 +233,8 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
 
                     # np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else goal_gripper_pcd_at_end
                     # print("info['grasped_handle']: ", info['grasped_handle'])
-                    np_predicted_goal = goal_gripper_pcd_at_grasping if goal_stage == 'first' else transformed_goal_gripper_pcd if info['current_grasped_handle'].any() else goal_gripper_pcd_at_end
+                    np_predicted_goal = goal_gripper_pcd_at_grasping if (goal_stage == 'first' or goal_stage =='second' and not last_grasp) else transformed_goal_gripper_pcd if info['current_grasped_handle'].any() else goal_gripper_pcd_at_end
+                    last_grasp = info['current_grasped_handle'].any()
                     predicted_goal = torch.from_numpy(np_predicted_goal).to('cuda').repeat(1, 2, 1, 1)
                     if pos_ori_imp:
                         from diffuser_actor_3d.robogen_utils import gripper_pcd_to_10d_vector
@@ -250,6 +254,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         if np.sum(gripper_close_accumulation_buffer) < -0.006:
                             # cprint("changing goal!", 'red')
                             goal_stage = 'second'
+                            last_grasp = True
                                         
                     np_batched_action = dict_apply(batched_action, lambda x: x.detach().to('cpu').numpy())
                     np_batched_action = np_batched_action['action']
