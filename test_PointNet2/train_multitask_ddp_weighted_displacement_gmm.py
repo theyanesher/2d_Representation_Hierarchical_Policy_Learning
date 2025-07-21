@@ -64,7 +64,7 @@ def setup_cgn_dataloader(global_config, device):
     
     return train_dataloader
     
-
+mse_loss = torch.nn.MSELoss()
 def compute_articubot_loss(data, model, optimizer, device, args):
     pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
     class_weight = class_weight.to(device)
@@ -84,7 +84,7 @@ def compute_articubot_loss(data, model, optimizer, device, args):
         inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
 
     
-    inputs= inputs.to(device)
+    inputs = inputs.to(device)
     inputs = inputs.permute(0, 2, 1)
 
     pred_dict = model(inputs) 
@@ -104,29 +104,52 @@ def compute_articubot_loss(data, model, optimizer, device, args):
         labels = labels[:, :-4, :]
         inputs = inputs[:, :, :-4]
         N = N - 4
-        
-    outputs = outputs.view(B, N, -1)
-    diff = outputs - labels  # Shape: (B, N, 12)
-    # fixed_variance = args.fixed_variance
-    fixed_variance = random.choice(args.fixed_variance)
-    exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
-    log_gaussians = exponent 
-
-    # Compute log mixing coefficients
-    log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
-    log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-20)  # Prevent extreme values
-
-    max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
-    log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
     
-    loss = -torch.mean(log_probs * class_weight)  # B,
+    outputs = outputs.view(B, N, -1)
+    # fixed_variance = args.fixed_variance
+
+    if args.gmm:
+        diff = outputs - labels  # Shape: (B, N, 12)
+        fixed_variance = random.choice(args.fixed_variance)
+        exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
+        log_gaussians = exponent 
+
+        # Compute log mixing coefficients
+        log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
+        log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-20)  # Prevent extreme values
+
+        max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
+        log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
+        
+        loss = -torch.mean(log_probs * class_weight)  # B,
+    else:
+        per_point_loss = mse_loss(outputs, labels)
+        inputs = inputs.permute(0, 2, 1)
+        outputs = outputs.view(B, N, 4, 3)
+        outputs = outputs + inputs[:, :, :3].unsqueeze(2) # B, N, 4, 3
+
+        # softmax the weights
+        weights = torch.nn.functional.softmax(weights, dim=1)
+        
+        # sum the displacement of the predicted gripper point cloud according to the weights
+        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+        outputs = outputs.sum(dim=1)
+        avg_loss = mse_loss(outputs, gripper_points.to(device))
+        loss = per_point_loss + avg_loss * args.weight_loss_weight
+        
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
         
-    log_info = {
-        'loss_{}'.format(fixed_variance): loss.item(),
-    }
+    if args.gmm:
+        log_info = {
+            'loss_{}'.format(fixed_variance): loss.item(),
+        }
+    
+    if not args.gmm:
+        log_info = {"loss": loss.item()}
+        log_info['perpoint_loss'] = per_point_loss.item()
+        log_info['weighted_average_loss'] = avg_loss.item()
 
     del pred_dict
     return log_info
@@ -163,7 +186,10 @@ def train(args):
     input_channel = 5 if general_args.add_one_hot_encoding else 3
     output_dim = 13 
     from test_PointNet2.model_invariant import PointNet2_super_multitask
-    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel).to(device)
+    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
+                                      first_sa_point=general_args.first_sa_point,
+                                      fp_to_full=general_args.fp_to_full,
+                                      ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
     if general_args.load_model_path is not None:

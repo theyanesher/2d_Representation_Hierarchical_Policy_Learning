@@ -484,11 +484,12 @@ class PointNet2_super(nn.Module):
         return x # x shape: B, N, num_classes
     
 class PointNet2_super_multitask(nn.Module):
-    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None):
+    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
+                 first_sa_point=1024, fp_to_full=True,):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=96, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
-        self.sa1 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -501,7 +502,9 @@ class PointNet2_super_multitask(nn.Module):
         self.fp4 = PointNetFeaturePropagation(1024, [256, 256])
         self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256])
         self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128])
-        # self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
+        if fp_to_full:
+            self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
+        self.fp_to_full = fp_to_full
         
         self.binary_seg_head = nn.Sequential(
             nn.Conv1d(128, 128, 1, padding=0),
@@ -549,13 +552,14 @@ class PointNet2_super_multitask(nn.Module):
         l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points) # (B, 256, 256)
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points) # (B, 256, 512)
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points) # (B, 128, 1024)
-        # l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points) # (B, 128, num_point)
-        
-        # pred_points = l0_xyz #### 2048 points
-        # feature = l0_points
-        
-        pred_points = l1_xyz #### 2048 points
-        feature = l1_points
+        if self.fp_to_full:
+            l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points) # (B, 128, num_point)
+            pred_points = l0_xyz #### 2048 points
+            feature = l0_points
+        else:
+            pred_points = l1_xyz #### 2048 points
+            feature = l1_points
+            
         binary_seg_head = self.binary_seg_head(feature)
         four_point_head_offset = self.four_point_head(feature).permute(0, 2, 1)
         

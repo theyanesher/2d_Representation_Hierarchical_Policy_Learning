@@ -10,6 +10,8 @@ articubot:
   # fixed_variance: 0.05
   fixed_variance: [0.001, 0.01, 0.05]
   add_one_hot_encoding: 0
+  gmm: 0
+  weight_loss_weight: 10
 
 general:
   num_iterations: 100000
@@ -22,6 +24,8 @@ general:
   keep_gripper_in_fps: 0
   exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
   tasks: [articubot, cgn]
+  fp_to_full: 1
+  first_sa_point: 1024
 
 cgn: 
   batch_size: 5
