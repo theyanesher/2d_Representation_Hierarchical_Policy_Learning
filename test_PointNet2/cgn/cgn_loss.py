@@ -7,6 +7,25 @@ import torch.nn.functional as F
 from test_PointNet2.cgn import utils
 import random
 
+def invert_se3_batch(T):
+    """
+    Efficiently invert SE(3) transform matrices.
+    Args:
+        T: (B, 4, 4) tensor of SE(3) transforms
+    Returns:
+        T_inv: (B, 4, 4) tensor of inverted transforms
+    """
+    R = T[:, :3, :3]         # (B, 3, 3)
+    t = T[:, :3, 3]          # (B, 3)
+
+    R_inv = R.transpose(1, 2)              # Rᵀ
+    t_inv = -torch.bmm(R_inv, t.unsqueeze(-1)).squeeze(-1)  # -Rᵀ t
+
+    T_inv = torch.eye(4, device=T.device, dtype=T.dtype).unsqueeze(0).repeat(T.shape[0], 1, 1)
+    T_inv[:, :3, :3] = R_inv
+    T_inv[:, :3, 3] = t_inv
+    return T_inv
+
 class ContactGraspnetLoss(nn.Module):
     def __init__(self, global_config, device):
         super(ContactGraspnetLoss, self).__init__()
@@ -423,18 +442,73 @@ class ContactGraspnetLoss(nn.Module):
             ### get the ground-truth 4 points
             thickness_gt = grasp_offset_labels_pc[:, :, 0]
             gt_grasps_proj = utils.build_6d_grasp(approach_labels_pc_cam, dir_labels_pc_cam, pred_points, thickness_gt, use_torch=True, device=self.device) # b x N x 4 x 4
+            # pos_contact_points_cam = torch.matmul(pos_contact_points, camera_poses[:, :3, :3].transpose(1, 2)) + camera_poses[:,:3,3][:, None,:]
+            T_world_to_camera = invert_se3_batch(camera_pose)  # B x 4 x 4
+            camera_poses_inv = T_world_to_camera[:, None, :, :]  # B x 1 x 4 x 4
+            gt_grasps_proj_world = camera_poses_inv @ gt_grasps_proj
+            rotate_to_bullet_coordinate_matrix = torch.from_numpy(np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])).to(self.device).float()  # 3 x 3
+            # Rotate the grasp poses to match the bullet coordinate system
+            gt_grasps_proj_world[:, :, :3, :3] = gt_grasps_proj_world[:, :, :3, :3] @ rotate_to_bullet_coordinate_matrix[None, None, :, :]  # B x N x 3 x 3 
 
             success_mask = grasp_success_labels_pc.bool()[:, :, :, None] # B x N x 1 x 1
             success_mask = torch.broadcast_to(success_mask, gt_grasps_proj.shape) # B x N x 4 x 4
             pos_gt_grasps_proj = torch.where(success_mask, gt_grasps_proj, torch.ones_like(gt_grasps_proj) * 100000) # B x N x 4 x 4 
+            pos_gt_grasps_proj_world = torch.where(success_mask, gt_grasps_proj_world, torch.ones_like(gt_grasps_proj_world) * 100000) # B x N x 4 x 4
             if self.global_config["MODEL"]['use_gt_gripper_q']:
                 gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, grasp_offset_labels_pc)  # B x N x 4 x 3
                 sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, grasp_offset_labels_pc, flip=True)  # B x N x 4 x 3
             else:
                 gripper_width = torch.ones_like(grasp_offset_labels_pc).to(self.device) * 0.08
-                gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width)  # B x N x 4 x 3
-                sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width, flip=True)  # B x N x 4 x 3
+                # gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width)  # B x N x 4 x 3
+                # sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width, flip=True)  # B x N x 4 x 3
+
+                ### getting first in world and then project back to camera frame
+                gt_4_points_world = self._get_4_points_from_pose_world(pos_gt_grasps_proj_world, gripper_width.squeeze(-1) / 2.)  # B x N x 4 x 3
+                gt_4_points_cam = torch.matmul(gt_4_points_world.reshape(B, -1, 3), camera_pose[:, :3, :3].transpose(1, 2)) + camera_pose[:, :3, 3][:, None, :]  # B x N x 4 x 3
+                gt_4_points_cam = gt_4_points_cam.view(B, N, 4, 3)  # B x N x 4 x 3
+                gt_4_points = gt_4_points_cam
                 
+                # distance = torch.norm(gt_4_points - gt_4_points_cam, p=2, dim=-1)  # B x N x 4 x 1
+                # print(torch.mean(distance))
+                # from matplotlib import pyplot as plt
+                
+                # for b_idx in range(B):
+                #     for n_idx in range(N):
+                #         if success_mask[b_idx, n_idx, 0, 0]:
+                #             first_pcd = pred_points[b_idx].detach().cpu().numpy()
+                #             first_gt_4_points = gt_4_points[b_idx, n_idx].detach().cpu().numpy()
+                #             first_gt_4_point_cam = gt_4_points_cam[b_idx, n_idx].detach().cpu().numpy()
+                #             ax = plt.figure().add_subplot(projection='3d')
+                #             ax.scatter(first_pcd[::5, 0], first_pcd[::5, 1], first_pcd[::5, 2], c='b', s=1)
+                #             ax.scatter(first_gt_4_points[:, 0], first_gt_4_points[:, 1], first_gt_4_points[:, 2], c='r', s=10)
+                #             ax.scatter(first_gt_4_point_cam[:, 0], first_gt_4_point_cam[:, 1], first_gt_4_point_cam[:, 2], c='g', s=10)
+                #             ## set equal aspect ratio
+                            
+                #             # Get current limits
+                #             x_limits = ax.get_xlim3d()
+                #             y_limits = ax.get_ylim3d()
+                #             z_limits = ax.get_zlim3d()
+
+                #             # Find ranges and centers
+                #             x_range = x_limits[1] - x_limits[0]
+                #             y_range = y_limits[1] - y_limits[0]
+                #             z_range = z_limits[1] - z_limits[0]
+                #             max_range = max(x_range, y_range, z_range)
+
+                #             x_middle = np.mean(x_limits)
+                #             y_middle = np.mean(y_limits)
+                #             z_middle = np.mean(z_limits)
+
+                #             # Set new limits
+                #             ax.set_xlim3d([x_middle - max_range/2, x_middle + max_range/2])
+                #             ax.set_ylim3d([y_middle - max_range/2, y_middle + max_range/2])
+                #             ax.set_zlim3d([z_middle - max_range/2, z_middle + max_range/2])
+
+                            
+                #             plt.show()
+                            
+                #             import pdb; pdb.set_trace()
+                                
             gt_4_points_expanded = gt_4_points.unsqueeze(2) # B x N x 1 x 4 x 3
             pred_points_expanded = pred_points.unsqueeze(1).unsqueeze(3) # B x 1 x N x 1 x 3
 
@@ -537,7 +611,74 @@ class ContactGraspnetLoss(nn.Module):
         else:
             return torch.stack([first_point, right_point, left_point, last_point], dim=-2)  # B x N x 4 x 3
         
+    def _get_4_points_from_pose_world(self, pose, finger_width, flip=False):
+        ## TODO: apply a rotation here
+        """
+        Args:
+            pose: (B, N, 4, 4) SE(3) gripper pose matrices
+            finger_width: (B, N) gripper joint angle or width
+        Returns:
+            gripper_points_world: (B, N, 4, 3) four 3D points per pose
+        """
+        device = pose.device
+        dtype = pose.dtype
+        B, N = finger_width.shape
+        
+        z_dir = pose[:, :, :3, 2]  # Approach direction (B, N, 3)
 
+        # Constants
+        original_gripper_pcd = torch.tensor([
+            [ 0.5648266,  0.05482348,  0.34434554],
+            [ 0.5642125,  0.02702148,  0.2877661 ],
+            [ 0.53906703, 0.01263776,  0.38347825],
+            [ 0.54250515, -0.00441092, 0.32957944]
+        ], dtype=dtype, device=device)  # (4, 3)
+
+        gripper_pcd_right_finger_closed = torch.tensor([0.55415434, 0.02126799, 0.32605097], dtype=dtype, device=device)
+        gripper_pcd_left_finger_closed  = torch.tensor([0.54912525, 0.01839125, 0.3451934 ], dtype=dtype, device=device)
+        gripper_pcd_closed_finger_angle = 2.6652539383870777e-05
+
+        # Canonical gripper orientation (quaternion)
+        original_gripper_orn = torch.tensor([0.21120763, 0.75430543, -0.61925177, -0.05423936],
+                                            dtype=dtype, device=device)  # (4,)
+        
+        # Convert original_gripper_orn to rotation matrix
+        import scipy.spatial.transform
+        R_orig = scipy.spatial.transform.Rotation.from_quat(original_gripper_orn.cpu().numpy())
+        R_orig_mat = torch.tensor(R_orig.as_matrix(), dtype=dtype, device=device)  # (3, 3)
+
+        # Adjust fingers based on width
+        delta = 0.04 - gripper_pcd_closed_finger_angle
+        f = (finger_width - gripper_pcd_closed_finger_angle) / delta  # (B, N)
+
+        # (B, N, 4, 3)
+        original_pcd = original_gripper_pcd.unsqueeze(0).unsqueeze(0).expand(B, N, -1, -1).clone()
+
+        original_pcd[:, :, 1, :] = gripper_pcd_right_finger_closed + (original_gripper_pcd[1] - gripper_pcd_right_finger_closed)[None, None, :] * f.unsqueeze(-1)
+
+        original_pcd[:, :, 2, :] = gripper_pcd_left_finger_closed + (original_gripper_pcd[2] - gripper_pcd_left_finger_closed)[None, None, :] * f.unsqueeze(-1)
+
+        # Center point cloud relative to point[3]
+        original_pcd -= original_pcd[:, :, 3:4, :]
+
+        # Get current rotation matrix from SE(3)
+        goal_rot = pose[:, :, :3, :3]  # (B, N, 3, 3)
+
+        # Compute rotation transfer matrix: goal_R * original_R^T
+        R_orig_T = R_orig_mat.T  # (3, 3)
+        rotation_transfer = torch.matmul(goal_rot, R_orig_T)  # (B, N, 3, 3)
+
+        # Apply rotation to point cloud
+        pcd_rotated = torch.matmul(rotation_transfer, original_pcd.transpose(-1, -2)).transpose(-1, -2)  # (B, N, 4, 3)
+
+        # Add translation
+        gripper_pos = pose[:, :, :3, 3]  # (B, N, 3)
+        gripper_pos = gripper_pos + z_dir * 0.1034 # adding the distance from hand pose to eef grasping pose
+        gripper_pcd_world = pcd_rotated + gripper_pos.unsqueeze(2)  # (B, N, 4, 3)
+
+        return gripper_pcd_world
+
+    
     def _get_bin_vals(self):
         """
         Creates bin values for grasping widths according to bounds defined in config
