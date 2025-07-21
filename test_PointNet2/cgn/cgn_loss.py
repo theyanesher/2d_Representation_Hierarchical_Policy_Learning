@@ -407,7 +407,7 @@ class ContactGraspnetLoss(nn.Module):
             grasp_offset_labels_pc, \
             grasp_success_labels_pc, \
             approach_labels_pc_cam, \
-            debug = self._compute_labels(pred_points, 
+            dir_labels_pc_world, approach_labels_pc_world = self._compute_labels(pred_points, 
                                         camera_pose,
                                         pos_contact_points,
                                         pos_contact_dirs,
@@ -423,6 +423,7 @@ class ContactGraspnetLoss(nn.Module):
             ### get the ground-truth 4 points
             thickness_gt = grasp_offset_labels_pc[:, :, 0]
             gt_grasps_proj = utils.build_6d_grasp(approach_labels_pc_cam, dir_labels_pc_cam, pred_points, thickness_gt, use_torch=True, device=self.device) # b x N x 4 x 4
+            
 
             success_mask = grasp_success_labels_pc.bool()[:, :, :, None] # B x N x 1 x 1
             success_mask = torch.broadcast_to(success_mask, gt_grasps_proj.shape) # B x N x 4 x 4
@@ -668,9 +669,9 @@ class ContactGraspnetLoss(nn.Module):
         grouped_finger_diffs = utils.index_points(pos_finger_diffs, close_contact_pt_idcs)  # B x N x k x 1
         grouped_approach_dirs_cam = utils.index_points(pos_approach_dirs_cam, close_contact_pt_idcs)  # B x N x k x 3
 
-        # grouped_contact_dirs_cam = pos_contact_dirs_cam[close_contact_pt_idcs, :]  # B x N x k x 3
-        # grouped_finger_diffs = pos_finger_diffs[close_contact_pt_idcs]  # B x N x k x 1
-        # grouped_approach_dirs_cam = pos_approach_dirs_cam[close_contact_pt_idcs, :]  # B x N x k x 3
+        ### group labels in the world frame
+        grouped_contact_dirs = utils.index_points(pos_contact_dirs, close_contact_pt_idcs)
+        grouped_approach_dirs = utils.index_points(pos_approach_dirs, close_contact_pt_idcs)  # B x N x k x 3
 
         # -- Compute Labels -- #
         # Take mean over k nearest neighbors and normalize
@@ -681,6 +682,12 @@ class ContactGraspnetLoss(nn.Module):
 
         approach_label = grouped_approach_dirs_cam.mean(dim=2)  # B x N x 3
         approach_label = F.normalize(approach_label, p=2, dim=2)  # B x N x 3
+        
+        ### do the same for the world points
+        dir_label_world = grouped_contact_dirs.mean(dim=2)  # B x N x 3
+        dir_label_world = F.normalize(dir_label_world, p=2, dim=2)  # B x N x 3
+        approach_label_world = grouped_approach_dirs.mean(dim=2)  # B x N x 3
+        approach_label_world = F.normalize(approach_label_world, p=2, dim=2)  # B x N x 3
 
         grasp_success_label = torch.mean(squared_dists_k, dim=2, keepdim=True) < radius**2  # B x N x 1 
         grasp_success_label = grasp_success_label.type(torch.float32)  
@@ -692,7 +699,7 @@ class ContactGraspnetLoss(nn.Module):
         debug = {}
 
 
-        return dir_label, diff_label, grasp_success_label, approach_label, debug
+        return dir_label, diff_label, grasp_success_label, approach_label, dir_label_world, approach_label_world
 
 
 

@@ -124,7 +124,7 @@ def compute_articubot_loss(data, model, optimizer, device, args):
         loss = -torch.mean(log_probs * class_weight)  # B,
     else:
         per_point_loss = mse_loss(outputs, labels)
-        inputs = inputs.permute(0, 2, 1)
+        inputs = pred_points
         outputs = outputs.view(B, N, 4, 3)
         outputs = outputs + inputs[:, :, :3].unsqueeze(2) # B, N, 4, 3
 
@@ -259,7 +259,7 @@ def train(args):
             ### TODO: log the losses here
             for task in all_tasks:
                 dataloader_length = len(all_task_dataloaders[task])
-                epoch = global_step * args[task]['batch_size'] / dataloader_length
+                epoch = global_step / dataloader_length
                 all_logs[f"{task}_epoch"] = epoch
                 
             wandb_run.log(all_logs, step=global_step)
