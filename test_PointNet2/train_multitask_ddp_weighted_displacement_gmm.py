@@ -189,6 +189,7 @@ def train(args):
     model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
                                       first_sa_point=general_args.first_sa_point,
                                       fp_to_full=general_args.fp_to_full,
+                                      replace_bn_with_gn=general_args.replace_bn_with_gn,
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")

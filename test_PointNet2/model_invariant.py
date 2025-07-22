@@ -8,6 +8,64 @@ import torch.nn.functional as F
 from time import time
 import numpy as np
 from pointnet2_ops import pointnet2_utils
+import os
+from typing import Tuple, Sequence, Dict, Union, Optional, Callable
+
+def replace_submodules(
+        root_module: nn.Module,
+        predicate: Callable[[nn.Module], bool],
+        func: Callable[[nn.Module], nn.Module]) -> nn.Module:
+    """
+    Replace all submodules selected by the predicate with
+    the output of func.
+
+    predicate: Return true if the module is to be replaced.
+    func: Return new module to use.
+    """
+    if predicate(root_module):
+        return func(root_module)
+
+    bn_list = [k.split('.') for k, m
+        in root_module.named_modules(remove_duplicate=True)
+        if predicate(m)]
+    for *parent, k in bn_list:
+        parent_module = root_module
+        if len(parent) > 0:
+            parent_module = root_module.get_submodule('.'.join(parent))
+        if isinstance(parent_module, nn.Sequential):
+            src_module = parent_module[int(k)]
+        else:
+            src_module = getattr(parent_module, k)
+
+        print(src_module)
+        import pdb; pdb.set_trace()
+        tgt_module = func(src_module)
+        
+        if isinstance(parent_module, nn.Sequential):
+            parent_module[int(k)] = tgt_module
+        else:
+            setattr(parent_module, k, tgt_module)
+    # verify that all modules are replaced
+    bn_list = [k.split('.') for k, m
+        in root_module.named_modules(remove_duplicate=True)
+        if predicate(m)]
+    assert len(bn_list) == 0
+    return root_module
+
+def replace_bn_with_gn(
+    root_module: nn.Module,
+    features_per_group: int=16) -> nn.Module:
+    """
+    Relace all BatchNorm layers with GroupNorm.
+    """
+    replace_submodules(
+        root_module=root_module,
+        predicate=lambda x: isinstance(x, nn.BatchNorm2d) or isinstance(x, nn.BatchNorm1d),
+        func=lambda x: nn.GroupNorm(
+            num_groups=x.num_features//features_per_group,
+            num_channels=x.num_features)
+    )
+    return root_module
 
 def fps(data, number):
     '''
@@ -359,8 +417,6 @@ class PointNetFeaturePropagation(nn.Module):
             new_points = F.relu(bn(conv(new_points)))
         return new_points
 
-from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
-
 class PointNet2(nn.Module):
     def __init__(self, num_classes):
         super(PointNet2, self).__init__()
@@ -485,13 +541,13 @@ class PointNet2_super(nn.Module):
     
 class PointNet2_super_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
-                 first_sa_point=1024, fp_to_full=True,):
+                 first_sa_point=2048, fp_to_full=False, replace_bn_with_gn=False):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=96, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
-        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 192, 256], [128, 192, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -524,6 +580,10 @@ class PointNet2_super_multitask(nn.Module):
             # nn.Dropout(self.model_config.get("displacement_dropout", 0.3)),  # 0.5 in original code
             nn.Conv1d(128, 12, 1, padding=0)
         )
+
+        if replace_bn_with_gn:
+            print("replacing all batchnorm layers to be group norm layers!")
+            replace_bn_with_gn(self)
 
     def forward(self, xyz, embedding=None, build_grasp=False):
         l0_points = xyz

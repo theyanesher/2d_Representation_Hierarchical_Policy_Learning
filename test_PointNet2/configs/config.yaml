@@ -14,7 +14,7 @@ articubot:
   weight_loss_weight: 10
 
 general:
-  num_iterations: 250000
+  num_iterations: 400000
   save_freq: 2000
   lr: 0.001
   load_model_path: null
@@ -24,8 +24,9 @@ general:
   keep_gripper_in_fps: 0
   exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
   tasks: [articubot, cgn]
-  fp_to_full: 1
-  first_sa_point: 1024
+  fp_to_full: 0
+  first_sa_point: 2048
+  replace_bn_with_gn: 1
 
 cgn: 
   batch_size: 5
