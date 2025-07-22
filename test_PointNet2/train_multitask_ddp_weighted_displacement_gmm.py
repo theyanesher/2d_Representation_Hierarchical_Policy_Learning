@@ -189,7 +189,7 @@ def train(args):
     model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
                                       first_sa_point=general_args.first_sa_point,
                                       fp_to_full=general_args.fp_to_full,
-                                      replace_bn_with_gn=general_args.replace_bn_with_gn,
+                                      replace_bn_w_gn=general_args.replace_bn_with_gn,
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
@@ -225,17 +225,17 @@ def train(args):
             json.dump(cfg_dict, f, indent=4)
             
     ### setup all dataloaders
-    articubot_dataloader = setup_articubot_dataloader(args.articubot)
-    cgn_dataloader = setup_cgn_dataloader(args.cgn, device)
+    all_tasks = args.general.tasks
+    
+    articubot_dataloader = setup_articubot_dataloader(args.articubot) if "articubot" in all_tasks else None
+    cgn_dataloader = setup_cgn_dataloader(args.cgn, device) if 'cgn' in all_tasks else None
     
     all_task_dataloaders = {
         "articubot": articubot_dataloader,
         "cgn": cgn_dataloader, 
     }
-    # all_tasks = list(all_task_dataloaders.keys())
-    all_tasks = args.general.tasks
-    # all_tasks = ['cgn']
     all_dataloaders = [all_task_dataloaders[task] for task in all_tasks]
+    all_dataloaders = [x for x in all_dataloaders if x is not None]
     dataloader_iters = [infinite_loader(loader) for loader in all_dataloaders]
     
     forward_functions = {

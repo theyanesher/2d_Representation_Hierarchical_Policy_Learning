@@ -37,8 +37,7 @@ def replace_submodules(
         else:
             src_module = getattr(parent_module, k)
 
-        print(src_module)
-        import pdb; pdb.set_trace()
+        # print(src_module)
         tgt_module = func(src_module)
         
         if isinstance(parent_module, nn.Sequential):
@@ -541,7 +540,7 @@ class PointNet2_super(nn.Module):
     
 class PointNet2_super_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
-                 first_sa_point=2048, fp_to_full=False, replace_bn_with_gn=False):
+                 first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=96, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -581,7 +580,7 @@ class PointNet2_super_multitask(nn.Module):
             nn.Conv1d(128, 12, 1, padding=0)
         )
 
-        if replace_bn_with_gn:
+        if replace_bn_w_gn:
             print("replacing all batchnorm layers to be group norm layers!")
             replace_bn_with_gn(self)
 
