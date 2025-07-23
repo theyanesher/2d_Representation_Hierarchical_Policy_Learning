@@ -57,13 +57,53 @@ def replace_bn_with_gn(
     """
     Relace all BatchNorm layers with GroupNorm.
     """
+    # replace_submodules(
+    #     root_module=root_module,
+    #     predicate=lambda x: isinstance(x, nn.BatchNorm2d) or isinstance(x, nn.BatchNorm1d),
+    #     func=lambda x: nn.GroupNorm(
+    #         num_groups=x.num_features//features_per_group,
+    #         num_channels=x.num_features)
+    # )
     replace_submodules(
         root_module=root_module,
         predicate=lambda x: isinstance(x, nn.BatchNorm2d) or isinstance(x, nn.BatchNorm1d),
         func=lambda x: nn.GroupNorm(
-            num_groups=x.num_features//features_per_group,
+            num_groups=1,
             num_channels=x.num_features)
     )
+    return root_module
+
+def replace_bn_with_in(root_module: nn.Module) -> nn.Module:
+    """
+    Replace all BatchNorm1d and BatchNorm2d layers with InstanceNorm1d/2d,
+    with track_running_stats=False.
+    """
+    def replace_fn(module):
+        if isinstance(module, nn.BatchNorm1d):
+            return nn.InstanceNorm1d(
+                num_features=module.num_features,
+                eps=module.eps,
+                affine=module.affine,
+                track_running_stats=False
+            )
+        elif isinstance(module, nn.BatchNorm2d):
+            return nn.InstanceNorm2d(
+                num_features=module.num_features,
+                eps=module.eps,
+                affine=module.affine,
+                track_running_stats=False
+            )
+        return module
+
+    def recursive_replace(module):
+        for name, child in module.named_children():
+            new_child = replace_fn(child)
+            if new_child is not child:
+                setattr(module, name, new_child)
+            else:
+                recursive_replace(child)
+
+    recursive_replace(root_module)
     return root_module
 
 def fps(data, number):
@@ -540,13 +580,14 @@ class PointNet2_super(nn.Module):
     
 class PointNet2_super_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
-                 first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False):
+                 first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=True):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=96, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps)
-        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 192, 256], [128, 192, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
+        # self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 192, 256], [128, 192, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
+        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
         self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -583,6 +624,9 @@ class PointNet2_super_multitask(nn.Module):
         if replace_bn_w_gn:
             print("replacing all batchnorm layers to be group norm layers!")
             replace_bn_with_gn(self)
+        if replace_bn_w_in:
+            print("replacing all batchnorm layers to be instance norm layers!")
+            replace_bn_with_in(self)
 
     def forward(self, xyz, embedding=None, build_grasp=False):
         l0_points = xyz

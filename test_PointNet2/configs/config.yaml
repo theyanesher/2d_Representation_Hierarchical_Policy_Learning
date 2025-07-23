@@ -15,7 +15,7 @@ articubot:
 
 general:
   num_iterations: 400000
-  save_freq: 2000
+  save_freq: 5000
   lr: 0.001
   load_model_path: null
   exp_name: articubot_cgn_first_try-2
@@ -26,7 +26,8 @@ general:
   tasks: [articubot, cgn]
   fp_to_full: 0
   first_sa_point: 2048
-  replace_bn_with_gn: 1
+  replace_bn_with_gn: 0
+  replace_bn_with_in: 1
 
 cgn: 
   batch_size: 5
@@ -103,6 +104,7 @@ cgn:
     model_type: default_cgn # articubot_pointnet_super
     loss_mode: articubot_gmm # contact_graspnet_4_points, articubot_gmm
     use_gt_gripper_q: false # false performs better
+    articubot_four_point_format: false
     gmm_gmm_take_min_over_sym: false
     grad_schimit_4_points: false
     asymmetric_model: true

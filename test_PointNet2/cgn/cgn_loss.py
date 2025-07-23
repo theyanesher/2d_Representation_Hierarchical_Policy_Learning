@@ -459,14 +459,15 @@ class ContactGraspnetLoss(nn.Module):
                 sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, grasp_offset_labels_pc, flip=True)  # B x N x 4 x 3
             else:
                 gripper_width = torch.ones_like(grasp_offset_labels_pc).to(self.device) * 0.08
-                # gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width)  # B x N x 4 x 3
-                # sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width, flip=True)  # B x N x 4 x 3
-
-                ### getting first in world and then project back to camera frame
-                gt_4_points_world = self._get_4_points_from_pose_world(pos_gt_grasps_proj_world, gripper_width.squeeze(-1) / 2.)  # B x N x 4 x 3
-                gt_4_points_cam = torch.matmul(gt_4_points_world.reshape(B, -1, 3), camera_pose[:, :3, :3].transpose(1, 2)) + camera_pose[:, :3, 3][:, None, :]  # B x N x 4 x 3
-                gt_4_points_cam = gt_4_points_cam.view(B, N, 4, 3)  # B x N x 4 x 3
-                gt_4_points = gt_4_points_cam
+                if not self.global_config['MODEL']['articubot_four_point_format']:
+                    gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width)  # B x N x 4 x 3
+                    # sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width, flip=True)  # B x N x 4 x 3
+                else:
+                    ### getting first in world and then project back to camera frame
+                    gt_4_points_world = self._get_4_points_from_pose_world(pos_gt_grasps_proj_world, gripper_width.squeeze(-1) / 2.)  # B x N x 4 x 3
+                    gt_4_points_cam = torch.matmul(gt_4_points_world.reshape(B, -1, 3), camera_pose[:, :3, :3].transpose(1, 2)) + camera_pose[:, :3, 3][:, None, :]  # B x N x 4 x 3
+                    gt_4_points_cam = gt_4_points_cam.view(B, N, 4, 3)  # B x N x 4 x 3
+                    gt_4_points = gt_4_points_cam
                 
                 # distance = torch.norm(gt_4_points - gt_4_points_cam, p=2, dim=-1)  # B x N x 4 x 1
                 # print(torch.mean(distance))

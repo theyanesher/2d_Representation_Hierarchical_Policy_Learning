@@ -87,6 +87,7 @@ def compute_articubot_loss(data, model, optimizer, device, args):
     inputs = inputs.to(device)
     inputs = inputs.permute(0, 2, 1)
 
+    import pdb; pdb.set_trace()
     pred_dict = model(inputs) 
     outputs = pred_dict['pred_offsets']
     pred_points = pred_dict['pred_points'] 
@@ -134,7 +135,7 @@ def compute_articubot_loss(data, model, optimizer, device, args):
         # sum the displacement of the predicted gripper point cloud according to the weights
         outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
         outputs = outputs.sum(dim=1)
-        avg_loss = mse_loss(outputs, gripper_points.to(device))
+        avg_loss = mse_loss(outputs, gripper_points)
         loss = per_point_loss + avg_loss * args.weight_loss_weight
         
     optimizer.zero_grad()
@@ -190,6 +191,7 @@ def train(args):
                                       first_sa_point=general_args.first_sa_point,
                                       fp_to_full=general_args.fp_to_full,
                                       replace_bn_w_gn=general_args.replace_bn_with_gn,
+                                      replace_bn_w_in=general_args.replace_bn_with_in,
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
@@ -197,6 +199,9 @@ def train(args):
         model.load_state_dict(torch.load(general_args.load_model_path, map_location=device))
         print("Successfully load model from: ", general_args.load_model_path)
     model.train()
+    # print(model)
+    # exit()
+    # import pdb; pdb.set_trace()
     model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
     if general_args.optimizer == 'adam':
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=general_args.lr)
@@ -237,6 +242,7 @@ def train(args):
     all_dataloaders = [all_task_dataloaders[task] for task in all_tasks]
     all_dataloaders = [x for x in all_dataloaders if x is not None]
     dataloader_iters = [infinite_loader(loader) for loader in all_dataloaders]
+    dataloader_lengths = [len(loader) for loader in all_dataloaders]
     
     forward_functions = {
         "articubot": compute_articubot_loss,
