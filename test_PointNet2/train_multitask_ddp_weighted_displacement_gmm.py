@@ -65,7 +65,7 @@ def setup_cgn_dataloader(global_config, device):
     return train_dataloader
     
 mse_loss = torch.nn.MSELoss()
-def compute_articubot_loss(data, model, optimizer, device, args):
+def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None):
     pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
     class_weight = class_weight.to(device)
     gripper_points = goal_gripper_pcd.to(device)
@@ -87,8 +87,13 @@ def compute_articubot_loss(data, model, optimizer, device, args):
     inputs = inputs.to(device)
     inputs = inputs.permute(0, 2, 1)
 
-    import pdb; pdb.set_trace()
-    pred_dict = model(inputs) 
+    if siglip_features is None:
+        pred_dict = model(inputs) 
+    else:
+        # print("articubot using siglip embedding")
+        cat_embedding = siglip_features[cat_idx].float()
+        pred_dict = model(inputs, embedding=cat_embedding)
+        
     outputs = pred_dict['pred_offsets']
     pred_points = pred_dict['pred_points'] 
     weights = pred_dict['pred_scores'].squeeze(-1)
@@ -155,7 +160,7 @@ def compute_articubot_loss(data, model, optimizer, device, args):
     del pred_dict
     return log_info
 
-def compute_cgn_loss(data, model, optimizer, device, global_config):
+def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_features=None):
     loss_fn = ContactGraspnetLoss(global_config, device).to(device)
     
     cgn_utils.send_dict_to_device(data, device)
@@ -164,7 +169,12 @@ def compute_cgn_loss(data, model, optimizer, device, global_config):
     # import pdb; pdb.set_trace()
     pc_cam = pc_cam.permute(0, 2, 1)
 
-    pred = model(pc_cam)
+    if siglip_features is None:
+        pred = model(pc_cam)
+    else:
+        # print("cgn use siglip embedding")
+        pred = model(pc_cam, siglip_features[-1].float())
+        
     loss, loss_info = loss_fn(pred, data)
     optimizer.zero_grad()
     loss.backward()
@@ -187,11 +197,20 @@ def train(args):
     input_channel = 5 if general_args.add_one_hot_encoding else 3
     output_dim = 13 
     from test_PointNet2.model_invariant import PointNet2_super_multitask
+    
+    if general_args.category_embedding_type == "one_hot":
+        embedding_dim = args.num_categories
+    elif general_args.category_embedding_type == "siglip":
+        embedding_dim = 768
+    else:
+        embedding_dim = None
+    
     model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
                                       first_sa_point=general_args.first_sa_point,
                                       fp_to_full=general_args.fp_to_full,
                                       replace_bn_w_gn=general_args.replace_bn_with_gn,
                                       replace_bn_w_in=general_args.replace_bn_with_in,
+                                      embedding_dim=embedding_dim,
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
@@ -249,6 +268,9 @@ def train(args):
         "cgn": compute_cgn_loss,  # TODO: set up contact graspnet forward function
     }
     
+    if general_args.category_embedding_type == "siglip":
+        siglip_text_features = torch.load("../siglip_text_features.pt")
+    
     num_iterations = args.general.num_iterations
     for global_step in range(num_iterations):  
         
@@ -257,7 +279,7 @@ def train(args):
         for task_idx in range(len(all_tasks)):
             task = all_tasks[task_idx]
             forward_func = forward_functions[all_tasks[task_idx]]
-            log = forward_func(samples[task_idx], model, optimizer, device, args[task])
+            log = forward_func(samples[task_idx], model, optimizer, device, args[task], siglip_features=siglip_text_features)
             for key in log:
                 assert not torch.is_tensor(log[key])
                 all_logs[f"{task}_{key}"] = log[key]
