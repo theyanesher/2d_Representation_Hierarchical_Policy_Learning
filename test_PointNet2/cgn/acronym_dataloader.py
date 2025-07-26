@@ -187,7 +187,9 @@ class AcryonymDataset(Dataset):
                 try:
                     pc_cam, camera_pose = self.load_scene(render_path)
                     ### do futher fps here:
-                    pc_cam = utils.regularize_pc_point_count(pc_cam, self.global_config['DATA']['further_fps_point'], use_farthest_point=self._use_farthest_point)
+                    if self.global_config['DATA']['further_fps_point'] > 0:
+                        # print("further downsampling")
+                        pc_cam = utils.regularize_pc_point_count(pc_cam, self.global_config['DATA']['further_fps_point'], use_farthest_point=self._use_farthest_point)
                     pc_normals = np.array([])
                     depth = np.array([])
                 except:
