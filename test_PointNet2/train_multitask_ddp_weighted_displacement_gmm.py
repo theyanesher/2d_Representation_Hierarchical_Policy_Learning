@@ -65,7 +65,7 @@ def setup_cgn_dataloader(global_config, device):
     return train_dataloader
     
 mse_loss = torch.nn.MSELoss()
-def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None):
+def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None, loss_fn=None):
     pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
     class_weight = class_weight.to(device)
     gripper_points = goal_gripper_pcd.to(device)
@@ -143,6 +143,8 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
         avg_loss = mse_loss(outputs, gripper_points)
         loss = per_point_loss + avg_loss * args.weight_loss_weight
         
+    loss = loss * args.loss_scale
+        
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -160,9 +162,7 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
     del pred_dict
     return log_info
 
-def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_features=None):
-    loss_fn = ContactGraspnetLoss(global_config, device).to(device)
-    
+def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_features=None, loss_fn=None):    
     cgn_utils.send_dict_to_device(data, device)
     # Target contains input and target values
     pc_cam = data['pc_cam']
@@ -176,6 +176,7 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         pred = model(pc_cam, siglip_features[-1].float())
         
     loss, loss_info = loss_fn(pred, data)
+    loss = loss * global_config.loss_scale
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -214,9 +215,13 @@ def train(args):
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
+    
     if general_args.load_model_path is not None:
-        model.load_state_dict(torch.load(general_args.load_model_path, map_location=device))
-        print("Successfully load model from: ", general_args.load_model_path)
+        load = torch.load(general_args.load_model_path, map_location=device)
+        model.load_state_dict(load['model'])
+        # optimizer.load_state_dict(load['optimizer'])
+        print("Successfully load model and optimizer from: ", general_args.load_model_path)
+        
     model.train()
     # print(model)
     # exit()
@@ -268,8 +273,21 @@ def train(args):
         "cgn": compute_cgn_loss,  # TODO: set up contact graspnet forward function
     }
     
+    train_frequency = {
+        "articubot": args.articubot.train_frequency,
+        'cgn': args.cgn.train_frequency,
+    }
+    
     if general_args.category_embedding_type == "siglip":
         siglip_text_features = torch.load("../siglip_text_features.pt")
+    else:
+        siglip_text_features = None
+    
+    cgn_loss_fn = ContactGraspnetLoss(args['cgn'], device).to(device) if 'cgn' in args.tasks else None
+    loss_funcs = {
+        'cgn': cgn_loss_fn,
+        'articubot': None
+    }
     
     num_iterations = args.general.num_iterations
     for global_step in range(num_iterations):  
@@ -279,10 +297,11 @@ def train(args):
         for task_idx in range(len(all_tasks)):
             task = all_tasks[task_idx]
             forward_func = forward_functions[all_tasks[task_idx]]
-            log = forward_func(samples[task_idx], model, optimizer, device, args[task], siglip_features=siglip_text_features)
-            for key in log:
-                assert not torch.is_tensor(log[key])
-                all_logs[f"{task}_{key}"] = log[key]
+            if global_step % train_frequency[task] == 0:
+                log = forward_func(samples[task_idx], model, optimizer, device, args[task], siglip_features=siglip_text_features, loss_fn=loss_funcs[task])
+                for key in log:
+                    assert not torch.is_tensor(log[key])
+                    all_logs[f"{task}_{key}"] = log[key]
         
         if os.environ['LOCAL_RANK'] == '0':
             ### TODO: log the losses here
