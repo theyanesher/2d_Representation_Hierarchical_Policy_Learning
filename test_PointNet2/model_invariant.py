@@ -348,27 +348,42 @@ class PointNetSetAbstraction(nn.Module):
 
 
 class PointNetSetAbstractionMsg(nn.Module):
-    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list, keep_gripper_in_fps=False, embedding_dim=False):
+    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list, keep_gripper_in_fps=False, embedding_dim=False,
+                 layernorm=False):
         super(PointNetSetAbstractionMsg, self).__init__()
         self.keep_gripper_in_fps = keep_gripper_in_fps
         self.npoint = npoint
         self.radius_list = radius_list
         self.nsample_list = nsample_list
         self.conv_blocks = nn.ModuleList()
-        self.bn_blocks = nn.ModuleList()
+        self.layernorm = layernorm
+        if not layernorm:
+            self.bn_blocks = nn.ModuleList()
+        else:
+            self.ln_blocks = nn.ModuleList()
+
         self.film_blocks = nn.ModuleList()
         for i in range(len(mlp_list)):
             convs = nn.ModuleList()
-            bns = nn.ModuleList()
+            if not layernorm:
+                bns = nn.ModuleList()
+            else:
+                lns = nn.ModuleList()
             last_channel = in_channel + 3
             if embedding_dim:
                 self.film_blocks.append(FiLM(embedding_dim, last_channel))
             for out_channel in mlp_list[i]:
                 convs.append(nn.Conv2d(last_channel, out_channel, 1))
-                bns.append(nn.BatchNorm2d(out_channel))
+                if not layernorm:
+                    bns.append(nn.BatchNorm2d(out_channel))
+                else:
+                    lns.append(nn.LayerNorm(out_channel))  # LayerNorm expects [B, *, C]
                 last_channel = out_channel
             self.conv_blocks.append(convs)
-            self.bn_blocks.append(bns)
+            if not layernorm:
+                self.bn_blocks.append(bns)
+            else:
+                self.ln_blocks.append(lns)
 
     def forward(self, xyz, points, embedding=None):
         """
@@ -401,11 +416,22 @@ class PointNetSetAbstractionMsg(nn.Module):
 
             grouped_points = grouped_points.permute(0, 3, 2, 1)  # [B, D, K, S]
             ### NOTE: apply film here so hopefully things can be mapped to the same space between different tasks so batchnorm works correctly
+            # import pdb; pdb.set_trace()
             grouped_points = self.film_blocks[i](grouped_points, embedding) if embedding is not None else grouped_points
             for j in range(len(self.conv_blocks[i])):
-                conv = self.conv_blocks[i][j]
-                bn = self.bn_blocks[i][j]
-                grouped_points =  F.relu(bn(conv(grouped_points)))
+                if not self.layernorm:
+                    conv = self.conv_blocks[i][j]
+                    bn = self.bn_blocks[i][j]
+                    grouped_points =  F.relu(bn(conv(grouped_points)))
+                else:
+                    conv = self.conv_blocks[i][j]
+                    ln = self.ln_blocks[i][j]
+
+                    x = conv(grouped_points)  # [B, D', K, S]
+                    x = x.permute(0, 2, 3, 1)  # → [B, K, S, D']
+                    x = ln(x)
+                    x = x.permute(0, 3, 1, 2)  # → [B, D', K, S]
+                    grouped_points = F.relu(x)
             new_points = torch.max(grouped_points, 2)[0]  # [B, D', S]
             new_points_list.append(new_points)
 
@@ -415,16 +441,24 @@ class PointNetSetAbstractionMsg(nn.Module):
 
 
 class PointNetFeaturePropagation(nn.Module):
-    def __init__(self, in_channel, mlp, embedding_dim=None):
+    def __init__(self, in_channel, mlp, embedding_dim=None, layernorm=False):
         super(PointNetFeaturePropagation, self).__init__()
         self.mlp_convs = nn.ModuleList()
-        self.mlp_bns = nn.ModuleList()
+        if not layernorm:
+            self.mlp_bns = nn.ModuleList()
+        else:
+            self.mlp_lns = nn.ModuleList()
         last_channel = in_channel
         self.film = FiLM(embedding_dim, last_channel) if embedding_dim is not None else None
         for out_channel in mlp:
             self.mlp_convs.append(nn.Conv1d(last_channel, out_channel, 1))
-            self.mlp_bns.append(nn.BatchNorm1d(out_channel))
+            if not layernorm:
+                self.mlp_bns.append(nn.BatchNorm1d(out_channel))
+            else:
+                self.mlp_lns.append(nn.LayerNorm(out_channel))
             last_channel = out_channel
+            
+        self.layernorm = layernorm
 
     def forward(self, xyz1, xyz2, points1, points2, embedding=None):
         """
@@ -462,11 +496,19 @@ class PointNetFeaturePropagation(nn.Module):
             new_points = interpolated_points
 
         new_points = new_points.permute(0, 2, 1)
+        # import pdb; pdb.set_trace()
         if embedding is not None:
             new_points = self.film(new_points, embedding)
         for i, conv in enumerate(self.mlp_convs):
-            bn = self.mlp_bns[i]
-            new_points = F.relu(bn(conv(new_points)))
+            if not self.layernorm:
+                bn = self.mlp_bns[i]
+                new_points = F.relu(bn(conv(new_points)))
+            else:
+                ln = self.mlp_lns[i]
+                x = conv(new_points)              # [B, C, N]
+                x = x.permute(0, 2, 1)            # [B, N, C]
+                x = ln(x)
+                new_points = F.relu(x.permute(0, 2, 1))  # [B, C, N]
         return new_points
 
 class PointNet2(nn.Module):
@@ -593,27 +635,40 @@ class PointNet2_super(nn.Module):
     
 class PointNet2_super_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
-                 first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=True, film_in_sa_and_fp=False):
+                 first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=False, film_in_sa_and_fp=False, 
+                 embedding_as_input=False,
+                 replace_bn_w_ln=False,):
                 #  first_sa_point=1024, fp_to_full=True, replace_bn_w_gn=False, replace_bn_w_in=True):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
         # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=96, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
-        self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None )
-        # self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 192, 256], [128, 192, 256]], keep_gripper_in_fps=keep_gripper_in_fps)
-        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None)
+        if embedding_as_input:
+            in_channel = input_channel - 3 + embedding_dim
+        else:
+            in_channel = input_channel - 3
+        self.embedding_as_input = embedding_as_input
+        
+        self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=in_channel, mlp_list=[[16, 16, 32], [32, 32, 64]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
         if embedding_dim is not None:
             self.film = FiLM(embedding_dim, 1024)
-        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.fp4 = PointNetFeaturePropagation(1024, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None)
-        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None)
+        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp4 = PointNetFeaturePropagation(1024, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
         if fp_to_full:
-            self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None)
+            self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
         self.fp_to_full = fp_to_full
         self.film_in_sa_and_fp = film_in_sa_and_fp
         
@@ -646,6 +701,11 @@ class PointNet2_super_multitask(nn.Module):
     def forward(self, xyz, embedding=None, build_grasp=False):
         l0_points = xyz
         l0_xyz = xyz[:, :3, :]
+        
+        if self.embedding_as_input:
+            # import pdb; pdb.set_trace()
+            input_embedding = embedding.unsqueeze(2).repeat(1, 1, l0_xyz.shape[2])
+            xyz = torch.cat([xyz, input_embedding], dim=1)
         
         if xyz.shape[1] > 3:
             l1_xyz, l1_points = self.sa1(l0_xyz, xyz[:, 3:, :], embedding=embedding if self.film_in_sa_and_fp else None)

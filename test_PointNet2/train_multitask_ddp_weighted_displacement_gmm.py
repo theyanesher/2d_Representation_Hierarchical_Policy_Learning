@@ -173,10 +173,13 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         pred = model(pc_cam)
     else:
         # print("cgn use siglip embedding")
-        pred = model(pc_cam, siglip_features[-1].float())
+        embedding = siglip_features[-1].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
+        pred = model(pc_cam, embedding)
         
     loss, loss_info = loss_fn(pred, data)
     loss = loss * global_config.loss_scale
+    for key in loss_info:
+        loss_info[key] *= global_config.loss_scale
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -212,6 +215,9 @@ def train(args):
                                       replace_bn_w_gn=general_args.replace_bn_with_gn,
                                       replace_bn_w_in=general_args.replace_bn_with_in,
                                       embedding_dim=embedding_dim,
+                                      film_in_sa_and_fp=general_args.film_in_sa_and_fp,
+                                      embedding_as_input=general_args.embedding_as_input,
+                                      replace_bn_w_ln=general_args.replace_bn_with_ln,
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")
@@ -283,7 +289,7 @@ def train(args):
     else:
         siglip_text_features = None
     
-    cgn_loss_fn = ContactGraspnetLoss(args['cgn'], device).to(device) if 'cgn' in args.tasks else None
+    cgn_loss_fn = ContactGraspnetLoss(args.cgn, device).to(device) if 'cgn' in args.general.tasks else None
     loss_funcs = {
         'cgn': cgn_loss_fn,
         'articubot': None

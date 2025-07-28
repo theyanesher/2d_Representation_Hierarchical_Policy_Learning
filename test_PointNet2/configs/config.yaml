@@ -8,7 +8,8 @@ articubot:
   output_obj_pcd_only: 0
   use_all_data: 0
   # fixed_variance: 0.05
-  fixed_variance: [0.001, 0.01, 0.05]
+  # fixed_variance: [0.001, 0.01, 0.05]
+  fixed_variance: [0.05]
   add_one_hot_encoding: 0
   gmm: 0
   weight_loss_weight: 10
@@ -17,7 +18,7 @@ articubot:
 
 general:
   num_iterations: 500000
-  save_freq: 5000
+  save_freq: 2500
   lr: 0.001
   load_model_path: null
   exp_name: articubot_cgn_first_try-2
@@ -26,11 +27,14 @@ general:
   keep_gripper_in_fps: 0
   exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
   tasks: [articubot, cgn]
-  fp_to_full: 1
-  first_sa_point: 1024
+  fp_to_full: 0
+  first_sa_point: 2048
   replace_bn_with_gn: 0
-  replace_bn_with_in: 1
+  replace_bn_with_in: 0
+  replace_bn_with_ln: 1
   category_embedding_type: siglip
+  film_in_sa_and_fp: 0
+  embedding_as_input: 0
   
 
 cgn: 
@@ -38,7 +42,7 @@ cgn:
   train_frequency: 1
   batch_size: 5
   DATA:
-    further_fps_point: 10000
+    further_fps_point: 0
     classes: null
     data_path: /project_data/held/yufeiw2/contact_graspnet_pytorch/acronym
     depth_augm:
