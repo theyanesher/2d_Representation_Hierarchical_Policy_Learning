@@ -66,6 +66,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.use_all_data = use_all_data
         self.conditioning_on_demo = conditioning_on_demo
         
+        self.camera_frame = camera_frame
         if self.camera_frame:
             project_dir = os.environ['PROJECT_DIR']
             with open(os.path.join(project_dir, "data/world_to_camera_T.pkl"), "rb") as f:
@@ -183,7 +184,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         return self.accumulated_episode_lengths[-1]
     
     def transform_pcd_to_camera_frame(self, pcd):
-        pcd_homo = np.concatenate([pcd, np.ones(pcd.shape[0], 1)], axis=1)
+        pcd_homo = np.concatenate([pcd, np.ones((pcd.shape[0], 1))], axis=1)
         pcd_cam = self.world_to_camera_T @ pcd_homo.T 
         pcd_cam = pcd_cam.T
         pcd_cam = pcd_cam[:, :3]
@@ -191,7 +192,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         pcd_cam[:, 0] = -pcd_cam[:, 0]
         pcd_cam[:, 2] = -pcd_cam[:, 2]
         
-        return pcd_cam
+        return pcd_cam.astype(np.float32)
     
     def read_pickle_data(self, episode_idx, step_idx):
         step_path = os.path.join(self.all_zarr_paths[episode_idx], str(step_idx) + '.pkl')
