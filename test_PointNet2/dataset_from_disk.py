@@ -57,7 +57,7 @@ articulated_new = [
 
 class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False, 
-                 conditioning_on_demo=False):
+                 conditioning_on_demo=False, camera_frame=False):
         self.all_obj_paths = all_obj_paths
         self.beg_ratio = beg_ratio
         self.end_ratio = end_ratio
@@ -65,6 +65,11 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.cat_counts = np.zeros(num_cats)  # +1 for the background category
         self.use_all_data = use_all_data
         self.conditioning_on_demo = conditioning_on_demo
+        
+        if self.camera_frame:
+            project_dir = os.environ['PROJECT_DIR']
+            with open(os.path.join(project_dir, "data/world_to_camera_T.pkl"), "rb") as f:
+                self.world_to_camera_T = pickle.load(f)
         
         if only_first_stage:
             cprint('======= ONLY FIRST STAGE =======', 'red')
@@ -177,6 +182,17 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     def __len__(self):
         return self.accumulated_episode_lengths[-1]
     
+    def transform_pcd_to_camera_frame(self, pcd):
+        pcd_homo = np.concatenate([pcd, np.ones(pcd.shape[0], 1)], axis=1)
+        pcd_cam = self.world_to_camera_T @ pcd_homo.T 
+        pcd_cam = pcd_cam.T
+        pcd_cam = pcd_cam[:, :3]
+        # change to cgn coordinate system
+        pcd_cam[:, 0] = -pcd_cam[:, 0]
+        pcd_cam[:, 2] = -pcd_cam[:, 2]
+        
+        return pcd_cam
+    
     def read_pickle_data(self, episode_idx, step_idx):
         step_path = os.path.join(self.all_zarr_paths[episode_idx], str(step_idx) + '.pkl')
         cat_idx = self.all_zarr_categories[episode_idx]
@@ -186,6 +202,12 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         pointcloud = data['point_cloud'][:][0].astype(np.float32)
         gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
         goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
+        
+        if self.camera_frame:
+            pointcloud = self.transform_pcd_to_camera_frame(pointcloud)
+            gripper_pcd = self.transform_pcd_to_camera_frame(gripper_pcd)
+            goal_gripper_pcd = self.transform_pcd_to_camera_frame(goal_gripper_pcd)
+        
         return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight
 
     def __getitem__(self, idx):
@@ -452,7 +474,7 @@ def get_dataloader_from_pickle(all_obj_paths=None, batch_size=32, beg_ratio=0, e
 
 def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, 
                             use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, 
-                            predict_two_goals=False, conditioning_on_demo=False):
+                            predict_two_goals=False, conditioning_on_demo=False, camera_frame=False):
     
     if dataset_prefix is None:
         dataset_prefix='/scratch/chialiang/dp3_demo'
@@ -460,6 +482,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             dataset_prefix='/scratch/chialiang/dp3_demo_combine_2_new'
     
     if all_obj_paths is None:
+        num_train_objects = str(num_train_objects)
         print(" ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
@@ -769,5 +792,5 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
         else:
             raise ValueError('num_train_objects not supported')
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
-                                        is_pickle=True, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo)    
+                                        is_pickle=True, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo, camera_frame=camera_frame)    
     return dataset

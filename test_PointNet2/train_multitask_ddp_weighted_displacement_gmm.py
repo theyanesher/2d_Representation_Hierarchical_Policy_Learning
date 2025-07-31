@@ -32,7 +32,8 @@ def setup_articubot_dataloader(args):
     dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, 
                                       use_all_data=args.use_all_data, 
                                       dataset_prefix=args.dataset_prefix, 
-                                      num_train_objects=args.num_train_objects)
+                                      num_train_objects=args.num_train_objects,
+                                      camera_frame=args.camera_frame)
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
@@ -178,8 +179,9 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         
     loss, loss_info = loss_fn(pred, data)
     loss = loss * global_config.loss_scale
-    for key in loss_info:
-        loss_info[key] *= global_config.loss_scale
+    keys = list(loss_info.keys())
+    for key in keys:
+        loss_info[key + "_scaled"] = loss_info[key] * global_config.loss_scale
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()

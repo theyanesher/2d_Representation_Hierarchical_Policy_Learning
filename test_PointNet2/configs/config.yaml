@@ -1,6 +1,6 @@
 articubot:
   all_zarr_path: null
-  num_train_objects: 'articulated'
+  num_train_objects: '50'
   dataset_prefix: /project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj
   batch_size: 15
   beg_ratio: 0
@@ -15,6 +15,7 @@ articubot:
   weight_loss_weight: 10
   train_frequency: 1
   loss_scale: 1
+  camera_frame: 0
 
 general:
   num_iterations: 500000
