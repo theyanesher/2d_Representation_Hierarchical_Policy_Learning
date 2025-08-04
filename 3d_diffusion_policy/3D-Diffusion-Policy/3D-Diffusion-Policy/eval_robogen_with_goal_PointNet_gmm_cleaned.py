@@ -53,7 +53,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                           exp_end_idx=1000, embedding_dim=None, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False,):
+                          randomize_camera=False, high_level_args=None):
     
     for dataset_idx, (experiment_folder, experiment_name) in \
         enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name)):
@@ -133,8 +133,9 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         all_distances = []
         all_grasp_distances = []
 
-        if args.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("/project_data/held/chenyuah/RoboGen-sim2real/siglip_text_features.pt")
+        if high_level_args.general.category_embedding_type == "siglip":
+            siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
+            
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
 
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
@@ -161,15 +162,15 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     with torch.no_grad():
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                        if args.category_embedding_type == "one_hot":
-                                cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float().to(pointcloud.device)
-                        elif args.category_embedding_type == "siglip":
-                            cat_embedding = siglip_text_features[cat_idx].float().to(pointcloud.device)
+                        if high_level_args.general.category_embedding_type == "one_hot":
+                            cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float().to(pointcloud.device)
+                        elif high_level_args.general.category_embedding_type == "siglip":
+                            cat_embedding = siglip_text_features[cat_idx].float().to(pointcloud.device).unsqueeze(0)
                         else:
                             cat_embedding = None
                             
                         inputs = torch.cat([pointcloud, gripper_pcd], dim=1)    
-                        if args.add_one_hot_encoding:
+                        if high_level_args.articubot.add_one_hot_encoding:
                             # for pointcloud, we add (1, 0)
                             # for gripper_pcd, we add (0, 1)
                             pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2).float().to(pointcloud.device)
@@ -184,6 +185,11 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         inputs_ = inputs.permute(0, 2, 1)
                         # outputs = goal_prediction_model(inputs_, cat_embedding)
                         
+                        # print(args.category_embedding_type)
+                        # print(args)
+                        # print(inputs_.shape, cat_embedding)
+                        print(cat_embedding.shape)
+                        # exit()
                         pred_dict = goal_prediction_model(inputs_, cat_embedding) 
                         outputs = pred_dict['pred_offsets']
                         pred_points = pred_dict['pred_points'] 
@@ -201,7 +207,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                         outputs = outputs.view(B, N, 4, 3)
                         
                         
-                        if args.gmm:
+                        if high_level_args.articubot.gmm:
                             ### sample an displacement according to the weight
                             probabilities = weights  # Must sum to 1
                             probabilities = torch.nn.functional.softmax(weights, dim=1)
@@ -321,6 +327,49 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
     if calculate_distance_from_gt:
         print("average distance over all objects: {}".format(np.mean(all_obj_distances)))
 
+def load_high_level_model(path):
+    from omegaconf import OmegaConf
+    import json
+    ckpt_path = os.path.dirname(path)
+    config_path = os.path.join(ckpt_path, "config.json")
+    cfg = json.load(open(config_path, "r"))
+    cfg = OmegaConf.create(cfg)
+    args = cfg
+    
+    device = torch.device("cuda")
+    general_args = args.general
+    input_channel = 5 if general_args.add_one_hot_encoding else 3
+    output_dim = 13 
+    from test_PointNet2.model_invariant import PointNet2_super_multitask
+    
+    if "category_embedding_type" not in general_args:
+        general_args.category_embedding_type = None
+    if general_args.category_embedding_type == "one_hot":
+        embedding_dim = args.num_categories
+    elif general_args.category_embedding_type == "siglip":
+        embedding_dim = 768
+    else:
+        embedding_dim = None
+    
+    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
+                                      first_sa_point=general_args.get("first_sa_point", 2048),
+                                      fp_to_full=general_args.get("fp_to_full", False),
+                                      replace_bn_w_gn=general_args.get("replace_bn_with_gn", False),
+                                      replace_bn_w_in=general_args.get("replace_bn_with_in", False),
+                                      embedding_dim=embedding_dim,
+                                      film_in_sa_and_fp=general_args.get("film_in_sa_and_fp", False),
+                                      embedding_as_input=general_args.get("embedding_as_input", False),
+                                      replace_bn_w_ln=general_args.get("replace_bn_with_ln", False),
+                                      ).to(device)
+    
+    model.load_state_dict(torch.load(path, map_location=device)['model'])
+    print("Successfully load model from: ", path)
+    model.eval()
+    # model.train()
+        
+    return model, args
+
+
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
@@ -339,7 +388,7 @@ if __name__ == "__main__":
     parser.add_argument('--add_one_hot_encoding', type=int, default=0)
     parser.add_argument('--fixed_variance', type=float, default=0.05)
     parser.add_argument('--argmax', type=int, default=1)
-    parser.add_argument('--gmm', type=int, default=1)
+    parser.add_argument('--gmm', type=int, default=0)
     parser.add_argument('--flip_goal', type=int, default=0)
     parser.add_argument('--exp_dir', type=str, help='Experiment directory')
     parser.add_argument('--num_categories', type=int, default=7)
@@ -393,23 +442,7 @@ if __name__ == "__main__":
 
     load_model_path = args.high_level_ckpt_name
         
-    
-    num_class = 13 
-    input_channel = 5 if args.add_one_hot_encoding else 3
-    print(args.pointnet_class)
-    if args.category_embedding_type == "one_hot":
-        embedding_dim = args.num_categories
-    elif args.category_embedding_type == "siglip":
-        embedding_dim = 768
-    else:
-        embedding_dim = None
-    # TODO: change to be multtask pointnet++
-    from test_PointNet2.model_invariant import PointNet2_super_multitask
-    device = torch.device("cuda")
-    model = PointNet2_super_multitask(num_classes=num_class, keep_gripper_in_fps=False, input_channel=input_channel).to(device)        
-    pointnet2_model = model
-    pointnet2_model.load_state_dict(torch.load(load_model_path)['model'])
-    pointnet2_model.eval()
+    pointnet2_model, model_args = load_high_level_model(load_model_path)
         
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     
@@ -434,12 +467,13 @@ if __name__ == "__main__":
             horizon=35,
             exp_beg_idx=0,
             exp_end_idx=25,
-            embedding_dim=embedding_dim,
+            embedding_dim=None,
             output_obj_pcd_only=args.output_obj_pcd_only,
             update_goal_freq=args.update_goal_freq,
             real_world_camera=args.real_world_camera,
             noise_real_world_pcd=args.noise_real_world_pcd,
             randomize_camera=args.randomize_camera,
+            high_level_args=model_args,
     )
 
 
