@@ -190,10 +190,11 @@ class SetCriterion(nn.Module):
         )
         return loss
 
-    def get_loss(self, pred, data, matched_idx, layer=None):
+    def get_loss(self, pred, data, matched_idx, layer=None, target_idx=None):
         # import pdb; pdb.set_trace()
         obj_label = torch.zeros_like(pred['objectness'])
-        for i, idx in enumerate(matched_idx):obj_label[i][idx] = 1
+        for i, idx in enumerate(matched_idx): obj_label[i][idx] = 1
+        
         pos_weight = torch.tensor(1 / self.not_object_weight).to(
             pred['objectness'].device
         )
@@ -225,14 +226,13 @@ class SetCriterion(nn.Module):
             losses.update(mask_loss)
             outputs.update(stats)
         else: # articubot and cgn case            
-            # import pdb; pdb.set_trace()
             loss_obj = loss_obj.mean() 
             
             # NOTE we have the batch dimensio here
             matched_weights = [weight_query[idx] for weight_query, idx in zip(pred['grasping_masks'], matched_idx)] # B, # of matched queries, N
             
             ### let's first do a for loop version to ensure correctness
-            
+            ### TODO: change this to be a batched version
             B, N = pred['pred_offset'].shape[0], pred['pred_offset'].shape[1] # B, N
             mse_cost = 0
             for i in range(B):
@@ -240,21 +240,29 @@ class SetCriterion(nn.Module):
                 pred_offset = pred['pred_offset'][i].view(N, 4, 3) # N, 4, 3
                 matched_weight = matched_weights[i] # num_queries, N.
                 matched_weight = torch.softmax(matched_weight, dim=1) # num_queries, N, dim1 sum to 1
-                input_positions = data['inputs'][i] # N, 3
+                if 'goal_gripper_mask' not in data: 
+                    input_positions = data['inputs'][i] # N, 3
+                else:
+                    input_positions = data['pred_points'][i]
                 pred_goal_points = pred_offset + input_positions.unsqueeze(1) # N, 4, 3
                 pred_goal_points = pred_goal_points.view(N, -1) # N, 12
                 
+                # import pdb; pdb.set_trace()
                 matched_query_pred_goal_points = torch.einsum("qn,nd->qd", matched_weight, pred_goal_points) # M, 12
                 
                 all_gt_goal_points = data['goal_gripper_pcd'][i].view(-1, 12) # M, 12, where M is the # of possible goals with this input
+                if 'goal_gripper_mask' in data: ### cgn case, only use successful goal points
+                    this_mask = data['goal_gripper_mask'][i]
+                    all_gt_goal_points = all_gt_goal_points[this_mask]
+
+                # TODO: consider the case where gt grasping pose is more than num queries                    
+                if target_idx is not None:
+                    # import pdb; pdb.set_trace()
+                    all_gt_goal_points = all_gt_goal_points[target_idx[i]] 
                 
-                # TODO: consider the case where gt grasping pose is more than num queries
-                # mse = ((matched_query_pred_goal_points - all_gt_goal_points) ** 2).mean()
                 
                 ### use torch.mse to compute the loss
-                mse = torch.nn.functional.mse_loss(
-                    matched_query_pred_goal_points, all_gt_goal_points, reduction='mean'
-                )
+                mse = torch.nn.functional.mse_loss(matched_query_pred_goal_points, all_gt_goal_points, reduction='mean')
                 
                 # print("mse - mse2", torch.sum(mse - mse2))
                 
@@ -277,22 +285,22 @@ class SetCriterion(nn.Module):
 
         # Compute matching between final prediction and the targets
         #NOTE: change the matcher to be using a weighted MSE loss
-        output_idx, cost_matrices = self.matcher(pred[-1], targets)
+        output_idx, cost_matrices, target_idx = self.matcher(pred[-1], targets)
         
         outputs.update({
             'matched_idx': output_idx, 'cost_matrices': cost_matrices
         })
 
         # Compute losses for the final layer outputs
-        losses, stats = self.get_loss(pred[-1], targets, output_idx)
+        losses, stats = self.get_loss(pred[-1], targets, output_idx, target_idx=target_idx)
         outputs.update(stats)
 
         if self.deep_supervision and self.training:
             # Compute losses for each intermediate layer outputs
             for i, p in enumerate(pred[:-1]):
                 if self.recompute_indices:
-                    output_idx, _ = self.matcher(p, targets)
-                l_dict, _ = self.get_loss(p, targets, output_idx, i + 1)
+                    output_idx, _, target_idx = self.matcher(p, targets)
+                l_dict, _ = self.get_loss(p, targets, output_idx, i + 1, target_idx=target_idx)
                 losses.update(l_dict)
                 outputs[f'layer{i+1}/matched_idx'] = output_idx
 

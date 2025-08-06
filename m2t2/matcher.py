@@ -102,7 +102,7 @@ class HungarianMatcher(torch.nn.Module):
             indices: a list of length batch_size, containing indices of the
                      predictions that match the best with each target
         """
-        indices, cost_matrices = [], []
+        indices, cost_matrices, target_indices = [], [], []
         for i in range(len(outputs['objectness'])): ## NOTE: this loops over the batch 
             # NOTE: I think we need to have this objectness as well for choosig one query at test time.
             
@@ -130,23 +130,34 @@ class HungarianMatcher(torch.nn.Module):
                 pred_offset = outputs['pred_offset'][i].view(N, 4, 3) # N, 4, 3
                 all_weights = outputs['grasping_masks'][i] # num_querys, N. grasping masks is actually weights in our case. 
                 all_weights = torch.softmax(all_weights, dim=1) # num_queries, N, dim1 sum to 1
-                input_positions = data['inputs'][i, :, :3] # N, 3
+                if 'goal_gripper_mask' not in data:
+                    input_positions = data['inputs'][i, :, :3] # N, 3
+                else:
+                    input_positions = data['pred_points'][i, :, :3] # N, 3
                 pred_goal_points = pred_offset + input_positions.unsqueeze(1) # N, 4, 3
                 pred_goal_points = pred_goal_points.view(N, -1) # N, 12
                 
                 all_query_pred_goal_points = torch.einsum("qn,nd->qd", all_weights, pred_goal_points) # num_queries, 12
                 
+                # import pdb; pdb.set_trace()
                 all_gt_goal_points = data['goal_gripper_pcd'][i].view(-1, 12) # M, 12, where M is the # of possible goals with this input
+                if 'goal_gripper_mask' in data: ### cgn case
+                    this_mask = data['goal_gripper_mask'][i] # N
+                    all_gt_goal_points = all_gt_goal_points[this_mask]
                 
                 diff = all_query_pred_goal_points.unsqueeze(1) - all_gt_goal_points.unsqueeze(0) # num_queries, M, 12
                 diff_squared = diff ** 2 # num_queries, M, 12
                 mse_cost = diff_squared.mean(dim=-1) # num_queries, M
+                
+
                 
                 cost = self.object_weight * (-outputs['objectness'][i:i+1].T.sigmoid()) + self.wdp_weight * mse_cost 
             
             # TODO: consider the case where gt grasping pose is more than num queries
             output_idx, target_idx = linear_sum_assignment(cost.cpu().numpy())
             output_idx = output_idx[np.argsort(target_idx)]
+            target_idx = np.sort(target_idx)
             indices.append(torch.from_numpy(output_idx).long().to(cost.device))
+            target_indices.append(torch.from_numpy(target_idx).long().to(cost.device))
             cost_matrices.append(cost)
-        return indices, cost_matrices
+        return indices, cost_matrices, target_indices

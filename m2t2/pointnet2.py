@@ -65,11 +65,15 @@ class PointNet2Base(nn.Module):
             l_features.append(li_features)
             if sample_idx[0] is not None:
                 sample_ids.append(sample_idx[0])
+                
+        # import pdb; pdb.set_trace()
 
         for i in range(-1, -(len(self.FP_modules) + 1), -1):
             l_features[i - 1] = self.FP_modules[i](
                 l_xyz[i - 1], l_xyz[i], l_features[i - 1], l_features[i]
             )
+
+        # import pdb; pdb.set_trace()
 
         l_features = {
             f'res{i}': feat for i, feat in enumerate(l_features)
@@ -81,15 +85,21 @@ class PointNet2Base(nn.Module):
         outputs = {
             'features': l_features,
             'context_pos': l_xyz,
-            'sample_ids': sample_ids
+            'sample_ids': sample_ids if not self.cgn else sample_ids[1:]
         }
+        
+        # import pdb; pdb.set_trace()
         
         if self.pred_offset:
             # import pdb; pdb.set_trace()
-            outputs['pred_offset'] = self.four_point_head(
-                l_features['res0'] # B, C, N
-            ).transpose(1, 2) # B, N, C
-        
+            if not self.cgn:
+                outputs['pred_offset'] = self.four_point_head(
+                    l_features['res0'] # B, C, N
+                ).transpose(1, 2) # B, N, C
+            else:
+                outputs['pred_offset'] = self.four_point_head(
+                    l_features['res1'] # B, C, N
+                ).transpose(1, 2)
         return outputs
 
 
@@ -98,12 +108,21 @@ class PointNet2MSG(PointNet2Base):
         self, num_points, downsample, radius,
         radius_mult, use_rgb=True, norm='BN',
         pred_offset=False, final_feature_channel=128,
+        cgn=False,
     ):
+        if not cgn:
+            final_feature_channel = 128
+        else:
+            final_feature_channel = 256
         super(PointNet2MSG, self).__init__(pred_offset=pred_offset, final_feature_channel=final_feature_channel)
 
         self.use_rgb = use_rgb
         c_in = 3 if use_rgb else 0
-        num_points = num_points // downsample
+        self.cgn = cgn
+        if not cgn:
+            num_points = num_points // downsample 
+        else:
+            num_points = 2048 
         self.SA_modules.append(
             PointnetSAModuleMSG(
                 npoint=num_points,
@@ -154,15 +173,18 @@ class PointNet2MSG(PointNet2Base):
         )
         c_out_3 = 512 + 512
 
-        self.FP_modules.append(
-            PointnetFPModule(mlp=[256 + c_in, 128, 128])
-        )
+        # TODO: for cgn, do not append this last fp layer
+        if not cgn:
+            self.FP_modules.append(
+                PointnetFPModule(mlp=[256 + c_in, 128, 128])
+            )
         self.FP_modules.append(
             PointnetFPModule(mlp=[512 + c_out_0, 256, 256])
         )
         self.FP_modules.append(
             PointnetFPModule(mlp=[512 + c_out_1, 512, 512])
         )
+        
         self.FP_modules.append(
             PointnetFPModule(mlp=[c_out_3 + c_out_2, 512, 512])
         )
@@ -180,6 +202,7 @@ class PointNet2MSG(PointNet2Base):
         args['radius_mult'] = cfg.radius_mult
         args['use_rgb'] = cfg.use_rgb
         args['pred_offset'] = cfg.pred_offset
+        args['cgn'] = cfg.cgn
         return cls(**args)
 
 

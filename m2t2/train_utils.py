@@ -18,8 +18,8 @@ import torch
 from m2t2.dataset import PickPlaceDataset, collate
 
 
-def get_data_loader(cfg, split, use_ddp, training, articubot=False):
-    if not articubot:
+def get_data_loader(cfg, split, use_ddp, training, dataset_name="m2t2", device=None):
+    if dataset_name == "m2t2":
         kwargs = PickPlaceDataset.from_config(cfg.data)
         kwargs['root_dir'] = f"{cfg.data.root_dir}/{split}"
         if not training:
@@ -37,7 +37,7 @@ def get_data_loader(cfg, split, use_ddp, training, articubot=False):
             # persistent_workers=True, pin_memory=True
             persistent_workers=False, pin_memory=True
         )
-    else:
+    elif dataset_name == 'articubot':
         # from m2t2.dataset import FakeArticubotDataset
         # dataset = FakeArticubotDataset()
         
@@ -56,6 +56,26 @@ def get_data_loader(cfg, split, use_ddp, training, articubot=False):
             # persistent_workers=True, pin_memory=True
             persistent_workers=False, pin_memory=True
         )
+    elif dataset_name == 'cgn':
+        from m2t2.acronym_dataset import AcryonymDataset
+        global_config = cfg.cgn
+        batch_size = global_config['OPTIMIZER']['batch_size']
+        num_workers = 6  # Increase after debug
+        dataset = AcryonymDataset(global_config, train=True, device=device, use_saved_renders=True)
+        # test_dataset = AcryonymDataset(global_config, train=False, device=device, use_saved_renders=True)
+
+        if use_ddp:
+            sampler = DistributedSampler(dataset, shuffle=training, drop_last=True)
+        else:
+            sampler = RandomSampler(dataset) if training \
+                    else SequentialSampler(dataset)
+        loader = torch.utils.data.DataLoader(dataset,
+                                                    batch_size=batch_size,
+                                                    shuffle=False,
+                                                    num_workers=num_workers,
+                                                    sampler=sampler
+                                                    )
+        
     return sampler, loader
 
 
