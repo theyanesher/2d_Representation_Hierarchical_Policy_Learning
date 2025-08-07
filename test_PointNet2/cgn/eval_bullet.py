@@ -815,15 +815,15 @@ def load_contact_graspnet(load_path, args):
                                       replace_bn_w_gn=general_args.get("replace_bn_with_gn", False),
                                       replace_bn_w_in=general_args.get("replace_bn_with_in", False),
                                       embedding_dim=embedding_dim,
-                                      film_in_sa_and_fp=general_args.film_in_sa_and_fp,
-                                      embedding_as_input=general_args.embedding_as_input,
-                                      replace_bn_w_ln=general_args.replace_bn_with_ln,
+                                      film_in_sa_and_fp=general_args.get("film_in_sa_and_fp", False),
+                                      embedding_as_input=general_args.get("embedding_as_input", False),
+                                      replace_bn_w_ln=general_args.get("replace_bn_with_ln", False),
                                       ).to(device)
     
     model.load_state_dict(torch.load(load_path, map_location=device)['model'])
     print("Successfully load model from: ", load_path)
-    # model.eval()
-    model.train()
+    model.eval()
+    # model.train()
     return model
 
 
@@ -854,6 +854,19 @@ def infer_contact_graspnet(model, pcd, topk=10, device=torch.device("cuda"), sig
     
     return pred_top_k_grasp[0]
 
+def infer_m2t2(model, pcd, topk=10, device=torch.device("cuda"), siglip_embedding=None):
+    pcd = torch.from_numpy(pcd).to(device).float()
+    pcd = pcd.unsqueeze(0)  # B x N x 3
+    
+    with torch.no_grad():
+        data_input = {
+            "inputs": pcd,
+        }
+        # import pdb; pdb.set_trace()
+        topk_grasps, weights = model.infer_cgn(data_input, None, topk=topk)
+        
+    return topk_grasps[0].cpu().numpy()
+
 def parallel_eval(args):
     pred_grasp, scene_path, env_state, precontact = args
     new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=precontact)
@@ -871,6 +884,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_name", type=str, default="", help="additional name to save the results")
     parser.add_argument("--precontact", type=int, default=1, help="whether to first goto a precontact pose before grasping")
     parser.add_argument("--num_point", type=int, default=20000)
+    parser.add_argument("--model_type", type=str, default="pointnet++")
     args = parser.parse_args()
     
     # this_file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -889,18 +903,31 @@ if __name__ == "__main__":
         
     from omegaconf import OmegaConf
     import json
-    ckpt_path = os.path.dirname(args.ckpt_name)
-    config_path = os.path.join(ckpt_path, "config.json")
-    cfg = json.load(open(config_path, "r"))
-    cfg = OmegaConf.create(cfg)
-    model = load_contact_graspnet(args.ckpt_name, cfg)
     
-    if cfg['general'].category_embedding_type == "siglip":
-        project_dir = os.environ["PROJECT_DIR"]
-        siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features.pt")).float().to("cuda")
-        siglip_text_features = siglip_text_features[-1]
-    else:
-        siglip_text_features = None
+    siglip_text_features = None
+    if args.model_type == "pointnet++":
+        ckpt_path = os.path.dirname(args.ckpt_name)
+        config_path = os.path.join(ckpt_path, "config.json")
+        cfg = json.load(open(config_path, "r"))
+        cfg = OmegaConf.create(cfg)
+        model = load_contact_graspnet(args.ckpt_name, cfg)
+        if cfg['general'].category_embedding_type == "siglip":
+            project_dir = os.environ["PROJECT_DIR"]
+            siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features.pt")).float().to("cuda")
+            siglip_text_features = siglip_text_features[-1]
+    elif args.model_type == 'm2t2':
+        from m2t2.m2t2_articubot import M2T2
+        load_model_path = args.ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, "config.yaml")
+        m2t2_config = OmegaConf.load(load_config)
+        high_level_model = M2T2.from_config(m2t2_config.m2t2, cgn_cfg=m2t2_config.cgn)
+        ckpt = torch.load(load_model_path)
+        high_level_model.load_state_dict(ckpt['model'])
+        high_level_model = high_level_model.cuda().eval()
+        model = high_level_model
+    
+  
     
     meta_results = defaultdict(int)
     for scene_path in scene_path_list:
@@ -922,7 +949,10 @@ if __name__ == "__main__":
         ### run it through the trained contact graspnet model
         # cprint("loading contact graspnet model", "green")
         # cprint("running grasping inference", "green")
-        pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
+        if args.model_type == 'pointnet++':
+            pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
+        else:
+            pred_grasps = infer_m2t2(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
         # cprint("visualizing predicted grasps", "green")
         # env.visualize_grasp(pc_in_camera, pred_grasps, topk=10)
         

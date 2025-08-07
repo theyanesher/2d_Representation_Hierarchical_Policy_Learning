@@ -227,7 +227,7 @@ class M2T2(nn.Module):
         lang_tokens = data.get('lang_tokens')
         embedding, outputs = self.transformer(scene_feat, object_feat, lang_tokens)
         outputs = outputs[-1]
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
 
 
         # if 'place' in embedding and embedding['place'].shape[1] > 0:
@@ -249,10 +249,10 @@ class M2T2(nn.Module):
         # best_weight = torch.gather(outputs['grasping_masks'], dim=1, index=best_weight_idx.unsqueeze(1))
         best_weight = outputs['grasping_masks'].squeeze(0)[best_weight_idx] # N
         
-        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(B, 4, 3) # N, 4, 3 
+        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(N, 4, 3) # N, 4, 3 
         input = data['inputs'].squeeze(0) # N, 3
         all_preds = input.unsqueeze(1) + pred_offsets # N, 4, 3
-        best_weight = torch.softmax(best_weight, dim=1)
+        best_weight = torch.softmax(best_weight, dim=1).squeeze(0)
         weighted_pred = (all_preds * best_weight.unsqueeze(1).unsqueeze(2)).sum(dim=0) # 4, 3
         
         # if 'grasp' in embedding and embedding['grasp'].shape[1] > 0:
@@ -285,7 +285,61 @@ class M2T2(nn.Module):
         #     )
         #     outputs.update(grasp_outputs)
 
-        return weighted_pred
+        return weighted_pred.unsqueeze(0), best_weight
+    
+    def infer_cgn(self, data, cfg, topk=10):
+        B, N, _ = data['inputs'].shape
+        scene_feat = self.backbone(data['inputs'])
+
+        # object_feat = self.object_encoder(data['object_inputs'])
+        # if 'task_is_place' in data:
+        #     for key in object_feat['features']:
+        #         object_feat['features'][key] = (
+        #             object_feat['features'][key] * data['task_is_place'].view(
+        #                 data['task_is_place'].shape[0], 1, 1
+        #             )
+        #         )
+        object_feat = None
+        
+        lang_tokens = data.get('lang_tokens')
+        embedding, outputs = self.transformer(scene_feat, object_feat, lang_tokens)
+        outputs = outputs[-1]
+        # import pdb; pdb.set_trace()
+
+
+        # if 'place' in embedding and embedding['place'].shape[1] > 0:
+        #     import pdb; pdb.set_trace()
+        #     cam_pose = None if cfg.world_coord else data['cam_pose']
+        #     placement_outputs = infer_placements(
+        #         data['points'], outputs['placement_masks'],
+        #         data['bottom_center'], data['ee_pose'],
+        #         cam_pose, cfg.mask_thresh, cfg.placement_height
+        #     )
+        #     outputs.update(placement_outputs)
+        #     outputs['placement_masks'] = (
+        #         outputs['placement_masks'].sigmoid() > cfg.mask_thresh
+        #     )
+        
+        ### assuming it's batch 1 for now
+        # import pdb; pdb.set_trace()
+        objectness = outputs['objectness'].sigmoid()
+        best_topk_idx = -objectness.argsort(dim=1)[:, :topk].squeeze(0)  # Get the top k indices
+        # best_weight = torch.gather(outputs['grasping_masks'], dim=1, index=best_weight_idx.unsqueeze(1))
+        best_topk_weight = outputs['grasping_masks'].squeeze(0)[best_topk_idx] # k, N
+        best_topk_weight = torch.softmax(best_topk_weight, dim=1)
+        
+        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(-1, 4, 3) # N, 4, 3 
+        input_positions = scene_feat['context_pos']['res1'].squeeze(0) # N, 3
+        pred_goal_points = pred_offsets + input_positions.unsqueeze(1) # N, 4, 3
+        N = pred_goal_points.shape[0]
+        pred_goal_points = pred_goal_points.view(N, -1) # N, 12
+        
+        all_query_pred_goal_points = torch.einsum("qn,nd->qd", best_topk_weight, pred_goal_points) # num_queries, 12
+        all_query_pred_goal_points = all_query_pred_goal_points.view(topk, 4, 3) # k, 4, 3
+        
+        grasps, _ = self.build_6d_grasp_from_four_points(all_query_pred_goal_points.unsqueeze(0))
+        
+        return grasps, best_topk_weight
 
     def _compute_labels(self, 
                         processed_pc_cams: torch.Tensor, 
@@ -417,3 +471,32 @@ class M2T2(nn.Module):
             return torch.stack([first_point, left_point, right_point, last_point], dim=-2)
         else:
             return torch.stack([first_point, right_point, left_point, last_point], dim=-2)  # B x N x 4 x 3
+        
+    def build_6d_grasp_from_four_points(self, four_point_head, gripper_depth = 0.1034):
+        B, N, _, _ = four_point_head.shape
+        grasp_t = four_point_head[:, :, 0].unsqueeze(3)  # B x N x 3 x 1
+        
+        
+        approach_direction = four_point_head[:, :, -1] - four_point_head[:, :, 0]  # B x N x 3
+        baseline_direction = four_point_head[:, :, 2] - four_point_head[:, :, 1]  # B x N x 3
+        
+        # baseline_direction_normed = F.normalize(baseline_direction, p=2, dim=2)  # B x N x 3
+        # dot_product = torch.sum(approach_direction * baseline_direction_normed, dim=2, keepdim=True)  # B x N x 1
+        # projection = dot_product * baseline_direction_normed  # B x N x 3
+        # approach_direction_orthog = F.normalize(approach_direction - projection, p=2, dim=2)  # B x N x 3
+        # grasp_R = torch.stack([baseline_direction_normed, torch.cross(approach_direction_orthog, baseline_direction_normed),approach_direction_orthog], dim=3)  # B x N x 3 x 3
+        
+        approach_direction_normed = F.normalize(approach_direction, p=2, dim=2)  # B x N x 3
+        dot_product = torch.sum(baseline_direction * approach_direction_normed, dim=2, keepdim=True)  # B x N x 1
+        projection = dot_product * approach_direction_normed  # B x N x 3
+        baseline_direction_orthog = F.normalize(baseline_direction - projection, p=2, dim=2)  # B x N x 3
+        grasp_R = torch.stack([baseline_direction_orthog, torch.cross(approach_direction_normed, baseline_direction_orthog),approach_direction_normed], dim=3)  # B x N x 3 x 3
+        
+        ones = torch.ones((B, N, 1, 1), dtype=torch.float32).to(four_point_head.device)  # B x N x 1 x 1
+        zeros = torch.zeros((B, N, 1, 3), dtype=torch.float32).to(four_point_head.device)  # B x N x 1 x 3
+        homog_vec = torch.cat([zeros, ones], dim=3)  # B x N x 1 x 4
+        grasps = torch.cat([torch.cat([grasp_R, grasp_t], dim=3), homog_vec], dim=2)  # B x N x 4 x 4
+        
+        offset = torch.norm(four_point_head[:, :, 2] - four_point_head[:, :, 1], dim=-1, keepdim=True)  # B x N x 1
+        
+        return grasps, offset
