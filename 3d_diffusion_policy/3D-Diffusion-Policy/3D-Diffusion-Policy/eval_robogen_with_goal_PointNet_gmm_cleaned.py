@@ -17,6 +17,50 @@ from typing import Optional
 from collections import deque
 from manipulation.utils import load_env
 
+def infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding=None, high_level_args=None, args=None):
+    inputs = inputs.to('cuda')
+    inputs_ = inputs.permute(0, 2, 1)
+    pred_dict = goal_prediction_model(inputs_, cat_embedding) 
+    outputs = pred_dict['pred_offsets']
+    pred_points = pred_dict['pred_points'] 
+    weights = pred_dict['pred_scores'].squeeze(-1)
+    inputs = pred_points
+    B, N, _, _ = outputs.shape
+    outputs = outputs.view(B, N, -1)
+    
+    if args.output_obj_pcd_only:
+        # cprint("using only obj pcd output!", "red")
+        weights = weights[:, :-4]
+        outputs = outputs[:, :-4, :]
+        inputs = inputs[:, :-4, :]
+
+    outputs = outputs.view(B, N, 4, 3)
+    
+    
+    if high_level_args.articubot.gmm:
+        ### sample an displacement according to the weight
+        probabilities = weights  # Must sum to 1
+        probabilities = torch.nn.functional.softmax(weights, dim=1)
+
+        # Sample one index based on the probabilities
+        if not args.argmax:
+            sampled_index = torch.multinomial(probabilities, num_samples=1)
+            sampled_index = sampled_index.item()
+        else:
+            sampled_index = torch.argmax(probabilities.squeeze(0))
+        displacement_mean = outputs[:, sampled_index, :, :] # B, 4, 3
+        input_point_pos = inputs[:, sampled_index, :] # B, 3
+        prediction = input_point_pos.unsqueeze(1) + displacement_mean # B, 4, 3
+    else:
+        outputs = outputs.view(B, N, 4, 3)
+        outputs = outputs + inputs[:, :, :3].unsqueeze(2)
+        weights = torch.nn.functional.softmax(weights, dim=1)
+        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+        outputs = outputs.sum(dim=1)
+        prediction = outputs
+        
+    return prediction
+
 def construct_env(cfg, config_file, env_name, init_state_file, real_world_camera=False, noise_real_world_pcd=False,
                   randomize_camera=False):
     config = yaml.safe_load(open(config_file, "r"))
@@ -49,11 +93,11 @@ def construct_env(cfg, config_file, env_name, init_state_file, real_world_camera
     
     return env
             
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_path, cat_idx, exp_beg_idx=0,
-                          exp_end_idx=1000, embedding_dim=None, pool=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx, exp_beg_idx=0,
+                          exp_end_idx=1000, embedding_dim=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
-                          randomize_camera=False, high_level_args=None):
+                          randomize_camera=False, high_level_args=None, args=None):
     
     for dataset_idx, (experiment_folder, experiment_name) in \
         enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name)):
@@ -133,7 +177,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
         all_distances = []
         all_grasp_distances = []
 
-        if high_level_args.general.category_embedding_type == "siglip":
+        if high_level_args is not None and high_level_args.general.category_embedding_type == "siglip":
             siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
             
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
@@ -162,15 +206,15 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                     with torch.no_grad():
                         pointcloud = parallel_input_dict['point_cloud'][:, -1, :, :]
                         gripper_pcd = parallel_input_dict['gripper_pcd'][:, -1, :]
-                        if high_level_args.general.category_embedding_type == "one_hot":
+                        if high_level_args and high_level_args.general.category_embedding_type == "one_hot":
                             cat_embedding = torch.nn.functional.one_hot(cat_idx_cuda, num_classes=embedding_dim).float().to(pointcloud.device)
-                        elif high_level_args.general.category_embedding_type == "siglip":
+                        elif high_level_args and high_level_args.general.category_embedding_type == "siglip":
                             cat_embedding = siglip_text_features[cat_idx].float().to(pointcloud.device).unsqueeze(0)
                         else:
                             cat_embedding = None
                             
                         inputs = torch.cat([pointcloud, gripper_pcd], dim=1)    
-                        if high_level_args.articubot.add_one_hot_encoding:
+                        if high_level_args and high_level_args.articubot.add_one_hot_encoding:
                             # for pointcloud, we add (1, 0)
                             # for gripper_pcd, we add (0, 1)
                             pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2).float().to(pointcloud.device)
@@ -181,54 +225,21 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, num_worker, save_p
                             gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
                             inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
                         
-                        inputs = inputs.to('cuda')
-                        inputs_ = inputs.permute(0, 2, 1)
-                        # outputs = goal_prediction_model(inputs_, cat_embedding)
-                        
-                        # print(args.category_embedding_type)
-                        # print(args)
-                        # print(inputs_.shape, cat_embedding)
-                        print(cat_embedding.shape)
-                        # exit()
-                        pred_dict = goal_prediction_model(inputs_, cat_embedding) 
-                        outputs = pred_dict['pred_offsets']
-                        pred_points = pred_dict['pred_points'] 
-                        weights = pred_dict['pred_scores'].squeeze(-1)
-                        inputs = pred_points
-                        B, N, _, _ = outputs.shape
-                        outputs = outputs.view(B, N, -1)
-                        
-                        if output_obj_pcd_only:
-                            # cprint("using only obj pcd output!", "red")
-                            weights = weights[:, :-4]
-                            outputs = outputs[:, :-4, :]
-                            inputs = inputs[:, :-4, :]
+                        if args.model_type == "pointnet++":
+                            prediction = infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding, high_level_args, args)
+                        elif args.model_type == "m2t2":
+                            ### TODO: implement m2t2 model inference
+                            with torch.no_grad():
+                                data_input = {
+                                    "inputs": inputs,
+                                }
+                                # import pdb; pdb.set_trace()
+                                prediction, weights = goal_prediction_model.infer(data_input, None)
+                                
+                        elif args.model_type == 'ptv3':
+                            ### TODO: implement ptv3 model inference
+                            prediction = model.infer(inputs, cat_embedding=cat_embedding, output_obj_pcd_only=output_obj_pcd_only)
 
-                        outputs = outputs.view(B, N, 4, 3)
-                        
-                        
-                        if high_level_args.articubot.gmm:
-                            ### sample an displacement according to the weight
-                            probabilities = weights  # Must sum to 1
-                            probabilities = torch.nn.functional.softmax(weights, dim=1)
-
-                            # Sample one index based on the probabilities
-                            if not args.argmax:
-                                sampled_index = torch.multinomial(probabilities, num_samples=1)
-                                sampled_index = sampled_index.item()
-                            else:
-                                sampled_index = torch.argmax(probabilities.squeeze(0))
-                            displacement_mean = outputs[:, sampled_index, :, :] # B, 4, 3
-                            input_point_pos = inputs[:, sampled_index, :] # B, 3
-                            prediction = input_point_pos.unsqueeze(1) + displacement_mean # B, 4, 3
-                        else:
-                            outputs = outputs.view(B, N, 4, 3)
-                            outputs = outputs + inputs[:, :, :3].unsqueeze(2)
-                            weights = torch.nn.functional.softmax(weights, dim=1)
-                            outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-                            outputs = outputs.sum(dim=1)
-                            prediction = outputs
-                        
                         # handle the ambiguity between the two finger points
                         if args.flip_goal:
                             cur_gripper = parallel_input_dict['gripper_pcd'][0, -1].reshape(4, 3)
@@ -376,7 +387,7 @@ if __name__ == "__main__":
     parser.add_argument('--low_level_exp_dir', type=str, default=None)
     parser.add_argument('--low_level_ckpt_name', type=str, default=None)
     parser.add_argument("--high_level_ckpt_name", type=str, default=None)
-    parser.add_argument("--pointnet_class", type=str, default="PointNet2")
+    parser.add_argument("--model_type", type=str, default="pointnet++")
     parser.add_argument("--eval_exp_name", type=str, default=None)
     parser.add_argument("--use_predicted_goal", type=bool, default=True)
     parser.add_argument('--output_obj_pcd_only', action='store_true')
@@ -394,9 +405,6 @@ if __name__ == "__main__":
     parser.add_argument('--num_categories', type=int, default=7)
     parser.add_argument('--category_embedding_type', type=str, default="none")
     args = parser.parse_args()
-    
-    num_worker = 30
-    pool=None
 
     categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
     cat_idx = 0
@@ -440,9 +448,21 @@ if __name__ == "__main__":
         args.exp_dir,
     ]
 
-    load_model_path = args.high_level_ckpt_name
-        
-    pointnet2_model, model_args = load_high_level_model(load_model_path)
+    if args.model_type == 'pointnet++':
+        load_model_path = args.high_level_ckpt_name
+        high_level_model, model_args = load_high_level_model(load_model_path)
+    elif args.model_type == 'm2t2':
+        from m2t2.m2t2_articubot import M2T2
+        load_model_path = args.high_level_ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, "config.yaml")
+        m2t2_config = OmegaConf.load(load_config)
+        high_level_model = M2T2.from_config(m2t2_config.m2t2)
+        ckpt = torch.load(load_model_path)
+        high_level_model.load_state_dict(ckpt['model'])
+        high_level_model = high_level_model.cuda().eval()
+        model_args = None
+        # import pdb; pdb.set_trace()
         
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     
@@ -461,9 +481,9 @@ if __name__ == "__main__":
     cfg.task.env_runner.observation_mode = "act3d_goal_displacement_gripper_to_object"
     cfg.task.dataset.observation_mode = "act3d_goal_displacement_gripper_to_object"
     run_eval_non_parallel(
-            cfg, policy, pointnet2_model,
-            num_worker, save_path, cat_idx,
-            pool=pool, 
+            cfg, policy, high_level_model,
+            save_path, 
+            cat_idx,
             horizon=35,
             exp_beg_idx=0,
             exp_end_idx=25,
@@ -474,6 +494,7 @@ if __name__ == "__main__":
             noise_real_world_pcd=args.noise_real_world_pcd,
             randomize_camera=args.randomize_camera,
             high_level_args=model_args,
+            args=args
     )
 
 
