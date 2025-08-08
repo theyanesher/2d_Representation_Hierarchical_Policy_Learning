@@ -57,11 +57,17 @@ class TrainHighlevelPTv3Workspace:
     def _setup_model(self):
         model: HighlevelPTv3 = hydra.utils.instantiate(self.cfg.model)
         model = model.to(device=torch.device(self.rank))
+        if self.cfg.general.load_model_path is not None:
+            state_dict = torch.load(self.cfg.general.load_model_path)['model']
+            model.load_state_dict(state_dict)
+            print("loading pretrained model from {}".format(self.cfg.general.load_model_path))
+            
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
         cprint(f"Num params: {n_parameters}", "blue")
         if "LOCAL_RANK" in os.environ:
             model = DDP(model, device_ids=[self.rank])
         self.model = model
+        
 
     def _setup_articubot_dataloader(self, articbot_cfg):
         beg_ratio = articbot_cfg.data_beg_ratio
@@ -123,8 +129,8 @@ class TrainHighlevelPTv3Workspace:
         self.scheduler: torch.optim.lr_scheduler.LRScheduler = None
         if s_type == "OneCycleLR":
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                steps_per_epoch=len(self.dataloader),
-                epochs=self.cfg.epoch,
+                steps_per_epoch=sum([len(dataloader) for dataloader in self.dataloaders]),
+                epochs=self.cfg.general.num_iterations // len(self.articubot_dataloader),
                 optimizer=self.optimizer,
                 **s_kwargs,
             )
@@ -213,7 +219,7 @@ class TrainHighlevelPTv3Workspace:
         if os.environ["LOCAL_RANK"] == "0":
             self.output_dir = HydraConfig.get().runtime.output_dir
             self.wandb_run = wandb.init(
-                name=self.cfg.exp_name,
+                name=self.cfg.general.exp_name,
                 project="articubot_multitask",
                 dir=str(self.output_dir),
                 config=OmegaConf.to_container(self.cfg, resolve=True),
@@ -228,6 +234,7 @@ class TrainHighlevelPTv3Workspace:
     def train(self):
         self._setup_articubot_dataloader(self.cfg.articubot)
         self._setup_cgn_dataloader(self.cfg.cgn)
+        self.dataloaders = [self.articubot_dataloader, self.cgn_dataloader]
         self._setup_scheduler()
         self._setup_wandb()
         self.model.train()
@@ -291,7 +298,7 @@ class TrainHighlevelPTv3Workspace:
                 
                 ### TODO: save the model here
                 if (global_step + 1) % args.general.save_freq == 0:
-                    save_path = f"{general_args.exp_path}/model_{global_step + 1}.pth"
+                    save_path = f"{self.output_dir}/model_{global_step + 1}.pth"
                     save_dict = {
                         "model": self.model.module.state_dict(),
                         "optimizer": self.optimizer.state_dict(),
@@ -304,7 +311,7 @@ class TrainHighlevelPTv3Workspace:
         
     def compute_cgn_loss(self, data):    
         device = torch.device(self.rank)
-        loss_fn = self.cgn_loss
+        loss_fn = self.cgn_loss_fn
         siglip_features = self.siglip_text_features
         model = self.model
         global_config = self.cfg['cgn']
@@ -314,12 +321,14 @@ class TrainHighlevelPTv3Workspace:
         # Target contains input and target values
         pc_cam = data['pc_cam']
         # import pdb; pdb.set_trace()
-        pc_cam = pc_cam.permute(0, 2, 1)
+        # pc_cam = pc_cam.permute(0, 2, 1)
 
         if siglip_features is None:
             pred = model(pc_cam)
         else:
             embedding = siglip_features[-1].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
+            # pred = model(pc_cam, embedding)
+            # import pdb; pdb.set_trace()
             pred = model(pc_cam, embedding)
             
         loss, loss_info = loss_fn(pred, data)
@@ -336,14 +345,14 @@ class TrainHighlevelPTv3Workspace:
     def compute_articubot_loss(self, batch):
         criterion = torch.nn.functional.mse_loss
         device = torch.device(self.rank)
-        args = self.cfg.training
+        args = self.cfg.articubot
 
         pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = batch
         # inputs: B, N, 3
         # gripper_pcd: B, 4, 3
         # goal_gripper_points: B, 4, 3
         # calculate the displacement from every point to the gripper to get the labels with shape B, N, 4, 3
-        gripper_points = goal_gripper_pcd
+        gripper_points = goal_gripper_pcd.to(device)
 
         if args.add_one_hot_encoding:
             # for pointcloud, we add (1, 0)
@@ -362,19 +371,28 @@ class TrainHighlevelPTv3Workspace:
         else:
             inputs = torch.cat([pointcloud, gripper_pcd], dim=1)  # B, N+4, 3
 
-        labels = gripper_points.unsqueeze(1) - inputs[:, :, :3].unsqueeze(2)
-        B, N, _, _ = labels.shape
-        labels = labels.view(B, N, -1)  # B, N, 12
+        B, N, _ = inputs.shape
 
-        inputs, labels = inputs.to(device), labels.to(device)
+        inputs = inputs.to(device)
         if self.siglip_text_features is not None:
             cat_embedding = self.siglip_text_features[cat_idx].float()
-            outputs = self.model(inputs, embedding=cat_embedding)  # B, N, 13
+            # outputs = self.model(inputs, embedding=cat_embedding)  # B, N, 13
+            # import pdb; pdb.set_trace()
+            pred_dict = self.model(inputs, cat_embedding)  # B, N, 13
         else:
-            outputs = self.model(inputs)  # B, N, 13
+            pred_dict = self.model(inputs)  # B, N, 13
             
-        weights = outputs[:, :, -1]  # B, N
-        outputs = outputs[:, :, :-1]  # B, N, 12
+        # weights = outputs[:, :, -1]  # B, N
+        # outputs = outputs[:, :, :-1]  # B, N, 12
+        
+        B, N, _, _ = pred_dict['pred_offsets'].shape
+        outputs = pred_dict['pred_offsets'].view(B, N, -1)
+        pred_points = pred_dict['pred_points'] 
+        weights = pred_dict['pred_scores'].squeeze(-1)
+        
+        labels = gripper_points.unsqueeze(1) - pred_points.unsqueeze(2)
+        labels = labels.view(B, N, -1)  # B, N, 12
+        
         if args.output_obj_pcd_only:
             weights = weights[:, :-4]
             outputs = outputs[:, :-4, :]
@@ -385,7 +403,7 @@ class TrainHighlevelPTv3Workspace:
 
         # inputs = inputs.permute(0, 2, 1)
         outputs = outputs.view(B, N, 4, 3)
-        outputs = outputs + inputs[:, :, :3].unsqueeze(2)  # B, N, 4, 3
+        outputs = outputs + pred_points[:, :, :3].unsqueeze(2)  # B, N, 4, 3
 
         # softmax the weights
         weights = torch.nn.functional.softmax(weights, dim=1)
@@ -404,9 +422,9 @@ class TrainHighlevelPTv3Workspace:
         self.optimizer.step()
         
         return {
-            "articubot_displacement_loss": displacement_loss,
-            "articubot_weight_loss": weight_loss,
-            "articubot_total_loss": total_loss,
+            "perpoint_loss": displacement_loss.item(),
+            "weighted_average_loss": weight_loss.item(),
+            "loss": total_loss.item(),
         }
 
     @torch.inference_mode()
@@ -510,7 +528,7 @@ class TrainHighlevelPTv3Workspace:
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.joinpath("configs")),
-    config_name="highlevel_ptv3",
+    config_name="multitask_ptv3",
 )
 def main(cfg):
     ddp_setup()
