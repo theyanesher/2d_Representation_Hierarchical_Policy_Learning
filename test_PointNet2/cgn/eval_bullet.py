@@ -786,26 +786,60 @@ class ContactGraspNetEnv():
         # if self.gui:
         #     plt.close('all')
 
-def load_contact_graspnet(load_path):
-    from test_PointNet2.model_invariant import PointNet2_super_multitask
+def load_contact_graspnet(load_path, args):
+    # from test_PointNet2.model_invariant import PointNet2_super_multitask
+    # if siglip:
+    #     embedding_dim = 
+    # model = PointNet2_super_multitask(num_classes=13, keep_gripper_in_fps=False, input_channel=3).to(device)
+    # total_params = sum(p.numel() for p in model.parameters())
+    # cprint(f"model has parameters {total_params}", "red")
+    
     device = torch.device("cuda")
-    model = PointNet2_super_multitask(num_classes=13, keep_gripper_in_fps=False, input_channel=3).to(device)
-    total_params = sum(p.numel() for p in model.parameters())
-    cprint(f"model has parameters {total_params}", "red")
+    general_args = args.general
+    input_channel = 5 if general_args.add_one_hot_encoding else 3
+    output_dim = 13 
+    from test_PointNet2.model_invariant import PointNet2_super_multitask
+    
+    if "category_embedding_type" not in general_args:
+        general_args.category_embedding_type = None
+    if general_args.category_embedding_type == "one_hot":
+        embedding_dim = args.num_categories
+    elif general_args.category_embedding_type == "siglip":
+        embedding_dim = 768
+    else:
+        embedding_dim = None
+    
+    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
+                                      first_sa_point=general_args.get("first_sa_point", 2048),
+                                      fp_to_full=general_args.get("fp_to_full", False),
+                                      replace_bn_w_gn=general_args.get("replace_bn_with_gn", False),
+                                      replace_bn_w_in=general_args.get("replace_bn_with_in", False),
+                                      embedding_dim=embedding_dim,
+                                      film_in_sa_and_fp=general_args.get("film_in_sa_and_fp", False),
+                                      embedding_as_input=general_args.get("embedding_as_input", False),
+                                      replace_bn_w_ln=general_args.get("replace_bn_with_ln", False),
+                                      ).to(device)
+    
     model.load_state_dict(torch.load(load_path, map_location=device)['model'])
     print("Successfully load model from: ", load_path)
-    model.train()
+    model.eval()
+    # model.train()
     return model
 
 
-def infer_contact_graspnet(model, pcd, topk=10, device=torch.device("cuda")):
+def infer_contact_graspnet(model, pcd, topk=10, device=torch.device("cuda"), siglip_embedding=None):
     pcd = torch.from_numpy(pcd).to(device).float()
     pcd = pcd.unsqueeze(0)  # B x N x 3
     B = 1
     
     with torch.no_grad():
         pcd = pcd.permute(0, 2, 1)  # B x 3 x N
-        pred = model(pcd, build_grasp=True)
+        # print(siglip_embedding)
+        # exit()
+        if siglip_embedding is not None:
+            embedding = siglip_embedding.unsqueeze(0).repeat(pcd.shape[0], 1)
+        
+        pred = model(pcd, build_grasp=True, embedding=embedding) 
         pred_scores = pred['pred_scores']                   # B x N x 1, the weights for each points
         pred_points = pred['pred_points']                   # B x N x 3
         pred_offsets = pred['pred_offsets']       # B x N x 4 x 3, the predicted displacement to the goal points
@@ -819,6 +853,19 @@ def infer_contact_graspnet(model, pcd, topk=10, device=torch.device("cuda")):
     pred_top_k_grasp = pred_grasps_cam[np.arange(B)[:, None], top_k_score_idx][:, :topk]
     
     return pred_top_k_grasp[0]
+
+def infer_m2t2(model, pcd, topk=10, device=torch.device("cuda"), siglip_embedding=None):
+    pcd = torch.from_numpy(pcd).to(device).float()
+    pcd = pcd.unsqueeze(0)  # B x N x 3
+    
+    with torch.no_grad():
+        data_input = {
+            "inputs": pcd,
+        }
+        # import pdb; pdb.set_trace()
+        topk_grasps, weights = model.infer_cgn(data_input, None, topk=topk)
+        
+    return topk_grasps[0].cpu().numpy()
 
 def parallel_eval(args):
     pred_grasp, scene_path, env_state, precontact = args
@@ -835,31 +882,56 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluate Contact GraspNet')
     parser.add_argument("--ckpt_name", type=str, default="checkpoints/contact_graspnet", help="Path to the checkpoint directory")
     parser.add_argument("--save_name", type=str, default="", help="additional name to save the results")
-    parser.add_argument("--precontact", type=int, default=0, help="whether to first goto a precontact pose before grasping")
+    parser.add_argument("--precontact", type=int, default=1, help="whether to first goto a precontact pose before grasping")
+    parser.add_argument("--num_point", type=int, default=20000)
+    parser.add_argument("--model_type", type=str, default="pointnet++")
     args = parser.parse_args()
+    
+    # this_file_dir = os.path.dirname(os.path.abspath(__file__))
     
     all_scenes = os.listdir("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/scene_contacts")
     all_scenes = sorted(all_scenes)
-    # all_scenes = [x for x in all_scenes if x > "009959.npy"]
-    # print(all_scenes)
-    # exit()
     eval_scenes = all_scenes[-100:]  # for testing, use the last 10 scenes
-    # eval_scenes = all_scenes[-1:]  # for testing, use the last 10 scenes
-    
     scene_path_list = ["scene_contacts/{}".format(scene) for scene in eval_scenes]
     
-    ckpt_name = args.ckpt_name.split("/")[-1] + args.save_name
+    ckpt_name = "_".join(args.ckpt_name.split("/")[-2:]) + args.save_name
     save_dir = "data/cgn_eval_results/{}".format(ckpt_name)
     if args.precontact:
         save_dir += "_precontact"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
         
-    model = load_contact_graspnet(args.ckpt_name)
+    from omegaconf import OmegaConf
+    import json
+    
+    siglip_text_features = None
+    if args.model_type == "pointnet++":
+        ckpt_path = os.path.dirname(args.ckpt_name)
+        config_path = os.path.join(ckpt_path, "config.json")
+        cfg = json.load(open(config_path, "r"))
+        cfg = OmegaConf.create(cfg)
+        model = load_contact_graspnet(args.ckpt_name, cfg)
+        if cfg['general'].category_embedding_type == "siglip":
+            project_dir = os.environ["PROJECT_DIR"]
+            siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features.pt")).float().to("cuda")
+            siglip_text_features = siglip_text_features[-1]
+    elif args.model_type == 'm2t2':
+        from m2t2.m2t2_articubot import M2T2
+        load_model_path = args.ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, "config.yaml")
+        m2t2_config = OmegaConf.load(load_config)
+        high_level_model = M2T2.from_config(m2t2_config.m2t2, cgn_cfg=m2t2_config.cgn)
+        ckpt = torch.load(load_model_path)
+        high_level_model.load_state_dict(ckpt['model'])
+        high_level_model = high_level_model.cuda().eval()
+        model = high_level_model
+    
+  
     
     meta_results = defaultdict(int)
     for scene_path in scene_path_list:
-        env = ContactGraspNetEnv(scene_path=scene_path, gui=False)
+        env = ContactGraspNetEnv(scene_path=scene_path, gui=False, num_points_in_pc=args.num_point)
         
         ### get an pcd observation from the scene
         rgb, depth, pc_in_camera, pc_center = env.get_obs()
@@ -877,7 +949,10 @@ if __name__ == "__main__":
         ### run it through the trained contact graspnet model
         # cprint("loading contact graspnet model", "green")
         # cprint("running grasping inference", "green")
-        pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10)
+        if args.model_type == 'pointnet++':
+            pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
+        else:
+            pred_grasps = infer_m2t2(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
         # cprint("visualizing predicted grasps", "green")
         # env.visualize_grasp(pc_in_camera, pred_grasps, topk=10)
         

@@ -18,10 +18,31 @@ cgn_path_precontact = "data/eval_results/contact_graspnet_precontact"
 gmm_path_precontact = "data/eval_results/0706_articubot_gmm_3_precontact"
 gmm_open_precontact = "data/cgn_eval_results/model_100000.pth"
 
+gmm_open_precontact = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/cgn_eval_results/GMM__2025-07-23cgn_batch_norm_full_fp_model_235000.pthinput_9000_precontact"
+# gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-24cgn_alone_instancenorm_gmm_model_125000.pth_precontact"
+# gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-25articubot_cgn_in_not_fp_to_full_model_50000.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-25both_articubot_wdp_cgn_gmm_model_30000.pth_precontact"
+# gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-24cgn_alone_instancenorm_gmm_model_125000.pth_model.train_precontact"
+# gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-17articubot_cgn_first_try-2_model_100000.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-27articubot_cgn_layernorm_model_57500.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-28articubot_cgn_both_bn_gmm_just_lang_embed_model_55000.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-25articubot_cgn_in_not_fp_to_full_model_80000.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-27cgn_alone_layernorm_gmm_model_432500.pth_precontact"
+# gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-27articubot_cgn_layernorm_model_65000.pth_precontact"
+# gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-29articubot_cgn_both_ln_wdp_50_model_30000.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-29articubot_cgn_both_ln_wdp_50_model_50000.pth_precontact"
+
+import argparse
+parser = argparse.ArgumentParser(description="Print results from CGN and GMM evaluation directories.")
+parser.add_argument('--path', type=str, default=None, help='Path to CGN evaluation results')
+args = parser.parse_args()
+gmm_open_precontact = args.path if args.path else gmm_open_precontact
+
+
 def get_results(dir):
     results = defaultdict(int)
     for file in os.listdir(dir):
-        if file.endswith('.json'):
+        if file.endswith('.json') and "meta_results" not in file:
             with open(os.path.join(dir, file), 'r') as f:
                 data = json.load(f)
                 for key in data:
