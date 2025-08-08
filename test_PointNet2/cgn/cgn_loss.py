@@ -442,18 +442,19 @@ class ContactGraspnetLoss(nn.Module):
             ### get the ground-truth 4 points
             thickness_gt = grasp_offset_labels_pc[:, :, 0]
             gt_grasps_proj = utils.build_6d_grasp(approach_labels_pc_cam, dir_labels_pc_cam, pred_points, thickness_gt, use_torch=True, device=self.device) # b x N x 4 x 4
+
             # pos_contact_points_cam = torch.matmul(pos_contact_points, camera_poses[:, :3, :3].transpose(1, 2)) + camera_poses[:,:3,3][:, None,:]
-            T_world_to_camera = invert_se3_batch(camera_pose)  # B x 4 x 4
-            camera_poses_inv = T_world_to_camera[:, None, :, :]  # B x 1 x 4 x 4
-            gt_grasps_proj_world = camera_poses_inv @ gt_grasps_proj
-            rotate_to_bullet_coordinate_matrix = torch.from_numpy(np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])).to(self.device).float()  # 3 x 3
-            # Rotate the grasp poses to match the bullet coordinate system
-            gt_grasps_proj_world[:, :, :3, :3] = gt_grasps_proj_world[:, :, :3, :3] @ rotate_to_bullet_coordinate_matrix[None, None, :, :]  # B x N x 3 x 3 
+            # T_world_to_camera = invert_se3_batch(camera_pose)  # B x 4 x 4
+            # camera_poses_inv = T_world_to_camera[:, None, :, :]  # B x 1 x 4 x 4
+            # gt_grasps_proj_world = camera_poses_inv @ gt_grasps_proj
+            # rotate_to_bullet_coordinate_matrix = torch.from_numpy(np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])).to(self.device).float()  # 3 x 3
+            # # Rotate the grasp poses to match the bullet coordinate system
+            # gt_grasps_proj_world[:, :, :3, :3] = gt_grasps_proj_world[:, :, :3, :3] @ rotate_to_bullet_coordinate_matrix[None, None, :, :]  # B x N x 3 x 3 
 
             success_mask = grasp_success_labels_pc.bool()[:, :, :, None] # B x N x 1 x 1
             success_mask = torch.broadcast_to(success_mask, gt_grasps_proj.shape) # B x N x 4 x 4
             pos_gt_grasps_proj = torch.where(success_mask, gt_grasps_proj, torch.ones_like(gt_grasps_proj) * 100000) # B x N x 4 x 4 
-            pos_gt_grasps_proj_world = torch.where(success_mask, gt_grasps_proj_world, torch.ones_like(gt_grasps_proj_world) * 100000) # B x N x 4 x 4
+            # pos_gt_grasps_proj_world = torch.where(success_mask, gt_grasps_proj_world, torch.ones_like(gt_grasps_proj_world) * 100000) # B x N x 4 x 4
             if self.global_config["MODEL"]['use_gt_gripper_q']:
                 gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, grasp_offset_labels_pc)  # B x N x 4 x 3
                 sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, grasp_offset_labels_pc, flip=True)  # B x N x 4 x 3
@@ -513,88 +514,76 @@ class ContactGraspnetLoss(nn.Module):
             gt_4_points_expanded = gt_4_points.unsqueeze(2) # B x N x 1 x 4 x 3
             pred_points_expanded = pred_points.unsqueeze(1).unsqueeze(3) # B x 1 x N x 1 x 3
 
-            fixed_variance = random.choice(self.global_config["LOSS"]['gmm_fixed_variance'])
-            if not self.global_config['MODEL'].get('gmm_take_min_over_sym', False):
-                if not self.global_config['MODEL'].get('grad_schimit_4_points', False):
-                    gt_label_diff = gt_4_points_expanded - pred_points_expanded  # B x N x N x 4 x 3 ### first N is all grasps, second N is all points
-                    labels = gt_label_diff
+            loss_info = {}
+            loss = 0
+            for fixed_variance, variance_loss_scale in zip(self.global_config['LOSS'].gmm_fixed_variance, self.global_config['LOSS'].variance_loss_scale):
+                if not self.global_config['MODEL'].get('gmm_take_min_over_sym', False):
+                    if not self.global_config['MODEL'].get('grad_schimit_4_points', False):
+                        gt_label_diff = gt_4_points_expanded - pred_points_expanded  # B x N x N x 4 x 3 ### first N is all grasps, second N is all points
+                        labels = gt_label_diff
+                        outputs = pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted displacement to the goal points
+                        diff = outputs - labels  # Shape: B x N x N x 4 x 3
+                        diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
+                        exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=-1)  # Shape: (B, N, N), sum over the guassian dimension
+                        
+                        log_gaussians = exponent 
+                    else:
+                        # import pdb; pdb.set_trace()
+                        pred_4_points = pred_points_expanded + pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted 4 points
+                        
+                        approach_direction = pred_4_points[:, :, :, -1] - pred_4_points[:, :, :, 0]  # B x 1 x N x 3
+                        baseline_direction = pred_4_points[:, :, :, 2] - pred_4_points[:, :, :, 1]  # B x 1 x N x 3
+                        baseline_dir_dist = torch.norm(baseline_direction, p=2, dim=-1, keepdim=True)  # B x 1 x N x 1
+                        
+                        
+                        approach_direction_normed = F.normalize(approach_direction, p=2, dim=-1)  # B x 1 x N x 3
+                        dot_product = torch.sum(baseline_direction * approach_direction_normed, dim=-1, keepdim=True)  # B x 1 x N x 1
+                        projection = dot_product * approach_direction_normed  # B x 1 x N x 3
+                        baseline_direction_orthog = F.normalize(baseline_direction - projection, p=2, dim=-1)  # B x 1 x N x 3
+                        new_point_1 = pred_4_points[:, :, :, 2] - baseline_direction_orthog * baseline_dir_dist  # B x 1 x N x 3
+                        orthog_pred_4_points = torch.stack([pred_4_points[:, :, :, 0], new_point_1, pred_4_points[:, :, :, 2], pred_4_points[:, :, :, 3]], dim=3)  # B x 1 x N x 4 x 3
+                        
+                        diff = orthog_pred_4_points - gt_4_points_expanded  # Shape: B x N x N x 4 x 3
+                        diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
+                        exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=-1)
+                        log_gaussians = exponent  # Shape: (B, N, N), sum over the guassian dimension
+                else:
+                    sym_gt_4_points_expanded = sym_gt_4_points.unsqueeze(2) # B x N x 1 x 4 x 3
+                    sym_gt_label_diff = sym_gt_4_points_expanded - pred_points_expanded  # B x N x N x 4 x 3
+                    sym_labels = sym_gt_label_diff
+                    
                     outputs = pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted displacement to the goal points
                     diff = outputs - labels  # Shape: B x N x N x 4 x 3
                     diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                    exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=-1)  # Shape: (B, N, N), sum over the guassian dimension
+                    diff_squared = diff ** 2
                     
-                    log_gaussians = exponent 
-                else:
-                    # import pdb; pdb.set_trace()
-                    pred_4_points = pred_points_expanded + pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted 4 points
-                    
-                    approach_direction = pred_4_points[:, :, :, -1] - pred_4_points[:, :, :, 0]  # B x 1 x N x 3
-                    baseline_direction = pred_4_points[:, :, :, 2] - pred_4_points[:, :, :, 1]  # B x 1 x N x 3
-                    baseline_dir_dist = torch.norm(baseline_direction, p=2, dim=-1, keepdim=True)  # B x 1 x N x 1
-                    
-                    
-                    approach_direction_normed = F.normalize(approach_direction, p=2, dim=-1)  # B x 1 x N x 3
-                    dot_product = torch.sum(baseline_direction * approach_direction_normed, dim=-1, keepdim=True)  # B x 1 x N x 1
-                    projection = dot_product * approach_direction_normed  # B x 1 x N x 3
-                    baseline_direction_orthog = F.normalize(baseline_direction - projection, p=2, dim=-1)  # B x 1 x N x 3
-                    new_point_1 = pred_4_points[:, :, :, 2] - baseline_direction_orthog * baseline_dir_dist  # B x 1 x N x 3
-                    orthog_pred_4_points = torch.stack([pred_4_points[:, :, :, 0], new_point_1, pred_4_points[:, :, :, 2], pred_4_points[:, :, :, 3]], dim=3)  # B x 1 x N x 4 x 3
-                    
-                    diff = orthog_pred_4_points - gt_4_points_expanded  # Shape: B x N x N x 4 x 3
-                    diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                    exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=-1)
-                    log_gaussians = exponent  # Shape: (B, N, N), sum over the guassian dimension
-            else:
-                sym_gt_4_points_expanded = sym_gt_4_points.unsqueeze(2) # B x N x 1 x 4 x 3
-                sym_gt_label_diff = sym_gt_4_points_expanded - pred_points_expanded  # B x N x N x 4 x 3
-                sym_labels = sym_gt_label_diff
+                    sym_diff = outputs - sym_labels  # Shape: B x N x N x 4 x 3
+                    sym_diff = sym_diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
+                    sym_diff_squared = sym_diff ** 2
+                    min_diff_squared = torch.min(diff_squared, sym_diff_squared)
+                    log_gaussians = -0.5 * torch.sum((min_diff_squared) / fixed_variance, dim=-1)
+
+                # Compute log mixing coefficients
+                weights = pred_scores.unsqueeze(1).squeeze(-1) # B x 1 x N. expand to have a all grasp dimension
+                log_mixing_coeffs = torch.log_softmax(weights, dim=2) # softmax the weight along the per-point dimension, shape B x 1 x N
+                log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-10)  # Prevent extreme values
+
+                max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=2, keepdim=True).values # get the per-batch and per-grasp max log along all the points, B, N, 1
+                log_probs = max_log.squeeze(2) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=2) # B, N over batch and all grasp dimension
                 
-                outputs = pred_offsets.unsqueeze(1)  # B x 1 x N x 4 x 3, the predicted displacement to the goal points
-                diff = outputs - labels  # Shape: B x N x N x 4 x 3
-                diff = diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                diff_squared = diff ** 2
+                sum_grasp_success_labels = torch.sum(grasp_success_labels_pc, dim=2, keepdim=True)
+                binary_grasp_success_labels = torch.clamp(sum_grasp_success_labels, 0, 1) ### NOTE yufei: these two lines seem to be doing nothing
+
+                log_probs = log_probs * binary_grasp_success_labels.squeeze()  # B x N
                 
-                sym_diff = outputs - sym_labels  # Shape: B x N x N x 4 x 3
-                sym_diff = sym_diff.view(B, N, N, -1)  # Reshape to B x N x N x 12 (4 points * 3 dimensions)
-                sym_diff_squared = sym_diff ** 2
-                min_diff_squared = torch.min(diff_squared, sym_diff_squared)
-                log_gaussians = -0.5 * torch.sum((min_diff_squared) / fixed_variance, dim=-1)
-
-            # Compute log mixing coefficients
-            weights = pred_scores.unsqueeze(1).squeeze(-1) # B x 1 x N. expand to have a all grasp dimension
-            log_mixing_coeffs = torch.log_softmax(weights, dim=2) # softmax the weight along the per-point dimension, shape B x 1 x N
-            log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-10)  # Prevent extreme values
-
-            max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=2, keepdim=True).values # get the per-batch and per-grasp max log along all the points, B, N, 1
-            log_probs = max_log.squeeze(2) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=2) # B, N over batch and all grasp dimension
-            
-            sum_grasp_success_labels = torch.sum(grasp_success_labels_pc, dim=2, keepdim=True)
-            binary_grasp_success_labels = torch.clamp(sum_grasp_success_labels, 0, 1) ### NOTE yufei: these two lines seem to be doing nothing
-
-            log_probs = log_probs * binary_grasp_success_labels.squeeze()  # B x N
-            
-            log_probs = torch.sum(log_probs, dim=1)  
-            log_probs = log_probs.squeeze() / pos_grasps_in_view.squeeze()  # B x 1                    
-            loss = -torch.mean(log_probs) # mean of the negative log likelihood      
-            
-            if compute_topk_4_points_loss:
-                # import pdb; pdb.set_trace()
-                squared_adds = torch.sum((diff)**2, dim=(3))  # B x N x N'
-
-                # Take min distance to gt grasp for each predicted grasp
-                # import pdb; pdb.set_trace()
-                squared_adds_k = torch.topk(squared_adds, k=1, dim=1, largest=False)[0]  # B x N
-                four_point_loss = torch.sqrt(squared_adds_k)
+                log_probs = torch.sum(log_probs, dim=1)  
+                log_probs = log_probs.squeeze() / pos_grasps_in_view.squeeze()  # B x 1                    
+                this_loss = -torch.mean(log_probs) # mean of the negative log likelihood      
                 
-                _, topk_indices = torch.topk(pred_scores, k=100, dim=1)
-                topk_losses  = torch.gather(four_point_loss, dim=1, index=topk_indices)
-                topk_losses = torch.mean(topk_losses)
-            else:
-                topk_losses = 0
-            
-            loss_info = {
-                'gmm_loss_{}'.format(fixed_variance): loss.item(),  # Grasp success loss
-            }
+                loss += this_loss * variance_loss_scale
+                
+                loss_info["gmm_" + str(fixed_variance)] = this_loss.item()
+                loss_info["gmm_" + str(fixed_variance) + "_scaled"] = (this_loss * variance_loss_scale).item()
 
             return loss, loss_info      
         

@@ -9,9 +9,10 @@ articubot:
   use_all_data: 0
   # fixed_variance: 0.05
   # fixed_variance: [0.001, 0.01, 0.05]
-  fixed_variance: [0.05]
+  fixed_variance: [0.05, 0.001]
+  variance_loss_scale: [1, 0.1]
   add_one_hot_encoding: 0
-  gmm: 0
+  gmm: 1
   weight_loss_weight: 10
   train_frequency: 1
   loss_scale: 1
@@ -112,7 +113,9 @@ cgn:
     too_small_offset_pred_bin_factor: 0
     topk_confidence: 512
     # gmm_fixed_variance: [0.001, 0.01, 0.05]
-    gmm_fixed_variance: [0.001]
+    gmm_fixed_variance: [0.05, 0.001]
+    variance_loss_scale: [1, 0.2]
+
   MODEL:
     model_type: default_cgn # articubot_pointnet_super
     loss_mode: articubot_gmm # contact_graspnet_4_points, articubot_gmm

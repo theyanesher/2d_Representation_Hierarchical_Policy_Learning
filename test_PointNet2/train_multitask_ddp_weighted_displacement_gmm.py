@@ -14,6 +14,7 @@ from termcolor import cprint
 from omegaconf import OmegaConf
 import json
 import random
+import time
 
 ### articubot imports
 from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
@@ -117,18 +118,26 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
 
     if args.gmm:
         diff = outputs - labels  # Shape: (B, N, 12)
-        fixed_variance = random.choice(args.fixed_variance)
-        exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
-        log_gaussians = exponent 
+        # fixed_variance = random.choice(args.fixed_variance)
+        ### looping through these two possible variance values
+        log_info = {}
+        loss = 0
+        for fixed_variance, variance_loss_scale in zip(args.fixed_variance, args.variance_loss_scale):
+            exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
+            log_gaussians = exponent 
 
-        # Compute log mixing coefficients
-        log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
-        log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-20)  # Prevent extreme values
+            # Compute log mixing coefficients
+            log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
+            log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-20)  # Prevent extreme values
 
-        max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
-        log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
-        
-        loss = -torch.mean(log_probs * class_weight)  # B,
+            max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
+            log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
+            
+            this_loss = -torch.mean(log_probs * class_weight)  # B,
+            loss += this_loss * variance_loss_scale
+            
+            log_info["gmm_" + str(fixed_variance)] = this_loss.item()
+            log_info["gmm_" + str(fixed_variance) + "_scaled"] = (this_loss * variance_loss_scale).item()
     else:
         per_point_loss = mse_loss(outputs, labels)
         inputs = pred_points
@@ -144,21 +153,15 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
         avg_loss = mse_loss(outputs, gripper_points)
         loss = per_point_loss + avg_loss * args.weight_loss_weight
         
-    loss = loss * args.loss_scale
+        loss = loss * args.loss_scale
         
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-        
-    if args.gmm:
-        log_info = {
-            'loss_{}'.format(fixed_variance): loss.item(),
-        }
-    
-    if not args.gmm:
         log_info = {"loss": loss.item()}
         log_info['perpoint_loss'] = per_point_loss.item()
         log_info['weighted_average_loss'] = avg_loss.item()
+        
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()    
 
     del pred_dict
     return log_info
@@ -179,9 +182,11 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         
     loss, loss_info = loss_fn(pred, data)
     loss = loss * global_config.loss_scale
-    keys = list(loss_info.keys())
-    for key in keys:
-        loss_info[key + "_scaled"] = loss_info[key] * global_config.loss_scale
+    
+    # keys = list(loss_info.keys())
+    # for key in keys:
+    #     loss_info[key + "_scaled"] = loss_info[key] * global_config.loss_scale
+
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -306,10 +311,13 @@ def train(args):
             task = all_tasks[task_idx]
             forward_func = forward_functions[all_tasks[task_idx]]
             if global_step % train_frequency[task] == 0:
+                beg = time.time()
                 log = forward_func(samples[task_idx], model, optimizer, device, args[task], siglip_features=siglip_text_features, loss_fn=loss_funcs[task])
+                time_cost = time.time() - beg
                 for key in log:
                     assert not torch.is_tensor(log[key])
                     all_logs[f"{task}_{key}"] = log[key]
+                all_logs[f"{task}_time"] = time_cost
         
         if os.environ['LOCAL_RANK'] == '0':
             ### TODO: log the losses here
