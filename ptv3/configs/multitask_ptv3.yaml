@@ -11,7 +11,7 @@ articubot:
   camera_frame: 0
   
   dataloader:
-    batch_size: 70
+    batch_size: 15
     num_workers: 12
     shuffle: false
     pin_memory: true
@@ -22,17 +22,19 @@ articubot:
     use_all_data: true
     use_combined_action: false
     dataset_prefix: /project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj
+    # dataset_prefix: /scrtach/yufeiw2/dp3_demo
     num_train_objects: "50"
     predict_two_goals: false
 
 cgn: 
-  loss_scale: 1
+  loss_scale: 0.0002
   train_frequency: 1
-  batch_size: 5
+  batch_size: 1
   DATA:
     further_fps_point: 0
     classes: null
     data_path: /project_data/held/yufeiw2/contact_graspnet_pytorch/acronym
+    # data_path: /scrtach/yufeiw2/acronym
     depth_augm:
       clip: 0.005
       gaussian_kernel: 0
@@ -209,7 +211,7 @@ cgn:
     approach_cosine_loss_weight: 0
     four_points_loss_weight: 10
     backup_every: 2000
-    batch_size: 5
+    batch_size: ${cgn.batch_size}
     bn_decay_clip: 0.99
     bn_decay_decay_rate: 0.5
     bn_decay_decay_step: 200000
@@ -243,8 +245,8 @@ cgn:
 general:
   num_iterations: 500000
   save_freq: 2500
-  load_model_path: null
-  exp_name: articubot_cgn_first_try-2
+  load_model_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/ptv3/data/articubot_cgn_ptv3-first-try/2025.08.02/18.10.23/model_122500.pth
+  exp_name: articubot_cgn_ptv3-first-try
   add_one_hot_encoding: 0
   keep_gripper_in_fps: 0
   exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/ptv3/exps
@@ -260,12 +262,12 @@ general:
   
 
 # model settings
+patch_size: 128
 model:
   _target_: ptv3.highlevel_ptv3.HighlevelPTv3
-  patch_size: 128
-  grid_size: 0.02
+  grid_size: 0.005
   ptv3_config:
-    in_channels: 3
+    in_channels: 771 # 3 + 768
     order:
       - z
       - z-trans
@@ -295,11 +297,11 @@ model:
       - 16
       - 32
     enc_patch_size:
-      - ${model.patch_size}
-      - ${model.patch_size}
-      - ${model.patch_size}
-      - ${model.patch_size}
-      - ${model.patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
     dec_depths:
       - 2
       - 2
@@ -316,10 +318,10 @@ model:
       - 8
       - 16
     dec_patch_size:
-      - ${model.patch_size}
-      - ${model.patch_size}
-      - ${model.patch_size}
-      - ${model.patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
+      - ${patch_size}
     mlp_ratio: 4
     qkv_bias: true
     qk_scale: null
@@ -342,10 +344,19 @@ model:
       - ScanNet
       - S3DIS
       - Structured3D
-  head_mlp_config:
+    embedding_dim: 768
+  weight_head_mlp_config:
     hidden_channels:
-      - 64
-      - 13 # output dim
+      - 128
+      - 128
+      - 1 # output dim
+  offset_head_mlp_config:
+    hidden_channels:
+      - 128
+      - 128
+      - 12
+  fps_num: 2048
+    
 
 training:
   seed: 42
@@ -355,20 +366,20 @@ training:
 # scheduler settings
 optimizer:
   type: AdamW
-  lr: 0.006
-  weight_decay: 0.05
+  lr: 0.001
+  # weight_decay: 0.05
 scheduler:
   type: OneCycleLR
   max_lr:
-    - 0.006
-    - 0.0006
+    - 0.001
+    - 0.0001
   pct_start: 0.05
   anneal_strategy: cos
   div_factor: 10.0
   final_div_factor: 1000.0
 param_dicts:
   - keyword: block
-    lr: 0.0006
+    lr: 0.0001
 
 hydra:
   job:

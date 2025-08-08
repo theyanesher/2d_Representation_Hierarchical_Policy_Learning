@@ -19,6 +19,22 @@ from collections import defaultdict
 import json
 from moviepy.editor import ImageSequenceClip
 
+def replace_obj_path(urdf_name):
+    file_path = urdf_name  # Replace with your actual file name
+
+    old_str = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/"
+    new_str = "/project_data/held/yufeiw2/contact_graspnet_pytorch/acronym/"
+
+    # Read and replace
+    with open(file_path, "r") as f:
+        content = f.read()
+
+    content = content.replace(old_str, new_str)
+
+    # Overwrite the file with new content
+    with open(file_path.replace(".urdf", "autobot.urdf"), "w") as f:
+        f.write(content)
+
 def save_numpy_as_gif(array, filename, fps=15, scale=1.0):
     """Creates a gif given a stack of images using moviepy
     Notes
@@ -243,7 +259,7 @@ class ContactGraspNetEnv():
                  precontact=0,
                 ):
         
-        self.scene_root_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym"
+        self.scene_root_path = "/project_data/held/yufeiw2/contact_graspnet_pytorch/acronym"
         self.scene_path = scene_path
         self.num_points_in_pc = num_points_in_pc
         self.gui = gui
@@ -460,6 +476,11 @@ class ContactGraspNetEnv():
         ### load obj and apply transform
         pos = obj_transform[:3, 3]
         orn = R.from_matrix(obj_transform[:3, :3]).as_quat()
+        
+        replace_obj_path(urdf_fname)
+        urdf_fname = urdf_fname.replace(".urdf", "autobot.urdf")
+        print(urdf_fname)
+        # import pdb; pdb.set_trace()
         obj_id = p.loadURDF(urdf_fname, basePosition=pos, baseOrientation=orn, useFixedBase=False, physicsClientId=self.id)
 
         return obj_id
@@ -833,7 +854,6 @@ def infer_contact_graspnet(model, pcd, topk=10, device=torch.device("cuda"), sig
     B = 1
     
     with torch.no_grad():
-        pcd = pcd.permute(0, 2, 1)  # B x 3 x N
         # print(siglip_embedding)
         # exit()
         if siglip_embedding is not None:
@@ -889,7 +909,7 @@ if __name__ == "__main__":
     
     # this_file_dir = os.path.dirname(os.path.abspath(__file__))
     
-    all_scenes = os.listdir("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/scene_contacts")
+    all_scenes = os.listdir("/project_data/held/yufeiw2/contact_graspnet_pytorch/acronym/scene_contacts")
     all_scenes = sorted(all_scenes)
     eval_scenes = all_scenes[-100:]  # for testing, use the last 10 scenes
     scene_path_list = ["scene_contacts/{}".format(scene) for scene in eval_scenes]
@@ -926,7 +946,26 @@ if __name__ == "__main__":
         high_level_model.load_state_dict(ckpt['model'])
         high_level_model = high_level_model.cuda().eval()
         model = high_level_model
-    
+    elif args.model_type == "ptv3":
+        from ptv3.highlevel_ptv3 import HighlevelPTv3
+        import hydra
+        
+        load_model_path = args.ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, ".hydra/config.yaml") # TODO: implement the overrides
+        model_cfg = OmegaConf.load(load_config)
+        pointnet2_model: HighlevelPTv3 = hydra.utils.instantiate(model_cfg.model)
+        pointnet2_model = pointnet2_model.to('cuda')
+        
+        state_dict = torch.load(load_model_path)['model']
+        pointnet2_model.load_state_dict(state_dict)
+        high_level_model = pointnet2_model
+        high_level_model.eval()
+        model = high_level_model
+        if model_cfg['general'].category_embedding_type == "siglip":
+            project_dir = os.environ["PROJECT_DIR"]
+            siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features.pt")).float().to("cuda")
+            siglip_text_features = siglip_text_features[-1]    
   
     
     meta_results = defaultdict(int)
@@ -950,9 +989,11 @@ if __name__ == "__main__":
         # cprint("loading contact graspnet model", "green")
         # cprint("running grasping inference", "green")
         if args.model_type == 'pointnet++':
-            pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
-        else:
+            pred_grasps = infer_contact_graspnet(model, pc_in_camera.permute(0, 2, 1), topk=10, siglip_embedding=siglip_text_features)
+        elif args.model_type == 'm2t2':
             pred_grasps = infer_m2t2(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
+        elif args.model_type == 'ptv3':
+            pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
         # cprint("visualizing predicted grasps", "green")
         # env.visualize_grasp(pc_in_camera, pred_grasps, topk=10)
         
@@ -964,29 +1005,31 @@ if __name__ == "__main__":
         this_env_results = defaultdict(int)
         
         ### serial version
-        # results = defaultdict(int)
-        # for idx, grasp in enumerate(pred_grasps):
-        #     new_env = ContactGraspNetEnv(scene_path=scene_path, gui=True, env_state=env_state, precontact=args.precontact)
-        #     success, res_string = new_env.step(grasp, debug=True)
-        #     results[res_string] += 1
-        #     cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
-        #     new_env.close()
-        
-        ### parallel version
-        all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
-        with Pool(processes=20) as pool:
-            results = pool.map(parallel_eval, all_args)  
-            
-        for idx, res in enumerate(results):
-            success, string, images = res
-            if success:
-                cprint(string, "green")
-            else:
-                cprint(string, "red")
-            this_env_results[string] += 1
-            meta_results[string] += 1
+        for idx, grasp in enumerate(pred_grasps):
+            new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=args.precontact)
+            success, res_string = new_env.step(grasp)
+            images = new_env.rendered_images
+            this_env_results[res_string] += 1
+            cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
+            new_env.close()
             if len(images) > 0:
-                save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, string)))
+                save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, res_string)))
+            
+                
+        ### parallel version
+        # all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
+        # with Pool(processes=10) as pool:
+        #     results = pool.map(parallel_eval, all_args)  
+        # for idx, res in enumerate(results):
+        #     success, string, images = res
+        #     if success:
+        #         cprint(string, "green")
+        #     else:
+        #         cprint(string, "red")
+        #     this_env_results[string] += 1
+        #     meta_results[string] += 1
+        #     if len(images) > 0:
+        #         save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, string)))
             
         with open(os.path.join(save_dir, scene_path.split("/")[-1].replace(".npz", ".json")), 'w') as f:
             json.dump(this_env_results, f, indent=4)

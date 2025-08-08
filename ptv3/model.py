@@ -816,6 +816,7 @@ class PointTransformerV3(PointModule):
         pdnorm_adaptive=False,
         pdnorm_affine=True,
         pdnorm_conditions=("ScanNet", "S3DIS", "Structured3D"),
+        embedding_dim=None
     ):
         super().__init__()
         self.num_stages = len(enc_depths)
@@ -923,6 +924,7 @@ class PointTransformerV3(PointModule):
             self.dec = PointSequential()
             dec_channels = list(dec_channels) + [enc_channels[-1]]
             for s in reversed(range(self.num_stages - 1)):
+            # for s in list(reversed(range(self.num_stages - 1)))[:-1]:
                 dec_drop_path_ = dec_drop_path[
                     sum(dec_depths[:s]) : sum(dec_depths[: s + 1])
                 ]
@@ -980,6 +982,7 @@ class PointTransformerV3(PointModule):
 
         point = self.embedding(point)
         point = self.enc(point)
+        
         if not self.cls_mode:
             point = self.dec(point)
         return point
