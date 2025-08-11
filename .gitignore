@@ -1,4 +1,5 @@
 __pycache__/
+eval_m2t2/
 manipulation/gpt_tasks/
 manipulation/gpt_tasks_old/
 manipulation/gpt_rigid_tasks/
