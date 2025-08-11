@@ -19,8 +19,7 @@ from manipulation.utils import load_env
 
 def infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding=None, high_level_args=None, args=None):
     inputs = inputs.to('cuda')
-    inputs_ = inputs.permute(0, 2, 1)
-    pred_dict = goal_prediction_model(inputs_, cat_embedding) 
+    pred_dict = goal_prediction_model(inputs, cat_embedding) 
     outputs = pred_dict['pred_offsets']
     pred_points = pred_dict['pred_points'] 
     weights = pred_dict['pred_scores'].squeeze(-1)
@@ -37,7 +36,7 @@ def infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding=None, 
     outputs = outputs.view(B, N, 4, 3)
     
     
-    if high_level_args.articubot.gmm:
+    if 'gmm' in high_level_args.articubot and high_level_args.articubot.gmm:
         ### sample an displacement according to the weight
         probabilities = weights  # Must sum to 1
         probabilities = torch.nn.functional.softmax(weights, dim=1)
@@ -102,6 +101,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
     
     for dataset_idx, (experiment_folder, experiment_name) in \
         enumerate(zip(cfg.task.env_runner.experiment_folder, cfg.task.env_runner.experiment_name)):
+        
         
         if dataset_index is not None:
             dataset_idx = dataset_index
@@ -182,7 +182,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
         all_grasp_distances = []
 
         if high_level_args is not None and high_level_args.general.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
+            siglip_text_features = torch.load("/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
             
         cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
 
@@ -230,7 +230,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                             inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
                         
                         if args.model_type == "pointnet++":
-                            prediction = infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding, output_obj_pcd_only, high_level_args, args)
+                            prediction = infer_pointnetplus_model(inputs.permute(0, 2, 1), goal_prediction_model, cat_embedding, high_level_args, args)
                         elif args.model_type == "m2t2":
                             ### TODO: implement m2t2 model inference
                             with torch.no_grad():
@@ -242,7 +242,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                                 
                         elif args.model_type == 'ptv3':
                             ### TODO: implement ptv3 model inference
-                            prediction = model.infer(inputs, cat_embedding=cat_embedding, output_obj_pcd_only=output_obj_pcd_only)
+                            prediction = infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding, high_level_args, args)
 
                         # handle the ambiguity between the two finger points
                         if args.flip_goal:
@@ -311,7 +311,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                 "exp_idx": exp_idx, 
             }
             # gif_save_exp_name = experiment_folder.split("/")[-1] 
-            gif_save_exp_name = experiment_folder.split("/")[-2] + "/" + experiment_folder.split("/")[-1]
+            gif_save_exp_name = experiment_folder.split("/")[-3] + "/" + experiment_folder.split("/")[-2]
             gif_save_folder = "{}/{}".format(save_path, gif_save_exp_name)                 
             if not os.path.exists(gif_save_folder):
                 os.makedirs(gif_save_folder, exist_ok=True)
@@ -410,8 +410,6 @@ if __name__ == "__main__":
     parser.add_argument('--category_embedding_type', type=str, default="none")
     args = parser.parse_args()
     
-    pool=None
-
     categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
     cat_idx = 0
     for i, cat in enumerate(categories):
@@ -469,7 +467,23 @@ if __name__ == "__main__":
         high_level_model = high_level_model.cuda().eval()
         model_args = None
         # import pdb; pdb.set_trace()
-
+    elif args.model_type == 'ptv3':
+        # import pdb; pdb.set_trace()
+        from ptv3.highlevel_ptv3 import HighlevelPTv3
+        import hydra
+        
+        load_model_path = args.high_level_ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, ".hydra/config.yaml") # TODO: implement the overrides
+        model_cfg = OmegaConf.load(load_config)
+        pointnet2_model: HighlevelPTv3 = hydra.utils.instantiate(model_cfg.model)
+        pointnet2_model = pointnet2_model.to('cuda')
+        
+        state_dict = torch.load(load_model_path)['model']
+        pointnet2_model.load_state_dict(state_dict)
+        high_level_model = pointnet2_model
+        high_level_model.eval()
+        model_args = model_cfg
         
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
