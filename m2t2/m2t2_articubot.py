@@ -109,8 +109,14 @@ class M2T2(nn.Module):
 
         success_mask = grasp_success_labels_pc.bool()
 
+        success_mask_expanded = grasp_success_labels_pc.bool()[:, :, :, None] # B x N x 1 x 1
+        success_mask_expanded = torch.broadcast_to(success_mask_expanded, gt_grasps_proj.shape) # B x N x 4 x 4
+        pos_gt_grasps_proj = torch.where(success_mask_expanded, gt_grasps_proj, torch.ones_like(gt_grasps_proj) * 100000) # B x N x 4 x 4             
+
+
         gripper_width = torch.ones_like(grasp_offset_labels_pc).to(pred_points.device) * 0.08
-        gt_4_points = self._get_4_points_from_pose(gt_grasps_proj, gripper_width)  # B x N x 4 x 3
+        # gt_4_points = self._get_4_points_from_pose(gt_grasps_proj, gripper_width)  # B x N x 4 x 3
+        gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width)  # B x N x 4 x 3
         
         # TODO: only take the successful ones
         mask = success_mask.squeeze(-1)  # shape: [B, N]
@@ -145,6 +151,7 @@ class M2T2(nn.Module):
         ## TODO: update outputs to have key pred_offsets
         for output in outputs:
             output["pred_offset"] = scene_feat["pred_offset"]
+            # output["pred_offset"] = output['pred_offset'] * 0
 
         # import pdb; pdb.set_trace()
         losses = {}
@@ -158,9 +165,15 @@ class M2T2(nn.Module):
             # import pdb; pdb.set_trace()
             # NOTE: cgn does not fp all the back to the original # of points
             gt_4_points, success_mask = self.compute_cgn_gt(data, scene_feat['context_pos']['res1']) # B,
+            # pred_points = data['inputs'][:, ::10]
+            # last_48_points = data['inputs'][:, -48:]
+            # pred_points = torch.cat([pred_points, last_48_points], dim=1)
+            # gt_4_points, success_mask = self.compute_cgn_gt(data, pred_points) # B,
+            # import pdb; pdb.set_trace()
             data['goal_gripper_pcd'] = gt_4_points
             data['goal_gripper_mask'] = success_mask
             data['pred_points'] = scene_feat['context_pos']['res1']
+            # data['pred_points'] = pred_points   
 
         # import pdb; pdb.set_trace()
         assert self.set_criterion is not None
@@ -227,7 +240,7 @@ class M2T2(nn.Module):
         lang_tokens = data.get('lang_tokens')
         embedding, outputs = self.transformer(scene_feat, object_feat, lang_tokens)
         outputs = outputs[-1]
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
 
 
         # if 'place' in embedding and embedding['place'].shape[1] > 0:
@@ -249,10 +262,10 @@ class M2T2(nn.Module):
         # best_weight = torch.gather(outputs['grasping_masks'], dim=1, index=best_weight_idx.unsqueeze(1))
         best_weight = outputs['grasping_masks'].squeeze(0)[best_weight_idx] # N
         
-        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(N, 4, 3) # N, 4, 3 
+        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(B, 4, 3) # N, 4, 3 
         input = data['inputs'].squeeze(0) # N, 3
         all_preds = input.unsqueeze(1) + pred_offsets # N, 4, 3
-        best_weight = torch.softmax(best_weight, dim=1).squeeze(0)
+        best_weight = torch.softmax(best_weight, dim=1)
         weighted_pred = (all_preds * best_weight.unsqueeze(1).unsqueeze(2)).sum(dim=0) # 4, 3
         
         # if 'grasp' in embedding and embedding['grasp'].shape[1] > 0:
@@ -285,7 +298,7 @@ class M2T2(nn.Module):
         #     )
         #     outputs.update(grasp_outputs)
 
-        return weighted_pred.unsqueeze(0), best_weight
+        return weighted_pred
     
     def infer_cgn(self, data, cfg, topk=10):
         B, N, _ = data['inputs'].shape

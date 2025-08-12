@@ -152,6 +152,10 @@ class AcryonymDataset(Dataset):
             cam_pose_index = random.randint(0, self._num_saved_cam_poses - 1)
         else:
             cam_pose_index = 0
+        
+        ### for debugging
+        # scene_index = 0
+        # cam_pose_index = 0
 
         if self._estimate_normals:
             raise NotImplementedError
