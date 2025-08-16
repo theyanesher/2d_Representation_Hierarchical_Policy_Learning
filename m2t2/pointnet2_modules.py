@@ -29,7 +29,15 @@ def _get_norm(norm, dim):
         return nn.BatchNorm2d(dim)
     if norm == 'GN':
         return nn.GroupNorm(16, dim)
-
+    if norm == 'LN':
+        return nn.LayerNorm(dim)
+    
+class Transpose(nn.Module):
+    def __init__(self, *dims):
+        super().__init__()
+        self.dims = dims
+    def forward(self, x):
+        return x.permute(*self.dims).contiguous()
 
 def build_shared_mlp(mlp_spec: List[int], norm: str):
     layers = []
@@ -38,8 +46,13 @@ def build_shared_mlp(mlp_spec: List[int], norm: str):
             mlp_spec[i - 1], mlp_spec[i], kernel_size=1, bias=norm == ''
         ))
         norm_layer = _get_norm(norm, mlp_spec[i])
+        # import pdb; pdb.set_trace()
+        if norm == 'LN':
+            layers.append(Transpose(0, 2, 3, 1))
         if norm_layer is not None:
             layers.append(norm_layer)
+        if norm == "LN":
+            layers.append(Transpose(0, 3, 1, 2))
         layers.append(nn.ReLU(True))
 
     return nn.Sequential(*layers)

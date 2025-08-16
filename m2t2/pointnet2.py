@@ -176,17 +176,17 @@ class PointNet2MSG(PointNet2Base):
         # TODO: for cgn, do not append this last fp layer
         if not cgn:
             self.FP_modules.append(
-                PointnetFPModule(mlp=[256 + c_in, 128, 128])
+                PointnetFPModule(mlp=[256 + c_in, 128, 128], norm=norm)
             )
         self.FP_modules.append(
-            PointnetFPModule(mlp=[512 + c_out_0, 256, 256])
+            PointnetFPModule(mlp=[512 + c_out_0, 256, 256], norm=norm)
         )
         self.FP_modules.append(
-            PointnetFPModule(mlp=[512 + c_out_1, 512, 512])
+            PointnetFPModule(mlp=[512 + c_out_1, 512, 512], norm=norm)
         )
         
         self.FP_modules.append(
-            PointnetFPModule(mlp=[c_out_3 + c_out_2, 512, 512])
+            PointnetFPModule(mlp=[c_out_3 + c_out_2, 512, 512], norm=norm)
         )
 
         self.out_channels = {
@@ -203,6 +203,7 @@ class PointNet2MSG(PointNet2Base):
         args['use_rgb'] = cfg.use_rgb
         args['pred_offset'] = cfg.pred_offset
         args['cgn'] = cfg.cgn
+        args['norm'] = cfg.get("norm", 'BN')
         return cls(**args)
 
 
