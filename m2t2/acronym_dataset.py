@@ -187,9 +187,15 @@ class AcryonymDataset(Dataset):
             cam_pose_id = f'{cam_pose_index:03}'
             scene_dir = os.path.join(self._root_folder, 'renders', scene_id)
             render_path = os.path.join(scene_dir, f'{cam_pose_id}.npz')
+            # print('render path: ', render_path)
             if os.path.exists(render_path):
                 try:
                     pc_cam, camera_pose = self.load_scene(render_path)
+                    if self.global_config['DATA']['filter_useless_points'] > 0:
+                        # print("filter useless points")
+                        pc_cam = pc_cam[pc_cam[:, 2] > self.global_config['DATA']['filter_useless_points_z_threshold']]
+                        pc_cam = utils.regularize_pc_point_count(pc_cam, self.global_config['DATA']['useful_point_num'], use_farthest_point=self._use_farthest_point)
+                    
                     ### do futher fps here:
                     if self.global_config['DATA']['further_fps_point'] > 0:
                         # print("further downsampling")
