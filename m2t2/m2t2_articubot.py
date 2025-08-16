@@ -32,6 +32,7 @@ class M2T2(nn.Module):
         grasp_criterion: nn.Module = None,
         place_criterion: nn.Module = None,
         cgn_cfg=None,
+        cfg=None,
     ):
         super(M2T2, self).__init__()
         self.backbone = backbone
@@ -42,6 +43,7 @@ class M2T2(nn.Module):
         self.grasp_criterion = grasp_criterion
         self.place_criterion = place_criterion
         self.cgn_cfg = cgn_cfg
+        self.cfg = cfg
 
     @classmethod
     def from_config(cls, cfg, cgn_cfg=None):
@@ -75,6 +77,7 @@ class M2T2(nn.Module):
             )
             
         args['cgn_cfg'] = cgn_cfg
+        args['cfg'] = cfg
             
         return cls(**args)
     
@@ -335,22 +338,64 @@ class M2T2(nn.Module):
         
         ### assuming it's batch 1 for now
         # import pdb; pdb.set_trace()
-        objectness = outputs['objectness'].sigmoid()
-        best_topk_idx = -objectness.argsort(dim=1)[:, :topk].squeeze(0)  # Get the top k indices
-        # best_weight = torch.gather(outputs['grasping_masks'], dim=1, index=best_weight_idx.unsqueeze(1))
-        best_topk_weight = outputs['grasping_masks'].squeeze(0)[best_topk_idx] # k, N
-        best_topk_weight = torch.softmax(best_topk_weight, dim=1)
         
-        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(-1, 4, 3) # N, 4, 3 
-        input_positions = scene_feat['context_pos']['res1'].squeeze(0) # N, 3
-        pred_goal_points = pred_offsets + input_positions.unsqueeze(1) # N, 4, 3
-        N = pred_goal_points.shape[0]
-        pred_goal_points = pred_goal_points.view(N, -1) # N, 12
-        
-        all_query_pred_goal_points = torch.einsum("qn,nd->qd", best_topk_weight, pred_goal_points) # num_queries, 12
-        all_query_pred_goal_points = all_query_pred_goal_points.view(topk, 4, 3) # k, 4, 3
-        
-        grasps, _ = self.build_6d_grasp_from_four_points(all_query_pred_goal_points.unsqueeze(0))
+        if not self.cfg.matcher.gmm_weight > 0:
+            objectness = outputs['objectness'].sigmoid()
+            best_topk_idx = -objectness.argsort(dim=1)[:, :topk].squeeze(0)  # Get the top k indices
+            # best_weight = torch.gather(outputs['grasping_masks'], dim=1, index=best_weight_idx.unsqueeze(1))
+            best_topk_weight = outputs['grasping_masks'].squeeze(0)[best_topk_idx] # k, N
+            best_topk_weight = torch.softmax(best_topk_weight, dim=1)
+            
+            pred_offsets = scene_feat["pred_offset"].squeeze(0).view(-1, 4, 3) # N, 4, 3 
+            input_positions = scene_feat['context_pos']['res1'].squeeze(0) # N, 3
+            pred_goal_points = pred_offsets + input_positions.unsqueeze(1) # N, 4, 3
+            N = pred_goal_points.shape[0]
+            pred_goal_points = pred_goal_points.view(N, -1) # N, 12
+            
+            all_query_pred_goal_points = torch.einsum("qn,nd->qd", best_topk_weight, pred_goal_points) # num_queries, 12
+            all_query_pred_goal_points = all_query_pred_goal_points.view(topk, 4, 3) # k, 4, 3
+            
+            grasps, _ = self.build_6d_grasp_from_four_points(all_query_pred_goal_points.unsqueeze(0))
+        else:
+            # import pdb; pdb.set_trace()
+            
+            weight = outputs['grasping_masks'].squeeze(0).squeeze(0)  # N
+            weight = torch.softmax(weight, dim=0)
+            
+            pred_offsets = scene_feat["pred_offset"].squeeze(0).view(-1, 4, 3) # N, 4, 3 
+            input_positions = scene_feat['context_pos']['res1'].squeeze(0) # N, 3
+            
+            # import pdb; pdb.set_trace()
+            
+            ### use matplotlib to plot the full pcd, and all context poses
+            # from matplotlib import pyplot as plt
+            # fig = plt.figure(figsize=(18, 4))
+            # ax1 = fig.add_subplot(1, 3, 1, projection='3d')
+            # full_pcd = data['inputs'].squeeze(0).cpu().numpy()  # N, 3
+            # ax1.scatter(full_pcd[:, 0], full_pcd[:, 1], full_pcd[:, 2], s=1, c='b', alpha=0.5)
+            # ax1.set_title('Full Point Cloud')
+            
+            # ax2 = fig.add_subplot(1, 3, 2, projection='3d')
+            # first_sa_points = input_positions.cpu().numpy()  # N, 3
+            # ax2.scatter(first_sa_points[:, 0], first_sa_points[:, 1], first_sa_points[:, 2], s=1, c='r', alpha=0.5)
+            # ax2.set_title('First SA Points')
+            
+            # ax3 = fig.add_subplot(1, 3, 3, projection='3d')
+            # second_sa_points = scene_feat['context_pos']['res2'].squeeze(0).cpu().numpy()  # N, 3
+            # ax3.scatter(second_sa_points[:, 0], second_sa_points[:, 1], second_sa_points[:, 2], s=1, c='g', alpha=0.5)
+            # ax3.set_title('Second SA Points')
+            
+            # plt.show()
+            
+            
+            pred_goal_points = pred_offsets + input_positions.unsqueeze(1) # N, 4, 3
+            N = pred_goal_points.shape[0]
+            
+            grasps, _ = self.build_6d_grasp_from_four_points(pred_goal_points.unsqueeze(0))
+            
+            topk_indices = torch.topk(weight, k=topk).indices
+            grasps = grasps[:, topk_indices, :, :]
+            best_topk_weight = weight[topk_indices]
         
         return grasps, best_topk_weight
 
