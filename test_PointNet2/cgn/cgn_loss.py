@@ -409,10 +409,16 @@ class ContactGraspnetLoss(nn.Module):
             return total_loss, loss_info
         
         elif self.global_config["MODEL"]['loss_mode'] == 'articubot_gmm':
+            
+            
             pred_scores = pred['pred_scores']                   # B x N x 1, the weights for each points
             pred_points = pred['pred_points']                   # B x N x 3
             pred_offsets = pred['pred_offsets']       # B x N x 4 x 3, the predicted displacement to the goal points
             B, N, _, _ = pred_offsets.shape
+            
+            ### for debug
+            # pred_offsets = pred_offsets * 0
+            # pred_scores = torch.ones_like(pred_scores) 
             
             
             # -- Interpolate Labels -- #
@@ -421,6 +427,11 @@ class ContactGraspnetLoss(nn.Module):
             pos_finger_diffs = target['pos_finger_diffs']        # B x M
             pos_approach_dirs = target['pos_approach_dirs']      # B x M x 3
             camera_pose = target['camera_pose']                  # B x 4 x 4
+
+            # for debug
+            # pred_points = target['pc_cam'][:, ::10]
+            # last_48_points = target['pc_cam'][:, -48:, :]  # B x 48 x 3
+            # pred_points = torch.cat([pred_points, last_48_points], dim=1)  # B x N x 3
 
             dir_labels_pc_cam, \
             grasp_offset_labels_pc, \
@@ -432,6 +443,8 @@ class ContactGraspnetLoss(nn.Module):
                                         pos_contact_dirs,
                                         pos_finger_diffs,
                                         pos_approach_dirs)
+            
+            # import pdb; pdb.set_trace()
                 
             # I think this is the number of positive grasps that are in view
             min_geom_loss_divisor = float(self.global_config['LOSS']['min_geom_loss_divisor'])  # This is 1.0
@@ -510,7 +523,9 @@ class ContactGraspnetLoss(nn.Module):
                 #             plt.show()
                             
                 #             import pdb; pdb.set_trace()
-                                
+            
+            # import pdb; pdb.set_trace()
+                        
             gt_4_points_expanded = gt_4_points.unsqueeze(2) # B x N x 1 x 4 x 3
             pred_points_expanded = pred_points.unsqueeze(1).unsqueeze(3) # B x 1 x N x 1 x 3
 
