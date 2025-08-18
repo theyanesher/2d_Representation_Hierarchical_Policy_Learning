@@ -259,7 +259,7 @@ class ContactGraspNetEnv():
                  precontact=0,
                 ):
         
-        self.scene_root_path = "/project_data/held/yufeiw2/contact_graspnet_pytorch/acronym"
+        self.scene_root_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym"
         self.scene_path = scene_path
         self.num_points_in_pc = num_points_in_pc
         self.gui = gui
@@ -328,6 +328,7 @@ class ContactGraspNetEnv():
         if env_state is None:
             # cprint("steping simulation to stablize", "green")
             for _ in range(4000):
+            # for _ in range(10):
                 p.stepSimulation(physicsClientId=self.id)
             # cprint("simulation stabilized", "green")
             
@@ -477,10 +478,10 @@ class ContactGraspNetEnv():
         pos = obj_transform[:3, 3]
         orn = R.from_matrix(obj_transform[:3, :3]).as_quat()
         
-        replace_obj_path(urdf_fname)
-        urdf_fname = urdf_fname.replace(".urdf", "autobot.urdf")
-        print(urdf_fname)
-        # import pdb; pdb.set_trace()
+        # replace_obj_path(urdf_fname)
+        # urdf_fname = urdf_fname.replace(".urdf", "autobot.urdf")
+        # print(urdf_fname)
+        # # import pdb; pdb.set_trace()
         obj_id = p.loadURDF(urdf_fname, basePosition=pos, baseOrientation=orn, useFixedBase=False, physicsClientId=self.id)
 
         return obj_id
@@ -533,18 +534,24 @@ class ContactGraspNetEnv():
         good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
         pc_in_camera = pc_in_camera[good_idx]
         
-        ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
-        mean = np.mean(pc_in_camera, axis=0, keepdims=True)
-        pc_in_camera -= mean
+        
+        
+        # import pdb; pdb.set_trace()
         
         # Convert point cloud coordinates from OpenGL to internal coordinates (x left, y up, z front)
         # openGL: x right, y up, z back
         pc_in_camera[:, 0] = -pc_in_camera[:, 0]
         pc_in_camera[:, 2] = -pc_in_camera[:, 2]
         
+        # import pdb; pdb.set_trace()
+        
         ### perform the fps on the pcd
         kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_camera[:, :3], self.num_points_in_pc)
         pc_in_camera = pc_in_camera[kdline_fps_samples_idx]
+        
+        ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
+        mean = np.mean(pc_in_camera, axis=0, keepdims=True)
+        pc_in_camera -= mean
         
         return rgb, depth, pc_in_camera, mean
     
@@ -851,6 +858,7 @@ def load_contact_graspnet(load_path, args):
 def infer_contact_graspnet(model, pcd, topk=10, device=torch.device("cuda"), siglip_embedding=None):
     pcd = torch.from_numpy(pcd).to(device).float()
     pcd = pcd.unsqueeze(0)  # B x N x 3
+    pcd = pcd.permute(0, 2, 1)  # B x 3 x N, to match the input shape of PointNet2
     B = 1
     
     with torch.no_grad():
@@ -895,6 +903,24 @@ def parallel_eval(args):
     new_env.close()
     return success, res_string, images
 
+def load_scene(render_path):
+    """
+    Return point cloud and camera pose.  Used for loading saved renders.
+    Arguments:
+        scene_id {str} -- scene index
+        cam_pose_id {str} -- camera pose index as length 3 string with
+                            leading zeros if necessary.
+
+    Returns:
+        [pc, camera_pose] -- [point cloud, camera pose]
+        or returns False if not found
+    """
+    # print('Loading: ', render_path)
+    data = np.load(render_path, allow_pickle=True)
+    pc_cam = data['pc_cam']
+    camera_pose = data['camera_pose']
+    return pc_cam[:, :3], camera_pose
+
 if __name__ == "__main__":
     from multiprocessing import Pool
     import argparse
@@ -909,7 +935,7 @@ if __name__ == "__main__":
     
     # this_file_dir = os.path.dirname(os.path.abspath(__file__))
     
-    all_scenes = os.listdir("/project_data/held/yufeiw2/contact_graspnet_pytorch/acronym/scene_contacts")
+    all_scenes = os.listdir("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/scene_contacts")
     all_scenes = sorted(all_scenes)
     eval_scenes = all_scenes[-100:]  # for testing, use the last 10 scenes
     scene_path_list = ["scene_contacts/{}".format(scene) for scene in eval_scenes]
@@ -984,52 +1010,63 @@ if __name__ == "__main__":
         # pcd.points = o3d.utility.Vector3dVector(pc_in_camera[:, :3])
         # pcd.paint_uniform_color([0.5, 0.5, 0.5])  # yellow color
         # o3d.visualization.draw_geometries([pcd])
+        # import pdb; pdb.set_trace()
         
         ### run it through the trained contact graspnet model
         # cprint("loading contact graspnet model", "green")
         # cprint("running grasping inference", "green")
+        
+        ### for debugging purposes
+        # render_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/renders/000000/000.npz"
+        # pc_in_camera, camera_pose = load_scene(render_path)
+        
+        # with open("data/debug/pcd.pkl", 'wb') as f:
+        #     import pdb; pdb.set_trace()
+        #     pickle.dump(pc_in_camera, f)
+        # exit()
+        
         if args.model_type == 'pointnet++':
-            pred_grasps = infer_contact_graspnet(model, pc_in_camera.permute(0, 2, 1), topk=10, siglip_embedding=siglip_text_features)
+            pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
         elif args.model_type == 'm2t2':
             pred_grasps = infer_m2t2(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
         elif args.model_type == 'ptv3':
             pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
-        # cprint("visualizing predicted grasps", "green")
+        cprint("visualizing predicted grasps", "green")
         # env.visualize_grasp(pc_in_camera, pred_grasps, topk=10)
         
         ### convert back to opengl camera frame and add center back
-        pred_grasps[:, [0, 2]] *= -1
         pred_grasps[:, :3, 3] += pc_center
+        pred_grasps[:, [0, 2]] *= -1
         
         ### execute the grasp, determine its success 
         this_env_results = defaultdict(int)
         
         ### serial version
-        for idx, grasp in enumerate(pred_grasps):
-            new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=args.precontact)
-            success, res_string = new_env.step(grasp)
-            images = new_env.rendered_images
-            this_env_results[res_string] += 1
-            cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
-            new_env.close()
-            if len(images) > 0:
-                save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, res_string)))
+        # for idx, grasp in enumerate(pred_grasps):
+        #     new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=args.precontact)
+        #     success, res_string = new_env.step(grasp)
+        #     images = new_env.rendered_images
+        #     this_env_results[res_string] += 1
+        #     cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
+        #     new_env.close()
+        #     if len(images) > 0:
+        #         save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, res_string)))
             
                 
         ### parallel version
-        # all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
-        # with Pool(processes=10) as pool:
-        #     results = pool.map(parallel_eval, all_args)  
-        # for idx, res in enumerate(results):
-        #     success, string, images = res
-        #     if success:
-        #         cprint(string, "green")
-        #     else:
-        #         cprint(string, "red")
-        #     this_env_results[string] += 1
-        #     meta_results[string] += 1
-        #     if len(images) > 0:
-        #         save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, string)))
+        all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
+        with Pool(processes=10) as pool:
+            results = pool.map(parallel_eval, all_args)  
+        for idx, res in enumerate(results):
+            success, string, images = res
+            if success:
+                cprint(string, "green")
+            else:
+                cprint(string, "red")
+            this_env_results[string] += 1
+            meta_results[string] += 1
+            if len(images) > 0:
+                save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, string)))
             
         with open(os.path.join(save_dir, scene_path.split("/")[-1].replace(".npz", ".json")), 'w') as f:
             json.dump(this_env_results, f, indent=4)
