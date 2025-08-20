@@ -2,7 +2,11 @@ import numpy as np
 import pybullet as p
 from termcolor import cprint
 # import ikpy.chain
-from tracikpy import TracIKSolver
+try:
+    from tracikpy import TracIKSolver
+    tracIK = True
+except:
+    tracIK = False
 import os
 import copy
 
@@ -29,9 +33,10 @@ class Agent:
         current_path = os.path.dirname(os.path.realpath(__file__))
         # self.franka_ikpy_chain = ikpy.chain.Chain.from_urdf_file(f"{current_path}/assets/panda_bullet/panda.urdf", base_elements=["panda_link0"], active_links_mask=active_masks)
         
-        self.franka_tracik_solver = TracIKSolver(f"{current_path}/assets/panda_ik/franka.urdf", "panda_link0", "panda_grasptarget", 
-                                                 epsilon=1e-5, timeout=0.05)
-        self.xarm_tracik_solver = TracIKSolver(f"{current_path}/assets/xarm_description/urdf/xarm_7dof.urdf", "link_base", "link_tcp", 
+        if tracIK:
+            self.franka_tracik_solver = TracIKSolver(f"{current_path}/assets/panda_ik/franka.urdf", "panda_link0", "panda_grasptarget", 
+                                                    epsilon=1e-5, timeout=0.05)
+            self.xarm_tracik_solver = TracIKSolver(f"{current_path}/assets/xarm_description/urdf/xarm_7dof.urdf", "link_base", "link_tcp", 
                                                  epsilon=1e-5, timeout=0.05)
 
 
@@ -209,6 +214,9 @@ class Agent:
 
 
     def ik_tracik_franka(self, target_pos, target_orient, ik_indices):
+        
+        if not tracIK:
+            return []
         # p.addUserDebugPoints([target_pos], [[1,0,0]], 25)
         original_joint_angles = self.get_joint_angles(self.all_joint_indices)
         original_joint_angles = original_joint_angles[ik_indices]
