@@ -79,7 +79,8 @@ def compute_attention_mask(attn_mask, nn_ids, context_size, num_heads):
         attn_mask = F.interpolate(attn_mask, context_size)
     else:
         j = 0
-        while attn_mask.shape[-1] != context_size:
+        while attn_mask.shape[-1] != context_size:        
+            # import pdb; pdb.set_trace()
             # BxQxM -> BxQxMxK (Q is the number of queries, M is the number of points in the full pcd. K is the # of subsample points in set abstraction layers)
             attn_mask = repeat_new_axis(attn_mask, nn_ids[j].shape[-1], dim=3)
             # BxNxK -> BxQxNxK (N is the number of subsampled points in a set abstraction layer)
@@ -203,8 +204,8 @@ class ContactDecoder(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
         num_tasks = 0
         if num_grasp_queries > 0:
-            if num_grasp_queries > 1:
-                self.object_head = nn.Linear(embed_dim, 1)
+            # if num_grasp_queries > 1:
+            self.object_head = nn.Linear(embed_dim, 1)
             self.grasp_mask_head = MLP(
                 embed_dim, embed_dim, mask_dim,
                 num_layers=3, activation=activation
@@ -257,8 +258,8 @@ class ContactDecoder(nn.Module):
         pred, embed, attn_mask = {}, {}, []
         if grasp_embed.shape[0] > 0:
             embed['grasp'] = grasp_embed.transpose(0, 1) # L, B, C -> B, L, C
-            if self.num_grasp_queries > 1:
-                pred['objectness'] = self.object_head(embed['grasp']).squeeze(-1)
+            # if self.num_grasp_queries > 1:
+            pred['objectness'] = self.object_head(embed['grasp']).squeeze(-1)
             emb = self.grasp_mask_head(embed['grasp'])
             pred['grasping_masks'] = torch.einsum("bqc,bcn->bqn", emb, mask_features)
             attn_mask.append(pred['grasping_masks'])
@@ -302,6 +303,7 @@ class ContactDecoder(nn.Module):
         # import pdb; pdb.set_trace()
         
         mask_feat = scene_features['features'][self.mask_feature]
+        # import pdb; pdb.set_trace()
 
         grasp_embed, place_embed = self.query_embed.weight.split([self.num_grasp_queries, self.num_place_queries])
         embed, task_id = [], 0

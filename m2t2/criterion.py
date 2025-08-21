@@ -18,6 +18,7 @@ import torch.distributed as dist
 import torch.nn as nn
 
 from m2t2.model_utils import load_control_points, repeat_new_axis
+from m2t2.matcher import gmm_loss
 
 
 def dice_loss(pred: torch.Tensor, target: torch.Tensor, num_objs: torch.Tensor):
@@ -135,7 +136,7 @@ class SetCriterion(nn.Module):
 
     def __init__(
         self, matcher, deep_supervision, recompute_indices, mask_criterion,
-        object_weight, not_object_weight, pseudo_ce_weight, wdp_weight,
+        object_weight, not_object_weight, pseudo_ce_weight, wdp_weight, gmm_weight=0,
     ):
         """Create the criterion.
         Parameters:
@@ -159,6 +160,7 @@ class SetCriterion(nn.Module):
         self.mask_criterion = mask_criterion
         self.pseudo_ce_weight = pseudo_ce_weight
         self.wdp_weight = wdp_weight
+        self.gmm_weight = gmm_weight
         if pseudo_ce_weight > 0:
             self.pseudo_ce_loss = nn.CrossEntropyLoss()
 
@@ -172,6 +174,7 @@ class SetCriterion(nn.Module):
         args['mask_criterion'] = MaskCriterion.from_config(cfg)
         args['pseudo_ce_weight'] = cfg.pseudo_ce_weight
         args['wdp_weight'] = cfg.wdp_weight
+        args['gmm_weight'] = cfg.gmm_weight
         return cls(matcher, **args)
 
     def get_pseudo_ce_loss(self, pred_masks, gt_masks, matched_idx):
@@ -236,42 +239,65 @@ class SetCriterion(nn.Module):
             B, N = pred['pred_offset'].shape[0], pred['pred_offset'].shape[1] # B, N
             mse_cost = 0
             for i in range(B):
-                # import pdb; pdb.set_trace()
                 pred_offset = pred['pred_offset'][i].view(N, 4, 3) # N, 4, 3
-                matched_weight = matched_weights[i] # num_queries, N.
-                matched_weight = torch.softmax(matched_weight, dim=1) # num_queries, N, dim1 sum to 1
-                if 'goal_gripper_mask' not in data: 
-                    input_positions = data['inputs'][i] # N, 3
-                else:
-                    input_positions = data['pred_points'][i]
-                pred_goal_points = pred_offset + input_positions.unsqueeze(1) # N, 4, 3
-                pred_goal_points = pred_goal_points.view(N, -1) # N, 12
-                
-                # import pdb; pdb.set_trace()
-                matched_query_pred_goal_points = torch.einsum("qn,nd->qd", matched_weight, pred_goal_points) # M, 12
-                
-                all_gt_goal_points = data['goal_gripper_pcd'][i].view(-1, 12) # M, 12, where M is the # of possible goals with this input
-                if 'goal_gripper_mask' in data: ### cgn case, only use successful goal points
-                    this_mask = data['goal_gripper_mask'][i]
-                    all_gt_goal_points = all_gt_goal_points[this_mask]
-
-                # TODO: consider the case where gt grasping pose is more than num queries                    
-                if target_idx is not None:
+                if not self.gmm_weight > 0:
                     # import pdb; pdb.set_trace()
-                    all_gt_goal_points = all_gt_goal_points[target_idx[i]] 
+                    matched_weight = matched_weights[i] # num_queries, N.
+                    matched_weight = torch.softmax(matched_weight, dim=1) # num_queries, N, dim1 sum to 1
+                    if 'goal_gripper_mask' not in data: 
+                        input_positions = data['inputs'][i] # N, 3
+                    else:
+                        input_positions = data['pred_points'][i]
+                    pred_goal_points = pred_offset + input_positions.unsqueeze(1) # N, 4, 3
+                    pred_goal_points = pred_goal_points.view(N, -1) # N, 12
+                    
+                    # import pdb; pdb.set_trace()
+                    matched_query_pred_goal_points = torch.einsum("qn,nd->qd", matched_weight, pred_goal_points) # M, 12
+                    
+                    all_gt_goal_points = data['goal_gripper_pcd'][i].view(-1, 12) # M, 12, where M is the # of possible goals with this input
+                    if 'goal_gripper_mask' in data: ### cgn case, only use successful goal points
+                        this_mask = data['goal_gripper_mask'][i]
+                        all_gt_goal_points = all_gt_goal_points[this_mask]
+
+                    # TODO: consider the case where gt grasping pose is more than num queries                    
+                    if target_idx is not None:
+                        # import pdb; pdb.set_trace()
+                        all_gt_goal_points = all_gt_goal_points[target_idx[i]] 
+                    
+                    
+                    ### use torch.mse to compute the loss
+                    mse = torch.nn.functional.mse_loss(matched_query_pred_goal_points, all_gt_goal_points, reduction='mean')
+                    
+                    # print("mse - mse2", torch.sum(mse - mse2))
+                    
+                    mse_cost += mse
+                else:                        
+                    ### NOTE: assume there is only one query mask
+                    # import pdb; pdb.set_trace()
+                    this_pred = {
+                        "pred_offset": pred_offset.unsqueeze(0), # 1, N, 4, 3
+                        # "pred_scores": matched_weights[i].unsqueeze(0), # 1, N
+                        "pred_scores": pred['grasping_masks'][i][0].unsqueeze(0), # 1, N
+                        
+                        "pred_points": data['pred_points'][i].unsqueeze(0) if 'pred_points' in data else data['inputs'][i, :, :3].unsqueeze(0) # 1, N, 3
+                    }
+                    this_target = {
+                        "goal_gripper_pcd": data['goal_gripper_pcd'][i].unsqueeze(0), # 1, M, 4, 3
+                        'goal_gripper_mask': data['goal_gripper_mask'][i].unsqueeze(0) if 'goal_gripper_mask' in data else None, # 1, M
+                    }
+                    loss = gmm_loss(this_pred, this_target)                        
+                    mse_cost += loss
+                    # print("in getting loss, gmm loss is: ", loss.item())
                 
-                
-                ### use torch.mse to compute the loss
-                mse = torch.nn.functional.mse_loss(matched_query_pred_goal_points, all_gt_goal_points, reduction='mean')
-                
-                # print("mse - mse2", torch.sum(mse - mse2))
-                
-                mse_cost += mse
             mse_cost = mse_cost / B # average over batch
 
             outputs = {}
-            losses = {'objectness': (self.object_weight, loss_obj)}
-            losses["weighted displacement loss"] = (self.wdp_weight, mse_cost)
+            losses = {}
+            if not self.gmm_weight > 0:
+                losses['objectness'] = (self.object_weight, loss_obj)
+                losses["weighted displacement loss"] = (self.wdp_weight, mse_cost)
+            else:
+                losses["gmm loss"] = (self.gmm_weight, mse_cost)
 
         if layer is not None:
             losses = {
