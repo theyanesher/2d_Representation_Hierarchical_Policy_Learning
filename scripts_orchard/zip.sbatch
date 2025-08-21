@@ -4,7 +4,7 @@
 #SBATCH -n 8
 #SBATCH -p preempt
 #SBATCH --gpus=1 #GPU specification. H100
-#SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
+#SBATCH -t 10:00:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name test
 #SBATCH -o job_%j.out
 #SBATCH -e job_%j.err

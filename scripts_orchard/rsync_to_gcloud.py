@@ -3,8 +3,12 @@ import subprocess
 from multiprocessing import Pool, cpu_count
 
 # Configuration
-LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/dp3_demo"
-BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_165"  # Replace as needed
+# LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/dp3_demo"
+# BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_165"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/weighted_full_dagger"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_weighted_full_dagger"  # Replace as needed
+
 NUM_PROCESSES = 10
 
 def gcs_file_exists(gcs_path):

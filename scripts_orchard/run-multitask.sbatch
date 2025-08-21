@@ -3,7 +3,7 @@
 #SBATCH -N 1 # Number of nodes
 #SBATCH -n 10
 #SBATCH -p preempt
-#SBATCH --gpus=6 #GPU specification. H100
+#SBATCH --gpus=1 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name articubot_alone_in_articulated
 #SBATCH -o job_%j.out
@@ -26,27 +26,55 @@ target=/tmp/
 ### loop through all zip files in this source gcloud bucket, and download them to target in parallel
 # Get list of zip files in the GCS bucket
 zip_list=$(gcloud storage ls ${source} | grep '\.zip$')
+# zip_list=$(gcloud storage ls ${source} | grep '\.zip$' | head -n 10)
 
 # Download in parallel (max 10 jobs)
-parallel -j 10 gcloud storage cp {} ${target} ::: $zip_list
+echo "Starting download..."
+download_start=$(date +%s)
+
+parallel -j 20 gcloud storage cp {} ${target} ::: $zip_list
+
+download_end=$(date +%s)
+echo "Total download time: $((download_end - download_start)) seconds"
 
 ### unzip all the zip files to be also in /tmp/
-find "$target" -name '*.zip' | parallel -j 10 '
+echo "Starting unzip..."
+unzip_start=$(date +%s)
+
+find "$target" -name '*.zip' | parallel -j 20 '
     zipfile={}
     base=$(basename "$zipfile" .zip)
-    mkdir -p "$target/$base"
-    unzip -q "$zipfile" -d "$target/$base"
+    unzip -q "$zipfile" -d "/tmp/"
 '
 
-torchrun --standalone --nproc_per_node=6 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs \
-    general.exp_name=articubot_cgn_both_ln_gmm_articulated_load_articulated_model \
-    articubot.batch_size=70 \
-    articubot.gmm=1 \
-    articubot.num_train_objects=articulated \
-    cgn.batch_size=15 \
+unzip_end=$(date +%s)
+echo "Total unzip time: $((unzip_end - unzip_start)) seconds"
+
+### delete the zip files
+echo "Cleaning up ZIP files..."
+find "$target" -maxdepth 1 -type f -name '*.zip' -delete
+echo "Cleanup complete."
+
+### print all folders in /tmp sorted by newest first
+echo "Folders in $target (newest first):"
+find "$target" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort
+
+torchrun --standalone --nproc_per_node=1 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+    general.exp_name=test_gcloud \
+    articubot.batch_size=70   \
+    articubot.num_train_objects=articulated   \
+    cgn.batch_size=15  \
     cgn.OPTIMIZER.batch_size=15 \
-    cgn.loss_scale=0.02 \
-    general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/GMM__2025-07-27articubot_cgn_layernorm/model_65000.pth 
+
+# torchrun --standalone --nproc_per_node=6 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs \
+#     general.exp_name=articubot_cgn_both_ln_gmm_articulated_load_articulated_model \
+#     articubot.batch_size=70 \
+#     articubot.gmm=1 \
+#     articubot.num_train_objects=articulated \
+#     cgn.batch_size=15 \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     cgn.loss_scale=0.02 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/GMM__2025-07-27articubot_cgn_layernorm/model_65000.pth 
 
 
 # torchrun --standalone --nproc_per_node=6 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs \
