@@ -3,7 +3,8 @@ import subprocess
 from multiprocessing import Pool, cpu_count
 import zipfile
 
-target_path = "/project/flame/yufeiw2/RoboGen-sim2real/data/dp3_demo"
+# target_path = "/project/flame/yufeiw2/RoboGen-sim2real/data/dp3_demo"
+target_path = "/project/flame/yufeiw2/RoboGen-sim2real/data/acronym/renders"
 all_obj_trajs = sorted(os.listdir(target_path))
 max_parallel_jobs = 8  # Adjust this to limit parallel zipping
 

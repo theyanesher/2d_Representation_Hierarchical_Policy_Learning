@@ -9,6 +9,25 @@ from multiprocessing import Pool, cpu_count
 LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/weighted_full_dagger"
 BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_weighted_full_dagger"  # Replace as needed
 
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/acronym/renders"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/acronym_renders"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/new_7_category_random_cam"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_random_cam"  # Replace as needed
+
+# LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/new_7_category_real_cam"
+# BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_real_cam"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/dp3_demo_clean_distorted_goal"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_clean_distorted_goal"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/invert_push"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/invert_push"  # Replace as needed
+
+
 NUM_PROCESSES = 10
 
 def gcs_file_exists(gcs_path):
