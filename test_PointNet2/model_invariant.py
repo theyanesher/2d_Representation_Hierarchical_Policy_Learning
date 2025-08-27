@@ -7,7 +7,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from time import time
 import numpy as np
-from pointnet2_ops import pointnet2_utils
+try:
+    from pointnet2_ops import pointnet2_utils
+    use_pointnet2_ops = True
+except ImportError:
+    use_pointnet2_ops = False
+    
 import os
 from typing import Tuple, Sequence, Dict, Union, Optional, Callable
 
@@ -400,8 +405,10 @@ class PointNetSetAbstractionMsg(nn.Module):
 
         B, N, C = xyz.shape
         S = self.npoint
-        # new_xyz = index_points(xyz, farthest_point_sample(xyz, S, self.keep_gripper_in_fps))
-        new_xyz = fps(xyz, S)
+        if not use_pointnet2_ops:
+            new_xyz = index_points(xyz, farthest_point_sample(xyz, S, self.keep_gripper_in_fps))
+        else:
+            new_xyz = fps(xyz, S)
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
             K = self.nsample_list[i]
