@@ -23,31 +23,38 @@ from test_PointNet2.dataset_from_disk import get_dataset_from_pickle
 from test_PointNet2.cgn.acronym_dataloader import AcryonymDataset
 from test_PointNet2.cgn import utils as cgn_utils
 from test_PointNet2.cgn.cgn_loss import ContactGraspnetLoss
+import torch.distributed as dist
 
 def infinite_loader(dl):
     while True:
         for batch in dl:
             yield batch
+            
+def is_main_process():
+    return dist.is_available() and dist.is_initialized() and dist.get_rank() == 0 \
+           or int(os.getenv("RANK", "0")) == 0  # fallback pre-init
 
 def setup_articubot_dataloader(args):
     dataset = get_dataset_from_pickle(all_obj_paths=args.all_zarr_path, beg_ratio=args.beg_ratio, end_ratio=args.end_ratio, 
                                       use_all_data=args.use_all_data, 
                                       dataset_prefix=args.dataset_prefix, 
                                       num_train_objects=args.num_train_objects,
-                                      camera_frame=args.camera_frame)
+                                      camera_frame=args.camera_frame, 
+                                        goal_always_open=args.goal_always_open  
+                                    )
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
                 batch_size=args.batch_size,
-                num_workers=8, 
-                pin_memory=True,
+                num_workers=3, 
+                pin_memory=False,
                 )
     
     return dataloader
 
 def setup_cgn_dataloader(global_config, device):
     batch_size = global_config['OPTIMIZER']['batch_size']
-    num_workers = 6  # Increase after debug
+    num_workers = 3  # Increase after debug
     train_dataset = AcryonymDataset(global_config, train=True, device=device, use_saved_renders=True)
     # test_dataset = AcryonymDataset(global_config, train=False, device=device, use_saved_renders=True)
 
@@ -69,9 +76,9 @@ def setup_cgn_dataloader(global_config, device):
 mse_loss = torch.nn.MSELoss()
 def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None, loss_fn=None):
     pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
-    class_weight = class_weight.to(device)
-    gripper_points = goal_gripper_pcd.to(device)
-    
+    class_weight = class_weight.to(device, non_blocking=True)
+    gripper_points = goal_gripper_pcd.to(device, non_blocking=True)
+        
     if args.add_one_hot_encoding:
         # for pointcloud, we add (1, 0)
         # for gripper_pcd, we add (0, 1)
@@ -86,7 +93,7 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
         inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
 
     
-    inputs = inputs.to(device)
+    inputs = inputs.to(device, non_blocking=True)
     inputs = inputs.permute(0, 2, 1)
 
     if siglip_features is None:
@@ -239,18 +246,18 @@ def train(args):
     # print(model)
     # exit()
     # import pdb; pdb.set_trace()
-    model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
+    # model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
+    model = DDP(model, device_ids=[gpu_id])
     if general_args.optimizer == 'adam':
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=general_args.lr)
     elif general_args.optimizer == 'adamw':
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=general_args.lr)
     
     ### setup logging
-    output_dir = "GMM_" 
-    output_dir = output_dir + "_" + str(datetime.date.today())
+    output_dir = str(datetime.date.today())
     output_dir += general_args.exp_name
     general_args.exp_path = os.path.join(general_args.exp_path, output_dir)
-    if os.environ['LOCAL_RANK'] == '0':
+    if is_main_process():
         if not os.path.exists(general_args.exp_path):
             os.makedirs(general_args.exp_path)
         wandb_run = wandb.init(
@@ -292,7 +299,11 @@ def train(args):
     }
     
     if general_args.category_embedding_type == "siglip":
-        siglip_text_features = torch.load("../siglip_text_features.pt")
+        if not ("close" in args.articubot.num_train_objects):
+            siglip_text_features = torch.load("../siglip_text_features.pt")
+        else:
+            siglip_text_features = torch.load("../siglip_text_features_close.pt")
+            
     else:
         siglip_text_features = None
     
@@ -319,7 +330,7 @@ def train(args):
                     all_logs[f"{task}_{key}"] = log[key]
                 all_logs[f"{task}_time"] = time_cost
         
-        if os.environ['LOCAL_RANK'] == '0':
+        if is_main_process():
             ### TODO: log the losses here
             for task in all_tasks:
                 dataloader_length = len(all_task_dataloaders[task])
@@ -340,8 +351,8 @@ def train(args):
                 }
                 torch.save(save_dict, save_path)
         
-        torch.cuda.empty_cache()        
-        torch.cuda.ipc_collect()         
+        # torch.cuda.empty_cache()        
+        # torch.cuda.ipc_collect()         
 
     print('Finished Training')
 

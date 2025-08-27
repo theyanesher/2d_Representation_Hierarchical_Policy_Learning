@@ -1,5 +1,8 @@
 import numpy as np
-import pybullet_ompl.pb_ompl as pb_ompl
+try:
+    import pybullet_ompl.pb_ompl as pb_ompl
+except ImportError:
+    pass
 import pybullet as p
 import copy
 import os, pickle

@@ -244,6 +244,39 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                             ### TODO: implement ptv3 model inference
                             prediction = infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding, high_level_args, args)
 
+                        elif args.model_type == '3dfa':
+                            prediction_len = 1
+                            rgbs = torch.from_numpy(np.zeros((1, 2, 3, 256, 256)))
+                            pcds = pointcloud
+                            instruction = ["open the door of the storage furniture"]
+                            instruction = tokenizer(instruction).cuda()
+                            from articubot_3dfa.datasets.articubot_dataset import get_gripper_pos_orient_from_4_points
+                            cur_pos, cur_orient = get_gripper_pos_orient_from_4_points(gripper_pcd.cpu().numpy().reshape(4, 3))
+                            proprio = np.array([*cur_pos, *cur_orient], dtype=np.float32)
+                            proprio = torch.from_numpy(proprio).view(1, 1, 1, 7).cuda() # B, history=1, 1, 8
+                            with torch.no_grad():
+                                output = high_level_model(
+                                            None,
+                                            torch.full([1, prediction_len, 1], False).cuda(non_blocking=True),
+                                            rgbs.cuda(),
+                                            None,
+                                            pcds.cuda(),
+                                            instruction,
+                                            # gripper[:, :, None, :7],
+                                            proprio,
+                                            run_inference=True
+                                        ).view(1, prediction_len, 8)
+
+                            output = output.view(8).detach().cpu().numpy()
+                            predicted_pos = output[:3]
+                            predicted_quat = output[3:7]
+                            open_finger = output[7].round()
+                            gripper_q = 0.08 if open_finger > 0 else 0.01
+
+                            from articubot_3dfa.test_trained_model import get_4_points_from_gripper_pos_orient
+                            four_points = get_4_points_from_gripper_pos_orient(predicted_pos, predicted_quat, gripper_q)
+                            prediction = torch.from_numpy(four_points).float().unsqueeze(0).to('cuda') # B, 4, 3
+
                         # handle the ambiguity between the two finger points
                         if args.flip_goal:
                             cur_gripper = parallel_input_dict['gripper_pcd'][0, -1].reshape(4, 3)
@@ -384,6 +417,43 @@ def load_high_level_model(path):
         
     return model, args
 
+def load_3dfa_models(args, checkpoint_path):
+    print("Loading model from", checkpoint_path, flush=True)
+
+    ### TODO: change to be the actual 3dfa package path
+    from articubot_3dfa.modeling.policy.denoise_actor_pcd import DenoiseActor as DenoiseActorpcd
+    from articubot_3dfa.modeling.encoder.text import fetch_tokenizers
+
+    model = DenoiseActorpcd(
+        backbone=args.backbone,
+        num_vis_instr_attn_layers=args.num_vis_instr_attn_layers,
+        fps_subsampling_factor=args.fps_subsampling_factor,
+        embedding_dim=args.embedding_dim,
+        num_attn_heads=args.num_attn_heads,
+        nhist=args.num_history,
+        nhand=2 if args.bimanual else 1,
+        num_shared_attn_layers=args.num_shared_attn_layers,
+        relative=args.relative_action,
+        rotation_format=args.rotation_format,
+        denoise_timesteps=args.denoise_timesteps,
+        denoise_model=args.denoise_model
+    )
+
+    # Load model weights
+    model_dict = torch.load(
+        checkpoint_path, map_location="cpu", weights_only=True
+    )
+    model_dict_weight = {}
+    for key in model_dict["weight"]:
+        _key = key[7:]
+        model_dict_weight[_key] = model_dict["weight"][key]
+    model.load_state_dict(model_dict_weight, strict=False)
+    model.eval()
+
+    tokenizer = fetch_tokenizers("clip")
+
+    return model.cuda(), tokenizer
+
 
 if __name__ == "__main__":
     
@@ -484,6 +554,13 @@ if __name__ == "__main__":
         high_level_model = pointnet2_model
         high_level_model.eval()
         model_args = model_cfg
+    elif args.model_type == '3dfa':
+        load_model_path = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/2025-0817-test_articubot_50/best.pth"
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, "config.yaml") # TODO: implement the overrides
+        model_cfg = OmegaConf.load(load_config)
+        high_level_model, tokenizer = load_3dfa_models(model_cfg, load_model_path)
+        model_args = None
         
     
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
