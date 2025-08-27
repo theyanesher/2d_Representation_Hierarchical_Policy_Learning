@@ -1,8 +1,8 @@
 articubot:
   all_zarr_path: null
-  num_train_objects: '50'
-  dataset_prefix: /project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj
-  batch_size: 15
+  num_train_objects: 'articulated'
+  dataset_prefix: /tmp
+  batch_size: 20
   beg_ratio: 0
   end_ratio: 1
   output_obj_pcd_only: 0
@@ -27,7 +27,7 @@ general:
   optimizer: adamw
   add_one_hot_encoding: 0
   keep_gripper_in_fps: 0
-  exp_path: /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
+  exp_path: /project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps
   tasks: [articubot, cgn]
   fp_to_full: 0
   first_sa_point: 2048
@@ -46,7 +46,7 @@ cgn:
   DATA:
     further_fps_point: 0
     classes: null
-    data_path: /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym
+    data_path: /tmp/acronym
     depth_augm:
       clip: 0.005
       gaussian_kernel: 0
@@ -225,7 +225,7 @@ cgn:
     approach_cosine_loss_weight: 0
     four_points_loss_weight: 10
     backup_every: 2000
-    batch_size: 5
+    batch_size: ${cgn.batch_size}
     bn_decay_clip: 0.99
     bn_decay_decay_rate: 0.5
     bn_decay_decay_step: 200000

@@ -11,7 +11,7 @@ def send_dict_to_device(data, device):
     Send all data in dict to torch device
     """
     for k, v in data.items():
-        data[k] = v.to(device)
+        data[k] = v.to(device, non_blocking=True)
     return None
 
 def index_points(points, idx):
