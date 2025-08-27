@@ -2,6 +2,7 @@ articubot:
   all_zarr_path: null
   num_train_objects: 'articulated'
   dataset_prefix: /tmp
+  goal_always_open: 0
   batch_size: 20
   beg_ratio: 0
   end_ratio: 1
