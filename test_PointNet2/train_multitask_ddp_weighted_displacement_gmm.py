@@ -55,7 +55,7 @@ def setup_articubot_dataloader(args):
 def setup_cgn_dataloader(global_config, device):
     batch_size = global_config['OPTIMIZER']['batch_size']
     num_workers = 3  # Increase after debug
-    train_dataset = AcryonymDataset(global_config, train=True, device=device, use_saved_renders=True)
+    train_dataset = AcryonymDataset(global_config, train=True, device=device, use_saved_renders=True, world_frame=global_config['world_frame'])
     # test_dataset = AcryonymDataset(global_config, train=False, device=device, use_saved_renders=True)
 
     train_dataloader = torch.utils.data.DataLoader(train_dataset,
@@ -286,7 +286,6 @@ def train(args):
     all_dataloaders = [all_task_dataloaders[task] for task in all_tasks]
     all_dataloaders = [x for x in all_dataloaders if x is not None]
     dataloader_iters = [infinite_loader(loader) for loader in all_dataloaders]
-    dataloader_lengths = [len(loader) for loader in all_dataloaders]
     
     forward_functions = {
         "articubot": compute_articubot_loss,

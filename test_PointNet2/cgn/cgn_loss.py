@@ -777,6 +777,24 @@ class ContactGraspnetLoss(nn.Module):
         # pos_contact_points_cam = pos_contact_points @ (camera_poses[:3,:3].T) + camera_poses[:3,3][None,:]
         pos_contact_points_cam = torch.matmul(pos_contact_points, camera_poses[:, :3, :3].transpose(1, 2)) \
             + camera_poses[:,:3,3][:, None,:]
+            
+        # import pdb; pdb.set_trace()
+        # TODO: check the pos contact points cam and pcd cam align well with each other
+        # first_pcd_cam = processed_pc_cams[0].cpu().numpy()
+        # first_pos_contact_points_cam = pos_contact_points_cam[0].cpu().numpy()
+        # import open3d as o3d
+        # pcd1 = o3d.geometry.PointCloud()
+        # pcd1.points = o3d.utility.Vector3dVector(first_pcd_cam)
+        # pcd1.paint_uniform_color([1, 0, 0])  # red
+
+        # pcd2 = o3d.geometry.PointCloud()
+        # pcd2.points = o3d.utility.Vector3dVector(first_pos_contact_points_cam)
+        # pcd2.paint_uniform_color([0, 1, 0])  # green
+
+        # coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0])
+        # # Visualize both together
+        # o3d.visualization.draw_geometries([pcd1, pcd2, coord_frame])
+        
 
         # Transform contact directions to camera frame (Don't translate because its a direction vector)
         # pos_contact_dirs_cam = pos_contact_dirs @ camera_poses[:3,:3].T

@@ -15,7 +15,31 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from test_PointNet2.cgn import utils
+from test_PointNet2.dataset_from_disk import get_4_points_from_gripper_pos_orient
 
+def rotz(theta):
+    """Rotation matrix about z-axis by angle theta (radians)."""
+    c, s = np.cos(theta), np.sin(theta)
+    R = np.array([
+        [c, -s, 0],
+        [s,  c, 0],
+        [0,  0, 1]
+    ])
+    return R
+
+def random_quaternion():
+    """
+    Sample a uniform random unit quaternion.
+    Returns (w, x, y, z) as a NumPy array.
+    """
+    u1, u2, u3 = np.random.rand(3)  # three independent uniform(0,1)
+    
+    q1 = np.sqrt(1 - u1) * np.sin(2 * np.pi * u2)
+    q2 = np.sqrt(1 - u1) * np.cos(2 * np.pi * u2)
+    q3 = np.sqrt(u1)     * np.sin(2 * np.pi * u3)
+    q4 = np.sqrt(u1)     * np.cos(2 * np.pi * u3)
+    
+    return np.array([q4, q1, q2, q3])  # (w, x, y, z)
 class AcryonymDataset(Dataset):
     """
     Class to load scenes, render point clouds and augment them during training
@@ -42,7 +66,7 @@ class AcryonymDataset(Dataset):
         depth_augm_config {dict} -- depth map augmentation config (default: {None})
     """
     def __init__(self, global_config, debug=False, train=True, device=None, use_saved_renders=False, 
-                 eval_with_fixed_cam=False):
+                 eval_with_fixed_cam=False, world_frame=False):
         if device is None:
             self.device = torch.device('cpu')
         else:
@@ -51,6 +75,7 @@ class AcryonymDataset(Dataset):
         self.train = train
         self.use_saved_renders = use_saved_renders
         self.eval_with_fixed_cam = eval_with_fixed_cam
+        self.world_frame = world_frame
 
         # if use_saved_renders:
         if not os.path.exists(os.path.join(global_config['DATA']['data_path'], 'renders')):
@@ -190,6 +215,11 @@ class AcryonymDataset(Dataset):
             if os.path.exists(render_path):
                 try:
                     pc_cam, camera_pose = self.load_scene(render_path)
+                    if self.global_config['DATA']['filter_useless_points'] > 0:
+                        # print("filter useless points")
+                        pc_cam = pc_cam[pc_cam[:, 2] > self.global_config['DATA']['filter_useless_points_z_threshold']]
+                        pc_cam = utils.regularize_pc_point_count(pc_cam, self.global_config['DATA']['useful_point_num'], use_farthest_point=self._use_farthest_point)
+                    
                     ### do futher fps here:
                     if self.global_config['DATA']['further_fps_point'] > 0:
                         # print("further downsampling")
@@ -259,14 +289,78 @@ class AcryonymDataset(Dataset):
         pos_finger_diffs = pos_finger_diffs
         pos_approach_dirs = pos_approach_dirs
 
-        data = dict(
-            pc_cam=pc_cam,
-            camera_pose=camera_pose,
-            pos_contact_points=pos_contact_points,
-            pos_contact_dirs=pos_contact_dirs,
-            pos_finger_diffs=pos_finger_diffs,
-            pos_approach_dirs=pos_approach_dirs,
-        )
+
+        if not self.world_frame:
+            data = dict(
+                pc_cam=pc_cam,
+                camera_pose=camera_pose,
+                pos_contact_points=pos_contact_points,
+                pos_contact_dirs=pos_contact_dirs,
+                pos_finger_diffs=pos_finger_diffs,
+                pos_approach_dirs=pos_approach_dirs,
+            )
+        else:
+            ### TODO
+            # transform the pc_cam back to world frame using camera_pos
+            # add random transformation to the world frame pcd
+            # modify camera_pose to this random transformation
+            T_world_to_cam = camera_pose
+            T_cam_to_world = np.linalg.inv(T_world_to_cam)
+            pc_cam_homo = np.ones((pc_cam.shape[0], 4))
+            pc_cam_homo[:, :3] = pc_cam
+            pc_world = (T_cam_to_world @ pc_cam_homo.T).T
+            pc_world = pc_world[:, :3]
+            
+            random_angle = np.random.uniform(0, np.pi * 2)
+            random_rotation = rotz(random_angle)
+            
+            pc_world = (random_rotation @ pc_world.T).T
+            camera_pose = np.eye(4)
+            camera_pose[:3, :3] = random_rotation
+            
+            scene_center = np.mean(pc_world, axis=0)
+            low = np.copy(scene_center)
+            low[0] = scene_center[0] - 0.7
+            low[1] = scene_center[1] - 0.7
+            low[2] = 0.4
+            high = np.copy(scene_center)
+            high[0] = scene_center[0] + 0.7
+            high[1] = scene_center[1] + 0.7
+            high[2] = 0.7 + 0.4
+            gripper_pos = np.random.uniform(low, high)
+            gripper_quat = random_quaternion()
+            gripper_q = np.random.uniform(0, 0.04)
+            gripper_pcd = get_4_points_from_gripper_pos_orient(gripper_pos, gripper_quat, gripper_q)
+            # print("scene center: ", scene_center)
+            # print("gripper pos: ", gripper_pos)
+            
+            ### visualize the gripper
+            # import pdb; pdb.set_trace()
+            # import open3d as o3d
+            # pcd1 = o3d.geometry.PointCloud()
+            # pcd1.points = o3d.utility.Vector3dVector(pc_world)
+            # pcd1.paint_uniform_color([1, 0, 0])  # red
+
+            # pcd2 = o3d.geometry.PointCloud()
+            # pcd2.points = o3d.utility.Vector3dVector(gripper_pcd)
+            # pcd2.paint_uniform_color([0, 1, 0])  # green
+
+            # coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+            #     size=0.1, origin=[0, 0, 0]
+            # )
+            # # Visualize both together
+            # o3d.visualization.draw_geometries([pcd1, pcd2, coord_frame])
+            
+            
+            data = dict(
+                pc_cam=pc_world.astype(np.float32),
+                camera_pose=camera_pose.astype(np.float32),
+                pos_contact_points=pos_contact_points,
+                pos_contact_dirs=pos_contact_dirs,
+                pos_finger_diffs=pos_finger_diffs,
+                pos_approach_dirs=pos_approach_dirs,
+                gripper_pcd = gripper_pcd
+            )
 
         return data
 
