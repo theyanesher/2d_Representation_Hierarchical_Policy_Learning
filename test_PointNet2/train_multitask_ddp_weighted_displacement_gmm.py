@@ -299,7 +299,7 @@ def train(args):
     }
     
     if general_args.category_embedding_type == "siglip":
-        if not ("close" in args.articubot.num_train_objects):
+        if not ("close" in str(args.articubot.num_train_objects)):
             siglip_text_features = torch.load("../siglip_text_features.pt")
         else:
             siglip_text_features = torch.load("../siglip_text_features_close.pt")

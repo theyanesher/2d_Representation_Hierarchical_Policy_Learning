@@ -9,7 +9,7 @@ from tqdm import tqdm
 import pickle
 import random
 from diffuser_actor_3d.robogen_utils import get_gripper_pos_orient_from_4_points
-
+from scipy.spatial.transform import Rotation as R
 
 def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn, cur_joint_angle):
     original_gripper_pcd = np.array([[ 0.5648266,   0.05482348,  0.34434554],
@@ -32,7 +32,13 @@ def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn, cur_joint_ang
     original_pcd = original_gripper_pcd - original_gripper_pcd[3]
     rotated_pcd = rotation_transfer.apply(original_pcd)
     gripper_pcd = rotated_pcd + gripper_pos
-    return gripper_pcd
+    return gripper_pcd.astype(np.float32)
+
+def change_goal_gripper_pcd_to_open(goal_gripper_pcd):
+    goal_pos, goal_orient = get_gripper_pos_orient_from_4_points(goal_gripper_pcd)
+    open_joint_angle = 0.04
+    open_gripper_pcd = get_4_points_from_gripper_pos_orient(goal_pos, goal_orient, open_joint_angle)
+    return open_gripper_pcd
 
 categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
 num_cats = 12
@@ -235,14 +241,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             gripper_pcd = self.transform_pcd_to_camera_frame(gripper_pcd)
             goal_gripper_pcd = self.transform_pcd_to_camera_frame(goal_gripper_pcd)
         
-        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight
-    
-    def change_goal_gripper_pcd_to_open(self, goal_gripper_pcd):
-        goal_pos, goal_orient = get_gripper_pos_orient_from_4_points(goal_gripper_pcd)
-        open_joint_angle = 0.04
-        open_gripper_pcd = get_4_points_from_gripper_pos_orient(goal_pos, goal_orient, open_joint_angle)
-        return open_gripper_pcd
-        
+        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight        
 
     def __getitem__(self, idx):
         # TODO for conditioning:
@@ -265,7 +264,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight = self.read_pickle_data(episode_idx, start_idx)
             
             if self.goal_always_open:
-                goal_gripper_pcd = self.change_goal_gripper_pcd_to_open(goal_gripper_pcd)
+                goal_gripper_pcd = change_goal_gripper_pcd_to_open(goal_gripper_pcd)
             
             if self.conditioning_on_demo:
                 raise NotImplementedError

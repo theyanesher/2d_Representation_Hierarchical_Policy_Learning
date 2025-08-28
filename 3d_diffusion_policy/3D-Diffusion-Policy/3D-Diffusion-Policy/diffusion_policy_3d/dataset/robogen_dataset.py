@@ -68,7 +68,9 @@ articulated_new = [
     ]
 
 def get_zarry_paths(zarr_path):
-    dataset_prefix = '/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0/165-obj'
+    # dataset_prefix = '/mnt/RoboGen_sim2real/data/dp3_demo_combined_2_step_0/165-obj'
+    # dataset_prefix = "/project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj"
+    dataset_prefix = "/scratch/yufeiw2/dp3_demo_combined_2_step_0"
 
     if zarr_path == 'test_1':
         data_name = [save_data_name_0]
@@ -262,6 +264,7 @@ class RobogenDataset(BaseDataset):
             use_repr_10d=False, # 10D Representation for Low Level Policy
             pos_ori_imp=False, #10D Representation for High Level Policy
             dp3=False,
+            goal_always_open=False,
             **kwargs
             ):
         super().__init__()
@@ -280,6 +283,7 @@ class RobogenDataset(BaseDataset):
         self.use_repr_10d=use_repr_10d
         self.pos_ori_imp=pos_ori_imp
         self.dp3 = dp3
+        self.goal_always_open = goal_always_open
 
         cprint(f"Using 10D representation {self.use_repr_10d}", "red")
         
@@ -797,6 +801,14 @@ class RobogenDataset(BaseDataset):
             for key in self.keys_:
                 if key not in ['state', 'action', 'point_cloud']:
                     data['obs'][key] = copy.deepcopy(sample[key][:,].astype(np.float32))
+            
+            if self.goal_always_open:
+                # import pdb; pdb.set_trace()
+                from test_PointNet2.dataset_from_disk import change_goal_gripper_pcd_to_open
+                for idx in range(len(data['obs']['goal_gripper_pcd'])):
+                    goal_gripper = data['obs']['goal_gripper_pcd'][idx]
+                    new_goal_gripper = change_goal_gripper_pcd_to_open(goal_gripper)
+                    data['obs']['goal_gripper_pcd'][idx] = new_goal_gripper
                 
         if self.prediction_target == 'delta_to_goal_gripper':
             data['obs']['delta_to_goal_gripper'] = data['obs']['goal_gripper_pcd'] - data['obs']['gripper_pcd']
