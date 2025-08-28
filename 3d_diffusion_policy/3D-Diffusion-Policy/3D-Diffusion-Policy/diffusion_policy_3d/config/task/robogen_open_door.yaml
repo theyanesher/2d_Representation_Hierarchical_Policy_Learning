@@ -87,3 +87,4 @@ dataset:
   use_repr_10d: false
   pos_ori_imp: false
   dp3: false
+  goal_always_open: false
