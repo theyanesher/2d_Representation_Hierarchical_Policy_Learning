@@ -177,7 +177,9 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
     cgn_utils.send_dict_to_device(data, device)
     # Target contains input and target values
     pc_cam = data['pc_cam']
-    # import pdb; pdb.set_trace()
+    if 'gripper_pcd' in data:
+        # import pdb; pdb.set_trace()
+        pc_cam = torch.cat([pc_cam, data['gripper_pcd']], dim=1)
     pc_cam = pc_cam.permute(0, 2, 1)
 
     if siglip_features is None:
