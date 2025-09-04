@@ -93,7 +93,7 @@ def construct_env(cfg, config_file, env_name, init_state_file, real_world_camera
     
     return env
             
-def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx, exp_beg_idx=0,
+def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx=None, exp_beg_idx=0,
                           exp_end_idx=1000, embedding_dim=None, horizon=150,  exp_beg_ratio=None, exp_end_ratio=None,
                           dataset_index=None, calculate_distance_from_gt=False, output_obj_pcd_only=False,
                           update_goal_freq=1, real_world_camera=False, noise_real_world_pcd=False,
@@ -166,7 +166,10 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
             exp_beg_idx = int(exp_beg_ratio * len(config_files))
 
         angle_threshold = np.quantile(expert_opened_angles, 0.5)
-        selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
+        if args.invert:
+            selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle < angle_threshold]
+        else:
+            selected_idx = [i for i, angle in enumerate(expert_opened_angles) if angle > angle_threshold]
         config_files = [config_files[i] for i in selected_idx]
         init_state_files = [init_state_files[i] for i in selected_idx]
         expert_opened_angles = [expert_opened_angles[i] for i in selected_idx]
@@ -178,9 +181,13 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
         all_grasp_distances = []
 
         if high_level_args is not None and high_level_args.general.category_embedding_type == "siglip":
-            siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
+            # siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
+            siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features_close.pt")
             
-        cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
+        if cat_idx is not None:
+            cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
+        else:
+            cat_idx_cuda = None
 
         for exp_idx, (config_file, init_state_file) in enumerate(zip(config_files, init_state_files)):
                 
@@ -270,7 +277,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                 parallel_input_dict['goal_gripper_pcd'] = predicted_goal
 
                 with torch.no_grad():
-                    batched_action = policy.predict_action(parallel_input_dict)
+                    batched_action = policy.predict_action(parallel_input_dict, torch.tensor([cat_idx]).to(policy.device))
                     gripper_close_actions = batched_action['action'][:, :, -1].detach().cpu().numpy()
                     
                     
@@ -403,6 +410,7 @@ if __name__ == "__main__":
     parser.add_argument('--flip_goal', type=int, default=0)
     parser.add_argument('--exp_dir', type=str, help='Experiment directory')
     parser.add_argument('--num_categories', type=int, default=7)
+    parser.add_argument('--invert', action='store_true', help='Set the flag for invert training')
     parser.add_argument('--category_embedding_type', type=str, default="none")
     args = parser.parse_args()
 
@@ -412,6 +420,11 @@ if __name__ == "__main__":
         if cat in args.exp_dir:
             cat_idx = i + 1
             break
+    if args.invert:
+        if cat_idx == 0:
+            cat_idx = 7
+        else:
+            cat_idx += 5
 
     if args.low_level_exp_dir is None:
         # best 50 objects
@@ -441,8 +454,18 @@ if __name__ == "__main__":
     
     if 'diverse_objects' in args.exp_dir:
         cfg.task.env_runner.experiment_name = ['0705' for _ in range(1)]
+        if args.invert:
+            if '45132' in args.exp_dir:
+                cfg.task.env_runner.experiment_name = ['invert_0725' for _ in range(1)]
+            else:
+                cfg.task.env_runner.experiment_name = ['invert' for _ in range(1)]
     else: 
         cfg.task.env_runner.experiment_name = ['165-obj' for _ in range(1)]
+        if args.invert:
+            if 'toilet' in args.exp_dir or 'stapler' in args.exp_dir:
+                cfg.task.env_runner.experiment_name = ['invert_0725' for _ in range(1)]
+            else:
+                cfg.task.env_runner.experiment_name = ['invert' for _ in range(1)]
 
     cfg.task.env_runner.experiment_folder = [
         args.exp_dir,
