@@ -82,7 +82,7 @@ class ContactGraspnetLoss(nn.Module):
         
 
 
-    def forward(self, pred, target, compute_topk_4_points_loss=False):
+    def forward(self, pred, target, compute_topk_4_points_loss=False, world_frame=False):
         """
         Computes loss terms from pointclouds, network predictions and labels
 
@@ -478,10 +478,55 @@ class ContactGraspnetLoss(nn.Module):
                     # sym_gt_4_points = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width, flip=True)  # B x N x 4 x 3
                 else:
                     ### getting first in world and then project back to camera frame
-                    gt_4_points_world = self._get_4_points_from_pose_world(pos_gt_grasps_proj_world, gripper_width.squeeze(-1) / 2.)  # B x N x 4 x 3
-                    gt_4_points_cam = torch.matmul(gt_4_points_world.reshape(B, -1, 3), camera_pose[:, :3, :3].transpose(1, 2)) + camera_pose[:, :3, 3][:, None, :]  # B x N x 4 x 3
-                    gt_4_points_cam = gt_4_points_cam.view(B, N, 4, 3)  # B x N x 4 x 3
-                    gt_4_points = gt_4_points_cam
+                    if not world_frame:
+                        gt_4_points_world = self._get_4_points_from_pose_world(pos_gt_grasps_proj_world, gripper_width.squeeze(-1) / 2.)  # B x N x 4 x 3
+                        gt_4_points_cam = torch.matmul(gt_4_points_world.reshape(B, -1, 3), camera_pose[:, :3, :3].transpose(1, 2)) + camera_pose[:, :3, 3][:, None, :]  # B x N x 4 x 3
+                        gt_4_points_cam = gt_4_points_cam.view(B, N, 4, 3)  # B x N x 4 x 3
+                        gt_4_points = gt_4_points_cam
+                    else:
+                        rotate_to_bullet_coordinate_matrix = torch.from_numpy(np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])).to(self.device).float()  # 3 x 3
+                        gt_grasps_proj[:, :, :3, :3] = gt_grasps_proj[:, :, :3, :3] @ rotate_to_bullet_coordinate_matrix[None, None, :, :]
+                        # import pdb; pdb.set_trace()
+                        # print(gripper_width[0])
+                        gt_4_points_world = self._get_4_points_from_pose_world(gt_grasps_proj, gripper_width.squeeze(-1) / 2.)
+                        gt_4_points = gt_4_points_world
+                        
+                        # from test_PointNet2.dataset_from_disk import get_4_points_from_gripper_pos_orient
+                        # from scipy.spatial.transform import Rotation as R
+                        # for b_idx in range(len(gt_grasps_proj)):
+                        #     for n_idx, success in enumerate(grasp_success_labels_pc[b_idx]):
+                        #         if not success:
+                        #             continue
+                        #         # import pdb; pdb.set_trace()
+                        #         gripper_pos = gt_grasps_proj[b_idx, n_idx, :3, 3].detach().cpu().numpy()
+                        #         gripper_orientation = gt_grasps_proj[b_idx, n_idx, :3, :3].detach().cpu().numpy()
+                        #         z_dir = gripper_orientation[:, 2]
+                        #         gripper_pos = gripper_pos + z_dir * 0.105 
+                        #         gripper_orientation_quat = R.from_matrix(gripper_orientation).as_quat()
+                        #         four_points = get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orientation_quat, 0.04)
+                        #         diff = four_points - gt_4_points_world[b_idx][n_idx].detach().cpu().numpy()
+                        #         diff = np.linalg.norm(diff, axis=-1).mean()
+                        #         # assert diff < 1e-4, "The two implementations of getting 4 points are not aligned with diff {} at bidx {} n_idx {}".format(diff, b_idx, n_idx)
+                        #         if diff > 1e-4:
+                        #             print(diff)
+                        #             print("gripper pos: ", gripper_pos)
+                        #             print("gripper orientation: ", gripper_orientation)
+                        #             print("gripper quat: ", gripper_orientation_quat)
+                        #             import pdb; pdb.set_trace()
+                            
+                        # gt_4_points_2 = self._get_4_points_from_pose(pos_gt_grasps_proj, gripper_width)
+                        # for b_idx, success_mask in enumerate(grasp_success_labels_pc):
+                        #     for n_idx, success in enumerate(success_mask):
+                        #         if success:
+                        #             from matplotlib import pyplot as plt
+                        #             ax = plt.figure().add_subplot(projection='3d')
+
+                        #             articubot_gt_4_points = gt_4_points_world[b_idx][n_idx].detach().cpu().numpy()
+                        #             cgn_gt_4_points = gt_4_points_2[b_idx][n_idx].detach().cpu().numpy()
+                        #             ax.scatter(articubot_gt_4_points[:, 0], articubot_gt_4_points[:, 1], articubot_gt_4_points[:, 2], c='r', s=20, label='articubot_gt_4_points')
+                        #             ax.scatter(cgn_gt_4_points[:, 0], cgn_gt_4_points[:, 1], cgn_gt_4_points[:, 2], c='g', s=10, label='cgn_gt_4_points')
+                        #             plt.show()
+                        #             plt.close("all")
                 
                 # distance = torch.norm(gt_4_points - gt_4_points_cam, p=2, dim=-1)  # B x N x 4 x 1
                 # print(torch.mean(distance))
@@ -664,7 +709,7 @@ class ContactGraspnetLoss(nn.Module):
         original_pcd[:, :, 2, :] = gripper_pcd_left_finger_closed + (original_gripper_pcd[2] - gripper_pcd_left_finger_closed)[None, None, :] * f.unsqueeze(-1)
 
         # Center point cloud relative to point[3]
-        original_pcd -= original_pcd[:, :, 3:4, :]
+        original_pcd = original_pcd - original_pcd[:, :, 3:4, :]
 
         # Get current rotation matrix from SE(3)
         goal_rot = pose[:, :, :3, :3]  # (B, N, 3, 3)
@@ -678,7 +723,7 @@ class ContactGraspnetLoss(nn.Module):
 
         # Add translation
         gripper_pos = pose[:, :, :3, 3]  # (B, N, 3)
-        gripper_pos = gripper_pos + z_dir * 0.1034 # adding the distance from hand pose to eef grasping pose
+        gripper_pos = gripper_pos + z_dir * 0.105 # adding the distance from hand pose to eef grasping pose
         gripper_pcd_world = pcd_rotated + gripper_pos.unsqueeze(2)  # (B, N, 4, 3)
 
         return gripper_pcd_world
