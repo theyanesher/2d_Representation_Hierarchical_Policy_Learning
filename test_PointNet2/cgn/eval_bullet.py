@@ -289,7 +289,7 @@ class ContactGraspNetEnv():
         p.setGravity(0, 0, self.gravity, physicsClientId=self.id)
         res = p.getPhysicsEngineParameters(physicsClientId=self.id)
         # print(res)
-        p.setPhysicsEngineParameter(numSubSteps=10, contactERP=0.7, contactSlop=0.005, numSolverIterations=50, physicsClientId=self.id)
+        # p.setPhysicsEngineParameter(numSubSteps=10, contactERP=0.7, contactSlop=0.005, numSolverIterations=50, physicsClientId=self.id)
         res = p.getPhysicsEngineParameters(physicsClientId=self.id)
         # print(res)
         # import pdb; pdb.set_trace()
@@ -553,6 +553,7 @@ class ContactGraspNetEnv():
             pc_in_camera -= mean
             return rgb, depth, pc_in_camera, mean
         else:
+            cprint("Using world frame!", "yellow")
             pc_in_world = pc_in_world[good_idx]        
             ### perform the fps on the pcd
             kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_world[:, :3], self.num_points_in_pc)
