@@ -62,6 +62,7 @@ def setup_cgn_dataloader(global_config, device):
                                                    batch_size=batch_size,
                                                    shuffle=False,
                                                    num_workers=num_workers,
+                                                #    num_workers=0,
                                                    sampler=DistributedSampler(train_dataset)
                                                    )
     # test_dataloader = torch.utils.data.DataLoader(test_dataset,
@@ -189,7 +190,7 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         embedding = siglip_features[-1].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
         pred = model(pc_cam, embedding)
         
-    loss, loss_info = loss_fn(pred, data)
+    loss, loss_info = loss_fn(pred, data, world_frame=global_config['world_frame'])
     loss = loss * global_config.loss_scale
     
     # keys = list(loss_info.keys())

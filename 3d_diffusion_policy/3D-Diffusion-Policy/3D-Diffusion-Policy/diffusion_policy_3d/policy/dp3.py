@@ -56,6 +56,9 @@ class DP3(BasePolicy):
             normalize_action=True, # [Chialiang] can remove normilizer for action
             scale_scene_by_pcd=False, # [Chialiang] can remove normilizer for action
             policy_type='high_level',
+            # use_language_embedding=True,
+            use_language_embedding=False,
+            language_embedding_dim=768,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -65,6 +68,9 @@ class DP3(BasePolicy):
         self.normalize_action = normalize_action
         self.scale_scene_by_pcd = scale_scene_by_pcd
         self.act3d_encoder_cfg = act3d_encoder_cfg
+        # if use_language_embedding:
+        self.use_language_embedding = use_language_embedding
+        self.siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features_cy.pt")
 
         # parse shape_meta
         action_shape = shape_meta[self.prediction_target]['shape']
@@ -93,6 +99,8 @@ class DP3(BasePolicy):
             # create diffusion model
             obs_feature_dim = obs_encoder.output_shape()
             input_dim = action_dim + obs_feature_dim
+            if use_language_embedding:
+                input_dim += language_embedding_dim
             global_cond_dim = None
             if obs_as_global_cond:
                 input_dim = action_dim
@@ -100,6 +108,8 @@ class DP3(BasePolicy):
                     global_cond_dim = obs_feature_dim
                 else:
                     global_cond_dim = obs_feature_dim * n_obs_steps
+                if use_language_embedding:
+                    global_cond_dim += language_embedding_dim
                     
             self.use_pc_color = use_pc_color
             self.pointnet_type = pointnet_type
@@ -112,6 +122,8 @@ class DP3(BasePolicy):
 
             obs_feature_dim = obs_encoder.output_shape()
             input_dim = action_dim + obs_feature_dim
+            if use_language_embedding:
+                input_dim += language_embedding_dim
             global_cond_dim = None
             if obs_as_global_cond:
                 input_dim = action_dim
@@ -119,6 +131,8 @@ class DP3(BasePolicy):
                     global_cond_dim = obs_feature_dim
                 else:
                     global_cond_dim = obs_feature_dim * n_obs_steps
+                if use_language_embedding:
+                    global_cond_dim += language_embedding_dim
 
         elif self.encoder_type == 'act3d_pointnet' or self.encoder_type == 'act3d_mlp':
             obs_encoder = Act3dPointNetEncoder(**act3d_encoder_cfg, encoder_output_dim=encoder_output_dim, 
@@ -126,6 +140,8 @@ class DP3(BasePolicy):
             
             obs_feature_dim = obs_encoder.output_shape()
             input_dim = action_dim + obs_feature_dim
+            if use_language_embedding:
+                input_dim += language_embedding_dim
             global_cond_dim = None
             if obs_as_global_cond:
                 input_dim = action_dim
@@ -133,6 +149,8 @@ class DP3(BasePolicy):
                     global_cond_dim = obs_feature_dim
                 else:
                     global_cond_dim = obs_feature_dim * n_obs_steps
+                if use_language_embedding:
+                    global_cond_dim += language_embedding_dim
         
         self.encoder_output_dim = encoder_output_dim
         self.noise_model_type = noise_model_type
@@ -244,11 +262,15 @@ class DP3(BasePolicy):
         return trajectory
 
 
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def predict_action(self, obs_dict: Dict[str, torch.Tensor], cat_idx=None) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
         result: must include "action" key
         """
+        if cat_idx is not None:
+            siglip_text_features = self.siglip_text_features.to(device=cat_idx.device, dtype=torch.float32)
+            cat_embedding = siglip_text_features[cat_idx]
+
         # normalize input
         if "act3d" not in self.encoder_type:
             nobs = {
@@ -320,6 +342,10 @@ class DP3(BasePolicy):
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
             cond_data[:,:To,Da:] = nobs_features
             cond_mask[:,:To,Da:] = True
+        # print(f"global_cond.shape: {global_cond.shape}")
+        # print(f"cat_embedding.shape: {cat_embedding.shape}")
+        if self.use_language_embedding:
+            global_cond = torch.cat([global_cond, cat_embedding], dim=1)
 
         # run sampling
         if self.noise_model_type == 'unet':
@@ -403,6 +429,13 @@ class DP3(BasePolicy):
         else:
             nobs = batch['obs']
         
+        cat_idx = batch['cat_idx'].squeeze(-1)
+        # print(f"cat_idx: {cat_idx}")
+        # print(f"cat_idx.shape: {cat_idx.shape}")
+        # print("siglip_text_features device:", self.siglip_text_features.device)
+        # print("cat_idx device:", cat_idx.device)
+        siglip_text_features = self.siglip_text_features.to(device=cat_idx.device, dtype=torch.float32)
+        cat_embedding = siglip_text_features[cat_idx]
         # [Chialiang] can remove normilizer for action
         if  self.prediction_target == 'action' or self.prediction_target == 'delta_to_goal_gripper':
             if self.prediction_target == 'action':
@@ -467,9 +500,12 @@ class DP3(BasePolicy):
             cond_data = torch.cat([nactions, nobs_features], dim=-1)
             trajectory = cond_data.detach()
 
-
+        # print(f"global_cond.shape: {global_cond.shape}")
+        # print(f"cat_embedding.shape: {cat_embedding.shape}")
+        if self.use_language_embedding:
+            global_cond = torch.cat([global_cond, cat_embedding], dim=1)
         # generate impainting mask
-        condition_mask = self.mask_generator(trajectory.shape)
+        condition_mask = self.mask_generator(trajectory.shape)      
 
         # Sample noise that we'll add to the images
         noise = torch.randn(trajectory.shape, device=trajectory.device)
