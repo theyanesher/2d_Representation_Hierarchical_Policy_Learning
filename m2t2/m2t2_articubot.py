@@ -183,7 +183,7 @@ class M2T2(nn.Module):
 
     def infer(self, data, gmm=False):
         B, N, _ = data['inputs'].shape
-        scene_feat = self.backbone(data['inputs'])
+        scene_feat = self.backbone(data['inputs'], data.get("lang_tokens", None))
 
         object_feat = None
         
@@ -209,7 +209,7 @@ class M2T2(nn.Module):
             return weighted_pred
         else:
             argmax_weight = best_weight.argmax()
-            return all_preds[argmax_weight]
+            return all_preds[argmax_weight].unsqueeze(0) # 1, 4, 3
 
     def infer_cgn(self, data, cfg, topk=10):
         B, N, _ = data['inputs'].shape
