@@ -18,7 +18,7 @@ import torch
 from m2t2.dataset import PickPlaceDataset, collate
 
 
-def get_data_loader(cfg, split, use_ddp, training, dataset_name="m2t2", device=None):
+def get_data_loader(cfg, split, use_ddp, training, dataset_name="m2t2", dataset_prefix="/tmp", device=None):
     if dataset_name == "m2t2":
         kwargs = PickPlaceDataset.from_config(cfg.data)
         kwargs['root_dir'] = f"{cfg.data.root_dir}/{split}"
@@ -42,7 +42,7 @@ def get_data_loader(cfg, split, use_ddp, training, dataset_name="m2t2", device=N
         # dataset = FakeArticubotDataset()
         
         from m2t2.dataset import ArticuBotDataset, get_dataset_paths
-        all_obj_path = get_dataset_paths(num_train_objects=cfg.data.num_train_objects)
+        all_obj_path = get_dataset_paths(dataset_prefix=dataset_prefix, num_train_objects=cfg.data.num_train_objects)
         dataset = ArticuBotDataset(all_obj_paths=all_obj_path)
         
         if use_ddp:
@@ -51,10 +51,9 @@ def get_data_loader(cfg, split, use_ddp, training, dataset_name="m2t2", device=N
             sampler = RandomSampler(dataset) if training \
                     else SequentialSampler(dataset)
         loader = DataLoader(
-            dataset, cfg.train.batch_size, sampler=sampler,
-            num_workers=cfg.train.num_workers, collate_fn=collate,
+            dataset, cfg.train.batch_size, sampler=sampler, shuffle=False,
+            num_workers=cfg.train.num_workers, collate_fn=collate, 
             # persistent_workers=True, pin_memory=True
-            persistent_workers=False, pin_memory=True
         )
     elif dataset_name == 'cgn':
         from m2t2.acronym_dataset import AcryonymDataset
@@ -81,10 +80,11 @@ def get_data_loader(cfg, split, use_ddp, training, dataset_name="m2t2", device=N
 
 def build_optimizer(cfg, model):
     defaults = {}
-    defaults["lr"] = (
-        cfg.optimizer.base_lr / cfg.optimizer.base_batch_size
-        * cfg.train.batch_size * cfg.train.num_gpus
-    )
+    # defaults["lr"] = (
+    #     cfg.optimizer.base_lr / cfg.optimizer.base_batch_size
+    #     * cfg.train.batch_size * cfg.train.num_gpus
+    # )
+    defaults["lr"] = (cfg.optimizer.base_lr)
     defaults["weight_decay"] = cfg.optimizer.weight_decay
 
     norm_module_types = (

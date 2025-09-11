@@ -16,6 +16,29 @@ from m2t2.pointnet2_modules import (
     PointnetFPModule, PointnetSAModule, PointnetSAModuleMSG
 )
 
+class FiLM(nn.Module):
+    def __init__(self, embedding_dim, feature_dim):
+        super(FiLM, self).__init__()
+        self.scale = nn.Linear(embedding_dim, feature_dim)
+        self.shift = nn.Linear(embedding_dim, feature_dim)
+
+    def forward(self, x, embedding):
+        """
+        Input:
+            x: input points data, [B, D, N]
+            embedding: embedding data, [B, E]
+        Return:
+            transformed points data, [B, D, N]
+        """
+        num_shape = len(x.shape)
+        # import pdb; pdb.set_trace()
+        if num_shape == 3:
+            gamma = self.scale(embedding).unsqueeze(-1)  # [B, D, 1]
+            beta = self.shift(embedding).unsqueeze(-1)  # [B, D, 1]
+        elif num_shape == 4:
+            gamma = self.scale(embedding).unsqueeze(-1).unsqueeze(-1)  # [B, D, 1]
+            beta = self.shift(embedding).unsqueeze(-1).unsqueeze(-1)  # [B, D, 1]
+        return x * gamma + beta
 
 class PointNet2Base(nn.Module):
     def __init__(self, pred_offset=False, final_feature_channel=None,):
@@ -41,7 +64,7 @@ class PointNet2Base(nn.Module):
             features = pc[..., 3:].transpose(1, 2).contiguous()
         return xyz, features
 
-    def forward(self, pointcloud):
+    def forward(self, pointcloud, embedding=None):
         r"""
             Forward pass of the network
 
@@ -67,6 +90,9 @@ class PointNet2Base(nn.Module):
                 sample_ids.append(sample_idx[0])
                 
         # import pdb; pdb.set_trace()
+        if self.lang_embedding_dim is not None and embedding is not None:
+            # import pdb; pdb.set_trace()
+            l_features[-1] = self.film(l_features[-1], embedding)
 
         for i in range(-1, -(len(self.FP_modules) + 1), -1):
             l_features[i - 1] = self.FP_modules[i](
@@ -108,7 +134,7 @@ class PointNet2MSG(PointNet2Base):
         self, num_points, downsample, radius,
         radius_mult, use_rgb=True, norm='BN',
         pred_offset=False, final_feature_channel=128,
-        cgn=False,
+        cgn=False, lang_embedding_dim=None,
     ):
         if not cgn:
             final_feature_channel = 128
@@ -172,6 +198,10 @@ class PointNet2MSG(PointNet2Base):
             )
         )
         c_out_3 = 512 + 512
+        
+        self.lang_embedding_dim = lang_embedding_dim
+        if lang_embedding_dim is not None:
+            self.film = FiLM(lang_embedding_dim, 1024) ## TODO: maybe not hardcode this
 
         # TODO: for cgn, do not append this last fp layer
         if not cgn:
@@ -204,6 +234,7 @@ class PointNet2MSG(PointNet2Base):
         args['pred_offset'] = cfg.pred_offset
         args['cgn'] = cfg.cgn
         args['norm'] = cfg.get("norm", 'BN')
+        args['lang_embedding_dim'] = cfg.get("language_token_dim", None)
         return cls(**args)
 
 
