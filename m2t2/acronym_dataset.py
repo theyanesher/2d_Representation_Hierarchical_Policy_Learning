@@ -6,7 +6,7 @@ from PIL import Image
 import argparse
 import numpy as np
 import copy
-import cv2
+# import cv2
 import glob
 import trimesh.transformations as tra
 from scipy.spatial import cKDTree

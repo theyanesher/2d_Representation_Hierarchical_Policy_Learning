@@ -310,10 +310,11 @@ class ContactDecoder(nn.Module):
         if grasp_embed.shape[0] > 0:
             if self.use_task_embed:
                 grasp_embed = grasp_embed + self.task_embed.weight[task_id]
+            # import pdb; pdb.set_trace()
             embed.append(repeat_new_axis(grasp_embed, mask_feat.shape[0], dim=1))
             task_id += 1
         if place_embed.shape[0] > 0:
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
             place_prompts = obj_features['features'][self.place_feature]
             place_prompts = place_prompts.max(dim=-1)[0]
             place_prompts = self.place_embed_proj(place_prompts)
@@ -321,8 +322,12 @@ class ContactDecoder(nn.Module):
                 place_embed = place_embed + self.task_embed.weight[task_id]
             embed.append(place_embed.unsqueeze(1) + place_prompts.unsqueeze(0))
         if lang_tokens is not None:
-            embed.append(self.lang_token_proj(lang_tokens).transpose(0, 1))
+            # import pdb; pdb.set_trace()
+            # embed.append(self.lang_token_proj(lang_tokens).transpose(0, 1))
+            embed.append(self.lang_token_proj(lang_tokens).unsqueeze(0))
         embed = torch.cat(embed)
+        # import pdb; pdb.set_trace()
+        
         query_pos_enc = repeat_new_axis(self.query_pos_enc.weight, mask_feat.shape[0], dim=1)
 
         # initial prediction with learnable query features only (no context)
@@ -342,11 +347,10 @@ class ContactDecoder(nn.Module):
                     context_sizes[j], self.num_heads
                 )
                 if lang_tokens is not None:
+                    # import pdb; pdb.set_trace()
                     attn_mask = torch.cat([
-                        attn_mask, repeat_new_axis(
-                            torch.zeros_like(attn_mask[:, 0]),
-                            lang_tokens.shape[1], dim=1
-                        )
+                        # attn_mask, repeat_new_axis(torch.zeros_like(attn_mask[:, 0]), lang_tokens.shape[1], dim=1)
+                        attn_mask, repeat_new_axis(torch.zeros_like(attn_mask[:, 0]), self.lang_context_length, dim=1)
                     ], dim=1)
             else:
                 attn_mask = None

@@ -232,22 +232,26 @@ class SetCriterion(nn.Module):
             loss_obj = loss_obj.mean() 
             
             # NOTE we have the batch dimensio here
+            # pred['grasping_masks']: B, # of queries, N
+            # weight_query: # of queries, N
+            # weight_query[idx]: N
             matched_weights = [weight_query[idx] for weight_query, idx in zip(pred['grasping_masks'], matched_idx)] # B, # of matched queries, N
             
             ### let's first do a for loop version to ensure correctness
             ### TODO: change this to be a batched version
             B, N = pred['pred_offset'].shape[0], pred['pred_offset'].shape[1] # B, N
+            
             mse_cost = 0
-            for i in range(B):
-                pred_offset = pred['pred_offset'][i].view(N, 4, 3) # N, 4, 3
-                if not self.gmm_weight > 0:
+            if not self.gmm_weight > 0:
+                for i in range(B):
+                    pred_offset = pred['pred_offset'][i].view(N, 4, 3) # N, 4, 3
                     # import pdb; pdb.set_trace()
                     matched_weight = matched_weights[i] # num_queries, N.
                     matched_weight = torch.softmax(matched_weight, dim=1) # num_queries, N, dim1 sum to 1
-                    if 'goal_gripper_mask' not in data: 
-                        input_positions = data['inputs'][i] # N, 3
-                    else:
-                        input_positions = data['pred_points'][i]
+                    # if 'goal_gripper_mask' not in data: 
+                    #     input_positions = data['inputs'][i] # N, 3
+                    # else:
+                    input_positions = data['pred_points'][i]
                     pred_goal_points = pred_offset + input_positions.unsqueeze(1) # N, 4, 3
                     pred_goal_points = pred_goal_points.view(N, -1) # N, 12
                     
@@ -271,25 +275,35 @@ class SetCriterion(nn.Module):
                     # print("mse - mse2", torch.sum(mse - mse2))
                     
                     mse_cost += mse
-                else:                        
-                    ### NOTE: assume there is only one query mask
-                    # import pdb; pdb.set_trace()
-                    this_pred = {
-                        "pred_offset": pred_offset.unsqueeze(0), # 1, N, 4, 3
-                        # "pred_scores": matched_weights[i].unsqueeze(0), # 1, N
-                        "pred_scores": pred['grasping_masks'][i][0].unsqueeze(0), # 1, N
-                        
-                        "pred_points": data['pred_points'][i].unsqueeze(0) if 'pred_points' in data else data['inputs'][i, :, :3].unsqueeze(0) # 1, N, 3
-                    }
-                    this_target = {
-                        "goal_gripper_pcd": data['goal_gripper_pcd'][i].unsqueeze(0), # 1, M, 4, 3
-                        'goal_gripper_mask': data['goal_gripper_mask'][i].unsqueeze(0) if 'goal_gripper_mask' in data else None, # 1, M
-                    }
-                    loss = gmm_loss(this_pred, this_target)                        
-                    mse_cost += loss
-                    # print("in getting loss, gmm loss is: ", loss.item())
+                    
+                mse_cost = mse_cost / B # average over batch
+            
+            else:
+            # print("sequential gmm loss is: ", mse_cost.item())
+            
+                # import pdb; pdb.set_trace()
+                ### a batch version of the gmm loss
+                B, N, _ = pred['pred_offset'].shape # B, N, 12
+                this_pred = {
+                    "pred_offset": pred['pred_offset'].view(B, N, 4, 3), # 1, N, 4, 3
+                    "pred_scores": torch.cat(matched_weights, dim=0),
+                    # "pred_scores": pred['grasping_masks'][i][0].unsqueeze(0), 
+                    
+                    "pred_points": data['pred_points'] if 'pred_points' in data else data['inputs'][:, :, :3]
+                }
+                this_target = {
+                    "goal_gripper_pcd": data['goal_gripper_pcd'], # 1, M, 4, 3
+                    'goal_gripper_mask': data['goal_gripper_mask'] if 'goal_gripper_mask' in data else None, # 1, M
+                }
                 
-            mse_cost = mse_cost / B # average over batch
+                if 'gmm_variance_list' not in data:                
+                    gmm_loss_batched = gmm_loss(this_pred, this_target, return_mean=True, fixed_variance=data.get('gmm_variance', 0.05))       
+                    gmm_loss_batched_list = {"gmm_loss": (self.gmm_weight, gmm_loss_batched)}
+                else:
+                    gmm_loss_batched_list = {}
+                    for variance, scale in zip(data['gmm_variance_list'], data['gmm_loss_scale']):
+                        loss = gmm_loss(this_pred, this_target, return_mean=True, fixed_variance=variance)
+                        gmm_loss_batched_list['gmm_loss_{}'.format(variance)] = (scale, loss)
 
             outputs = {}
             losses = {}
@@ -297,7 +311,11 @@ class SetCriterion(nn.Module):
                 losses['objectness'] = (self.object_weight, loss_obj)
                 losses["weighted displacement loss"] = (self.wdp_weight, mse_cost)
             else:
-                losses["gmm loss"] = (self.gmm_weight, mse_cost)
+                # losses["gmm loss"] = (self.gmm_weight, gmm_loss_batched)
+                losses.update(gmm_loss_batched_list)
+                # import pdb; pdb.set_trace()
+                if pred['grasping_masks'][0].shape[0] > 1:
+                    losses['objectness'] = (self.object_weight, loss_obj)
 
         if layer is not None:
             losses = {
@@ -311,8 +329,16 @@ class SetCriterion(nn.Module):
 
         # Compute matching between final prediction and the targets
         #NOTE: change the matcher to be using a weighted MSE loss
-        output_idx, cost_matrices, target_idx = self.matcher(pred[-1], targets)
-        
+        num_queries = pred[-1]['grasping_masks'].shape[1]
+        if num_queries > 1:
+            output_idx, cost_matrices, target_idx = self.matcher(pred[-1], targets)
+        else:
+            batch_size = pred[-1]['grasping_masks'].shape[0]
+            device = pred[-1]['grasping_masks'].device
+            output_idx = [torch.zeros(1).long().to(device) for _ in range(batch_size)]
+            cost_matrices = [torch.zeros(1,1).to(device) for _ in range(batch_size)]
+            target_idx = [torch.zeros(1).long().to(device) for _ in range(batch_size)]
+            
         outputs.update({
             'matched_idx': output_idx, 'cost_matrices': cost_matrices
         })
@@ -325,7 +351,14 @@ class SetCriterion(nn.Module):
             # Compute losses for each intermediate layer outputs
             for i, p in enumerate(pred[:-1]):
                 if self.recompute_indices:
-                    output_idx, _, target_idx = self.matcher(p, targets)
+                    if num_queries > 1:
+                        output_idx, _, target_idx = self.matcher(p, targets)
+                    else:
+                        batch_size = pred[-1]['grasping_masks'].shape[0]
+                        device = pred[-1]['grasping_masks'].device
+                        output_idx = [torch.zeros(1).long().to(device) for _ in range(batch_size)]
+                        target_idx = [torch.zeros(1).long().to(device) for _ in range(batch_size)]
+
                 l_dict, _ = self.get_loss(p, targets, output_idx, i + 1, target_idx=target_idx)
                 losses.update(l_dict)
                 outputs[f'layer{i+1}/matched_idx'] = output_idx
@@ -430,7 +463,7 @@ class GraspCriterion(nn.Module):
         return cls(**args)
 
     def forward(self, pred, data):
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         losses = {}
         losses['contact_dir'] = (1 - (
             pred['contact_dirs'] * data['contact_dirs']

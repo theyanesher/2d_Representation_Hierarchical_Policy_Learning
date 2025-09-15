@@ -32,7 +32,7 @@ class M2T2(nn.Module):
         grasp_criterion: nn.Module = None,
         place_criterion: nn.Module = None,
         cgn_cfg=None,
-        cfg=None,
+        cfg=None
     ):
         super(M2T2, self).__init__()
         self.backbone = backbone
@@ -76,7 +76,8 @@ class M2T2(nn.Module):
                 cfg.grasp_loss
             )
             
-        args['cgn_cfg'] = cgn_cfg
+        if cgn_cfg is not None:
+            args['cgn_cfg'] = cgn_cfg
         args['cfg'] = cfg
             
         return cls(**args)
@@ -127,23 +128,11 @@ class M2T2(nn.Module):
         return gt_4_points, mask
 
     def forward(self, data, cfg):
-        # import pdb; pdb.set_trace()
+        # TODO: incoporate the language tokesn into the model forward
+        
         
         # NOTE: this needs to include the displacement output
-        scene_feat = self.backbone(data['inputs'])
-        # import pdb; pdb.set_trace()
-        
-        # object_inputs = data['object_inputs']
-        # object_feat = {}
-        # if self.object_encoder is not None:
-        #     object_feat = self.object_encoder(object_inputs)
-        # if 'task_is_place' in data:
-        #     for key, val in object_feat['features'].items():
-        #         object_feat['features'][key] = (
-        #             val * data['task_is_place'].view(
-        #                 data['task_is_place'].shape[0], 1, 1
-        #             )
-        #         )
+        scene_feat = self.backbone(data['inputs'], data.get("lang_tokens", None))
         
         lang_tokens = data.get('lang_tokens')
         embedding, outputs = self.transformer(
@@ -154,14 +143,9 @@ class M2T2(nn.Module):
         ## TODO: update outputs to have key pred_offsets
         for output in outputs:
             output["pred_offset"] = scene_feat["pred_offset"]
-            # output["pred_offset"] = output['pred_offset'] * 0
 
         # import pdb; pdb.set_trace()
         losses = {}
-        # import pdb; pdb.set_trace()
-        # if self.place_criterion is not None:
-        #     losses, stats = self.place_criterion(outputs, data)
-        #     outputs[-1].update(stats)
         
         ### TODO: should compute the cgn ground-truth here
         if 'cgn' in data:
@@ -175,9 +159,15 @@ class M2T2(nn.Module):
             # import pdb; pdb.set_trace()
             data['goal_gripper_pcd'] = gt_4_points
             data['goal_gripper_mask'] = success_mask
-            data['pred_points'] = scene_feat['context_pos']['res1']
+            # data['pred_points'] = scene_feat['context_pos']['res1']
             # data['pred_points'] = pred_points   
-
+            
+        # import pdb; pdb.set_trace()
+        if self.cfg.not_fp_to_full: 
+            data['pred_points'] = scene_feat['context_pos']['res1']  # B, N, 3
+        else:
+            data['pred_points'] = data['inputs']
+            
         # import pdb; pdb.set_trace()
         assert self.set_criterion is not None
         if self.set_criterion is not None:
@@ -188,121 +178,39 @@ class M2T2(nn.Module):
         else:
             outputs = outputs[-1]
 
-        ### NOTE: can no longer have the per-point loss because what is the target?? 
-        # or maybe integrate the per-point loss into the matcher, which also does not make too much sense
-        # ### TODO: for articubot, compute the per-point loss here
-        # gripper_points = data['goal_gripper_pcd'] # B, 4, 3
-        # input_positions = data['inputs'] # B, N, 3
-        # import pdb; pdb.set_trace()
-        # labels = gripper_points.unsqueeze(1) - input_positions.unsqueeze(2) # B, N, 4, 3
-        # B, N, _, _ = labels.shape
-        # labels = labels.view(B, N, -1) # B, N, 12
-        # pred_offsets = outputs['pred_offset'].view(B, N, -1) # B, N, 12
-        # perpoint_loss = torch.nn.functional.mse_loss(
-        #     pred_offsets, labels, reduction='mean'
-        # )
-        # losses.update({'perpoint_loss': perpoint_loss})
-        
-        
-        # import pdb; pdb.set_trace()
-        # if self.grasp_mlp is not None:
-        #     mask_features = scene_feat['features'][
-        #         self.transformer.mask_feature
-        #     ]
-        #     obj_embedding = [emb[idx] for emb, idx in zip(
-        #         embedding['grasp'], outputs['matched_idx']
-        #     )]
-        #     confidence = [
-        #         mask.sigmoid() for mask in outputs['matched_grasping_masks']
-        #     ]
-        #     grasp_outputs = self.grasp_mlp(
-        #         data['points'], mask_features, confidence,
-        #         cfg.mask_thresh, obj_embedding, data['grasping_masks']
-        #     )
-        #     import pdb; pdb.set_trace()
-        #     outputs.update(grasp_outputs)
-        #     contact_losses = self.grasp_criterion(outputs, data)
-        #     losses.update(contact_losses)
 
         return outputs, losses
 
-    def infer(self, data, cfg):
+    def infer(self, data, gmm=False):
         B, N, _ = data['inputs'].shape
-        scene_feat = self.backbone(data['inputs'])
+        scene_feat = self.backbone(data['inputs'], data.get("lang_tokens", None))
 
-        # object_feat = self.object_encoder(data['object_inputs'])
-        # if 'task_is_place' in data:
-        #     for key in object_feat['features']:
-        #         object_feat['features'][key] = (
-        #             object_feat['features'][key] * data['task_is_place'].view(
-        #                 data['task_is_place'].shape[0], 1, 1
-        #             )
-        #         )
         object_feat = None
         
         lang_tokens = data.get('lang_tokens')
         embedding, outputs = self.transformer(scene_feat, object_feat, lang_tokens)
+
         outputs = outputs[-1]
-        import pdb; pdb.set_trace()
-
-
-        # if 'place' in embedding and embedding['place'].shape[1] > 0:
-        #     import pdb; pdb.set_trace()
-        #     cam_pose = None if cfg.world_coord else data['cam_pose']
-        #     placement_outputs = infer_placements(
-        #         data['points'], outputs['placement_masks'],
-        #         data['bottom_center'], data['ee_pose'],
-        #         cam_pose, cfg.mask_thresh, cfg.placement_height
-        #     )
-        #     outputs.update(placement_outputs)
-        #     outputs['placement_masks'] = (
-        #         outputs['placement_masks'].sigmoid() > cfg.mask_thresh
-        #     )
+        # import pdb; pdb.set_trace()
         
         ### assuming it's batch 1 for now
         objectness = outputs['objectness'].sigmoid()
         best_weight_idx = objectness.argmax(dim=1)
-        # best_weight = torch.gather(outputs['grasping_masks'], dim=1, index=best_weight_idx.unsqueeze(1))
-        best_weight = outputs['grasping_masks'].squeeze(0)[best_weight_idx] # N
+        best_weight = outputs['grasping_masks'].squeeze(0)[best_weight_idx] # 1, N
         
-        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(B, 4, 3) # N, 4, 3 
-        input = data['inputs'].squeeze(0) # N, 3
+        input = scene_feat['context_pos']['res1'].squeeze(0) # N, 3
+        N, _ = input.shape
+        pred_offsets = scene_feat["pred_offset"].squeeze(0).view(N, 4, 3) # N, 4, 3 
+        
         all_preds = input.unsqueeze(1) + pred_offsets # N, 4, 3
-        best_weight = torch.softmax(best_weight, dim=1)
-        weighted_pred = (all_preds * best_weight.unsqueeze(1).unsqueeze(2)).sum(dim=0) # 4, 3
-        
-        # if 'grasp' in embedding and embedding['grasp'].shape[1] > 0:
-        #     masks = outputs['grasping_masks'].sigmoid() > cfg.mask_thresh
-        #     mask_features = scene_feat['features'][self.transformer.mask_feature]
-        #     if 'objectness' in outputs:
-        #         objectness = outputs['objectness'].sigmoid()
-        #         object_ids = [torch.where((score > cfg.object_thresh) & mask.sum(dim=1) > 0)[0]for score, mask in zip(objectness, masks)]
-        #         outputs['objectness'] = [
-        #             score[idx] for score, idx in zip(objectness, object_ids)
-        #         ]
-        #         confidence = [
-        #             logits.sigmoid()[idx]
-        #             for logits, idx in zip(outputs['grasping_masks'], object_ids)
-        #         ]
-        #         outputs['grasping_masks'] = [
-        #             mask[idx] for mask, idx in zip(masks, object_ids)
-        #         ]
-        #         obj_embedding = [emb[idx] for emb, idx in zip(
-        #             embedding['grasp'], object_ids
-        #         )]
-        #     else:
-        #         obj_embedding = embedding['grasp']
-        #         confidence = [
-        #             logits.sigmoid() for logits in outputs['grasping_masks']
-        #         ]
-        #     grasp_outputs = self.grasp_mlp(
-        #         data['points'], mask_features, confidence,
-        #         cfg.mask_thresh, obj_embedding
-        #     )
-        #     outputs.update(grasp_outputs)
+        best_weight = torch.softmax(best_weight, dim=1).squeeze(0) # N
+        if not gmm:
+            weighted_pred = (all_preds * best_weight.unsqueeze(1).unsqueeze(2)).sum(dim=0) # 4, 3
+            return weighted_pred
+        else:
+            argmax_weight = best_weight.argmax()
+            return all_preds[argmax_weight].unsqueeze(0) # 1, 4, 3
 
-        return weighted_pred
-    
     def infer_cgn(self, data, cfg, topk=10):
         B, N, _ = data['inputs'].shape
         scene_feat = self.backbone(data['inputs'])

@@ -500,9 +500,9 @@ def get_dataset_paths(beg_ratio=0, end_ratio=0.9, use_all_data=False, dataset_pr
     print("num_train_objects: ", num_train_objects)
     
     if num_train_objects == 'test':
-        data_name = [save_data_name_0]
+        all_subfolders = sorted(os.listdir(dataset_prefix))
         all_obj_paths = [
-            "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
+            "{}/{}".format(dataset_prefix, all_subfolders[0])
         ]
         
     elif num_train_objects == 'articulated':
@@ -803,4 +803,6 @@ def get_dataset_paths(beg_ratio=0, end_ratio=0.9, use_all_data=False, dataset_pr
     else:
         raise ValueError('num_train_objects not supported')
         
+        
+    print("all obj paths:", all_obj_paths)
     return all_obj_paths

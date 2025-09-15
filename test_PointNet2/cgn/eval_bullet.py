@@ -257,6 +257,7 @@ class ContactGraspNetEnv():
                  env_state=None,
                  camera_angle_nums=50,
                  precontact=0,
+                 world_frame=0,
                 ):
         
         self.scene_root_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym"
@@ -265,6 +266,7 @@ class ContactGraspNetEnv():
         self.gui = gui
         self.camera_angle_nums = camera_angle_nums
         self.precontact = precontact
+        self.world_frame = world_frame
         
         ### initialize pybullet
         if self.gui:
@@ -287,7 +289,7 @@ class ContactGraspNetEnv():
         p.setGravity(0, 0, self.gravity, physicsClientId=self.id)
         res = p.getPhysicsEngineParameters(physicsClientId=self.id)
         # print(res)
-        p.setPhysicsEngineParameter(numSubSteps=10, contactERP=0.7, contactSlop=0.005, numSolverIterations=50, physicsClientId=self.id)
+        # p.setPhysicsEngineParameter(numSubSteps=10, contactERP=0.7, contactSlop=0.005, numSolverIterations=50, physicsClientId=self.id)
         res = p.getPhysicsEngineParameters(physicsClientId=self.id)
         # print(res)
         # import pdb; pdb.set_trace()
@@ -532,28 +534,55 @@ class ContactGraspNetEnv():
         lower_bound = self.scene_min_aabb - 0.3
         upper_bound = self.scene_max_aabb + 0.3
         good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
-        pc_in_camera = pc_in_camera[good_idx]
+        if not self.world_frame:
+            pc_in_camera = pc_in_camera[good_idx]
+                        
+            # Convert point cloud coordinates from OpenGL to internal coordinates (x left, y up, z front)
+            # openGL: x right, y up, z back
+            pc_in_camera[:, 0] = -pc_in_camera[:, 0]
+            pc_in_camera[:, 2] = -pc_in_camera[:, 2]
+            
+            # import pdb; pdb.set_trace()
+            
+            ### perform the fps on the pcd
+            kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_camera[:, :3], self.num_points_in_pc)
+            pc_in_camera = pc_in_camera[kdline_fps_samples_idx]
+            
+            ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
+            mean = np.mean(pc_in_camera, axis=0, keepdims=True)
+            pc_in_camera -= mean
+            return rgb, depth, pc_in_camera, mean
+        else:
+            cprint("Using world frame!", "yellow")
+            pc_in_world = pc_in_world[good_idx]        
+            ### perform the fps on the pcd
+            kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_world[:, :3], self.num_points_in_pc)
+            pc_in_world = pc_in_world[kdline_fps_samples_idx]
+            
+            ### TODO: randomly sample 4 gripper points
+            from test_PointNet2.cgn.acronym_dataloader import random_quaternion
+            from test_PointNet2.dataset_from_disk import get_4_points_from_gripper_pos_orient
+            scene_center = np.mean(pc_in_world, axis=0)
+            low = np.copy(scene_center)
+            low[0] = scene_center[0] - 0.7
+            low[1] = scene_center[1] - 0.7
+            low[2] = 0.4
+            high = np.copy(scene_center)
+            high[0] = scene_center[0] + 0.7
+            high[1] = scene_center[1] + 0.7
+            high[2] = 0.7 + 0.4
+            gripper_pos = np.random.uniform(low, high)
+            gripper_quat = random_quaternion()
+            gripper_q = np.random.uniform(0, 0.04)
+            gripper_pcd = get_4_points_from_gripper_pos_orient(gripper_pos, gripper_quat, gripper_q)
+            
+            pc_in_world = np.concatenate([pc_in_world, gripper_pcd], axis=0)
+            
+            ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
+            mean = np.mean(pc_in_world, axis=0, keepdims=True)
+            pc_in_world -= mean
+            return rgb, depth, pc_in_world, mean
         
-        
-        
-        # import pdb; pdb.set_trace()
-        
-        # Convert point cloud coordinates from OpenGL to internal coordinates (x left, y up, z front)
-        # openGL: x right, y up, z back
-        pc_in_camera[:, 0] = -pc_in_camera[:, 0]
-        pc_in_camera[:, 2] = -pc_in_camera[:, 2]
-        
-        # import pdb; pdb.set_trace()
-        
-        ### perform the fps on the pcd
-        kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_camera[:, :3], self.num_points_in_pc)
-        pc_in_camera = pc_in_camera[kdline_fps_samples_idx]
-        
-        ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
-        mean = np.mean(pc_in_camera, axis=0, keepdims=True)
-        pc_in_camera -= mean
-        
-        return rgb, depth, pc_in_camera, mean
     
     ### TODO: augment the depth image
     def augment_depth(self, depth):
@@ -698,9 +727,12 @@ class ContactGraspNetEnv():
         
     def step(self, grasp, debug=False):
         ### TODO: convert grasp from camera frame to world frame
-        world_to_camera = np.asarray(self.view_matrix).reshape([4, 4], order="F")
-        camera_to_world = np.linalg.inv(world_to_camera)
-        grasp_in_world = camera_to_world @ grasp
+        if not self.world_frame:
+            world_to_camera = np.asarray(self.view_matrix).reshape([4, 4], order="F")
+            camera_to_world = np.linalg.inv(world_to_camera)
+            grasp_in_world = camera_to_world @ grasp
+        else:
+            grasp_in_world = grasp
         
         target_pos, target_rotation = grasp_in_world[:3, 3], grasp_in_world[:3, :3]
         target_rotation = target_rotation @ np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # flip the xy axis
@@ -896,8 +928,8 @@ def infer_m2t2(model, pcd, topk=10, device=torch.device("cuda"), siglip_embeddin
     return topk_grasps[0].cpu().numpy()
 
 def parallel_eval(args):
-    pred_grasp, scene_path, env_state, precontact = args
-    new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=precontact)
+    pred_grasp, scene_path, env_state, precontact, world_frame = args
+    new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=precontact, world_frame=world_frame)
     success, res_string = new_env.step(pred_grasp)
     images = new_env.rendered_images
     new_env.close()
@@ -931,6 +963,7 @@ if __name__ == "__main__":
     parser.add_argument("--precontact", type=int, default=1, help="whether to first goto a precontact pose before grasping")
     parser.add_argument("--num_point", type=int, default=20000)
     parser.add_argument("--model_type", type=str, default="pointnet++")
+    parser.add_argument("--world_frame", type=int, default=0)
     args = parser.parse_args()
     
     # this_file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -972,6 +1005,7 @@ if __name__ == "__main__":
         high_level_model.load_state_dict(ckpt['model'])
         high_level_model = high_level_model.cuda().eval()
         model = high_level_model
+        args.num_point = 12000
     elif args.model_type == "ptv3":
         from ptv3.highlevel_ptv3 import HighlevelPTv3
         import hydra
@@ -996,7 +1030,7 @@ if __name__ == "__main__":
     
     meta_results = defaultdict(int)
     for scene_path in scene_path_list:
-        env = ContactGraspNetEnv(scene_path=scene_path, gui=False, num_points_in_pc=args.num_point)
+        env = ContactGraspNetEnv(scene_path=scene_path, gui=False, num_points_in_pc=args.num_point, world_frame=args.world_frame)
         
         ### get an pcd observation from the scene
         rgb, depth, pc_in_camera, pc_center = env.get_obs()
@@ -1019,6 +1053,7 @@ if __name__ == "__main__":
         ### for debugging purposes
         # render_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/renders/000000/000.npz"
         # pc_in_camera, camera_pose = load_scene(render_path)
+        # pc_in_camera = pc_in_camera[pc_in_camera[:, 2] > 0]
         
         # with open("data/debug/pcd.pkl", 'wb') as f:
         #     import pdb; pdb.set_trace()
@@ -1031,12 +1066,16 @@ if __name__ == "__main__":
             pred_grasps = infer_m2t2(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
         elif args.model_type == 'ptv3':
             pred_grasps = infer_contact_graspnet(model, pc_in_camera, topk=10, siglip_embedding=siglip_text_features)
-        cprint("visualizing predicted grasps", "green")
+        # cprint("visualizing predicted grasps", "green")
         # env.visualize_grasp(pc_in_camera, pred_grasps, topk=10)
+        # exit()
         
         ### convert back to opengl camera frame and add center back
-        pred_grasps[:, :3, 3] += pc_center
-        pred_grasps[:, [0, 2]] *= -1
+        if not args.world_frame:
+            pred_grasps[:, :3, 3] += pc_center
+            pred_grasps[:, [0, 2]] *= -1
+        else:
+            pred_grasps[:, :3, 3] += pc_center
         
         ### execute the grasp, determine its success 
         this_env_results = defaultdict(int)
@@ -1054,7 +1093,7 @@ if __name__ == "__main__":
             
                 
         ### parallel version
-        all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
+        all_args = [(pred_grasps[i], scene_path, env_state, args.precontact, args.world_frame) for i in range(len(pred_grasps))]
         with Pool(processes=10) as pool:
             results = pool.map(parallel_eval, all_args)  
         for idx, res in enumerate(results):
