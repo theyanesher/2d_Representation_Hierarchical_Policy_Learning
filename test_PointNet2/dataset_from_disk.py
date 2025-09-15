@@ -41,7 +41,7 @@ def change_goal_gripper_pcd_to_open(goal_gripper_pcd):
     return open_gripper_pcd
 
 categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
-num_cats = 12
+num_cats = 15
 
 articulated_new = [
     # Bucket
@@ -131,6 +131,13 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                     cat_idx = 7
                 else:
                     cat_idx += 5
+            if cat_idx == 0:
+                # if 'grasp' in zarr_path:
+                #     cat_idx = 12
+                if 'top' in obj_path:
+                    cat_idx = 13
+                if 'inside' in obj_path:
+                    cat_idx = 14
                     
             # storage furniture, bucket, faucet, foldingchair, laptop, stapler, toilet, invert storage furniture, invert foldingchair, invert laptop, invert stapler, invert toilet
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
@@ -492,10 +499,13 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
         print("num_train_objects: ", num_train_objects)
         print("num_train_objects: ", num_train_objects)
         if num_train_objects == 'test':
-            data_name = [save_data_name_0]
-            all_obj_paths = [
-                "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
-            ]
+            dataset_prefix = '/tmp/new_7_category_real_cam'
+            articulated_real_cam = sorted(os.listdir(dataset_prefix))
+            ### only use folders not starting with digit
+            articulated_real_cam = [f for f in articulated_real_cam if not f[0].isdigit()]
+            articulated_real_cam = [os.path.join(dataset_prefix, x) for x in articulated_real_cam]
+            all_obj_paths = [articulated_real_cam[0]]
+            
             
         elif num_train_objects == 'aritucbot_new_cat_camera_random_close':
             ### articubot with camera randomization
@@ -544,6 +554,79 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
 
             all_obj_paths = non_real_world_camera_500_paths + real_world_camera_500_paths + articulated + \
                 articulated_random_cam + articulated_real_cam + articulated_dagger + close_data
+                
+            print("all obj paths: ============================================")
+            print(all_obj_paths)
+            print("all obj paths: ============================================")
+            
+        elif num_train_objects == 'pick_and_place':
+            dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
+            all_pick_place_data = []
+            for name in dataset_prefix:
+                path = f"/tmp/pick_and_place/{name}"
+                all_data = sorted(os.listdir(path))
+                all_data = [os.path.join(path, x) for x in all_data]
+                all_pick_place_data.extend(all_data)
+                
+            all_obj_paths = all_pick_place_data
+            print("all_obj_paths: ", all_obj_paths)
+            
+        elif num_train_objects == 'aritucbot_new_cat_camera_random_close_pick_and_place':
+            ### articubot with camera randomization
+            dataset_prefix = "/tmp/dp3_demo_clean_distorted_goal"
+            # non_real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
+            # non_real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in non_real_world_camera_500_paths]
+            non_real_world_camera_500_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(463)]
+
+            ### articubot with real camera randomization
+            dataset_prefix = "/tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
+            real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
+            real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in real_world_camera_500_paths]
+            
+            ### new category
+            dataset_prefix = '/tmp/articulated'
+            articulated = sorted(os.listdir(dataset_prefix))
+            # articulated = [os.path.join(dataset_prefix, x) for x in articulated]
+            articulated = ["{}/{}".format(dataset_prefix, name) for name in articulated_new]
+
+            ### new category with camera randomization
+            dataset_prefix = '/tmp/new_7_category_random_cam'
+            articulated_random_cam = sorted(os.listdir(dataset_prefix))
+            ### only use folders not starting with digit
+            articulated_random_cam = [f for f in articulated_random_cam if not f[0].isdigit()]
+            articulated_random_cam = [os.path.join(dataset_prefix, x) for x in articulated_random_cam]
+            
+            ### new category with real world randomization
+            dataset_prefix = '/tmp/new_7_category_real_cam'
+            articulated_real_cam = sorted(os.listdir(dataset_prefix))
+            ### only use folders not starting with digit
+            articulated_real_cam = [f for f in articulated_real_cam if not f[0].isdigit()]
+            articulated_real_cam = [os.path.join(dataset_prefix, x) for x in articulated_real_cam]
+            
+            ### dagger on new categories
+            dataset_prefix = '/tmp/dp3_demo_weighted_full_dagger'
+            articulated_dagger = sorted(os.listdir(dataset_prefix))
+            ### only use folders not starting with digit
+            articulated_dagger = [f for f in articulated_dagger if not f[0].isdigit()]
+            articulated_dagger = [os.path.join(dataset_prefix, x) for x in articulated_dagger]
+            
+            ### close data
+            dataset_prefix = '/tmp/invert_push'
+            close_data = sorted(os.listdir(dataset_prefix))
+            close_data = [os.path.join(dataset_prefix, x) for x in close_data]
+            # close_data = []
+            
+            ### pick and place data
+            dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
+            all_pick_place_data = []
+            for name in dataset_prefix:
+                path = f"/tmp/pick_and_place/{name}"
+                all_data = sorted(os.listdir(path))
+                all_data = [os.path.join(path, x) for x in all_data]
+                all_pick_place_data.extend(all_data)
+
+            all_obj_paths = non_real_world_camera_500_paths + real_world_camera_500_paths + articulated + \
+                articulated_random_cam + articulated_real_cam + articulated_dagger + close_data + all_pick_place_data
                 
             print("all obj paths: ============================================")
             print(all_obj_paths)
