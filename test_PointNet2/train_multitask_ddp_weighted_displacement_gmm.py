@@ -24,6 +24,25 @@ from test_PointNet2.cgn.acronym_dataloader import AcryonymDataset
 from test_PointNet2.cgn import utils as cgn_utils
 from test_PointNet2.cgn.cgn_loss import ContactGraspnetLoss
 import torch.distributed as dist
+import subprocess
+
+def upload_file(local_folder):
+    base = "gs://cmu-gpucloud-yufeiw2/articubot_exps"
+    folder_name = os.path.basename(local_folder.rstrip("/"))
+    destination = f"{base}/{folder_name}"
+    
+    try:
+        cmd = ["gcloud", "storage", "rsync", "-r", local_folder, destination]
+        # print(cmd)
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(f"[Success] Uploaded: {local_folder} -> {destination}")
+    except subprocess.CalledProcessError as e:
+        print(f"[Failure] Failed to upload {local_folder}: {e.stderr.strip()}")
 
 def infinite_loader(dl):
     while True:
@@ -186,7 +205,7 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         pred = model(pc_cam)
     else:
         # print("cgn use siglip embedding")
-        embedding = siglip_features[-1].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
+        embedding = siglip_features[12].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
         pred = model(pc_cam, embedding)
         
     loss, loss_info = loss_fn(pred, data, world_frame=global_config['world_frame'])
@@ -305,10 +324,12 @@ def train(args):
     }
     
     if general_args.category_embedding_type == "siglip":
-        if not ("close" in str(args.articubot.num_train_objects)):
-            siglip_text_features = torch.load("../siglip_text_features.pt")
-        else:
-            siglip_text_features = torch.load("../siglip_text_features_close.pt")
+        # if not ("close" in str(args.articubot.num_train_objects)):
+        #     siglip_text_features = torch.load("../siglip_text_features.pt")
+        # else:
+        #     siglip_text_features = torch.load("../siglip_text_features_close.pt")
+        siglip_text_features = torch.load("../siglip_text_features_w_pick_and_place.pt")
+        siglip_text_features = siglip_text_features['values']
             
     else:
         siglip_text_features = None
@@ -348,7 +369,8 @@ def train(args):
             print(f"{global_step} {all_logs}")
             
             ### TODO: save the model here
-            if (global_step + 1) % args.general.save_freq == 0:
+            # if (global_step + 1) % args.general.save_freq == 0:
+            if (global_step) % args.general.save_freq == 0:
                 save_path = f"{general_args.exp_path}/model_{global_step + 1}.pth"
                 save_dict = {
                     "model": model.module.state_dict(),
@@ -356,6 +378,10 @@ def train(args):
                     
                 }
                 torch.save(save_dict, save_path)
+                
+                ### TODO: rsync all models to google drive
+                upload_file(general_args.exp_path)
+                
         
         # torch.cuda.empty_cache()        
         # torch.cuda.ipc_collect()         
