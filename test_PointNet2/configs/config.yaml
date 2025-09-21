@@ -38,6 +38,7 @@ general:
   category_embedding_type: siglip
   film_in_sa_and_fp: 0
   embedding_as_input: 0
+  policy_class: pointnet2
   
 
 cgn: 

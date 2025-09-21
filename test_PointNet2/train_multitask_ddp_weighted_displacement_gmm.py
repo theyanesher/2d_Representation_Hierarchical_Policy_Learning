@@ -62,7 +62,6 @@ def setup_cgn_dataloader(global_config, device):
                                                    batch_size=batch_size,
                                                    shuffle=False,
                                                    num_workers=num_workers,
-                                                #    num_workers=0,
                                                    sampler=DistributedSampler(train_dataset)
                                                    )
     # test_dataloader = torch.utils.data.DataLoader(test_dataset,
@@ -217,7 +216,12 @@ def train(args):
     general_args = args.general
     input_channel = 5 if general_args.add_one_hot_encoding else 3
     output_dim = 13 
-    from test_PointNet2.model_invariant import PointNet2_super_multitask
+    if general_args.policy_class == 'pointnet2':
+        from test_PointNet2.model_invariant import PointNet2_super_multitask
+        policy_class = PointNet2_super_multitask
+    elif general_args.policy_class == 'pointnext':
+        from test_PointNet2.model_invariant import PointNet2_super_next_multitask
+        policy_class = PointNet2_super_next_multitask
     
     if general_args.category_embedding_type == "one_hot":
         embedding_dim = args.num_categories
@@ -226,7 +230,7 @@ def train(args):
     else:
         embedding_dim = None
     
-    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
+    model = policy_class(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
                                       first_sa_point=general_args.first_sa_point,
                                       fp_to_full=general_args.fp_to_full,
                                       replace_bn_w_gn=general_args.replace_bn_with_gn,
