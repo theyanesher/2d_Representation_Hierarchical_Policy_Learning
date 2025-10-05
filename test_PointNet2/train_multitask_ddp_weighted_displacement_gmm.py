@@ -241,6 +241,9 @@ def train(args):
     elif general_args.policy_class == 'pointnext':
         from test_PointNet2.model_invariant import PointNet2_super_next_multitask
         policy_class = PointNet2_super_next_multitask
+    elif general_args.policy_class == 'pointnext_fp':
+        from test_PointNet2.model_invariant import PointNet2_super_next_fp_multitask
+        policy_class = PointNet2_super_next_fp_multitask
     
     if general_args.category_embedding_type == "one_hot":
         embedding_dim = args.num_categories
@@ -264,7 +267,8 @@ def train(args):
     
     if general_args.load_model_path is not None:
         load = torch.load(general_args.load_model_path, map_location=device)
-        model.load_state_dict(load['model'])
+        # import pdb; pdb.set_trace()
+        model.load_state_dict(load['model'], strict=False)
         # optimizer.load_state_dict(load['optimizer'])
         print("Successfully load model and optimizer from: ", general_args.load_model_path)
         
@@ -327,7 +331,8 @@ def train(args):
         # if not ("close" in str(args.articubot.num_train_objects)):
         #     siglip_text_features = torch.load("../siglip_text_features.pt")
         # else:
-        #     siglip_text_features = torch.load("../siglip_text_features_close.pt")
+            # siglip_text_features = torch.load("../siglip_text_features_close.pt")
+        # siglip_text_features = torch.load("../siglip_text_features.pt")
         siglip_text_features = torch.load("../siglip_text_features_w_pick_and_place.pt")
         siglip_text_features = siglip_text_features['values']
             
@@ -380,7 +385,7 @@ def train(args):
                 torch.save(save_dict, save_path)
                 
                 ### TODO: rsync all models to google drive
-                upload_file(general_args.exp_path)
+                # upload_file(general_args.exp_path)
                 
         
         # torch.cuda.empty_cache()        

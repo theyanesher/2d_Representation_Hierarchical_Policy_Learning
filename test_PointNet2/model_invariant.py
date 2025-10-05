@@ -1028,7 +1028,7 @@ class PointNet2_super_next_multitask(nn.Module):
 
         # add film
         if embedding is not None:
-            print("using language embedding in film")
+            # print("using language embedding in film")
             l6_points = self.film(l6_points, embedding) # (B, 1024, 16)
 
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 512, 64)
@@ -1036,6 +1036,236 @@ class PointNet2_super_next_multitask(nn.Module):
         l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 256, 256)
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 256, 512)
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 128, 1024)
+        if self.fp_to_full:
+            l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 128, num_point)
+            pred_points = l0_xyz #### 2048 points
+            feature = l0_points
+        else:
+            pred_points = l1_xyz #### 2048 points
+            feature = l1_points
+            
+        binary_seg_head = self.binary_seg_head(feature)
+        four_point_head_offset = self.four_point_head(feature).permute(0, 2, 1)
+        
+        pred_scores = binary_seg_head.permute(0, 2, 1)
+        pred_points = pred_points.permute(0, 2, 1) # B x N x 3
+        pred_offsets = four_point_head_offset.view(four_point_head_offset.shape[0], four_point_head_offset.shape[1], 4, 3)  # B x N x 4 x 3
+
+        if build_grasp:
+            pred_4_points = pred_points.unsqueeze(2).repeat(1, 1, 4, 1) + four_point_head_offset.reshape(four_point_head_offset.shape[0], four_point_head_offset.shape[1], 4, 3) # B x N x 4 x 3
+            pred_grasps_cam, offset = self.build_6d_grasp_from_four_points(pred_4_points, articubot_format=articubot_format)  # B x N x 4 x 4
+        else:
+            pred_grasps_cam, offset = None, None
+    
+        pred = dict(
+            pred_scores = pred_scores,
+            pred_points =pred_points,
+            pred_offsets=pred_offsets,  
+            pred_grasps_cam= pred_grasps_cam,  # B x N x 4 x 4
+            offset_pred=offset
+        )
+        
+        return pred
+        
+    def build_6d_grasp_from_four_points(self, four_point_head, gripper_depth = 0.105, articubot_format=False):
+        B, N, _, _ = four_point_head.shape
+        
+        grasp_t = four_point_head[:, :, 0].unsqueeze(3)  # B x N x 3 x 1
+        
+        
+        approach_direction = four_point_head[:, :, -1] - four_point_head[:, :, 0]  # B x N x 3
+        baseline_direction = four_point_head[:, :, 2] - four_point_head[:, :, 1]  # B x N x 3
+        
+        # baseline_direction_normed = F.normalize(baseline_direction, p=2, dim=2)  # B x N x 3
+        # dot_product = torch.sum(approach_direction * baseline_direction_normed, dim=2, keepdim=True)  # B x N x 1
+        # projection = dot_product * baseline_direction_normed  # B x N x 3
+        # approach_direction_orthog = F.normalize(approach_direction - projection, p=2, dim=2)  # B x N x 3
+        # grasp_R = torch.stack([baseline_direction_normed, torch.cross(approach_direction_orthog, baseline_direction_normed),approach_direction_orthog], dim=3)  # B x N x 3 x 3
+        
+        approach_direction_normed = F.normalize(approach_direction, p=2, dim=2)  # B x N x 3
+        dot_product = torch.sum(baseline_direction * approach_direction_normed, dim=2, keepdim=True)  # B x N x 1
+        projection = dot_product * approach_direction_normed  # B x N x 3
+        baseline_direction_orthog = F.normalize(baseline_direction - projection, p=2, dim=2)  # B x N x 3
+        grasp_R = torch.stack([baseline_direction_orthog, torch.cross(approach_direction_normed, baseline_direction_orthog),approach_direction_normed], dim=3)  # B x N x 3 x 3
+        
+        if articubot_format:
+            from termcolor import cprint
+            cprint("Using articubot format for 6d grasp!", "yellow")
+            eef_position = four_point_head[:, :, -1] # B x N x 3
+            hand_position = eef_position - gripper_depth * approach_direction_normed # B x N x 3
+            grasp_t = hand_position.unsqueeze(3)  # B x N x 3 x 1
+        
+        
+        ones = torch.ones((B, N, 1, 1), dtype=torch.float32).to(four_point_head.device)  # B x N x 1 x 1
+        zeros = torch.zeros((B, N, 1, 3), dtype=torch.float32).to(four_point_head.device)  # B x N x 1 x 3
+        homog_vec = torch.cat([zeros, ones], dim=3)  # B x N x 1 x 4
+        grasps = torch.cat([torch.cat([grasp_R, grasp_t], dim=3), homog_vec], dim=2)  # B x N x 4 x 4
+        
+        offset = torch.norm(four_point_head[:, :, 2] - four_point_head[:, :, 1], dim=-1, keepdim=True)  # B x N x 1
+        
+        return grasps, offset
+    
+class PointNet2_super_next_fp_multitask(nn.Module):
+    def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
+                 first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=False, film_in_sa_and_fp=False, 
+                 embedding_as_input=False,
+                 replace_bn_w_ln=False,):
+                #  first_sa_point=1024, fp_to_full=True, replace_bn_w_gn=False, replace_bn_w_in=True):
+        super(PointNet2_super_next_fp_multitask, self).__init__()
+        # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
+        # self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=96, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
+        if embedding_as_input:
+            in_channel = input_channel - 3 + embedding_dim
+        else:
+            in_channel = input_channel - 3
+        self.embedding_as_input = embedding_as_input
+        
+        self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=in_channel, mlp_list=[[16, 16, 32], [32, 32, 64]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+
+        group_args = {'NAME': 'ballquery'}
+        group_args['radius'] = 0.05
+        group_args['nsample'] = 32
+        aggr_args = {"feature_type": 'dp_fj', "reduction": 'max'}
+        # norm_args = {"norm": 'bn'}
+        norm_args = {"norm": 'ln'}
+        conv_args = {"order": "conv-norm-act"}
+        act_args = {"act": 'relu'}
+        expansion = 2
+        
+        self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)                                     
+        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)   
+        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], 
+                                             keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+                                             
+        if embedding_dim is not None:
+            self.film = FiLM(embedding_dim, 1024)
+            
+        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        group_args['radius'] = 1.6
+        self.invresmlp_6 = InvResMLP(512,
+                                aggr_args=aggr_args,
+                                norm_args=norm_args, act_args=act_args, group_args=group_args,
+                                conv_args=conv_args, expansion=expansion,
+                                use_res=True)
+        self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        group_args['radius'] = 0.8
+        self.invresmlp_5 = InvResMLP(512,
+                                aggr_args=aggr_args,
+                                norm_args=norm_args, act_args=act_args, group_args=group_args,
+                                conv_args=conv_args, expansion=expansion,
+                                use_res=True)
+        self.fp4 = PointNetFeaturePropagation(1024, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.invresmlp_4 = InvResMLP(256,
+                                aggr_args=aggr_args,
+                                norm_args=norm_args, act_args=act_args, group_args=group_args,
+                                conv_args=conv_args, expansion=expansion,
+                                use_res=True)
+        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.invresmlp_3 = InvResMLP(256,
+                                aggr_args=aggr_args,
+                                norm_args=norm_args, act_args=act_args, group_args=group_args,
+                                conv_args=conv_args, expansion=expansion,
+                                use_res=True)
+        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.invresmlp_2 = InvResMLP(128,
+                                aggr_args=aggr_args,
+                                norm_args=norm_args, act_args=act_args, group_args=group_args,
+                                conv_args=conv_args, expansion=expansion,
+                                use_res=True)
+        if fp_to_full:
+            self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp_to_full = fp_to_full
+        self.film_in_sa_and_fp = film_in_sa_and_fp
+        
+        self.binary_seg_head = nn.Sequential(
+            nn.Conv1d(128, 128, 1, padding=0),
+            # nn.BatchNorm1d(128),
+            nn.GroupNorm(32, 128),
+            nn.ReLU(),
+            # nn.Dropout(self.model_config.get("score_dropout", 0.5)),  # 0.5 in original code
+            nn.Conv1d(128, 1, 1, padding=0)
+        )
+                
+        ### this will be the displacement for each point
+        self.four_point_head = nn.Sequential(
+            nn.Conv1d(128, 128, 1, padding=0),
+            # nn.BatchNorm1d(128),
+            nn.GroupNorm(32, 128),
+            nn.ReLU(),
+            # nn.Dropout(self.model_config.get("displacement_dropout", 0.3)),  # 0.5 in original code
+            nn.Conv1d(128, 12, 1, padding=0)
+        )
+
+        if replace_bn_w_gn:
+            print("replacing all batchnorm layers to be group norm layers!")
+            replace_bn_with_gn(self)
+        if replace_bn_w_in:
+            print("replacing all batchnorm layers to be instance norm layers!")
+            replace_bn_with_in(self)
+
+    def forward(self, xyz, embedding=None, build_grasp=False, articubot_format=False):
+        assert embedding is not None
+        
+        l0_points = xyz
+        l0_xyz = xyz[:, :3, :]
+        
+        if self.embedding_as_input:
+            # import pdb; pdb.set_trace()
+            input_embedding = embedding.unsqueeze(2).repeat(1, 1, l0_xyz.shape[2])
+            xyz = torch.cat([xyz, input_embedding], dim=1)
+        
+        if xyz.shape[1] > 3:
+            l1_xyz, l1_points = self.sa1(l0_xyz, xyz[:, 3:, :], embedding=embedding if self.film_in_sa_and_fp else None)
+        else:
+            # l0_xyz, l0_points = self.sa0(l0_xyz, None)
+            # l1_xyz, l1_points = self.sa1(l0_xyz, l0_points) # (B, 3, 1024) (B, 96, 1024)
+
+            l1_xyz, l1_points = self.sa1(l0_xyz, None, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 1024) (B, 96, 1024)
+
+        
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 512) (B, 256, 512)
+        
+        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 256) (B, 512, 256)
+        
+        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 128) (B, 1024, 16)
+        
+        l5_xyz, l5_points = self.sa5(l4_xyz, l4_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 64) (B , 1024, 64)
+        
+        l6_xyz, l6_points = self.sa6(l5_xyz, l5_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 16) (B, 1024, 16)
+
+        # add film
+        if embedding is not None:
+            # print("using language embedding in film")
+            l6_points = self.film(l6_points, embedding) # (B, 1024, 16)
+
+        l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 512, 64)
+        l5_xyz, l5_points = self.invresmlp_6([l5_xyz.permute(0, 2, 1).contiguous(), l5_points.contiguous()])        
+        l5_xyz = l5_xyz.permute(0, 2, 1)
+
+        l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 512, 128)
+        l4_xyz, l4_points = self.invresmlp_5([l4_xyz.permute(0, 2, 1).contiguous(), l4_points.contiguous()])        
+        l4_xyz = l4_xyz.permute(0, 2, 1)
+        
+        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 256, 256)
+        l3_xyz, l3_points = self.invresmlp_4([l3_xyz.permute(0, 2, 1).contiguous(), l3_points.contiguous()])        
+        l3_xyz = l3_xyz.permute(0, 2, 1)
+
+        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 256, 512)
+        l2_xyz, l2_points = self.invresmlp_3([l2_xyz.permute(0, 2, 1).contiguous(), l2_points.contiguous()])        
+        l2_xyz = l2_xyz.permute(0, 2, 1)
+
+        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 128, 1024)
+        l1_xyz, l1_points = self.invresmlp_2([l1_xyz.permute(0, 2, 1).contiguous(), l1_points.contiguous()])        
+        l1_xyz = l1_xyz.permute(0, 2, 1)
+
+        
         if self.fp_to_full:
             l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 128, num_point)
             pred_points = l0_xyz #### 2048 points
