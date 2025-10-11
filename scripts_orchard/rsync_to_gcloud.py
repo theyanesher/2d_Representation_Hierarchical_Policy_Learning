@@ -27,6 +27,23 @@ BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/dp3_demo_real_world_noise_pcd_clean_dis
 LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/invert_push"
 BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/invert_push"  # Replace as needed
 
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/zip"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/inside_link_1/zip"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link_1"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/inside_link_2/zip"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link_2"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/inside_whole/zip"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/inside_whole_1/zip"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole_1"  # Replace as needed
+
+LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/top/zip"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/top"  # Replace as needed
 
 NUM_PROCESSES = 10
 
