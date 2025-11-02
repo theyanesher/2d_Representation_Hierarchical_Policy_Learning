@@ -264,7 +264,7 @@ class TrainHighlevelPTv3Workspace:
         }
         
         if general_args.category_embedding_type == "siglip":
-            self.siglip_text_features = torch.load("../siglip_text_features.pt")
+            self.siglip_text_features = torch.load("./siglip_text_features.pt")
         else:
             self.siglip_text_features = None
         
@@ -306,8 +306,8 @@ class TrainHighlevelPTv3Workspace:
                     }
                     torch.save(save_dict, save_path)
             
-            torch.cuda.empty_cache()        
-            torch.cuda.ipc_collect()      
+            # torch.cuda.empty_cache()        
+            # torch.cuda.ipc_collect()      
         
     def compute_cgn_loss(self, data):    
         device = torch.device(self.rank)
@@ -348,6 +348,7 @@ class TrainHighlevelPTv3Workspace:
         args = self.cfg.articubot
 
         pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = batch
+        class_weight = class_weight.to(device)
         # inputs: B, N, 3
         # gripper_pcd: B, 4, 3
         # goal_gripper_points: B, 4, 3
@@ -357,14 +358,10 @@ class TrainHighlevelPTv3Workspace:
         if args.add_one_hot_encoding:
             # for pointcloud, we add (1, 0)
             # for gripper_pcd, we add (0, 1)
-            pointcloud_one_hot = torch.zeros(
-                pointcloud.shape[0], pointcloud.shape[1], 2
-            )
+            pointcloud_one_hot = torch.zeros(pointcloud.shape[0], pointcloud.shape[1], 2)
             pointcloud_one_hot[:, :, 0] = 1
             pointcloud_ = torch.cat([pointcloud, pointcloud_one_hot], dim=2)
-            gripper_pcd_one_hot = torch.zeros(
-                gripper_pcd.shape[0], gripper_pcd.shape[1], 2
-            )
+            gripper_pcd_one_hot = torch.zeros(gripper_pcd.shape[0], gripper_pcd.shape[1], 2)
             gripper_pcd_one_hot[:, :, 1] = 1
             gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
             inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1)  # B, N+4, 5
@@ -376,15 +373,10 @@ class TrainHighlevelPTv3Workspace:
         inputs = inputs.to(device)
         if self.siglip_text_features is not None:
             cat_embedding = self.siglip_text_features[cat_idx].float()
-            # outputs = self.model(inputs, embedding=cat_embedding)  # B, N, 13
-            # import pdb; pdb.set_trace()
             pred_dict = self.model(inputs, cat_embedding)  # B, N, 13
         else:
             pred_dict = self.model(inputs)  # B, N, 13
             
-        # weights = outputs[:, :, -1]  # B, N
-        # outputs = outputs[:, :, :-1]  # B, N, 12
-        
         B, N, _, _ = pred_dict['pred_offsets'].shape
         outputs = pred_dict['pred_offsets'].view(B, N, -1)
         pred_points = pred_dict['pred_points'] 
@@ -399,33 +391,60 @@ class TrainHighlevelPTv3Workspace:
             labels = labels[:, :-4, :]
             inputs = inputs[:, :-4, :]
             N = N - 4
-        displacement_loss = criterion(outputs, labels)
+            
+        if args.gmm:
+            diff = outputs - labels  # Shape: (B, N, 12)
+            # fixed_variance = random.choice(args.fixed_variance)
+            ### looping through these two possible variance values
+            log_info = {}
+            loss = 0
+            for fixed_variance, variance_loss_scale in zip(args.fixed_variance, args.variance_loss_scale):
+                exponent = -0.5 * torch.sum((diff ** 2) / fixed_variance, dim=2)  # Shape: (B, N), sum over the guassian dimension
+                log_gaussians = exponent 
 
-        # inputs = inputs.permute(0, 2, 1)
-        outputs = outputs.view(B, N, 4, 3)
-        outputs = outputs + pred_points[:, :, :3].unsqueeze(2)  # B, N, 4, 3
+                # Compute log mixing coefficients
+                log_mixing_coeffs = torch.log_softmax(weights, dim=1) # softmax the weight along the per-point dimension, shape B, N
+                log_mixing_coeffs = torch.clamp(log_mixing_coeffs, min=-20)  # Prevent extreme values
 
-        # softmax the weights
-        weights = torch.nn.functional.softmax(weights, dim=1)
-
-        # sum the displacement of the predicted gripper point cloud according to the weights
-        outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
-        outputs = outputs.sum(dim=1)
-        weight_loss = criterion(outputs, gripper_points.to(device))
-
-        total_loss = displacement_loss + weight_loss * args.weight_loss_weight
+                max_log = torch.max(log_gaussians + log_mixing_coeffs, dim=1, keepdim=True).values # get the per-batch max log along all the points, B, 1
+                log_probs = max_log.squeeze(1) + torch.logsumexp(log_gaussians + log_mixing_coeffs - max_log, dim=1) # B,
+                
+                this_loss = -torch.mean(log_probs * class_weight)  # B,
+                loss += this_loss * variance_loss_scale
+                
+                log_info["gmm_" + str(fixed_variance)] = this_loss.item()
+                log_info["gmm_" + str(fixed_variance) + "_scaled"] = (this_loss * variance_loss_scale).item()
+            
+            total_loss = loss
         
-        total_loss = total_loss * args.loss_scale
+        else:
+            displacement_loss = criterion(outputs, labels)
+
+            # inputs = inputs.permute(0, 2, 1)
+            outputs = outputs.view(B, N, 4, 3)
+            outputs = outputs + pred_points[:, :, :3].unsqueeze(2)  # B, N, 4, 3
+
+            # softmax the weights
+            weights = torch.nn.functional.softmax(weights, dim=1)
+
+            # sum the displacement of the predicted gripper point cloud according to the weights
+            outputs = outputs * weights.unsqueeze(-1).unsqueeze(-1)
+            outputs = outputs.sum(dim=1)
+            weight_loss = criterion(outputs, gripper_points.to(device))
+
+            total_loss = displacement_loss + weight_loss * args.weight_loss_weight
+            
+            total_loss = total_loss * args.loss_scale
+            
+            log_info = {"loss": loss.item()}
+            log_info['perpoint_loss'] = displacement_loss.item()
+            log_info['weighted_average_loss'] = weight_loss.item()
         
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
         
-        return {
-            "perpoint_loss": displacement_loss.item(),
-            "weighted_average_loss": weight_loss.item(),
-            "loss": total_loss.item(),
-        }
+        return log_info
 
     @torch.inference_mode()
     def predict_goal(self, data_dict):

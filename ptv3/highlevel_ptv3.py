@@ -72,21 +72,21 @@ class HighlevelPTv3(nn.Module):
         B, N, C = x.shape
         # form data_dict
         assert embedding is not None
-        if embedding is not None: ### language as input
-            # import pdb; pdb.set_trace()
-            embedding = embedding.unsqueeze(1).repeat(1, N, 1)
-            x = torch.cat([x, embedding], dim=2)
-            B, N, C = x.shape
+        # if embedding is not None: ### language as input
+        #     # import pdb; pdb.set_trace()
+        #     embedding = embedding.unsqueeze(1).repeat(1, N, 1)
+        #     x = torch.cat([x, embedding], dim=2)
+        #     B, N, C = x.shape
         offset = torch.arange(1, B + 1) * N
         data_dict = {
             "feat": x.reshape(-1, C),
             "coord": x[..., :3].reshape(-1, 3),
             "grid_size": self.grid_size,
             "offset": offset.to(x.device),
+            'lang_embedding': embedding
         }
         
         point = self.ptv3.forward(data_dict)
-        # import pdb; pdb.set_trace()
         if isinstance(point, Point):
             while "pooling_parent" in point.keys():
                 assert "pooling_inverse" in point.keys()
@@ -101,14 +101,16 @@ class HighlevelPTv3(nn.Module):
         # import pdb; pdb.set_trace()
         feat = feat.view(B, N, -1)
         positions = point.coord.view(B, N, 3)
-        fps_indices = farthest_point_sample(positions, self.fps_num)
-        pred_points = index_points(positions, fps_indices)
-        feat = index_points(feat, fps_indices)
+        pred_points = positions
+        # fps_indices = farthest_point_sample(positions, self.fps_num)
+        # pred_points = index_points(positions, fps_indices)
+        # feat = index_points(feat, fps_indices)
             
         weights = self.mlp_head_weight(feat)
         pred_scores = weights
         pred_offsets = self.mlp_head_offset(feat)
-        pred_offsets = pred_offsets.view(B, self.fps_num, 4, 3)
+        # pred_offsets = pred_offsets.view(B, self.fps_num, 4, 3)
+        pred_offsets = pred_offsets.view(B, N, 4, 3)
 
         if build_grasp:
             pred_4_points = pred_points.unsqueeze(2).repeat(1, 1, 4, 1) + pred_offsets

@@ -9,10 +9,13 @@ articubot:
   train_frequency: 1
   loss_scale: 1
   camera_frame: 0
+  fixed_variance: [0.05, 0.001]
+  variance_loss_scale: [1, 0.1]
+  gmm: 1
   
   dataloader:
-    batch_size: 15
-    num_workers: 12
+    batch_size: 40
+    num_workers: 6
     shuffle: false
     pin_memory: true
     persistent_workers: false
@@ -22,8 +25,8 @@ articubot:
     use_all_data: true
     use_combined_action: false
     dataset_prefix: /project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj
-    # dataset_prefix: /scrtach/yufeiw2/dp3_demo
-    num_train_objects: "50"
+    # dataset_prefix: /scratch/yufeiw2/dp3_demo
+    num_train_objects: "articulated"
     predict_two_goals: false
 
 cgn: 
@@ -31,10 +34,13 @@ cgn:
   train_frequency: 1
   batch_size: 1
   DATA:
+    filter_useless_points: 1
+    filter_useless_points_z_threshold: 0
+    useful_point_num: 12000
     further_fps_point: 0
     classes: null
     data_path: /project_data/held/yufeiw2/contact_graspnet_pytorch/acronym
-    # data_path: /scrtach/yufeiw2/acronym
+    # data_path: /scratch/yufeiw2/acronym
     depth_augm:
       clip: 0.005
       gaussian_kernel: 0
@@ -245,12 +251,16 @@ cgn:
 general:
   num_iterations: 500000
   save_freq: 2500
-  load_model_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/ptv3/data/articubot_cgn_ptv3-first-try/2025.08.02/18.10.23/model_122500.pth
-  exp_name: articubot_cgn_ptv3-first-try
+  # load_model_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/ptv3/data/articubot_cgn_ptv3-first-try/2025.08.02/18.10.23/model_122500.pth
+  load_model_path: null
+  # exp_name: articubot_ptv3_single-task_50
+  # exp_name: debug
+  exp_name: baseline_ptv3_articulated
   add_one_hot_encoding: 0
   keep_gripper_in_fps: 0
   exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/ptv3/exps
-  tasks: [articubot, cgn]
+  # tasks: [articubot, cgn]
+  tasks: [articubot]
   fp_to_full: 0
   first_sa_point: 2048
   replace_bn_with_gn: 0
@@ -267,7 +277,7 @@ model:
   _target_: ptv3.highlevel_ptv3.HighlevelPTv3
   grid_size: 0.005
   ptv3_config:
-    in_channels: 771 # 3 + 768
+    in_channels: 3
     order:
       - z
       - z-trans

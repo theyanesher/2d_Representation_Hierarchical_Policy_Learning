@@ -783,6 +783,35 @@ class Embedding(PointModule):
         return point
 
 
+class FiLM(nn.Module):
+    def __init__(self, embedding_dim, feature_dim):
+        super(FiLM, self).__init__()
+        self.scale = nn.Linear(embedding_dim, feature_dim)
+        self.shift = nn.Linear(embedding_dim, feature_dim)
+
+    def forward(self, x, embedding):
+        """
+        Input:
+            x: input points data, [B, D, N]
+            embedding: embedding data, [B, E]
+        Return:
+            transformed points data, [B, D, N]
+        """
+        num_shape = len(x.shape)
+        if num_shape == 2:
+            #embedding: 1x embed_dim
+            # scale: 1xfeature_dim
+            gamma = self.scale(embedding)
+            beta = self.shift(embedding)
+        if num_shape == 3:
+            gamma = self.scale(embedding).unsqueeze(-1)  # [B, D, 1]
+            beta = self.shift(embedding).unsqueeze(-1)  # [B, D, 1]
+        elif num_shape == 4:
+            gamma = self.scale(embedding).unsqueeze(-1).unsqueeze(-1)  # [B, D, 1]
+            beta = self.shift(embedding).unsqueeze(-1).unsqueeze(-1)  # [B, D, 1]
+        return x * gamma + beta
+
+
 class PointTransformerV3(PointModule):
     def __init__(
         self,
@@ -816,9 +845,13 @@ class PointTransformerV3(PointModule):
         pdnorm_adaptive=False,
         pdnorm_affine=True,
         pdnorm_conditions=("ScanNet", "S3DIS", "Structured3D"),
-        embedding_dim=None
+        embedding_dim=None,
     ):
         super().__init__()
+        ### add film layer for lang embedding
+        if embedding_dim is not None:
+            self.film = FiLM(embedding_dim, feature_dim=512) ### 512 is hard-coded for now
+        
         self.num_stages = len(enc_depths)
         self.order = [order] if isinstance(order, str) else order
         self.cls_mode = cls_mode
@@ -982,6 +1015,18 @@ class PointTransformerV3(PointModule):
 
         point = self.embedding(point)
         point = self.enc(point)
+        
+        ## TODO: add language embedding here
+        ## TODO: should have a for loop to perform the film embedding
+        B =  data_dict['lang_embedding'].shape[0]
+        # import pdb; pdb.set_trace()
+        for b_idx in range(B):
+            this_idx = (point.batch == b_idx)
+            point['feat'][this_idx] = self.film(point['feat'][this_idx], data_dict['lang_embedding'][b_idx].unsqueeze(0))
+            # (point['sparse_conv_feat']._features)[this_idx] = self.film_sparse((point['sparse_conv_feat']._features)[this_idx], data_dict['lang_embedding'][b_idx].unsqueeze(0))
+            # point['sparse_conv_feat']._features = point['feat']
+        point.sparse_conv_feat = point.sparse_conv_feat.replace_feature(point.feat)
+        # import pdb; pdb.set_trace()
         
         if not self.cls_mode:
             point = self.dec(point)
