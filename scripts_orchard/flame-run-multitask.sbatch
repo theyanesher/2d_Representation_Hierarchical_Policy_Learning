@@ -32,11 +32,13 @@ find "$target" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort
 
 cd test_PointNet2
 
-torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
-    general.exp_name=debug \
-    articubot.batch_size=70   \
-    articubot.num_train_objects=debug \
-    general.tasks="['articubot']"
+sleep 30000
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=debug \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=debug \
+#     general.tasks="['articubot']"
     # cgn.batch_size=15  \
     # cgn.OPTIMIZER.batch_size=15 \
     # general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-08-14articubot_cgn_ln_gmm_multivariance_full_450_plus_dagger/model_300000.pth

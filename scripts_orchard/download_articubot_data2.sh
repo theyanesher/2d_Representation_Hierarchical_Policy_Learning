@@ -108,3 +108,33 @@ sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_weighted_full_dagger/ /tm
 
 mkdir -p /tmp/invert_push
 sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /tmp/invert_push/
+
+
+### pick and place (small dataset that I used)
+# mkdir -p /tmp/pick_and_place/top
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/top /tmp/pick_and_place/top
+
+# mkdir -p /tmp/pick_and_place/inside_whole_1
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole_1 /tmp/pick_and_place/inside_whole_1
+
+# mkdir -p /tmp/pick_and_place/inside_whole
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole /tmp/pick_and_place/inside_whole
+
+# mkdir -p /tmp/pick_and_place/inside_link_2
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link_2 /tmp/pick_and_place/inside_link_2
+
+# mkdir -p /tmp/pick_and_place/inside_link_1
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link_1 /tmp/pick_and_place/inside_link_1
+
+# mkdir -p /tmp/pick_and_place/inside_link
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link /tmp/pick_and_place/inside_link
+
+### chenyuan full pick and place as of 10/05
+mkdir -p /tmp/pick_and_place/inside_whole_1005
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole /tmp/pick_and_place/inside_whole_1005
+
+mkdir -p /tmp/pick_and_place/inside_link_1005
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link /tmp/pick_and_place/inside_link_1005
+
+mkdir -p /tmp/pick_and_place/top_1005
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top /tmp/pick_and_place/top_1005

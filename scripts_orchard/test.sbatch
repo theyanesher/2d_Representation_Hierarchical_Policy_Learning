@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -N 1 # Number of nodes
-#SBATCH -n 1
+#SBATCH -n 8
 #SBATCH -p preempt
 #SBATCH --gpus=1 #GPU specification. H100
 #SBATCH -t 10:05:00 # Estimated time, 48hour max. DD-HH:MM.

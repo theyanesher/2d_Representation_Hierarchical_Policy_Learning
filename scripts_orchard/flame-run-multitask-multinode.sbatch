@@ -6,12 +6,14 @@
 #SBATCH --gpus-per-node=8            # 8 GPUs on each node
 #SBATCH --cpus-per-gpu=4          # tune for your dataloaders
 #SBATCH --partition=flame
-#SBATCH --qos=flame-t3_g3_qos
+#SBATCH --qos=flame-16gpu_qos
+#SBATCH --account=dheld
 #SBATCH -t 200:00:00
 #SBATCH -o job_%j.out
 #SBATCH -e job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=yufeiw2@andrew.cmu.edu
+
 
 # --- Activate conda (avoid nounset issues around activation) ---
 source "/project/flame/yufeiw2/miniconda3/etc/profile.d/conda.sh"
@@ -64,11 +66,123 @@ srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
     --rdzv_backend=c10d \
     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
-    general.exp_name=test_multinode_training \
-    articubot.batch_size=80   \
-    articubot.num_train_objects=aritucbot_new_cat_camera_random_close \
+    general.exp_name=multinode-pointnext-load-cgn-world-articubot-format-aritucbot_new_cat_camera_random_close_w_more-pick_place \
+    articubot.batch_size=60   \
+    articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_more_1005 \
     cgn.batch_size=15  \
-    cgn.OPTIMIZER.batch_size=15 
+    cgn.OPTIMIZER.batch_size=15 \
+    cgn.world_frame=1 \
+    cgn.MODEL.articubot_four_point_format=1 \
+    general.policy_class=pointnext \
+    general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth
+
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=multinode-pointnext-cgn-world-articubot-format-aritucbot_new_cat_camera_random_close_w_pick_place \
+#     articubot.batch_size=60   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     cgn.world_frame=1 \
+#     cgn.MODEL.articubot_four_point_format=1 \
+#     general.policy_class=pointnext 
+    # general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-22multinode-pointnext-cgn-world-articubot-format-aritucbot_new_cat_camera_random_close/model_220001.pth
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=multinode-pointnext-cgn-world-articubot-format-aritucbot_new_cat_camera_random_close \
+#     articubot.batch_size=60   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     cgn.world_frame=1 \
+#     cgn.MODEL.articubot_four_point_format=1 \
+#     general.policy_class=pointnext
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=multinode-cgn-world-articubot-all-w-pick-place \
+#     articubot.batch_size=80   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     cgn.world_frame=1 \
+#     cgn.MODEL.articubot_four_point_format=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-07multinode-training-cgn-world-articubot-format-2/model_495001.pth
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=multinode-training-cgn-world-articubot-format-2 \
+#     articubot.batch_size=80   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     cgn.world_frame=1 \
+#     cgn.MODEL.articubot_four_point_format=1 
+    # general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-05multinode-training-cgn-world-articubot-format/model_50000.pth
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=debug \
+#     articubot.batch_size=80   \
+#     articubot.num_train_objects=test \
+#     general.tasks="['articubot']" \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-05multinode-training-cgn-world-articubot-format/model_50000.pth
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=multinode-training-cgn-world \
+#     articubot.batch_size=80   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     cgn.world_frame=1
+
+
+# srun --ntasks-per-node=1 --ntasks=${SLURM_NNODES} \
+#   torchrun \
+#     --nnodes="${SLURM_NNODES}" \
+#     --nproc_per_node="${GPUS_PER_NODE}" \
+#     --rdzv_backend=c10d \
+#     --rdzv_endpoint="${MASTER_ADDR}:${MASTER_PORT}" \
+#     train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=multinode-training-resumed \
+#     articubot.batch_size=80   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-08-23test_multinode_training/model_300000.pth
 
 
 
