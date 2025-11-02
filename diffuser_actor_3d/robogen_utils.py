@@ -4,12 +4,23 @@ from scipy.spatial.transform import Rotation as R
 import torch
 from manipulation.utils import rotation_transfer_matrix_to_6D, rotation_transfer_matrix_to_6D_batch
 
-original_gripper_pcd = np.array([[ 0.10432111,  0.00228697,  0.8474241 ],
-       [ 0.12816067, -0.04368229,  0.8114649 ],
-       [ 0.08953098,  0.0484529 ,  0.80711854],
-       [ 0.11198021,  0.00245327,  0.7828771 ]])
-original_gripper_pos = np.array([0.1119802 , 0.00245327, 0.78287711])
-original_gripper_orn = np.array([0.97841681, 0.19802945, 0.0581003 , 0.01045192])
+# original_gripper_pcd = np.array([[ 0.10432111,  0.00228697,  0.8474241 ],
+#        [ 0.12816067, -0.04368229,  0.8114649 ],
+#        [ 0.08953098,  0.0484529 ,  0.80711854],
+#        [ 0.11198021,  0.00245327,  0.7828771 ]])
+# original_gripper_pos = np.array([0.1119802 , 0.00245327, 0.78287711])
+# original_gripper_orn = np.array([0.97841681, 0.19802945, 0.0581003 , 0.01045192])
+
+original_gripper_pcd = np.array([[ 0.5648266,   0.05482348,  0.34434554],
+        [ 0.5642125,   0.02702148,  0.2877661 ],
+        [ 0.53906703,  0.01263776,  0.38347825],
+        [ 0.54250515, -0.00441092,  0.32957944]]
+    )
+original_gripper_pos = np.array([ 0.54250515, -0.00441092,  0.32957944])
+original_gripper_orn = np.array([0.21120763,  0.75430543, -0.61925177, -0.05423936])
+gripper_pcd_right_finger_closed = np.array([ 0.55415434,  0.02126799,  0.32605097])
+gripper_pcd_left_finger_closed = np.array([ 0.54912525,  0.01839125,  0.3451934 ])
+gripper_pcd_closed_finger_angle = 2.6652539383870777e-05
 
 def compute_plane_normal(gripper_pcd):
     x1 = gripper_pcd[0]
@@ -77,12 +88,14 @@ def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn):
     gripper_pcd = rotated_pcd + gripper_pos
     return gripper_pcd
 
-closed_45448_gripper_pcd = np.array([[ 0.6510935 , -0.14546424,  0.6576897 ],
-       [ 0.6809345 , -0.15275753,  0.62872416],
-       [ 0.6931994 , -0.13693176,  0.6597541 ],
-       [ 0.7114738 , -0.14507635,  0.6336259 ]])
-closed_45448_gripper_pos = np.array([ 0.71147382, -0.14507634,  0.63362595])
-closed_45448_gripper_orn = np.array([ 0.70043311, -0.44102076,  0.47293441, -0.30203838])
+# closed_45448_gripper_pcd = np.array([[ 0.6510935 , -0.14546424,  0.6576897 ],
+#        [ 0.6809345 , -0.15275753,  0.62872416],
+#        [ 0.6931994 , -0.13693176,  0.6597541 ],
+#        [ 0.7114738 , -0.14507635,  0.6336259 ]])
+# closed_45448_gripper_pos = np.array([ 0.71147382, -0.14507634,  0.63362595])
+# closed_45448_gripper_orn = np.array([ 0.70043311, -0.44102076,  0.47293441, -0.30203838])
+
+
 
 def get_4_points_from_closed_45448_gripper_pos_orient(gripper_pos, gripper_orn):
     goal_R = R.from_quat(gripper_orn)
