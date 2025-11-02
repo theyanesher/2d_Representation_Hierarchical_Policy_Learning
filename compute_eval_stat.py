@@ -1,29 +1,64 @@
 import json
 import os
+import argparse
+import numpy as np
 
-eval_result_path = 'data/0520_low_level_70-obj_finetune_unlimited/'
+parser = argparse.ArgumentParser()
+parser.add_argument('--articubot_only', type=int, default=1)
+parser.add_argument('--invert', type=int, default=0)
+args = parser.parse_args()
 
-bucket_tasks = os.listdir(os.path.join(eval_result_path, "bucket"))
-faucet_tasks = os.listdir(os.path.join(eval_result_path, "faucet"))
-foldingchair_tasks = os.listdir(os.path.join(eval_result_path, "foldingchair"))
-laptop_tasks = os.listdir(os.path.join(eval_result_path, "laptop"))
-stapler_tasks = os.listdir(os.path.join(eval_result_path, "stapler"))
-toilet_tasks = os.listdir(os.path.join(eval_result_path, "toilet"))
-storagefurniture_tasks = os.listdir(os.path.join(eval_result_path, "diverse_objects_all"))
-# bucket_tasks = [str(i) for i in bucket_tasks]
-# faucet_tasks = [str(i) for i in faucet_tasks]
-# foldingchair_tasks = [str(i) for i in foldingchair_tasks]
-# laptop_tasks = [str(i) for i in laptop_tasks]
-# stapler_tasks = [str(i) for i in stapler_tasks]
-# toilet_tasks = [str(i) for i in toilet_tasks]
-# storagefurniture_tasks = [str(i) for i in storagefurniture_tasks]
+eval_result_path = 'data_yufei/eval_ptv3_articubot_50_cgn/'
+eval_result_path = 'data_yufei/eval_3dfa_50/'
+eval_result_path = 'data_yufei/eval_articubot_both_450_dagger/'
+eval_result_path = 'data_yufei/eval_3dfa_50_more_epoch/'
+eval_result_path = "data_yufei/eval_3dfa_50_120k/"
+# eval_result_path = "data_yufei/eval_3dfa_50_300k/"
+eval_result_path = "data_yufei/eval_ptv3_articubot_50_single/"
+# eval_result_path = "data_yufei/eval_ptv3_articubot_50_single_2/"
+# eval_result_path = "data_yufei/eval_m2t2_cgn_articubot_50_gmm"
+eval_result_path = "data_yufei/eval_3dfa_new"
+# eval_result_path = "data_yufei/eval_3dfa_small_pn_correct"
+# eval_result_path = "data_yufei/eval_3dfa_even_larger_pn"
+# # eval_result_path = "data_yufei/eval_3dfa_even_larger_pn_64_not_128"
+# # eval_result_path = "data_yufei/eval_3dfa_articulated_larger"
+# eval_result_path = "data_yufei/eval_3dfa_articulated_large"
+# eval_result_path = "data_yufei/eval_pointnext_50"
+# eval_result_path = "data_yufei/eval_pointnet_multigmm_50"
+# eval_result_path = "data_yufei/eval_pointnext_new_cat_camera_random_close_w_pick_place_new_low_level"
+# eval_result_path = "data_yufei/eval_articubot-pointnext-fp-50"
+# eval_result_path = "data_yufei/eval_pointnext-full-pick-and-place"
+eval_result_path = "data_yufei/eval_3dfa_articulated_large_2"
+eval_result_path = "data_yufei/eval_baseline_ours_articulated"
+eval_result_path = "data_yufei/eval_baseline_ptv3_articulated"
 
-all_tasks = [bucket_tasks, faucet_tasks, foldingchair_tasks, laptop_tasks, stapler_tasks, toilet_tasks, storagefurniture_tasks]
-all_task_names = ["bucket", "faucet", "foldingchair", "laptop", "stapler", "toilet", "diverse_objects_all"]
+storagefurniture_tasks = os.listdir(os.path.join(eval_result_path, "diverse_objects"))
+if not args.articubot_only:
+    if not args.invert:
+        bucket_tasks = os.listdir(os.path.join(eval_result_path, "bucket"))
+        faucet_tasks = os.listdir(os.path.join(eval_result_path, "faucet"))
+        foldingchair_tasks = os.listdir(os.path.join(eval_result_path, "foldingchair"))
+        laptop_tasks = os.listdir(os.path.join(eval_result_path, "laptop"))
+        stapler_tasks = os.listdir(os.path.join(eval_result_path, "stapler"))
+        toilet_tasks = os.listdir(os.path.join(eval_result_path, "toilet"))
+        all_tasks = [bucket_tasks, faucet_tasks, foldingchair_tasks, laptop_tasks, stapler_tasks, toilet_tasks, storagefurniture_tasks]
+        all_task_names = ["bucket", "faucet", "foldingchair", "laptop", "stapler", "toilet", "diverse_objects"]
+    else:
+        foldingchair_tasks = os.listdir(os.path.join(eval_result_path, "foldingchair"))
+        laptop_tasks = os.listdir(os.path.join(eval_result_path, "laptop"))
+        stapler_tasks = os.listdir(os.path.join(eval_result_path, "stapler"))
+        toilet_tasks = os.listdir(os.path.join(eval_result_path, "toilet"))
+        all_tasks = [foldingchair_tasks, laptop_tasks, stapler_tasks, toilet_tasks, storagefurniture_tasks]
+        all_task_names = ["foldingchair", "laptop", "stapler", "toilet", "diverse_objects"]
+else:
+    all_tasks = [storagefurniture_tasks]
+    all_task_names = ["diverse_objects"]
+    
 all_open_ratios = []
 all_ik_failures = []
 all_oversized_ratios = []
 all_grasp_ratios = []
+all_open_ratios_per_object = []
 for i, task_list in enumerate(all_tasks):
     avg_open_ratios = []
     avg_ik_failures = []
@@ -67,10 +102,12 @@ for i, task_list in enumerate(all_tasks):
     # print("Average oversized ratio for category "+ all_task_names[i] + ": " + str(sum(avg_oversized_ratios) / len(avg_oversized_ratios)))
     # print("Average grasp ratio for category "+ all_task_names[i] + ": " + str(sum(avg_grasp_ratios) / len(avg_grasp_ratios)))
     all_open_ratios.append(sum(avg_open_ratios) / len(avg_open_ratios))
+    all_open_ratios_per_object.extend(avg_open_ratios)
     # all_ik_failures.append(sum(avg_ik_failures) / len(avg_ik_failures))
     # all_oversized_ratios.append(sum(avg_oversized_ratios) / len(avg_oversized_ratios))
     # all_grasp_ratios.append(sum(avg_grasp_ratios) / len(avg_grasp_ratios))
 print("Average open ratio for all categories: " + str(sum(all_open_ratios) / len(all_open_ratios)))
+print("Average open ratio for all objects: ", np.mean(all_open_ratios_per_object))
 # print("Average ik failure for all categories: " + str(sum(all_ik_failures) / len(all_ik_failures)))
 # print("Average oversized ratio for all categories: " + str(sum(all_oversized_ratios) / len(all_oversized_ratios)))
 # print("Average grasp ratio for all categories: " + str(sum(all_grasp_ratios) / len(all_grasp_ratios)))
