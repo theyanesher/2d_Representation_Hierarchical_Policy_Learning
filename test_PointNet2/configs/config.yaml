@@ -40,6 +40,7 @@ general:
   film_in_sa_and_fp: 0
   embedding_as_input: 0
   policy_class: pointnet2
+  use_lr_scheduler: 0
   
 
 cgn: 

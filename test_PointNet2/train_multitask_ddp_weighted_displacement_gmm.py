@@ -25,6 +25,7 @@ from test_PointNet2.cgn import utils as cgn_utils
 from test_PointNet2.cgn.cgn_loss import ContactGraspnetLoss
 import torch.distributed as dist
 import subprocess
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 def upload_file(local_folder):
     base = "gs://cmu-gpucloud-yufeiw2/articubot_exps"
@@ -94,7 +95,7 @@ def setup_cgn_dataloader(global_config, device):
     return train_dataloader
     
 mse_loss = torch.nn.MSELoss()
-def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None, loss_fn=None):
+def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None, loss_fn=None, scheduler=None):
     pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
     class_weight = class_weight.to(device, non_blocking=True)
     gripper_points = goal_gripper_pcd.to(device, non_blocking=True)
@@ -189,11 +190,16 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()    
+    
+    if scheduler is not None:
+        print("stepping lr scheduler")
+        scheduler.step()
+        log_info['lr'] = scheduler.get_last_lr()[0]
 
     del pred_dict
     return log_info
 
-def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_features=None, loss_fn=None):    
+def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_features=None, loss_fn=None, scheuler=None):    
     cgn_utils.send_dict_to_device(data, device)
     # Target contains input and target values
     pc_cam = data['pc_cam']
@@ -284,6 +290,16 @@ def train(args):
     elif general_args.optimizer == 'adamw':
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=general_args.lr)
     
+    if general_args.get("use_lr_scheduler", False):
+        total_steps = general_args.num_iterations
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=total_steps,       # number of batch steps until eta_min
+            eta_min=1e-5
+        )
+    else:
+        scheduler = None    
+        
     ### setup logging
     output_dir = str(datetime.date.today())
     output_dir += general_args.exp_name
@@ -356,7 +372,8 @@ def train(args):
             forward_func = forward_functions[all_tasks[task_idx]]
             if global_step % train_frequency[task] == 0:
                 beg = time.time()
-                log = forward_func(samples[task_idx], model, optimizer, device, args[task], siglip_features=siglip_text_features, loss_fn=loss_funcs[task])
+                log = forward_func(samples[task_idx], model, optimizer, device, args[task], siglip_features=siglip_text_features, loss_fn=loss_funcs[task],
+                                   scheduler=scheduler)
                 time_cost = time.time() - beg
                 for key in log:
                     assert not torch.is_tensor(log[key])
