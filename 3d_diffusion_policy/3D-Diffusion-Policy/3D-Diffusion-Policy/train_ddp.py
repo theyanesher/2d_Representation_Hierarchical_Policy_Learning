@@ -115,8 +115,8 @@ class TrainDP3Workspace:
             RUN_CKPT = True
             verbose = False
         
-        # RUN_VALIDATION = False # reduce time cost
-        RUN_VALIDATION = True # reduce time cost
+        RUN_VALIDATION = False # reduce time cost
+        # RUN_VALIDATION = True # reduce time cost
         
         # resume training
         # if cfg.training.resume:
@@ -393,12 +393,13 @@ class TrainDP3Workspace:
                     
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
+                    cat_idx = batch['cat_idx'].squeeze(-1)
                     if self.cfg.policy.prediction_target == 'action':
                         gt_action = batch['action']
                     else:
                         gt_action = batch['obs'][self.cfg.policy.prediction_target].flatten(start_dim=2)
                     
-                    result = policy.predict_action(obs_dict)
+                    result = policy.predict_action(obs_dict, cat_idx)
                     pred_action = result['action_pred']
                     mse = torch.nn.functional.mse_loss(pred_action, gt_action)
                     step_log['train_action_mse_error'] = mse.item()

@@ -203,11 +203,12 @@ def get_dataloader(args, dataset_prefix=None, num_train_objects=None, end_ratio=
                                         use_all_data=False, 
                                         dataset_prefix=dataset_prefix, # TODO: change this 
                                         num_train_objects=num_train_objects,
+                                        is_pickle=False,
                                     )
     
     
         dataloader = DataLoader(dataset, 
-                    shuffle=False,
+                    shuffle=True,
                     batch_size=15,
                     num_workers=3, 
                     pin_memory=False,
@@ -245,7 +246,7 @@ def get_dataloader(args, dataset_prefix=None, num_train_objects=None, end_ratio=
                                     )
 
         dataloader = DataLoader(dataset, 
-                    shuffle=False,
+                    shuffle=True,
                     batch_size=15,
                     num_workers=3, 
                     pin_memory=False,
@@ -273,6 +274,7 @@ parser.add_argument("--model_type", type=str, default="pointnet++")
 parser.add_argument('--argmax', type=int, default=1)
 parser.add_argument('--gmm', type=int, default=1)
 parser.add_argument('--val', type=int, default=0)
+parser.add_argument('--visual', type=int, default=0)
 args = parser.parse_args()
 
 ### load the policy
@@ -306,29 +308,32 @@ elif args.model_type == 'ptv3':
 
 ### get the training dataset and data loader
 dataset_prefix = "/project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj"
+dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
 if not args.val:
-    num_train_objects = '50'
-    end_ratio = 0.01
+    num_train_objects = 'sriam_plate'
+    end_ratio = 1
 else:
     num_train_objects = 'test_50'
     end_ratio = 0.1
 dataloader = get_dataloader(args, dataset_prefix=dataset_prefix, num_train_objects=num_train_objects, end_ratio=end_ratio)
 
 ### load language embedding 
-siglip_text_features = torch.load("/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features_close.pt")
+siglip_text_features = torch.load("./siglip_text_features_w_pick_and_place.pt")
+siglip_text_features = siglip_text_features['values']
 # categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
 # cat_idx = 0
 # for i, cat in enumerate(categories):
 #     if cat in args.exp_dir:
 #         cat_idx = i + 1
 #         break
+cat_idx = 13 ### for pick and place
     
 
 ### for each training env, run the policy and get the error
 position_error = []
 orientation_error = []
 orientation_error_best = []
-for batch in tqdm(dataloader):
+for batch_idx, batch in enumerate(tqdm(dataloader)):
     
     with torch.no_grad():
         if args.model_type == 'pointnet++' or args.model_type == 'ptv3':
@@ -352,6 +357,39 @@ for batch in tqdm(dataloader):
             pred_goal = infer_pointnetplus_model(inputs, high_level_model, 
                                                 cat_embedding=cat_embedding,
                                                 high_level_args=model_args, args=args)
+            
+            if batch_idx == 0 and args.visual:
+                B = pred_goal.shape[0]
+                for b_idx in range(B):
+                    obj_pcd_np = pointcloud[b_idx].cpu().numpy()
+                    gripper_pcd_np = gripper_pcd[b_idx].cpu().numpy()
+                    goal_gripper_pcd_np = goal_pcd[b_idx].cpu().numpy()
+                    pred_goal_pcd_np = pred_goal[b_idx].cpu().numpy()
+
+                    import open3d as o3d
+                    obj_pcd_o3d = o3d.geometry.PointCloud()
+                    obj_pcd_o3d.points = o3d.utility.Vector3dVector(obj_pcd_np)
+
+                    gripper_pcd_o3d = o3d.geometry.PointCloud()
+                    gripper_pcd_o3d.points = o3d.utility.Vector3dVector(gripper_pcd_np)
+
+                    goal_gripper_pcd_o3d = o3d.geometry.PointCloud()
+                    goal_gripper_pcd_o3d.points = o3d.utility.Vector3dVector(goal_gripper_pcd_np)
+                    
+                    pred_goal_gripper_pcd_o3d = o3d.geometry.PointCloud()
+                    pred_goal_gripper_pcd_o3d.points = o3d.utility.Vector3dVector(pred_goal_pcd_np)
+
+                    distance = np.mean(np.linalg.norm(np.array(goal_gripper_pcd_np) - np.array(pred_goal_pcd_np), axis=1))
+                    print("Visualization for batch {}, sample {}, distance between goal and pred: {}".format(batch_idx, b_idx, distance))
+
+                    ### set to different colors
+                    obj_pcd_o3d.paint_uniform_color([0.5, 0.5, 0.5])
+                    gripper_pcd_o3d.paint_uniform_color([1.0, 0.0, 0.0])
+                    goal_gripper_pcd_o3d.paint_uniform_color([0.0, 1.0, 0.0])
+                    pred_goal_gripper_pcd_o3d.paint_uniform_color([0, 0, 1.0])
+
+                    o3d.visualization.draw_geometries([obj_pcd_o3d, gripper_pcd_o3d, goal_gripper_pcd_o3d, pred_goal_gripper_pcd_o3d])
+                            
             
             pred_positions = []
             pred_orientations = []

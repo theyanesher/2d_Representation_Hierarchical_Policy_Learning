@@ -859,7 +859,7 @@ class PointNet2_superplus(nn.Module):
         return x # x shape: B, N, num_classes
     
     
-from PointNeXt.openpoints.models.backbone.pointnext import InvResMLP
+# from PointNeXt.openpoints.models.backbone.pointnext import InvResMLP
 class PointNet2_super_next_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
                  first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=False, film_in_sa_and_fp=False, 
