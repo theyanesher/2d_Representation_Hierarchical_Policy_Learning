@@ -4,6 +4,7 @@ import numba
 from diffusion_policy_3d.common.replay_buffer_disk import ReplayBuffer
 
 categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
+num_categories = 15
 
 @numba.jit(nopython=True)
 def create_indices(
@@ -11,7 +12,7 @@ def create_indices(
     episode_cat_idxs:np.ndarray,
     sequence_length:int, 
     episode_mask: np.ndarray,
-    num_categories: int = len(categories) + 1,  
+    num_categories: int = num_categories,  
     pad_before: int=0, pad_after: int=0,
     debug:bool=True) -> np.ndarray:
     episode_mask.shape == episode_ends.shape        
@@ -53,6 +54,8 @@ def create_indices(
             cat_counts[cat_idx] += 1
     indices = np.array(indices)
     class_weights = [1.0 / count if count > 0 else 0.0 for count in cat_counts]
+    for i in range(12, num_categories):
+        class_weights[i] *= 6  # make rare classes more important
     class_weights = np.array(class_weights)
     num_existing_classes = np.sum(class_weights > 0)
     class_weights *= np.sum(cat_counts) / num_existing_classes  # normalize to have sum of weights equal to number of classes

@@ -5,8 +5,9 @@ from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D #, RotaryPositionEncoding
 from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
 from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2_small, PointNet2_small2, PointNet2ssg_small
+from diffusion_policy_3d.model.vision.ptv3_model import LowlevelPTv3
 # from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
-# import segmentation_models_pytorch as smp
+import segmentation_models_pytorch as smp
 from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
 from torchvision.models import mobilenet_v3_small
 from typing import Optional, Dict, Tuple, Union, List, Type
@@ -74,6 +75,8 @@ class Act3dEncoder(nn.Module):
                  attention_num_layers=2,
                  use_repr_10d=False, #10D representation for Low Level Policy enabled
                  pos_ori_imp = False, #10D representation for HIgh Level Policy enabled
+                 ptv3_config=None,  
+                 concat_gripper_pcd_in_ptv3 = False, # whether to concat gripper pcd in ptv3 input
                  **kwargs
                  ):
         super(Act3dEncoder, self).__init__()
@@ -89,6 +92,7 @@ class Act3dEncoder(nn.Module):
         self.goal_mode = goal_mode
         self.use_repr_10d = use_repr_10d #10D representation for Low Level Policy enabled
         self.pos_ori_imp = pos_ori_imp #10D representation for HIgh Level Policy enabled
+        self.concat_gripper_pcd_in_ptv3 = concat_gripper_pcd_in_ptv3
         # [Chialiang]
         self.use_mlp = use_mlp
         self.use_lightweight_unet = use_lightweight_unet
@@ -148,6 +152,9 @@ class Act3dEncoder(nn.Module):
                 hidden_dim=128
             )
             vision_encoder = replace_bn_with_gn(vision_encoder, features_per_group=4)
+        elif self.pointcloud_backbone == 'ptv3':
+            # 低层 PointTransformerV3：要求前向返回 (B, N, D)
+            vision_encoder = LowlevelPTv3(**ptv3_config)
         else:
             cprint(f"Unknown pointcloud backbone {self.pointcloud_backbone}", 'red')
             
@@ -185,10 +192,12 @@ class Act3dEncoder(nn.Module):
             )
             self.nets['object_pcd_position_embedding_mlp'] = object_pcd_position_embedding_mlp
             self.nets['gripper_pcd_position_embedding_mlp'] = position_embedding_mlp
-            self.nets['embed'] = nn.Embedding(1, encoder_output_dim // 3 * 2)
+            # self.nets['embed'] = nn.Embedding(1, encoder_output_dim // 3 * 2)
+            self.nets['embed'] = nn.Embedding(num_gripper_points, encoder_output_dim // 3 * 2)
             # self.nets['nouse_embed'] = nn.Embedding(1, encoder_output_dim)
         else:
-            self.nets['embed'] = nn.Embedding(1, encoder_output_dim)
+            # self.nets['embed'] = nn.Embedding(1, encoder_output_dim)
+            self.nets['embed'] = nn.Embedding(num_gripper_points, encoder_output_dim)
 
         self.use_attn_for_point_features = use_attn_for_point_features
         if self.use_attn_for_point_features == "large_self_attention":
@@ -290,6 +299,21 @@ class Act3dEncoder(nn.Module):
             
             # rgb_features = self.nets['nouse_embed'].weight.unsqueeze(0).repeat(N, B, 1)
             point_cloud = observation[self.point_cloud_key]
+        elif self.pointcloud_backbone == 'ptv3':   # <<<< newly added
+            rgb_obs_feat = observation[self.point_cloud_key]  # (B, N, C)
+            gripper_pcd = observation[self.gripper_pcd_key]  # (B, num_gripper_points, C)
+            # concatenate point cloud and gripper pcd to form a single point cloud
+            if self.concat_gripper_pcd_in_ptv3:
+                rgb_obs_feat = torch.cat([rgb_obs_feat, gripper_pcd], dim=1) # (B, N + num_gripper_points, C)
+                # use one hot to indicate which points are gripper points 0: object points, 1: gripper points
+                one_hot = torch.cat([torch.zeros(B, rgb_obs_feat.shape[1] - gripper_pcd.shape[1], 1).to(rgb_obs_feat.device), 
+                                    torch.ones(B, gripper_pcd.shape[1], 1).to(rgb_obs_feat.device)], dim=1) # (B, N + num_gripper_points, 1)
+                rgb_obs_feat = torch.cat([rgb_obs_feat, one_hot], dim=2) # (B, N + num_gripper_points, C + 1)
+            B, N, C = rgb_obs_feat.shape
+            # LowlevelPTv3 expected input (B, N, C) output (B, N, D)
+            rgb_features = nets['vision_encoder'](rgb_obs_feat)         # (B, N, D)
+            rgb_features = einops.rearrange(rgb_features, "B N D -> N B D")
+            point_cloud  = observation[self.point_cloud_key]            # (B, N, 3)
         elif self.pointcloud_backbone == 'unet':
             # NOTE: rgb_obs should actually be segmentation mask + depth, or segmentation mask + point position
             rgb_obs = observation[self.feature_map_key]
@@ -366,8 +390,8 @@ class Act3dEncoder(nn.Module):
             gripper_pcd = observation[self.gripper_pcd_key]
             gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](gripper_pcd) # shape B num_gripper_points encoder_output_dim
         
-        
-        gripper_pcd_features = nets['embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
+        #  gripper_pcd_features = nets['embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
+        gripper_pcd_features = nets['embed'].weight.unsqueeze(1).repeat(1, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
         
         # gripper_pcd_features: the first part of learnable embedding for the 4 gripper points
         
@@ -434,10 +458,20 @@ class Act3dEncoder(nn.Module):
 
         self._rgb_features = rgb_features
         self._point_cloud = point_cloud
-        attn_output = nets['attn_layers'](
-            query=gripper_pcd_features, value=rgb_features,
-            query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
-        )[-1]
+        if self.pointcloud_backbone == 'ptv3' and self.concat_gripper_pcd_in_ptv3:
+            # attn_output = nets['attn_layers'](
+            #     query=gripper_pcd_features, value=rgb_features,
+            #     query_pos=gripper_pcd_rel_pos_embedding, value_pos=torch.cat([point_cloud_rel_pos_embedding, gripper_pcd_rel_pos_embedding], dim=1)
+            # )[-1] # concat gripper pcd embedding and point cloud embedding together for cross attention
+            attn_output = nets['attn_layers'](
+                query=gripper_pcd_features, value=rgb_features[:-self.num_gripper_points, ...],
+                query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
+            )[-1] # concat gripper pcd embedding and point cloud embedding together for cross attention
+        else:
+            attn_output = nets['attn_layers'](
+                query=gripper_pcd_features, value=rgb_features,
+                query_pos=gripper_pcd_rel_pos_embedding, value_pos=point_cloud_rel_pos_embedding,
+            )[-1]
         # perform cross attention between the scene pointcloud and the current end-effector points
         if not self.self_attention:
             rgb_features = einops.rearrange(

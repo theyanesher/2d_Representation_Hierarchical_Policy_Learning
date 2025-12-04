@@ -120,6 +120,18 @@ class ReplayBuffer:
                 if cat in zarr_path:
                     cat_idx = i + 1
                     break
+            if 'invert' in zarr_path:
+                if cat_idx == 0:
+                    cat_idx = 7
+                else:
+                    cat_idx += 5
+            if cat_idx == 0:
+                if 'grasp' in zarr_path:
+                    cat_idx = 12
+                if 'top' in zarr_path:
+                    cat_idx = 13
+                if 'inside' in zarr_path:
+                    cat_idx = 14
 
             if not load_per_step:
                 if is_pickle:
