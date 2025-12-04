@@ -18,6 +18,7 @@ articubot:
   train_frequency: 1
   loss_scale: 1
   camera_frame: 0
+  is_pickle: 1
 
 general:
   num_iterations: 500000

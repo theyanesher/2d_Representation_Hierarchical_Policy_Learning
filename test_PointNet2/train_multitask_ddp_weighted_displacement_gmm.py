@@ -59,7 +59,8 @@ def setup_articubot_dataloader(args):
                                       dataset_prefix=args.dataset_prefix, 
                                       num_train_objects=args.num_train_objects,
                                       camera_frame=args.camera_frame, 
-                                        goal_always_open=args.goal_always_open  
+                                        goal_always_open=args.goal_always_open,
+                                        is_pickle=args.is_pickle
                                     )
     dataloader = DataLoader(dataset, 
                 shuffle=False,
