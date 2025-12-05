@@ -7,7 +7,7 @@ from einops import rearrange, reduce
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from termcolor import cprint
 import copy
-import time
+import time, os
 
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
@@ -56,8 +56,8 @@ class DP3(BasePolicy):
             normalize_action=True, # [Chialiang] can remove normilizer for action
             scale_scene_by_pcd=False, # [Chialiang] can remove normilizer for action
             policy_type='high_level',
-            # use_language_embedding=True,
-            use_language_embedding=False,
+            use_language_embedding=True,
+            # use_language_embedding=False,
             language_embedding_dim=768,
             # parameters passed to step
             **kwargs):
@@ -70,7 +70,9 @@ class DP3(BasePolicy):
         self.act3d_encoder_cfg = act3d_encoder_cfg
         # if use_language_embedding:
         self.use_language_embedding = use_language_embedding
-        self.siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features_cy.pt")
+        project_dir = os.environ['PROJECT_DIR']
+        self.siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features_w_pick_and_place.pt"))
+        self.siglip_text_features = self.siglip_text_features['values']
 
         # parse shape_meta
         action_shape = shape_meta[self.prediction_target]['shape']
@@ -579,7 +581,7 @@ class DP3(BasePolicy):
         cat_weights = batch['cat_weights'].unsqueeze(-1)
         # print(f"cat_weights: {cat_weights}")
         loss = F.mse_loss(pred, target, reduction='none')
-        # loss = loss * cat_weights
+        loss = loss * cat_weights
         loss = loss * loss_mask.type(loss.dtype)
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
         loss = loss.mean()

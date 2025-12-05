@@ -115,8 +115,8 @@ class TrainDP3Workspace:
             RUN_CKPT = True
             verbose = False
         
-        RUN_VALIDATION = False # reduce time cost
-        # RUN_VALIDATION = True # reduce time cost
+        # RUN_VALIDATION = False # reduce time cost
+        RUN_VALIDATION = True # reduce time cost
         
         # resume training
         # if cfg.training.resume:
@@ -581,6 +581,7 @@ class TrainDP3Workspace:
         else:
             device = torch.device("cuda")
             
+        cprint("loading policy from {}".format(str(path.absolute())), "green")
         self.model = hydra.utils.instantiate(self.cfg.policy)
         self.model.load_state_dict(payload['state_dicts']['model'])
         self.model.to(device)

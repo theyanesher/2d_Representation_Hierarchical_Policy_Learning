@@ -5,7 +5,7 @@ from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
 from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D #, RotaryPositionEncoding
 from diffusion_policy_3d.model.vision.pointnet_extractor import create_mlp
 from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2_small, PointNet2_small2, PointNet2ssg_small
-from diffusion_policy_3d.model.vision.ptv3_model import LowlevelPTv3
+# from diffusion_policy_3d.model.vision.ptv3_model import LowlevelPTv3
 # from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
 import segmentation_models_pytorch as smp
 from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
@@ -192,12 +192,12 @@ class Act3dEncoder(nn.Module):
             )
             self.nets['object_pcd_position_embedding_mlp'] = object_pcd_position_embedding_mlp
             self.nets['gripper_pcd_position_embedding_mlp'] = position_embedding_mlp
-            # self.nets['embed'] = nn.Embedding(1, encoder_output_dim // 3 * 2)
-            self.nets['embed'] = nn.Embedding(num_gripper_points, encoder_output_dim // 3 * 2)
+            self.nets['embed'] = nn.Embedding(1, encoder_output_dim // 3 * 2)
+            # self.nets['embed'] = nn.Embedding(num_gripper_points, encoder_output_dim // 3 * 2)
             # self.nets['nouse_embed'] = nn.Embedding(1, encoder_output_dim)
         else:
-            # self.nets['embed'] = nn.Embedding(1, encoder_output_dim)
-            self.nets['embed'] = nn.Embedding(num_gripper_points, encoder_output_dim)
+            self.nets['embed'] = nn.Embedding(1, encoder_output_dim)
+            # self.nets['embed'] = nn.Embedding(num_gripper_points, encoder_output_dim)
 
         self.use_attn_for_point_features = use_attn_for_point_features
         if self.use_attn_for_point_features == "large_self_attention":
@@ -390,8 +390,8 @@ class Act3dEncoder(nn.Module):
             gripper_pcd = observation[self.gripper_pcd_key]
             gripper_pcd_rel_pos_embedding = nets['relative_pe_layer'](gripper_pcd) # shape B num_gripper_points encoder_output_dim
         
-        #  gripper_pcd_features = nets['embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
-        gripper_pcd_features = nets['embed'].weight.unsqueeze(1).repeat(1, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
+        gripper_pcd_features = nets['embed'].weight.unsqueeze(0).repeat(num_gripper_points, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
+        # gripper_pcd_features = nets['embed'].weight.unsqueeze(1).repeat(1, B, 1) # shape (num_gripper_points, B, encoder_output_dim)
         
         # gripper_pcd_features: the first part of learnable embedding for the 4 gripper points
         

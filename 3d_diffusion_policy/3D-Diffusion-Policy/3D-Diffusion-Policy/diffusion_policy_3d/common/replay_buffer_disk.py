@@ -132,6 +132,10 @@ class ReplayBuffer:
                     cat_idx = 13
                 if 'inside' in zarr_path:
                     cat_idx = 14
+                    
+            if 'aloha' in zarr_path and 'plate' in zarr_path:
+                print("using sriram plate category")
+                cat_idx = 13 ### put plate on top of the category 13 (top)
 
             if not load_per_step:
                 if is_pickle:
@@ -183,80 +187,57 @@ class ReplayBuffer:
                 if is_pickle:
                     all_substeps = [f for f in os.listdir(zarr_path) if f.endswith('.pkl')]
                     all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0])) # ex: 0.pkl -> 0
-                    for i, substep in enumerate(all_substeps):
-                        substep_path = os.path.join(zarr_path, substep)
-                        try:
+                else:
+                    all_substeps = [f for f in os.listdir(zarr_path) if f.endswith('.npz')]
+                    all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0])) # ex: 0.pkl -> 0
+                    
+                for i, substep in enumerate(all_substeps):
+                    substep_path = os.path.join(zarr_path, substep)
+                    try:
+                        if is_pickle:
                             with open(substep_path, 'rb') as f:
                                 data = pickle.load(f)
-                        except:
+                        else:
+                            data = np.load(substep_path)
+                    except:
+                        print(substep_path)
+                    if keys is None:
+                        keys = data.keys()
+                        self.keys_ = list(keys)
+                    else:
+                        self.keys_ = keys
+                    
+                    if target_action == 'action':
+                        action = data['action'][:]  
+                    elif target_action == 'delta_to_goal_gripper':
+                        action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).reshape(1, -1)
+                    elif target_action == 'goal_gripper_pcd':
+                        action = data['goal_gripper_pcd'][:]
+
+                    current_goal = data['goal_gripper_pcd'][:]
+                    if first_goal is None:
+                        first_goal = current_goal
+                    elif not np.allclose(first_goal, current_goal) and only_reach_stage:
+                        episode_lengths.append(i)
+                        episode_cat_idxs.append(cat_idx)
+                        break
+
+                    action_welford.add(action)
+                    
+                    if dp3:
+                        pcd = data['point_cloud']
+                        gripper_pcd = data['gripper_pcd']
+                        
+                        pcd_welford.add(pcd.squeeze(0))
+                        pcd_welford.add(gripper_pcd.squeeze(0))
+                        
+                        agent_pos = data['state'][:]
+
+                        if np.isnan(pcd).any() or np.isnan(gripper_pcd).any() or np.isnan(agent_pos).any():
                             print(substep_path)
-                        if keys is None:
-                            keys = data.keys()
-                            self.keys_ = list(keys)
-                        else:
-                            self.keys_ = keys
                         
-                        if target_action == 'action':
-                            action = data['action'][:]  
-                        elif target_action == 'delta_to_goal_gripper':
-                            action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).reshape(1, -1)
-                        elif target_action == 'goal_gripper_pcd':
-                            action = data['goal_gripper_pcd'][:]
-
-                        current_goal = data['goal_gripper_pcd'][:]
-                        if first_goal is None:
-                            first_goal = current_goal
-                        elif not np.allclose(first_goal, current_goal) and only_reach_stage:
-                            episode_lengths.append(i)
-                            episode_cat_idxs.append(cat_idx)
-                            break
-
-                        action_welford.add(action)
-                        
-                        if dp3:
-                            pcd = data['point_cloud']
-                            gripper_pcd = data['gripper_pcd']
+                        agent_pos_welford.add(agent_pos)
                             
-                            pcd_welford.add(pcd.squeeze(0))
-                            pcd_welford.add(gripper_pcd.squeeze(0))
-                            
-                            agent_pos = data['state'][:]
-
-                            if np.isnan(pcd).any() or np.isnan(gripper_pcd).any() or np.isnan(agent_pos).any():
-                                print(substep_path)
-                            
-                            agent_pos_welford.add(agent_pos)
-                            
-                else:         
-                    all_substeps = os.listdir(zarr_path)
-                    all_substeps = sorted(all_substeps, key=lambda x: int(x))
-                    for i, substep in enumerate(all_substeps):
-                        substep_path = os.path.join(zarr_path, substep)
-                        group = zarr.open(substep_path, 'r')
-                        src_store = group.store
-                        src_root = zarr.group(src_store)
-
-                        if keys is None:
-                            keys = src_root['data'].keys()
-                            self.keys_ = list(keys)
-                        else:
-                            self.keys_ = keys
-
-                        if target_action == 'action':
-                            action = src_root['data']['action'][:]
-                        elif target_action == 'delta_to_goal_gripper':
-                            action = (data['goal_gripper_pcd'][:] - data['gripper_pcd'][:]).flatten()
-                        
-
-                        current_goal = src_root['data']['goal_gripper_pcd'][:]
-                        if first_goal is None:
-                            first_goal = current_goal
-                        elif not np.allclose(first_goal, current_goal) and only_reach_stage:
-                            episode_lengths.append(i)
-                            episode_cat_idxs.append(cat_idx)
-                            break
-
-                        action_welford.add(action)
 
                 if not only_reach_stage:
                     episode_lengths.append(len(all_substeps))
@@ -336,14 +317,10 @@ class ReplayBuffer:
                 for key in self.keys_:
                     ret_data[key].append(data[key][:])
             else:
-                step_path = os.path.join(zarr_path, str(step_idx))
-                group = zarr.open(step_path, 'r')
-                src_store = group.store
-
-                # numpy backend
-                src_root = zarr.group(src_store)
+                step_path = os.path.join(zarr_path, f'{step_idx}.npz')
+                data = np.load(step_path)
                 for key in self.keys_:
-                    ret_data[key].append(src_root['data'][key][:])
+                    ret_data[key].append(data[key][:])
         
         for key in self.keys_:
             ret_data[key] = np.concatenate(ret_data[key], axis=0)
