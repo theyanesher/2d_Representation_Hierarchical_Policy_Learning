@@ -149,9 +149,10 @@ class TrainDP3Workspace:
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
-        self.model.set_normalizer(normalizer)
-        if cfg.training.use_ema:
-            self.ema_model.set_normalizer(normalizer)
+        if cfg.training.use_dataset_normalization:
+            self.model.set_normalizer(normalizer)
+            if cfg.training.use_ema:
+                self.ema_model.set_normalizer(normalizer)
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -605,6 +606,7 @@ class TrainDP3Workspace:
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
                 print(f"loading {key}")
+                if key == 'optimizer': continue
                 if key == 'model':
                     self.model = hydra.utils.instantiate(self.cfg.policy)
                     self.model.load_state_dict(value, **kwargs)
@@ -625,6 +627,7 @@ class TrainDP3Workspace:
             exclude_keys=['pretrained_goal_model', "pretrained_weighted_displacement_goal_model", "amp_scaler"], 
             include_keys=None, 
             **kwargs):
+        cprint(f"Loading checkpoint from {path}", "green")
         if path is None:
             path = self.get_checkpoint_path(tag=tag)
         else:

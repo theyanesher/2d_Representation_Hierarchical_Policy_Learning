@@ -231,7 +231,39 @@ def get_zarry_paths(zarr_path):
         dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
         all_obj_paths = os.listdir(dataset_prefix)
         all_obj_paths = sorted(all_obj_paths)
-        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if'new_rot' not in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+        
+    if zarr_path == 'sriram_plate_combine_2':
+        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha_combined_2_step_0"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' not in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+        
+    if  zarr_path == "sriram_plate_new_rot":
+        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+        
+    if  zarr_path == "sriram_plate_new_rot_raw_delta_finger":
+        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha_raw_delta_finger"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+        
+    if  zarr_path == "sriram_plate_new_rot_combine_2":
+        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha_combined_2_step_0"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
         print(all_obj_paths)
         all_zarr_paths = all_obj_paths
     

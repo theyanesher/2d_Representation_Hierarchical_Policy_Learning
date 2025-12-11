@@ -874,14 +874,20 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             # all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
             print(all_obj_paths)
             
-        elif num_train_objects == "sriam_plate":
+        elif num_train_objects == "sriram_plate":
             dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
-            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' not in x]
             print(all_obj_paths)
-            # import pdb; pdb.set_trace()
-            
+
+        elif num_train_objects == "sriram_plate_new_rot":
+            dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
+            print(all_obj_paths)
+                        
         else:
             raise ValueError('num_train_objects not supported')
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 

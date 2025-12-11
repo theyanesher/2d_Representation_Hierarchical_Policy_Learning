@@ -110,6 +110,7 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
         gripper_pcd_one_hot[:, :, 1] = 1
         gripper_pcd_ = torch.cat([gripper_pcd, gripper_pcd_one_hot], dim=2)
         inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
+        inputs = inputs.contiguous().float()
     else:
         inputs = torch.cat([pointcloud, gripper_pcd], dim=1) # B, N+4, 3
 
@@ -274,8 +275,20 @@ def train(args):
     
     if general_args.load_model_path is not None:
         load = torch.load(general_args.load_model_path, map_location=device)
-        # import pdb; pdb.set_trace()
-        model.load_state_dict(load['model'], strict=False)
+
+        old_sd = load['model']
+        new_sd = model.state_dict()
+        filtered_sd = {}
+        for k, v in old_sd.items():
+            if k in new_sd and v.shape == new_sd[k].shape:
+                filtered_sd[k] = v
+            else:
+                print(f"Skipping {k}: checkpoint shape {v.shape} != model shape {new_sd.get(k, None).shape if k in new_sd else 'N/A'}")
+
+        new_sd.update(filtered_sd)
+        model.load_state_dict(new_sd, strict=False)
+
+        # model.load_state_dict(load['model'], strict=False)
         # optimizer.load_state_dict(load['optimizer'])
         print("Successfully load model and optimizer from: ", general_args.load_model_path)
         

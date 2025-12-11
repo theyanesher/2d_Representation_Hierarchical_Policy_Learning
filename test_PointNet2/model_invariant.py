@@ -408,6 +408,7 @@ class PointNetSetAbstractionMsg(nn.Module):
         if not use_pointnet2_ops:
             new_xyz = index_points(xyz, farthest_point_sample(xyz, S, self.keep_gripper_in_fps))
         else:
+            xyz = xyz.contiguous()
             new_xyz = fps(xyz, S)
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
@@ -644,7 +645,7 @@ class PointNet2_super_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
                  first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=False, film_in_sa_and_fp=False, 
                  embedding_as_input=False,
-                 replace_bn_w_ln=False,):
+                 replace_bn_w_ln=False):
                 #  first_sa_point=1024, fp_to_full=True, replace_bn_w_gn=False, replace_bn_w_in=True):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -653,6 +654,7 @@ class PointNet2_super_multitask(nn.Module):
             in_channel = input_channel - 3 + embedding_dim
         else:
             in_channel = input_channel - 3
+        
         self.embedding_as_input = embedding_as_input
         
         self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=in_channel, mlp_list=[[16, 16, 32], [32, 32, 64]], 

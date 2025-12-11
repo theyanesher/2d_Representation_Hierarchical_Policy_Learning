@@ -226,6 +226,7 @@ optimizer:
   weight_decay: 1.0e-6
 
 training:
+  use_dataset_normalization: 1
   use_amp: False
   device: "cuda:0"
   seed: 42
