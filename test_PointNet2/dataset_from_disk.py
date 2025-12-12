@@ -132,8 +132,8 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                 else:
                     cat_idx += 5
             if cat_idx == 0:
-                # if 'grasp' in zarr_path:
-                #     cat_idx = 12
+                if 'grasp' in obj_path:
+                    cat_idx = 12
                 if 'top' in obj_path:
                     cat_idx = 13
                 if 'inside' in obj_path:
