@@ -61,7 +61,8 @@ def setup_articubot_dataloader(args):
                                       num_train_objects=args.num_train_objects,
                                       camera_frame=args.camera_frame, 
                                         goal_always_open=args.goal_always_open,
-                                        is_pickle=args.is_pickle
+                                        is_pickle=args.is_pickle,
+                                        use_rgb=args.use_rgb,
                                     )
     dataloader = DataLoader(dataset, 
                 shuffle=False,
@@ -96,9 +97,20 @@ def setup_cgn_dataloader(global_config, device):
     
 mse_loss = torch.nn.MSELoss()
 def compute_articubot_loss(data, model, optimizer, device, args, siglip_features=None, loss_fn=None, scheduler=None):
-    pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = data
+    pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight, extra = data
     class_weight = class_weight.to(device, non_blocking=True)
     gripper_points = goal_gripper_pcd.to(device, non_blocking=True)
+    
+    if "rgb" in extra and args.use_rgb:
+        rgb = extra['rgb']
+        pointcloud = torch.cat([pointcloud, rgb], dim=2)
+        gripper_rgb = extra['rgb_gripper']
+        gripper_pcd = torch.cat([gripper_pcd, gripper_rgb], dim=2)
+    if 'dino_features' in extra and args.use_dino:
+        dino_features = extra['dino_features']
+        pointcloud = torch.cat([pointcloud, dino_features], dim=2)
+        gripper_dino = extra['dino_features_gripper']
+        gripper_pcd = torch.cat([gripper_pcd, gripper_dino], dim=2)
         
     if args.add_one_hot_encoding:
         # for pointcloud, we add (1, 0)
@@ -242,6 +254,11 @@ def train(args):
     device = torch.device(gpu_id)
     general_args = args.general
     input_channel = 5 if general_args.add_one_hot_encoding else 3
+    if general_args.use_rgb:
+        input_channel += 3
+    if general_args.use_dino:
+        input_channel += 1024
+    
     output_dim = 13 
     if general_args.policy_class == 'pointnet2':
         from test_PointNet2.model_invariant import PointNet2_super_multitask

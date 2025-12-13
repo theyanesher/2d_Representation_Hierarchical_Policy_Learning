@@ -88,7 +88,7 @@ articulated_new = [
 
 class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False, 
-                 conditioning_on_demo=False, camera_frame=False, goal_always_open=False):
+                 conditioning_on_demo=False, camera_frame=False, goal_always_open=False, use_rgb=False, use_dino=False):
         self.all_obj_paths = all_obj_paths
         self.beg_ratio = beg_ratio
         self.end_ratio = end_ratio
@@ -97,6 +97,8 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.use_all_data = use_all_data
         self.conditioning_on_demo = conditioning_on_demo
         self.goal_always_open = goal_always_open 
+        self.use_rgb = use_rgb
+        self.use_dino = use_dino
         
         self.camera_frame = camera_frame
         if self.camera_frame:
@@ -255,7 +257,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             gripper_pcd = self.transform_pcd_to_camera_frame(gripper_pcd)
             goal_gripper_pcd = self.transform_pcd_to_camera_frame(goal_gripper_pcd)
         
-        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight    
+        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, {}  
     
     def read_numpy_data(self, episode_idx, step_idx):    
         step_path = os.path.join(self.all_zarr_paths[episode_idx], str(step_idx) + '.npz')
@@ -265,7 +267,20 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         pointcloud = data['point_cloud'][:][0].astype(np.float32)
         gripper_pcd = data['gripper_pcd'][:][0].astype(np.float32)
         goal_gripper_pcd = data['goal_gripper_pcd'][:][0].astype(np.float32)
-        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight    
+        
+        extra = {}
+        if self.use_rgb:
+            rgb = data['rgb_values'][:][0].astype(np.float32)
+            rgb_gripper = np.ones((gripper_pcd.shape[0], 3), dtype=np.float32)
+            extra['rgb'] = rgb
+            extra['rgb_gripper'] = rgb_gripper
+        if self.use_dino:
+            dino_features = data['dino_features'][:][0].astype(np.float32)
+            dino_features_gripper = np.ones((gripper_pcd.shape[0], dino_features.shape[1]), dtype=np.float32)
+            extra['dino_features'] = dino_features
+            extra['dino_features_gripper'] = dino_features_gripper
+            
+        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra  
 
     def __getitem__(self, idx):
         # TODO for conditioning:
@@ -281,144 +296,13 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         if self.is_pickle:
             pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight = self.read_pickle_data(episode_idx, start_idx)
         else:
-            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight = self.read_numpy_data(episode_idx, start_idx)
+            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra = self.read_numpy_data(episode_idx, start_idx)
             
         if self.goal_always_open:
             goal_gripper_pcd = change_goal_gripper_pcd_to_open(goal_gripper_pcd)
             
-        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight
+        return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra
     
-class PredictTwoGoalsDatasetFromDisk(torch.utils.data.Dataset):
-    def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False):
-        self.all_obj_paths = all_obj_paths
-        self.beg_ratio = beg_ratio
-        self.end_ratio = end_ratio
-        self.is_pickle = is_pickle
-        self.use_all_data = use_all_data
-        
-        if only_first_stage:
-            cprint('======= ONLY FIRST STAGE =======', 'red')
-
-        if eval_episode is not None:
-            cprint('======= EVAL MODE =======', 'red')
-            cprint(f'Only evaluating the first observation of {eval_episode} episodes', 'red')
-
-        self.all_zarr_paths = []
-        self.all_zarr_categories = []
-        for obj_path in all_obj_paths:
-            all_subfolder = os.listdir(obj_path)
-            cat_idx = 0
-            for i, cat in enumerate(categories):
-                if cat in obj_path:
-                    cat_idx = i + 1
-                    break
-            if 'invert' in obj_path:
-                if cat_idx == 0:
-                    cat_idx = 7
-                else:
-                    cat_idx += 5
-            for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
-                if s in all_subfolder:
-                    all_subfolder.remove(s)
-            all_subfolder = sorted(all_subfolder)
-            beg = int(beg_ratio * len(all_subfolder))
-            end = int(end_ratio * len(all_subfolder))
-            if not self.use_all_data:
-                end = min(end, 75)
-            if eval_episode is not None:
-                end = beg + eval_episode
-            all_subfolder = all_subfolder[beg:end]
-            self.all_zarr_paths += [os.path.join(obj_path, s) for s in all_subfolder]
-            self.all_zarr_categories += [cat_idx for s in all_subfolder]
-
-        cprint('Preparing all zarr paths', 'green')
-        self.episode_lengths = []
-
-        for idx, zarr_path in enumerate(tqdm(self.all_zarr_paths)):
-            if is_pickle:
-                all_substeps = os.listdir(zarr_path)
-                all_substeps = sorted(all_substeps, key=lambda x: int(x.split('.')[0]))
-                    
-                first_goal = None
-
-                for i, substep in enumerate(all_substeps):
-                    if eval_episode is not None and i >=1:
-                        self.episode_lengths.append(i)
-                        break
-
-                    substep_path = os.path.join(zarr_path, substep)
-                    with open(substep_path, 'rb') as f:
-                        data = pickle.load(f)
-                    action = data['action'][:]
-
-                    current_goal = data['goal_gripper_pcd'][:]
-                    if first_goal is None:
-                        first_goal = current_goal
-                    elif only_first_stage and not np.allclose(first_goal, current_goal):
-                        self.episode_lengths.append(i)
-                        break
-
-            
-            else:
-                raise NotImplementedError
-                all_substeps = os.listdir(zarr_path)
-                all_substeps = sorted(all_substeps, key=lambda x: int(x))
-
-                first_goal = None
-
-                for i, substep in enumerate(all_substeps):
-                    
-                    if eval_episode is not None and i >=1:
-                        self.episode_lengths.append(i)
-                        break
-
-                    substep_path = os.path.join(zarr_path, substep)
-                    group = zarr.open(substep_path, 'r')
-                    src_store = group.store
-                    src_root = zarr.group(src_store)
-
-                    action = src_root['data']['action'][:]
-
-                    current_goal = src_root['data']['goal_gripper_pcd'][:]
-                    if first_goal is None:
-                        first_goal = current_goal
-                    elif only_first_stage and not np.allclose(first_goal, current_goal):
-                        self.episode_lengths.append(i)
-                        break
-
-            if not only_first_stage and eval_episode is None:
-                self.episode_lengths.append(len(all_substeps))
-
-        self.episode_lengths = np.array(self.episode_lengths)
-        self.accumulated_episode_lengths = np.cumsum(self.episode_lengths)
-        cprint(f'Finished preparing all zarr paths with total datapoints: {self.accumulated_episode_lengths[-1]}', 'green')
-
-    def __len__(self):
-        return len(self.episode_lengths) # num data points is just num trajectories
-
-    def __getitem__(self, idx):
-        episode_idx = idx
-        start_idx = 0
-        end_idx = self.episode_lengths[episode_idx] - 1
-
-        if self.is_pickle:
-            step_path = os.path.join(self.all_zarr_paths[episode_idx], str(start_idx) + '.pkl')
-            with open(step_path, 'rb') as f:
-                data = pickle.load(f)
-
-            cat_idx = self.all_zarr_categories[episode_idx]
-            pointcloud = data['point_cloud'][:][0]
-            gripper_pcd = data['gripper_pcd'][:][0]
-            goal_gripper_pcd = data['goal_gripper_pcd'][:][0]
-
-            step_path_end = os.path.join(self.all_zarr_paths[episode_idx], str(end_idx) + '.pkl')
-            with open(step_path_end, 'rb') as f:
-                data_end = pickle.load(f)
-            goal_gripper_pcd_end = data_end['goal_gripper_pcd'][:][0]
-
-        return pointcloud, gripper_pcd, np.concatenate([goal_gripper_pcd, goal_gripper_pcd_end], axis=0), cat_idx
-
-
 from test_PointNet2.all_data import *
 from scripts.datasets.randomize_partition_10_obj import *
 from scripts.datasets.randomize_partition_50_obj import *
@@ -428,7 +312,8 @@ from scripts.datasets.randomize_partition_200_obj import *
 def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, 
                             use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, 
                             is_pickle=True,
-                            predict_two_goals=False, conditioning_on_demo=False, camera_frame=False, goal_always_open=False):
+                            predict_two_goals=False, conditioning_on_demo=False, camera_frame=False, goal_always_open=False, 
+                            use_rgb=False, use_dino=False):
     
     if dataset_prefix is None:
         dataset_prefix='/scratch/chialiang/dp3_demo'
@@ -887,10 +772,17 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_obj_paths = sorted(all_obj_paths)
             all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
             print(all_obj_paths)
+            
+        elif num_train_objects == "sriram_plate_new_rot_rgb":
+            dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'rgb' in x]
+            print(all_obj_paths)
                         
         else:
             raise ValueError('num_train_objects not supported')
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
                                         is_pickle=is_pickle, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo, camera_frame=camera_frame, 
-                                        goal_always_open=goal_always_open)    
+                                        goal_always_open=goal_always_open, use_rgb=use_rgb, use_dino=use_dino)    
     return dataset

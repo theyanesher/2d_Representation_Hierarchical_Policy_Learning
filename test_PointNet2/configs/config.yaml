@@ -19,6 +19,8 @@ articubot:
   loss_scale: 1
   camera_frame: 0
   is_pickle: 1
+  use_rgb: ${general.use_rgb}
+  use_dino: ${general.use_dino}
 
 general:
   num_iterations: 500000
@@ -41,6 +43,8 @@ general:
   embedding_as_input: 0
   policy_class: pointnet2
   use_lr_scheduler: 0
+  use_rgb: 0
+  use_dino: 0
   
 
 cgn: 
