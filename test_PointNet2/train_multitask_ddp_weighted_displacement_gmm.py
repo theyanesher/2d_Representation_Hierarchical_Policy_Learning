@@ -63,12 +63,14 @@ def setup_articubot_dataloader(args):
                                         goal_always_open=args.goal_always_open,
                                         is_pickle=args.is_pickle,
                                         use_rgb=args.use_rgb,
+                                        use_dino=args.use_dino,
                                     )
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
                 batch_size=args.batch_size,
                 num_workers=3, 
+                # num_workers=0, 
                 pin_memory=False,
                 )
     
