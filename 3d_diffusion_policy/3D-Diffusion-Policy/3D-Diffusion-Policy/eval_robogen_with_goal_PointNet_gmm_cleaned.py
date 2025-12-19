@@ -17,10 +17,27 @@ from typing import Optional
 from collections import deque
 from manipulation.utils import load_env
 
+all_3dfa_instructions =  [
+    "open the storage furniture",
+    "open the bucket",
+    "open the faucet",
+    "open the folding chair",
+    "open the laptop",
+    "open the stapler",
+    "open the toilet",
+    "close the storage furniture",
+    "close the folding chair",
+    "close the laptop",
+    "close the stapler",
+    "close the toilet",
+    "grasp the object",
+    "put object A on top of object B",
+    "put object A inside object B",
+]
+
 def infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding=None, high_level_args=None, args=None):
     inputs = inputs.to('cuda')
-    inputs_ = inputs.permute(0, 2, 1)
-    pred_dict = goal_prediction_model(inputs_, cat_embedding) 
+    pred_dict = goal_prediction_model(inputs, cat_embedding) 
     outputs = pred_dict['pred_offsets']
     pred_points = pred_dict['pred_points'] 
     weights = pred_dict['pred_scores'].squeeze(-1)
@@ -79,7 +96,8 @@ def construct_env(cfg, config_file, env_name, init_state_file, real_world_camera
             )
     env.reset()
     pointcloud_env = RobogenPointCloudWrapper(env, object_name,
-                                                num_points=cfg.task.env_runner.num_point_in_pc,
+                                                # num_points=cfg.task.env_runner.num_point_in_pc,
+                                                num_points=args.num_point_in_pc,
                                                 observation_mode=cfg.task.env_runner.observation_mode,
                                                 real_world_camera=real_world_camera,
                                                 noise_real_world_pcd=noise_real_world_pcd,
@@ -182,7 +200,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
 
         if high_level_args is not None and high_level_args.general.category_embedding_type == "siglip":
             # siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features.pt")
-            siglip_text_features = torch.load("/data/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features_close.pt")
+            siglip_text_features = torch.load("/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/siglip_text_features_close.pt")
             
         if cat_idx is not None:
             cat_idx_cuda = torch.tensor(cat_idx).to('cuda')
@@ -233,7 +251,7 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                             inputs = torch.cat([pointcloud_, gripper_pcd_], dim=1) # B, N+4, 5
                         
                         if args.model_type == "pointnet++":
-                            prediction = infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding, high_level_args, args)
+                            prediction = infer_pointnetplus_model(inputs.permute(0, 2, 1), goal_prediction_model, cat_embedding, high_level_args, args)
                         elif args.model_type == "m2t2":
                             ### TODO: implement m2t2 model inference
                             with torch.no_grad():
@@ -245,7 +263,49 @@ def run_eval_non_parallel(cfg, policy, goal_prediction_model, save_path, cat_idx
                                 
                         elif args.model_type == 'ptv3':
                             ### TODO: implement ptv3 model inference
-                            prediction = model.infer(inputs, cat_embedding=cat_embedding, output_obj_pcd_only=output_obj_pcd_only)
+                            prediction = infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding, high_level_args, args)
+
+                        elif args.model_type == '3dfa':
+                            prediction_len = 1
+                            rgbs = torch.from_numpy(np.zeros((1, 2, 3, 256, 256)))
+                            pcds = pointcloud
+                            pcds = torch.cat([pointcloud, gripper_pcd], dim=1)
+                            # instruction = ["open the door of the storage furniture"]
+                            instruction = all_3dfa_instructions[cat_idx]
+                            print("instruction is: ", instruction)
+                            instruction = tokenizer(instruction).cuda()
+                            from articubot_3dfa.datasets.articubot_dataset import get_gripper_pos_orient_from_4_points
+                            cur_pos, cur_orient = get_gripper_pos_orient_from_4_points(gripper_pcd.cpu().numpy().reshape(4, 3))
+                            proprio = np.array([*cur_pos, *cur_orient], dtype=np.float32)
+                            proprio = torch.from_numpy(proprio).view(1, 1, 1, 7).cuda() # B, history=1, 1, 8
+                            with torch.no_grad():
+                                output = high_level_model(
+                                            None,
+                                            torch.full([1, prediction_len, 1], False).cuda(non_blocking=True),
+                                            rgbs.cuda(),
+                                            None,
+                                            pcds.cuda(),
+                                            instruction,
+                                            # gripper[:, :, None, :7],
+                                            proprio,
+                                            run_inference=True
+                                        ).view(1, prediction_len, 8)
+
+                            output = output.view(8).detach().cpu().numpy()
+                            predicted_pos = output[:3]
+                            predicted_quat = output[3:7]
+                            open_finger = output[7].round()
+                            # gripper_q = 0.04 if open_finger > 0 else 0.005
+                            # # gripper_q = 0.08 
+                            if not args.always_open_3dfa:
+                                gripper_q = 0.005 
+                            else:
+                                gripper_q = 0.04
+
+                            from articubot_3dfa.test_trained_model import get_4_points_from_gripper_pos_orient
+                            four_points = get_4_points_from_gripper_pos_orient(predicted_pos, predicted_quat, gripper_q)
+                            prediction = torch.from_numpy(four_points).float().unsqueeze(0).to('cuda') # B, 4, 3
+
 
                         # handle the ambiguity between the two finger points
                         if args.flip_goal:
@@ -358,7 +418,12 @@ def load_high_level_model(path):
     general_args = args.general
     input_channel = 5 if general_args.add_one_hot_encoding else 3
     output_dim = 13 
-    from test_PointNet2.model_invariant import PointNet2_super_multitask
+    if general_args.policy_class == 'pointnet2':
+        from test_PointNet2.model_invariant import PointNet2_super_multitask
+        policy_class = PointNet2_super_multitask
+    elif general_args.policy_class == 'pointnext':
+        from test_PointNet2.model_invariant import PointNet2_super_next_multitask
+        policy_class = PointNet2_super_next_multitask
     
     if "category_embedding_type" not in general_args:
         general_args.category_embedding_type = None
@@ -369,7 +434,7 @@ def load_high_level_model(path):
     else:
         embedding_dim = None
     
-    model = PointNet2_super_multitask(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
+    model = policy_class(num_classes=output_dim, keep_gripper_in_fps=general_args.keep_gripper_in_fps, input_channel=input_channel,
                                       first_sa_point=general_args.get("first_sa_point", 2048),
                                       fp_to_full=general_args.get("fp_to_full", False),
                                       replace_bn_w_gn=general_args.get("replace_bn_with_gn", False),
@@ -387,6 +452,47 @@ def load_high_level_model(path):
         
     return model, args
 
+def load_3dfa_models(args, checkpoint_path):
+    print("Loading model from", checkpoint_path, flush=True)
+
+    ### TODO: change to be the actual 3dfa package path
+    from articubot_3dfa.modeling.policy.denoise_actor_pcd import DenoiseActor as DenoiseActorpcd
+    from articubot_3dfa.modeling.encoder.text import fetch_tokenizers
+
+    model = DenoiseActorpcd(
+        backbone=args.backbone,
+        num_vis_instr_attn_layers=args.num_vis_instr_attn_layers,
+        fps_subsampling_factor=args.fps_subsampling_factor,
+        embedding_dim=args.embedding_dim,
+        num_attn_heads=args.num_attn_heads,
+        nhist=args.num_history,
+        nhand=2 if args.bimanual else 1,
+        num_shared_attn_layers=args.num_shared_attn_layers,
+        relative=args.relative_action,
+        rotation_format=args.rotation_format,
+        denoise_timesteps=args.denoise_timesteps,
+        denoise_model=args.denoise_model
+    )
+
+    # Load model weights
+    model_dict = torch.load(
+        checkpoint_path, map_location="cpu", weights_only=True
+    )
+    model_dict_weight = {}
+    
+    for key in model_dict["weight"]:
+        # import pdb; pdb.set_trace()
+        _key = key[7:]
+        model_dict_weight[_key] = model_dict["weight"][key]
+    
+    # import pdb; pdb.set_trace()
+    
+    model.load_state_dict(model_dict_weight, strict=False)
+    model.eval()
+
+    tokenizer = fetch_tokenizers("clip")
+
+    return model.cuda(), tokenizer
 
 if __name__ == "__main__":
     
@@ -412,6 +518,8 @@ if __name__ == "__main__":
     parser.add_argument('--num_categories', type=int, default=7)
     parser.add_argument('--invert', action='store_true', help='Set the flag for invert training')
     parser.add_argument('--category_embedding_type', type=str, default="none")
+    parser.add_argument('--num_point_in_pc', type=int, default=4500)
+    parser.add_argument('--always_open_3dfa', type=int, default=0)
     args = parser.parse_args()
 
     categories = ['bucket', 'faucet', 'foldingchair', 'laptop', 'stapler', 'toilet']
@@ -486,6 +594,33 @@ if __name__ == "__main__":
         high_level_model = high_level_model.cuda().eval()
         model_args = None
         # import pdb; pdb.set_trace()
+        
+    elif args.model_type == 'ptv3':
+        from ptv3.highlevel_ptv3 import HighlevelPTv3
+        import hydra
+        
+        load_model_path = args.high_level_ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, ".hydra/config.yaml") # TODO: implement the overrides
+        model_cfg = OmegaConf.load(load_config)
+        pointnet2_model: HighlevelPTv3 = hydra.utils.instantiate(model_cfg.model)
+        pointnet2_model = pointnet2_model.to('cuda')
+        
+        state_dict = torch.load(load_model_path)['model']
+        pointnet2_model.load_state_dict(state_dict)
+        high_level_model = pointnet2_model
+        high_level_model.eval()
+        model_args = model_cfg
+        
+    elif args.model_type == '3dfa':
+        # "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/2025-0817-test_articubot_50/best.pth"
+        load_model_path = args.high_level_ckpt_name
+        load_model_dir = os.path.dirname(load_model_path)
+        load_config = os.path.join(load_model_dir, "config.yaml") # TODO: implement the overrides
+        model_cfg = OmegaConf.load(load_config)
+        high_level_model, tokenizer = load_3dfa_models(model_cfg, load_model_path)
+        model_args = None
+        
         
     checkpoint_dir = "{}/checkpoints/{}".format(exp_dir, checkpoint_name)
     

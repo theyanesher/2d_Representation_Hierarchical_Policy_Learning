@@ -63,6 +63,8 @@ def setup_articubot_dataloader(args):
                                         goal_always_open=args.goal_always_open,
                                         is_pickle=args.is_pickle,
                                         use_rgb=args.use_rgb,
+                                        pred_gripper_width=args.pred_gripper_width,
+                                        gripper_width_scale_factor=args.gripper_width_scale_factor,
                                     )
     dataloader = DataLoader(dataset, 
                 shuffle=False,
@@ -200,6 +202,14 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
         log_info['perpoint_loss'] = per_point_loss.item()
         log_info['weighted_average_loss'] = avg_loss.item()
         
+    if args.pred_gripper_width:
+        pred_gripper_width = pred_dict['gripper_width'] # B x 1
+        gt_gripper_width = extra['goal_gripper_width'].to(device, non_blocking=True).view(B, 1).float() # B X 1
+        loss_gripper_width = mse_loss(pred_gripper_width, gt_gripper_width)
+        loss += loss_gripper_width * args.gripper_width_loss_weight
+        log_info['gripper_width_loss'] = loss_gripper_width.item()
+        # print("computing gripper width loss, which is: ", loss_gripper_width.item())
+        
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()    
@@ -286,6 +296,7 @@ def train(args):
                                       film_in_sa_and_fp=general_args.film_in_sa_and_fp,
                                       embedding_as_input=general_args.embedding_as_input,
                                       replace_bn_w_ln=general_args.replace_bn_with_ln,
+                                      pred_gripper_width=args.articubot.pred_gripper_width,
                                       ).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     cprint(f"model has parameters {total_params}", "red")

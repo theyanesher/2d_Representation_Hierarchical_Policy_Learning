@@ -586,6 +586,30 @@ class PointNet2_small2(nn.Module):
         # x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)
         return x # x shape: B, N, num_classes: outputing logtis
+    
+class PointNet2_small2_classification(nn.Module):
+    def __init__(self, num_classes):
+        super(PointNet2_small2_classification, self).__init__()
+        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=0, mlp_list=[[16, 16, 16], [32, 32, 32]])
+        self.sa2 = PointNetSetAbstractionMsg(npoint=256, radius_list=[0.1, 0.2], nsample_list=[16, 32], in_channel=48, mlp_list=[[64, 64, 64], [64, 96, 64]])
+        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128, [[128, 196, 128], [128, 196, 128]])
+
+        self.conv1 = nn.Linear(256, 256)
+        self.ln1 = nn.BatchNorm1d(256)
+        self.conv2 = nn.Linear(256, 1)
+
+    def forward(self, xyz):
+        l0_points = xyz
+        l0_xyz = xyz[:, :3, :]
+        l1_xyz, l1_points = self.sa1(l0_xyz, None) # (B, 3, 512) (B, 96, 512)
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # (B, 3, 128) (B, 256, 128)
+        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # (B, 3, 32) (B, 512, 32)
+        
+        l3_points_pooled = torch.max(l3_points, 2)[0]  # (B, 256)
+
+        x = F.relu(self.ln1(self.conv1(l3_points_pooled)))
+        x = self.conv2(x)
+        return x 
 
 class PointNet2_super(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None):
@@ -645,7 +669,8 @@ class PointNet2_super_multitask(nn.Module):
     def __init__(self, num_classes, input_channel=3, keep_gripper_in_fps=False, embedding_dim=None,
                  first_sa_point=2048, fp_to_full=False, replace_bn_w_gn=False, replace_bn_w_in=False, film_in_sa_and_fp=False, 
                  embedding_as_input=False,
-                 replace_bn_w_ln=False):
+                 replace_bn_w_ln=False, 
+                 pred_gripper_width=False):
                 #  first_sa_point=1024, fp_to_full=True, replace_bn_w_gn=False, replace_bn_w_in=True):
         super(PointNet2_super_multitask, self).__init__()
         # self.sa0 = PointNetSetAbstractionMsg(npoint=2048, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=input_channel - 3, mlp_list=[[16, 16, 32], [32, 32, 64]], keep_gripper_in_fps=keep_gripper_in_fps)
@@ -706,8 +731,23 @@ class PointNet2_super_multitask(nn.Module):
         if replace_bn_w_in:
             print("replacing all batchnorm layers to be instance norm layers!")
             replace_bn_with_in(self)
+            
+        self.pred_gripper_width = pred_gripper_width
+        if self.pred_gripper_width:
+            # self.gripper_width_head = nn.Sequential(
+            #     nn.Linear(1024, 512),
+            #     nn.ReLU(),
+            #     nn.Linear(512, 256),
+            #     nn.ReLU(),
+            #     nn.Linear(256, 1)
+            # )
+            self.gripper_width_network = PointNet2_small2_classification(num_classes=1)
 
     def forward(self, xyz, embedding=None, build_grasp=False, articubot_format=False):
+        if self.pred_gripper_width:
+            pred_gripper_width = self.gripper_width_network(xyz)
+        
+        
         # assert embedding is not None
         
         l0_points = xyz
@@ -734,8 +774,13 @@ class PointNet2_super_multitask(nn.Module):
 
         # add film
         if embedding is not None:
-            print("using language embedding in film")
+            # print("using language embedding in film")
             l6_points = self.film(l6_points, embedding) # (B, 1024, 16)
+            
+        # if self.pred_gripper_width:
+        #     # print("predicting gripper width")
+        #     pooled_l6 = torch.max(l6_points, dim=2)[0]  # B x 1024
+        #     pred_gripper_width = self.gripper_width_head(pooled_l6)  # B x 1
 
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 512, 64)
         l4_points = self.fp5(l4_xyz, l5_xyz, l4_points, l5_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 512, 128)
@@ -768,7 +813,8 @@ class PointNet2_super_multitask(nn.Module):
             pred_points =pred_points,
             pred_offsets=pred_offsets,  
             pred_grasps_cam= pred_grasps_cam,  # B x N x 4 x 4
-            offset_pred=offset
+            offset_pred=offset,
+            gripper_width=pred_gripper_width if self.pred_gripper_width else 0
         )
         
         return pred
@@ -811,6 +857,7 @@ class PointNet2_super_multitask(nn.Module):
         
         return grasps, offset
     
+
 
         
 class PointNet2_superplus(nn.Module):

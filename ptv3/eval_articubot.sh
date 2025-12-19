@@ -14,13 +14,66 @@ for id in "${list[@]}"; do
     echo "Launching ID=$id on GPU=$gpu_id"
 
     CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
-    --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
-    --low_level_ckpt_name epoch-52.ckpt   \
-    --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/baseline_ptv3_articulated/2025.10.24/23.34.56/model_340000.pth \
-    --eval_exp_name eval_baseline_ptv3_articulated    \
+    --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/low_level_165-obj_scratch   \
+    --low_level_ckpt_name epoch-96.ckpt   \
+    --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps/2025-10-12pick_and_place_more_1005-and-low-level-grasping_1009/model_405001.pth \
+    --eval_exp_name eval_articubot_all_not_close_gripper_cy_low_level    \
     --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
-    --model_type ptv3 \
     > data/logs/eval_${id}.log 2>&1 &
+    
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
+    # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/low_level_165-obj_scratch   \
+    # --low_level_ckpt_name epoch-96.ckpt   \
+    # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-1102-450-obj/interm295000.pth \
+    # --eval_exp_name eval_3dfa_450_cy_low_level     \
+    # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
+    # --model_type 3dfa \
+    # > data/logs/eval_${id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
+    # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/low-level-50-goal-always-open/2025.08.27/21.00.29_train_dp3_robogen_open_door   \
+    # --low_level_ckpt_name epoch-96.ckpt   \
+    # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-1102-450-obj/interm295000.pth \
+    # --eval_exp_name eval_3dfa_450_open_low_level     \
+    # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
+    # --model_type 3dfa \
+    # --always_open_3dfa 1 \
+    # > data/logs/eval_${id}.log 2>&1 &
+
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
+    # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    # --low_level_ckpt_name epoch-52.ckpt   \
+    # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps/2025-10-12pick_and_place_more_1005-and-low-level-grasping_1009/model_405001.pth \
+    # --eval_exp_name eval_articubot_all_not_close_gripper    \
+    # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
+    # > data/logs/eval_${id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
+    # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    # --low_level_ckpt_name epoch-52.ckpt   \
+    # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps/2025-08-18articubot_cgn_ln_gmm_multivariance_full_450_plus_dagger_load/model_80000.pth \
+    # --eval_exp_name eval_articubot_450_dagger_not_close_gripper    \
+    # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
+    # > data/logs/eval_${id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
+    # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    # --low_level_ckpt_name epoch-52.ckpt   \
+    # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-1102-450-obj/interm295000.pth \
+    # --eval_exp_name eval_3dfa_450     \
+    # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
+    # --model_type 3dfa \
+    # > data/logs/eval_${id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
+    # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    # --low_level_ckpt_name epoch-52.ckpt   \
+    # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/baseline_ptv3_articulated/2025.10.24/23.34.56/model_340000.pth \
+    # --eval_exp_name eval_baseline_ptv3_articulated    \
+    # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
+    # --model_type ptv3 \
+    # > data/logs/eval_${id}.log 2>&1 &
 
     # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned_old_data_format.py  \
     # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
@@ -34,7 +87,7 @@ for id in "${list[@]}"; do
     # --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
     # --low_level_ckpt_name epoch-52.ckpt   \
     # --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-0919-articubot_articulated_large_pn/last.pth \
-    # --eval_exp_name eval_3dfa_articulated_large_2     \
+    # --eval_exp_name eval_3dfa_articulated_large_correct     \
     # --exp_dir data/diverse_objects/open_the_door_${id}/task_open_the_door_of_the_storagefurniture_by_its_handle  \
     # --model_type 3dfa \
     # > data/logs/eval_${id}.log 2>&1 &

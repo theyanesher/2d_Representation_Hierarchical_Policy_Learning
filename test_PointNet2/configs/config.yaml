@@ -1,7 +1,7 @@
 articubot:
   all_zarr_path: null
-  num_train_objects: 'debug'
-  dataset_prefix: "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/dp3_demo"
+  num_train_objects: '50'
+  dataset_prefix: /project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj
   goal_always_open: 0
   batch_size: 20
   beg_ratio: 0
@@ -15,23 +15,26 @@ articubot:
   add_one_hot_encoding: ${general.add_one_hot_encoding}
   gmm: 1
   weight_loss_weight: 10
+  gripper_width_loss_weight: 1
   train_frequency: 1
   loss_scale: 1
   camera_frame: 0
   is_pickle: 1
   use_rgb: ${general.use_rgb}
   use_dino: ${general.use_dino}
+  pred_gripper_width: 0
+  gripper_width_scale_factor: 1.0
 
 general:
   num_iterations: 500000
-  save_freq: 2500
+  save_freq: 5000
   lr: 0.001
   load_model_path: null
   exp_name: articubot_cgn_first_try-2
   optimizer: adamw
   add_one_hot_encoding: 0
   keep_gripper_in_fps: 0
-  exp_path: /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
+  exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
   tasks: [articubot, cgn]
   fp_to_full: 0
   first_sa_point: 2048
@@ -58,7 +61,7 @@ cgn:
     useful_point_num: 12000
     further_fps_point: 0
     classes: null
-    data_path: /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym
+    data_path: /project_data/held/yufeiw2/contact_graspnet_pytorch/acronym
     depth_augm:
       clip: 0.005
       gaussian_kernel: 0
