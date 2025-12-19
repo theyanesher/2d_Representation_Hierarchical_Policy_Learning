@@ -48,6 +48,20 @@ def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn, cur_joint_ang
 
 def infer_pointnetplus_model(inputs, goal_prediction_model, cat_embedding=None, high_level_args=None, args=None):
     inputs = inputs.to('cuda')
+    
+    # import pdb; pdb.set_trace()
+    if high_level_args.articubot.add_one_hot_encoding:
+        # for pointcloud, we add (1, 0)
+        # for gripper_pcd, we add (0, 1)
+        N_points = inputs.shape[1]- 4
+        one_hot_encoding = torch.zeros(inputs.shape[0], inputs.shape[1], 2).to(inputs.device).float()
+        one_hot_encoding[:, :N_points, 0] = 1.0
+        one_hot_encoding[:, N_points:, 1] = 1.0
+        inputs = torch.cat([inputs, one_hot_encoding], dim=2)
+    
+    inputs = inputs.permute(0, 2, 1)
+    # import pdb; pdb.set_trace()
+    
     pred_dict = goal_prediction_model(inputs, cat_embedding) 
     outputs = pred_dict['pred_offsets']
     pred_points = pred_dict['pred_points'] 
@@ -209,7 +223,7 @@ def get_dataloader(args, dataset_prefix=None, num_train_objects=None, end_ratio=
     
         dataloader = DataLoader(dataset, 
                     shuffle=True,
-                    batch_size=15,
+                    batch_size=2,
                     num_workers=3, 
                     pin_memory=False,
         )
@@ -310,7 +324,8 @@ elif args.model_type == 'ptv3':
 dataset_prefix = "/project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj"
 dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
 if not args.val:
-    num_train_objects = 'sriam_plate'
+    # num_train_objects = 'sriam_plate'
+    num_train_objects = 'sriram_towel'
     end_ratio = 1
 else:
     num_train_objects = 'test_50'
@@ -326,7 +341,8 @@ siglip_text_features = siglip_text_features['values']
 #     if cat in args.exp_dir:
 #         cat_idx = i + 1
 #         break
-cat_idx = 13 ### for pick and place
+# cat_idx = 13 ### for pick and place
+cat_idx = 0 ### for pick and place
     
 
 ### for each training env, run the policy and get the error
@@ -337,7 +353,7 @@ for batch_idx, batch in enumerate(tqdm(dataloader)):
     
     with torch.no_grad():
         if args.model_type == 'pointnet++' or args.model_type == 'ptv3':
-            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight = batch
+            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, class_weight, extra = batch
     
             high_level_args = model_args
             if high_level_args and high_level_args.general.category_embedding_type == "one_hot":
@@ -352,8 +368,8 @@ for batch_idx, batch in enumerate(tqdm(dataloader)):
             inputs = torch.cat([pointcloud, gripper_pcd], dim=1).cuda()
             cat_embedding = siglip_text_features[cat_idx].float().to(inputs.device)
             # import pdb; pdb.set_trace()
-            if args.model_type == 'pointnet++':
-                inputs = inputs.permute(0, 2, 1)
+            # if args.model_type == 'pointnet++':
+            #     inputs = inputs.permute(0, 2, 1)
             pred_goal = infer_pointnetplus_model(inputs, high_level_model, 
                                                 cat_embedding=cat_embedding,
                                                 high_level_args=model_args, args=args)

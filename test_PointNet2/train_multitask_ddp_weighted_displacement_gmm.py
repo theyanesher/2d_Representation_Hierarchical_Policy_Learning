@@ -65,12 +65,14 @@ def setup_articubot_dataloader(args):
                                         use_rgb=args.use_rgb,
                                         pred_gripper_width=args.pred_gripper_width,
                                         gripper_width_scale_factor=args.gripper_width_scale_factor,
+                                        use_dino=args.use_dino,
                                     )
     dataloader = DataLoader(dataset, 
                 shuffle=False,
                 sampler=DistributedSampler(dataset),
                 batch_size=args.batch_size,
                 num_workers=3, 
+                # num_workers=0, 
                 pin_memory=False,
                 )
     
