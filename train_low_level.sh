@@ -46,6 +46,7 @@ use_dataset_normalization=0
 # exp_name="1204_from_scratch_sriram_plate_combine_2_step_train_longer"
 # exp_name="1204_finetune_ours_sriram_plate_new_rot_train_longer_keep_old_normalizer"
 exp_name="1210_finetune_ours_sriram_plate_new_rot_raw_delta_train_longer_keep_old_normalizer"
+exp_name="1204_finetune_ours_sriram_plate_new_rot_rgb_train_longer_keep_old_normalizer"
 
 action_dim=10
 agent_pos_dim=10
@@ -53,7 +54,7 @@ agent_pos_dim=10
 torchrun --standalone --nproc_per_node=1 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=sriram_plate_new_rot_raw_delta_finger \
+    task.dataset.zarr_path=sriram_plate_new_rot_rgb \
     training.use_dataset_normalization="${use_dataset_normalization}" \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \

@@ -144,6 +144,9 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             if 'aloha' in obj_path and 'plate' in obj_path:
                 print("using sriram plate category")
                 cat_idx = 13 ### put plate on top of the category 13 (top)
+            if 'aloha' in obj_path and 'towel' in obj_path:
+                print("using sriram towel category")
+                cat_idx = 0 ### use open 
                     
             # storage furniture, bucket, faucet, foldingchair, laptop, stapler, toilet, invert storage furniture, invert foldingchair, invert laptop, invert stapler, invert toilet
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
@@ -275,7 +278,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             extra['rgb'] = rgb
             extra['rgb_gripper'] = rgb_gripper
         if self.use_dino:
-            dino_features = data['dino_features'][:][0].astype(np.float32)
+            dino_features = data['rgb_features'][:][0].astype(np.float32)
             dino_features_gripper = np.ones((gripper_pcd.shape[0], dino_features.shape[1]), dtype=np.float32)
             extra['dino_features'] = dino_features
             extra['dino_features_gripper'] = dino_features_gripper
@@ -804,6 +807,13 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
             all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'rgb' in x]
+            print(all_obj_paths)
+            
+        elif num_train_objects == "sriram_towel":
+            dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'folding-towel' in x]
             print(all_obj_paths)
                         
         else:
