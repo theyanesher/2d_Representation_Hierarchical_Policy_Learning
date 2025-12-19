@@ -205,7 +205,7 @@ def compute_articubot_loss(data, model, optimizer, device, args, siglip_features
     optimizer.step()    
     
     if scheduler is not None:
-        print("stepping lr scheduler")
+        # print("stepping lr scheduler")
         scheduler.step()
         log_info['lr'] = scheduler.get_last_lr()[0]
 
@@ -225,7 +225,7 @@ def compute_cgn_loss(data, model, optimizer, device, global_config, siglip_featu
         pred = model(pc_cam)
     else:
         # print("cgn use siglip embedding")
-        embedding = siglip_features[12].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
+        embedding = siglip_features[15].float().unsqueeze(0).repeat(pc_cam.shape[0], 1)
         pred = model(pc_cam, embedding)
         
     loss, loss_info = loss_fn(pred, data, world_frame=global_config['world_frame'])
@@ -381,6 +381,7 @@ def train(args):
             # siglip_text_features = torch.load("../siglip_text_features_close.pt")
         # siglip_text_features = torch.load("../siglip_text_features.pt")
         siglip_text_features = torch.load("../siglip_text_features_w_pick_and_place.pt")
+        siglip_text_features = torch.load("../siglip_text_features_w_pick_and_place_w_grasp_and_lift.pt")
         siglip_text_features = siglip_text_features['values']
             
     else:
@@ -433,7 +434,7 @@ def train(args):
                 torch.save(save_dict, save_path)
                 
                 ### TODO: rsync all models to google drive
-                # upload_file(general_args.exp_path)
+                upload_file(general_args.exp_path)
                 
         
         # torch.cuda.empty_cache()        

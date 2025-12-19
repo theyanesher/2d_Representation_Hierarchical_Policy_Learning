@@ -294,7 +294,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             start_idx += self.episode_lengths[episode_idx]
             
         if self.is_pickle:
-            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight = self.read_pickle_data(episode_idx, start_idx)
+            pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra = self.read_pickle_data(episode_idx, start_idx)
         else:
             pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra = self.read_numpy_data(episode_idx, start_idx)
             
@@ -388,8 +388,12 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             print(all_obj_paths)
             print("all obj paths: ============================================")
             
-        elif num_train_objects == 'pick_and_place':
-            dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
+        elif num_train_objects in ['pick_and_place', 'pick_and_place_new_1024']:
+            if num_train_objects == 'pick_and_place':
+                dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
+            elif num_train_objects == 'pick_and_place_new_1024':
+                dataset_prefix = ["top_cgn_1204", "inside_link_cgn_1204", "inside_whole_cgn_1204"]
+                
             all_pick_place_data = []
             for name in dataset_prefix:
                 path = f"/tmp/pick_and_place/{name}"
@@ -400,7 +404,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_obj_paths = all_pick_place_data
             print("all_obj_paths: ", all_obj_paths)
             
-        elif num_train_objects == 'aritucbot_new_cat_camera_random_close_pick_and_place':
+        elif "pick_and_place" in num_train_objects and len(num_train_objects) > len("pick_and_place"):
             ### articubot with camera randomization
             dataset_prefix = "/tmp/dp3_demo_clean_distorted_goal"
             # non_real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
@@ -446,16 +450,38 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             # close_data = []
             
             ### pick and place data
-            dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
             all_pick_place_data = []
+            if num_train_objects == 'aritucbot_new_cat_camera_random_close_pick_and_place':
+                dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
+            elif "pick_and_place_more_1005" in num_train_objects:
+                dataset_prefix = ["inside_whole_1005", "inside_link_1005", "top_1005"]
+            elif "pick_and_place_new_1204" in num_train_objects:
+                dataset_prefix = ["top_cgn_1204", "inside_link_cgn_1204", "inside_whole_cgn_1204"]
+                
+                
             for name in dataset_prefix:
                 path = f"/tmp/pick_and_place/{name}"
                 all_data = sorted(os.listdir(path))
                 all_data = [os.path.join(path, x) for x in all_data]
                 all_pick_place_data.extend(all_data)
+            
+            all_grasping_data = []
+            if "grasping_1009" in num_train_objects:
+                name = "gen_grasp_1009"
+                path = f"/tmp/grasping/{name}"
+                all_data = sorted(os.listdir(path))
+                all_data = [os.path.join(path, x) for x in all_data]
+                all_grasping_data.extend(all_data)
+            elif "grasping_1017" in num_train_objects:
+                name = "gen_grasp_1017"
+                path = f"/tmp/grasping/{name}"
+                all_data = sorted(os.listdir(path))
+                all_data = [os.path.join(path, x) for x in all_data]
+                all_grasping_data.extend(all_data)
 
             all_obj_paths = non_real_world_camera_500_paths + real_world_camera_500_paths + articulated + \
-                articulated_random_cam + articulated_real_cam + articulated_dagger + close_data + all_pick_place_data
+                articulated_random_cam + articulated_real_cam + articulated_dagger + close_data + all_pick_place_data + \
+                    all_grasping_data
                 
             print("all obj paths: ============================================")
             print(all_obj_paths)
@@ -598,7 +624,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
             ]
         elif num_train_objects == 'debug':
-            all_obj_paths = [f'{dataset_prefix}/0628-act3d-obj-47570-gripper-goal-1-displacement-to-object-1-combined-steps-2-filter-zero-close-action-1']
+            all_obj_paths = [f'{dataset_prefix}/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']
         elif num_train_objects == '10':
             all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
         elif num_train_objects == '50':

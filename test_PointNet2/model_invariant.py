@@ -734,7 +734,7 @@ class PointNet2_super_multitask(nn.Module):
 
         # add film
         if embedding is not None:
-            print("using language embedding in film")
+            # print("using language embedding in film")
             l6_points = self.film(l6_points, embedding) # (B, 1024, 16)
 
         l5_points = self.fp6(l5_xyz, l6_xyz, l5_points, l6_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 512, 64)
