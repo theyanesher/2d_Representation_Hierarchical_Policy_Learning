@@ -155,8 +155,8 @@ def get_zarry_paths(zarr_path):
         all_zarr_paths_part_2 = [f"{dataset_prefix}/{x}" for x in object_other_categories_no_cam_rand]
         all_zarr_paths = all_zarr_paths_part_1 + all_zarr_paths_part_2
     
-    dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
-    # dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
+    # dataset_prefix = '/data/minon/dp3_demo_combined_2_step_0'
+    dataset_prefix = '/scratch/yufeiw2/dp3_demo_combined_2_step_0'
     # dataset_prefix = '/local/'
     
     if zarr_path == '10_object_low_level':
@@ -228,7 +228,8 @@ def get_zarry_paths(zarr_path):
         pass
     
     if zarr_path == "sriram_plate":
-        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+        # dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
         all_obj_paths = os.listdir(dataset_prefix)
         all_obj_paths = sorted(all_obj_paths)
         all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if'new_rot' not in x]
@@ -244,15 +245,23 @@ def get_zarry_paths(zarr_path):
         all_zarr_paths = all_obj_paths
         
     if  zarr_path == "sriram_plate_new_rot":
-        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
         all_obj_paths = os.listdir(dataset_prefix)
         all_obj_paths = sorted(all_obj_paths)
         all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
         print(all_obj_paths)
         all_zarr_paths = all_obj_paths
         
+    if  zarr_path == "sriram_towel":
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+        
     if  zarr_path == "sriram_plate_new_rot_rgb":
-        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
         all_obj_paths = os.listdir(dataset_prefix)
         all_obj_paths = sorted(all_obj_paths)
         all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'rgb' in x]
@@ -274,6 +283,25 @@ def get_zarry_paths(zarr_path):
         all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
         print(all_obj_paths)
         all_zarr_paths = all_obj_paths
+        
+    if zarr_path == "pick_and_place_1204":
+        top_prefix = '/scratch/chenyuah/dp3_demo_combined_2_step_0/inside_link_cgn'
+        top_names = os.listdir(top_prefix)
+        top_zarr_paths = [
+            "{}/{}".format(top_prefix, top_names[i]) for i in range(len(top_names))
+        ]
+        inside_whole_prefix = '/scratch/chenyuah/dp3_demo_combined_2_step_0/inside_whole_cgn'
+        inside_whole_names = os.listdir(inside_whole_prefix)
+        inside_whole_zarr_paths = [
+            "{}/{}".format(inside_whole_prefix, inside_whole_names[i]) for i in range(len(inside_whole_names))
+        ]
+        inside_link_prefix = '/scratch/chenyuah/dp3_demo_combined_2_step_0/top_cgn'
+        inside_link_names = os.listdir(inside_link_prefix)
+        inside_link_zarr_paths = [
+            "{}/{}".format(inside_link_prefix, inside_link_names[i]) for i in range(len(inside_link_names))
+        ]
+        all_zarr_paths = top_zarr_paths + inside_whole_zarr_paths + inside_link_zarr_paths
+        print("all zarr paths: ", all_zarr_paths)
     
     return all_zarr_paths
 
@@ -852,6 +880,7 @@ class RobogenDataset(BaseDataset):
             
             if self.goal_always_open:
                 # import pdb; pdb.set_trace()
+                # print("Setting goal gripper to always open")
                 from test_PointNet2.dataset_from_disk import change_goal_gripper_pcd_to_open
                 for idx in range(len(data['obs']['goal_gripper_pcd'])):
                     goal_gripper = data['obs']['goal_gripper_pcd'][idx]

@@ -15,14 +15,40 @@ for id in "${list[@]}"; do
     echo "Launching ID=$id on GPU=$gpu_id"
     safe_id=${id//\//_}
 
-    CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned.py  \
-        --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
-        --low_level_ckpt_name epoch-52.ckpt   \
-        --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-0919-articubot_articulated_large_pn/last.pth \
-        --eval_exp_name eval_baseline_3dfa_articulated \
+       CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned.py  \
+        --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/low_level_165-obj_scratch   \
+        --low_level_ckpt_name epoch-96.ckpt   \
+        --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-1102-450-obj/interm295000.pth \
+        --eval_exp_name eval_3dfa_450_cy_low_level \
         --exp_dir data/${id} \
         --model_type 3dfa \
     > data/logs/eval_${safe_id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned.py  \
+    #     --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    #     --low_level_ckpt_name epoch-52.ckpt   \
+    #     --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps/2025-08-18articubot_cgn_ln_gmm_multivariance_full_450_plus_dagger_load/model_80000.pth \
+    #     --eval_exp_name eval_articubot_450_dagger_not_close_gripper \
+    #     --exp_dir data/${id} \
+    # > data/logs/eval_${safe_id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned.py  \
+    #     --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    #     --low_level_ckpt_name epoch-52.ckpt   \
+    #     --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-1102-450-obj/interm295000.pth \
+    #     --eval_exp_name eval_3dfa_450_correct \
+    #     --exp_dir data/${id} \
+    #     --model_type 3dfa \
+    # > data/logs/eval_${safe_id}.log 2>&1 &
+
+    # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned.py  \
+    #     --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \
+    #     --low_level_ckpt_name epoch-52.ckpt   \
+    #     --high_level_ckpt_name /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/articubot_3dfa/train_logs/articubot/2025-0919-articubot_articulated_large_pn/last.pth \
+    #     --eval_exp_name eval_3dfa_articulated_large_correct \
+    #     --exp_dir data/${id} \
+    #     --model_type 3dfa \
+    # > data/logs/eval_${safe_id}.log 2>&1 &
 
     # CUDA_VISIBLE_DEVICES=$gpu_id python 3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/eval_robogen_with_goal_PointNet_gmm_cleaned.py  \
     #     --low_level_exp_dir /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/close_push_low   \

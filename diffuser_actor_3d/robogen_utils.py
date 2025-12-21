@@ -79,7 +79,40 @@ def get_gripper_pos_orient_from_4_points(gripper_pcd):
     gripper_orn = rotation_matrix_to_quaternion(R)
     return gripper_pos, gripper_orn
 
-def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn):
+# def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn):
+#     goal_R = R.from_quat(gripper_orn)
+#     original_R = R.from_quat(original_gripper_orn)
+#     rotation_transfer = goal_R * original_R.inv()
+#     original_pcd = original_gripper_pcd - original_gripper_pcd[3]
+#     rotated_pcd = rotation_transfer.apply(original_pcd)
+#     gripper_pcd = rotated_pcd + gripper_pos
+#     return gripper_pcd
+
+def get_4_points_from_gripper_pos_orient(gripper_pos, gripper_orn, cur_joint_angle):
+    # original_gripper_pcd = np.array([[ 0.10432111,  0.00228697,  0.8474241 ],
+    #         [ 0.12816067, -0.04368229,  0.8114649 ],
+    #         [ 0.08953098,  0.0484529 ,  0.80711854],
+    #         [ 0.11198021,  0.00245327,  0.7828771 ]])
+    # original_gripper_orn = np.array([0.97841681, 0.19802945, 0.0581003 , 0.01045192])
+    # original_gripper_pcd = np.array([[ 0.43856215, -0.40922496,  0.6756892 ],
+    #    [ 0.3991713 , -0.42923108,  0.65513015 ],
+    #    [ 0.45587012, -0.43078858,  0.6355644  ],
+    #    [ 0.41987222, -0.44440767,  0.6243291 ]])
+    # original_gripper_orn = np.array([ 0.69285525, -0.64422789,  0.08350163,  0.31296886])
+    original_gripper_pcd = np.array([[ 0.5648266,   0.05482348,  0.34434554],
+        [ 0.5642125,   0.02702148,  0.2877661 ],
+        [ 0.53906703,  0.01263776,  0.38347825],
+        [ 0.54250515, -0.00441092,  0.32957944]]
+    )
+    original_gripper_orn = np.array([0.21120763,  0.75430543, -0.61925177, -0.05423936])
+    
+    gripper_pcd_right_finger_closed = np.array([ 0.55415434,  0.02126799,  0.32605097])
+    gripper_pcd_left_finger_closed = np.array([ 0.54912525,  0.01839125,  0.3451934 ])
+    gripper_pcd_closed_finger_angle = 2.6652539383870777e-05
+ 
+    original_gripper_pcd[1] = gripper_pcd_right_finger_closed + (original_gripper_pcd[1] - gripper_pcd_right_finger_closed) / (0.04 - gripper_pcd_closed_finger_angle) * (cur_joint_angle - gripper_pcd_closed_finger_angle)
+    original_gripper_pcd[2] = gripper_pcd_left_finger_closed + (original_gripper_pcd[2] - gripper_pcd_left_finger_closed) / (0.04 - gripper_pcd_closed_finger_angle) * (cur_joint_angle - gripper_pcd_closed_finger_angle)
+ 
     goal_R = R.from_quat(gripper_orn)
     original_R = R.from_quat(original_gripper_orn)
     rotation_transfer = goal_R * original_R.inv()

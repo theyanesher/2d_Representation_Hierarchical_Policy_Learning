@@ -1,7 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
-import zarr
 import os
 from termcolor import cprint
 import numpy as np
@@ -88,7 +87,7 @@ articulated_new = [
 
 class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False, 
-                 conditioning_on_demo=False, camera_frame=False, goal_always_open=False, use_rgb=False, use_dino=False):
+                 conditioning_on_demo=False, camera_frame=False, goal_always_open=False, use_rgb=False, use_dino=False, pred_gripper_width=False, gripper_width_scale_factor=1.0):
         self.all_obj_paths = all_obj_paths
         self.beg_ratio = beg_ratio
         self.end_ratio = end_ratio
@@ -99,6 +98,8 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.goal_always_open = goal_always_open 
         self.use_rgb = use_rgb
         self.use_dino = use_dino
+        self.pred_gripper_width = pred_gripper_width
+        self.gripper_width_scale_factor = gripper_width_scale_factor
         
         self.camera_frame = camera_frame
         if self.camera_frame:
@@ -301,10 +302,19 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         else:
             pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra = self.read_numpy_data(episode_idx, start_idx)
             
-        if self.goal_always_open:
+        if self.pred_gripper_width:
+            goal_gripper_width = np.linalg.norm(goal_gripper_pcd[1] - goal_gripper_pcd[2]) * self.gripper_width_scale_factor
+        else:
+            goal_gripper_width = 0
+            
+        extra['goal_gripper_width'] = goal_gripper_width
+        
+        if self.goal_always_open or self.pred_gripper_width:
+            # print("change gripper to be fully open")
             goal_gripper_pcd = change_goal_gripper_pcd_to_open(goal_gripper_pcd)
             
         return pointcloud, gripper_pcd, goal_gripper_pcd, cat_idx, weight, extra
+    
     
 from test_PointNet2.all_data import *
 from scripts.datasets.randomize_partition_10_obj import *
@@ -316,7 +326,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                             use_all_data=False, use_combined_action=False, dataset_prefix=None, num_train_objects=200, 
                             is_pickle=True,
                             predict_two_goals=False, conditioning_on_demo=False, camera_frame=False, goal_always_open=False, 
-                            use_rgb=False, use_dino=False):
+                            use_rgb=False, use_dino=False, pred_gripper_width=False, gripper_width_scale_factor=1.0):
     
     if dataset_prefix is None:
         dataset_prefix='/scratch/chialiang/dp3_demo'
@@ -409,45 +419,45 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             
         elif "pick_and_place" in num_train_objects and len(num_train_objects) > len("pick_and_place"):
             ### articubot with camera randomization
-            dataset_prefix = "/tmp/dp3_demo_clean_distorted_goal"
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_clean_distorted_goal"
             # non_real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
             # non_real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in non_real_world_camera_500_paths]
             non_real_world_camera_500_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(463)]
 
             ### articubot with real camera randomization
-            dataset_prefix = "/tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
             real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
             real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in real_world_camera_500_paths]
             
             ### new category
-            dataset_prefix = '/tmp/articulated'
+            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/articulated'
             articulated = sorted(os.listdir(dataset_prefix))
             # articulated = [os.path.join(dataset_prefix, x) for x in articulated]
             articulated = ["{}/{}".format(dataset_prefix, name) for name in articulated_new]
 
             ### new category with camera randomization
-            dataset_prefix = '/tmp/new_7_category_random_cam'
+            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/new_7_category_random_cam'
             articulated_random_cam = sorted(os.listdir(dataset_prefix))
             ### only use folders not starting with digit
             articulated_random_cam = [f for f in articulated_random_cam if not f[0].isdigit()]
             articulated_random_cam = [os.path.join(dataset_prefix, x) for x in articulated_random_cam]
             
             ### new category with real world randomization
-            dataset_prefix = '/tmp/new_7_category_real_cam'
+            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/new_7_category_real_cam'
             articulated_real_cam = sorted(os.listdir(dataset_prefix))
             ### only use folders not starting with digit
             articulated_real_cam = [f for f in articulated_real_cam if not f[0].isdigit()]
             articulated_real_cam = [os.path.join(dataset_prefix, x) for x in articulated_real_cam]
             
             ### dagger on new categories
-            dataset_prefix = '/tmp/dp3_demo_weighted_full_dagger'
+            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_weighted_full_dagger'
             articulated_dagger = sorted(os.listdir(dataset_prefix))
             ### only use folders not starting with digit
             articulated_dagger = [f for f in articulated_dagger if not f[0].isdigit()]
             articulated_dagger = [os.path.join(dataset_prefix, x) for x in articulated_dagger]
             
             ### close data
-            dataset_prefix = '/tmp/invert_push'
+            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/invert_push'
             close_data = sorted(os.listdir(dataset_prefix))
             close_data = [os.path.join(dataset_prefix, x) for x in close_data]
             # close_data = []
@@ -463,7 +473,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 
                 
             for name in dataset_prefix:
-                path = f"/tmp/pick_and_place/{name}"
+                path = f"/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/pick_and_place/{name}"
                 all_data = sorted(os.listdir(path))
                 all_data = [os.path.join(path, x) for x in all_data]
                 all_pick_place_data.extend(all_data)
@@ -788,11 +798,18 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             # all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
             print(all_obj_paths)
             
-        elif num_train_objects == "sriram_plate":
-            dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
+        elif num_train_objects == "sriam_plate":
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
             all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' not in x]
+            print(all_obj_paths)
+            
+        elif num_train_objects == "sriram_towel":
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' not in x]
             print(all_obj_paths)
 
         elif num_train_objects == "sriram_plate_new_rot":
@@ -820,5 +837,5 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             raise ValueError('num_train_objects not supported')
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 
                                         is_pickle=is_pickle, use_all_data=use_all_data, conditioning_on_demo=conditioning_on_demo, camera_frame=camera_frame, 
-                                        goal_always_open=goal_always_open, use_rgb=use_rgb, use_dino=use_dino)    
+                                        goal_always_open=goal_always_open, use_rgb=use_rgb, use_dino=use_dino, pred_gripper_width=pred_gripper_width, gripper_width_scale_factor=gripper_width_scale_factor)    
     return dataset

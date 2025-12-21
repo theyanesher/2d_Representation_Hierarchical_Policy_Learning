@@ -71,7 +71,7 @@ class DP3(BasePolicy):
         # if use_language_embedding:
         self.use_language_embedding = use_language_embedding
         project_dir = os.environ['PROJECT_DIR']
-        self.siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features_w_pick_and_place.pt"))
+        self.siglip_text_features = torch.load(os.path.join(project_dir, "siglip_text_features_w_pick_and_place_w_grasp_and_lift.pt"))
         self.siglip_text_features = self.siglip_text_features['values']
 
         # parse shape_meta
