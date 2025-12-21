@@ -68,25 +68,19 @@ sync_gcs_zip_folder() {
   parallel -j "$JOBS" download_with_retry {} "$target" ::: "${zips[@]}"
     # parallel -j "$JOBS"download_with_retry "$0" "$1"' {} "$target" ::: "${zips[@]}"
   echo "Total download time: $((SECONDS - download_start)) seconds"
-
-  echo "Starting unzip into $target ..."
-  unzip_start=$SECONDS
-  # Unzip in parallel; -q quiet, -n = never overwrite (idempotent)
-  find "$target" -maxdepth 1 -type f -name '*.zip' -print0 \
-    | parallel -0 -j "$JOBS" 'unzip -qn {} -d "'"$target"'"'
-  echo "Total unzip time: $((SECONDS - unzip_start)) seconds"
-
-  echo "Cleaning up ZIP files..."
-  find "$target" -maxdepth 1 -type f -name '*.zip' -delete
-  echo "Cleanup complete."
-
-  echo "Folders in $target (mtime newest first):"
-  ls -1dt "$target"/*/ 2>/dev/null | xargs -r -n1 basename
 }
 # (no need to export sync_gcs_zip_folder; only download_with_retry is used by parallel)
 
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/articulated /tmp/
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_165 /tmp/
 
+###
+sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_real_cam /project/flame/yufeiw2/RoboGen-sim2real/data/new_7_category_real_cam/
 
+sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /project/flame/yufeiw2/RoboGen-sim2real/data/invert_push/
 
+sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo/gen_grasp_1017 /project/flame/yufeiw2/RoboGen-sim2real/data/gen_grasp_1017 ## this is with lifting
+
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top_cgn /project/flame/yufeiw2/RoboGen-sim2real/data/top_cgn_1204
+
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link_cgn /project/flame/yufeiw2/RoboGen-sim2real/data/inside_link_cgn_1204
+
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole_cgn /project/flame/yufeiw2/RoboGen-sim2real/data/inside_whole_cgn_1204

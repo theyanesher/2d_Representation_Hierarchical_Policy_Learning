@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH -N 1 # Number of nodes
-#SBATCH -n 10
+#SBATCH --cpus-per-gpu=4 
 #SBATCH -p preempt
-#SBATCH --gpus=1 #GPU specification. H100
+#SBATCH --gpus=4 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name articubot_alone_in_articulated
 #SBATCH -o job_%j.out
@@ -11,60 +11,56 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-user=yufeiw2@andrew.cmu.edu
 
+
 source "/project/flame/yufeiw2/miniconda3/etc/profile.d/conda.sh"
 conda activate articubot
 cd /project/flame/yufeiw2/RoboGen-sim2real/
 source prepare.sh
-cd test_PointNet2
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+export OMP_NUM_THREADS=2    # often helps dataloaders
+export MKL_NUM_THREADS=2
 
-### download data here
-source=gs://cmu-gpucloud-yufeiw2/dp3_demo_165
-target=/tmp/
-
-### loop through all zip files in this source gcloud bucket, and download them to target in parallel
-# Get list of zip files in the GCS bucket
-zip_list=$(gcloud storage ls ${source} | grep '\.zip$')
-# zip_list=$(gcloud storage ls ${source} | grep '\.zip$' | head -n 10)
-
-# Download in parallel (max 10 jobs)
-echo "Starting download..."
-download_start=$(date +%s)
-
-parallel -j 20 gcloud storage cp {} ${target} ::: $zip_list
-
-download_end=$(date +%s)
-echo "Total download time: $((download_end - download_start)) seconds"
-
-### unzip all the zip files to be also in /tmp/
-echo "Starting unzip..."
-unzip_start=$(date +%s)
-
-find "$target" -name '*.zip' | parallel -j 20 '
-    zipfile={}
-    base=$(basename "$zipfile" .zip)
-    unzip -q "$zipfile" -d "/tmp/"
-'
-
-unzip_end=$(date +%s)
-echo "Total unzip time: $((unzip_end - unzip_start)) seconds"
-
-### delete the zip files
-echo "Cleaning up ZIP files..."
-find "$target" -maxdepth 1 -type f -name '*.zip' -delete
-echo "Cleanup complete."
+# bash scripts_orchard/download_articubot_data.sh
+# bash scripts_orchard/download_articubot_data2.sh
+# bash scripts_orchard/download_cgn_data2.sh
+# bash scripts_orchard/download_just_articulated_full.sh
+bash scripts_orchard/download_articubot_data_new_pap.sh
 
 ### print all folders in /tmp sorted by newest first
+target=/tmp/
 echo "Folders in $target (newest first):"
 find "$target" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort
 
-torchrun --standalone --nproc_per_node=1 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
-    general.exp_name=test_gcloud \
+cd test_PointNet2
+
+
+torchrun --standalone --nproc_per_node=4 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+    general.exp_name=full-pick-place-and-grasping-lift_1017-pap-new-1204_resumed \
     articubot.batch_size=70   \
-    articubot.num_train_objects=articulated   \
-    cgn.batch_size=15  \
-    cgn.OPTIMIZER.batch_size=15 \
+    articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_new_1204_grasping_1017 \
+    general.tasks="['articubot']" \
+    general.use_lr_scheduler=1 \
+    general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-12-05full-pick-place-and-grasping-lift_1017-pap-new-1204/model_245001.pth 
+
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-pap-new-1204 \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_new_1204_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler = 1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth 
+
+
+
+
+# torchrun --standalone --nproc_per_node=1 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=test_gcloud \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=articulated   \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
 
 # torchrun --standalone --nproc_per_node=6 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs \
 #     general.exp_name=articubot_cgn_both_ln_gmm_articulated_load_articulated_model \

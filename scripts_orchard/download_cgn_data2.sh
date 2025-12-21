@@ -95,6 +95,6 @@ sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/acronym_renders /tmp/acronym/rende
 echo "rsync cgn renders folders"
 unzip_start=$(date +%s)
 mkdir -p /tmp/acronym/scene_contacts
-rsync -a /project/flame/yufeiw2/RoboGen-sim2real/data/acronym/scene_contacts/* /tmp/acronym/scene_contacts/
+rsync -a /project/flame/yufeiw2/RoboGen-sim2real/data/scene_contacts/* /tmp/acronym/scene_contacts/
 unzip_end=$(date +%s)
 echo "Total rsync time: $((unzip_end - unzip_start)) seconds"

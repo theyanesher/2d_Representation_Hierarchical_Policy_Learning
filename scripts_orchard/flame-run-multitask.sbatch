@@ -1,9 +1,10 @@
 #!/bin/bash
 
 #SBATCH -N 1 # Number of nodes
-#SBATCH -n 20
+#SBATCH --cpus-per-gpu=4          # tune for your dataloaders
 #SBATCH --partition=flame
-#SBATCH --qos=flame-t3_g3_qos
+#SBATCH --qos=flame-16gpu_qos
+#SBATCH --account=dheld
 #SBATCH --gpus=8 #GPU specification. H100
 #SBATCH -t 200:00:00 # Estimated time
 #SBATCH --job-name articubot-cgn-multivariance
@@ -22,8 +23,13 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=2    # often helps dataloaders
 export MKL_NUM_THREADS=2
 
-bash scripts_orchard/download_articubot_data.sh
-# bash scripts_orchard/download_cgn_data.sh
+# bash scripts_orchard/download_articubot_data.sh
+# bash scripts_orchard/download_articubot_data2.sh
+# bash scripts_orchard/download_cgn_data2.sh
+# bash scripts_orchard/download_just_articulated_full.sh
+# bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_pap.sh
+bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_open_and_reset.sh
+# bash scripts_orchard/download_articubot_data_new_pap.sh
 
 ### print all folders in /tmp sorted by newest first
 target=/tmp/
@@ -32,8 +38,112 @@ find "$target" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort
 
 cd test_PointNet2
 
-sleep 30000
+torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+    general.exp_name=just-articubot-plus-reset \
+    articubot.batch_size=70   \
+    articubot.num_train_objects=articubot_and_reset \
+    general.tasks="['articubot']" \
+    general.use_lr_scheduler=1 
 
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-pap-new-1204_no_one_hot_goal_open \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=pick_and_place_new_1024 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     articubot.goal_always_open=1 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-pap-new-1204_one_hot_goal_open \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=pick_and_place_new_1024 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.add_one_hot_encoding=1 \
+#     articubot.goal_always_open=1 
+    # general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-12-13full-pick-place-and-grasping-lift_1017-pap-new-1204_one_hot/model_245001.pth 
+
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-pap-new-1204_one_hot_resumed \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=pick_and_place_new_1024 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.add_one_hot_encoding=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-12-13full-pick-place-and-grasping-lift_1017-pap-new-1204_one_hot/model_245001.pth 
+
+ 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-pap-new-1204_one_hot_resumed \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_new_1204_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.add_one_hot_encoding=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-12-13full-pick-place-and-grasping-lift_1017-pap-new-1204_one_hot/model_245001.pth 
+
+ 
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-pap-new-1204_one_hot_initialize_from_no_one_hot \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_new_1204_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.add_one_hot_encoding=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-12-05full-pick-place-and-grasping-lift_1017-pap-new-1204/model_245001.pth 
+
+
+# torchrun --standalone --nproc_per_node=4 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-pap-new-1204_resumed \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_new_1204_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-12-05full-pick-place-and-grasping-lift_1017-pap-new-1204/model_245001.pth 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-pap-new-1204 \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_new_1204_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=baseline_ours_articulated_full \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=articulated_full \
+#     general.tasks="['articubot']" 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-no-cgn \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_more_1005_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth 
+
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-grasping-lift_1017-and-cgn \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_more_1005_grasping_1017 \
+#     cgn.batch_size=15  \
+#     cgn.OPTIMIZER.batch_size=15 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth 
+
+
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-pick-place-and-low-level-grasping_1009 \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_more_1005_grasping_1009 \
+#     general.tasks="['articubot']" \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth 
+
+
+# sleep 30000
 # torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
 #     general.exp_name=debug \
 #     articubot.batch_size=70   \

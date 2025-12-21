@@ -88,26 +88,25 @@ sync_gcs_zip_folder() {
 # sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_165 /tmp/
 
 ###
-mkdir -p /tmp/articulated
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/articulated /tmp/articulated/
+sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/articulated /tmp/
 
 mkdir -p /tmp/dp3_demo_clean_distorted_goal
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_clean_distorted_goal /tmp/dp3_demo_clean_distorted_goal/
+sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_clean_distorted_goal /tmp/
 
-mkdir -p /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal/
+# mkdir -p /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal/
 
-mkdir -p /tmp/new_7_category_random_cam
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_random_cam /tmp/new_7_category_random_cam/
+# mkdir -p /tmp/new_7_category_random_cam
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_random_cam /tmp/new_7_category_random_cam/
 
-mkdir -p /tmp/new_7_category_real_cam
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_real_cam /tmp/new_7_category_real_cam/
+# mkdir -p /tmp/new_7_category_real_cam
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_new_7_category_real_cam /tmp/new_7_category_real_cam/
 
-mkdir -p /tmp/dp3_demo_weighted_full_dagger
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_weighted_full_dagger/ /tmp/dp3_demo_weighted_full_dagger/
+# mkdir -p /tmp/dp3_demo_weighted_full_dagger
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_weighted_full_dagger/ /tmp/dp3_demo_weighted_full_dagger/
 
-mkdir -p /tmp/invert_push
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /tmp/invert_push/
+# mkdir -p /tmp/invert_push
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /tmp/invert_push/
 
 
 ### pick and place (small dataset that I used)
@@ -130,19 +129,19 @@ sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /tmp/invert_push/
 # sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link /tmp/pick_and_place/inside_link
 
 ### chenyuan full pick and place as of 10/05
-mkdir -p /tmp/pick_and_place/inside_whole_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole /tmp/pick_and_place/inside_whole_1005
+# mkdir -p /tmp/pick_and_place/inside_whole_1005
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole /tmp/pick_and_place/inside_whole_1005
 
-mkdir -p /tmp/pick_and_place/inside_link_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link /tmp/pick_and_place/inside_link_1005
+# mkdir -p /tmp/pick_and_place/inside_link_1005
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link /tmp/pick_and_place/inside_link_1005
 
-mkdir -p /tmp/pick_and_place/top_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top /tmp/pick_and_place/top_1005
+# mkdir -p /tmp/pick_and_place/top_1005
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top /tmp/pick_and_place/top_1005
 
 
-### use chenyuan's dataset for training high-level grasping
-mkdir -p /tmp/grasping
-# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/gen_grasp_1009 /tmp/grasping/gen_grasp_1009 ## this is without lifting
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo/gen_grasp_1017 /tmp/grasping/gen_grasp_1017 ## this is with lifting
+# ### use chenyuan's dataset for training high-level grasping
+# mkdir -p /tmp/grasping
+# # sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/gen_grasp_1009 /tmp/grasping/gen_grasp_1009 ## this is without lifting
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo/gen_grasp_1017 /tmp/grasping/gen_grasp_1017 ## this is without lifting
 
 

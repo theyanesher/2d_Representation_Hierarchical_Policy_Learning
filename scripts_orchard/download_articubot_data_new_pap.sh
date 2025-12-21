@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Tunables
-JOBS="${JOBS:-30}"
+JOBS="${JOBS:-10}"
 ZIPS_LIMIT="${ZIPS_LIMIT:-}"
 MAX_RETRIES="${MAX_RETRIES:-5}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
@@ -85,7 +85,36 @@ sync_gcs_zip_folder() {
 }
 # (no need to export sync_gcs_zip_folder; only download_with_retry is used by parallel)
 
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_165 /tmp/
+
+unzip_folder(){
+  local source="$1"
+  local target="$2"
+
+  mkdir -p "$target"
+
+  echo "Starting unzip into $target ..."
+  unzip_start=$SECONDS
+  # Unzip in parallel; -q quiet, -n = never overwrite (idempotent)
+  find "$source" -maxdepth 1 -type f -name '*.zip' -print0 \
+    | parallel -0 -j "$JOBS" 'unzip -qn {} -d "'"$target"'"'
+  echo "Total unzip time: $((SECONDS - unzip_start)) seconds"
+}
+
+mkdir -p /tmp/pick_and_place/top_cgn_1204
+unzip_folder /project/flame/yufeiw2/RoboGen-sim2real/data/top_cgn_1204 /tmp/pick_and_place/top_cgn_1204
+
+mkdir -p /tmp/pick_and_place/inside_link_cgn_1204
+unzip_folder /project/flame/yufeiw2/RoboGen-sim2real/data/inside_link_cgn_1204 /tmp/pick_and_place/inside_link_cgn_1204
+
+mkdir -p /tmp/pick_and_place/inside_whole_cgn_1204
+unzip_folder /project/flame/yufeiw2/RoboGen-sim2real/data/inside_whole_cgn_1204 /tmp/pick_and_place/inside_whole_cgn_1204
+
+mkdir -p /tmp/grasping
+unzip_folder /project/flame/yufeiw2/RoboGen-sim2real/data/gen_grasp_1017 /tmp/grasping/gen_grasp_1017 ## this is with lifting
+
+# mkdir -p /tmp/invert_push
+# unzip_folder /project/flame/yufeiw2/RoboGen-sim2real/data/invert_push /tmp/invert_push/
+
 
 ###
 mkdir -p /tmp/articulated
@@ -109,40 +138,19 @@ sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_weighted_full_dagger/ /tm
 mkdir -p /tmp/invert_push
 sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /tmp/invert_push/
 
-
-### pick and place (small dataset that I used)
-# mkdir -p /tmp/pick_and_place/top
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/top /tmp/pick_and_place/top
-
-# mkdir -p /tmp/pick_and_place/inside_whole_1
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole_1 /tmp/pick_and_place/inside_whole_1
-
-# mkdir -p /tmp/pick_and_place/inside_whole
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole /tmp/pick_and_place/inside_whole
-
-# mkdir -p /tmp/pick_and_place/inside_link_2
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link_2 /tmp/pick_and_place/inside_link_2
-
-# mkdir -p /tmp/pick_and_place/inside_link_1
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link_1 /tmp/pick_and_place/inside_link_1
-
-# mkdir -p /tmp/pick_and_place/inside_link
-# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link /tmp/pick_and_place/inside_link
-
-### chenyuan full pick and place as of 10/05
-mkdir -p /tmp/pick_and_place/inside_whole_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole /tmp/pick_and_place/inside_whole_1005
-
-mkdir -p /tmp/pick_and_place/inside_link_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link /tmp/pick_and_place/inside_link_1005
-
-mkdir -p /tmp/pick_and_place/top_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top /tmp/pick_and_place/top_1005
-
-
 ### use chenyuan's dataset for training high-level grasping
-mkdir -p /tmp/grasping
-# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/gen_grasp_1009 /tmp/grasping/gen_grasp_1009 ## this is without lifting
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo/gen_grasp_1017 /tmp/grasping/gen_grasp_1017 ## this is with lifting
+# mkdir -p /tmp/grasping
+# # sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/gen_grasp_1009 /tmp/grasping/gen_grasp_1009 ## this is without lifting
+# sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo/gen_grasp_1017 /tmp/grasping/gen_grasp_1017 ## this is with lifting
 
+
+### new pick and place data
+# mkdir -p /tmp/pick_and_place/top_cgn_1204
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top_cgn /tmp/pick_and_place/top_cgn_1204
+
+# mkdir -p /tmp/pick_and_place/inside_link_cgn_1204
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link_cgn /tmp/pick_and_place/inside_link_cgn_1204
+
+# mkdir -p /tmp/pick_and_place/inside_whole_cgn_1204
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole_cgn /tmp/pick_and_place/inside_whole_cgn_1204
 

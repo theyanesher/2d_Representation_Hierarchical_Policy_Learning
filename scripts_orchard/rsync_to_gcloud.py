@@ -45,6 +45,15 @@ BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_whole_1"  # Repla
 LOCAL_DIR = "/project/flame/yufeiw2/RoboGen-sim2real/data/pick-and-place/top/zip"
 BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/pick-and-place/top"  # Replace as needed
 
+LOCAL_DIR = "/tmp/165-obj_reset_only_1203"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/165-obj_reset_only_1203"  # Replace as needed
+
+LOCAL_DIR = "/tmp/invert_push_reset_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/invert_push_reset_only"  # Replace as needed
+
+LOCAL_DIR = "/tmp/articubot_all_reset_only_1203"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/articubot_all_reset_only_1203"  # Replace as needed
+
 NUM_PROCESSES = 10
 
 def gcs_file_exists(gcs_path):
