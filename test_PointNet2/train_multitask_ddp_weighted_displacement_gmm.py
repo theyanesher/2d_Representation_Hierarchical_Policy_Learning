@@ -281,6 +281,9 @@ def train(args):
     elif general_args.policy_class == 'pointnext_fp':
         from test_PointNet2.model_invariant import PointNet2_super_next_fp_multitask
         policy_class = PointNet2_super_next_fp_multitask
+    elif general_args.policy_class == 'pointnet2_attn':
+        from test_PointNet2.model_invariant import PointNet2_super_multitask_attn
+        policy_class = PointNet2_super_multitask_attn
     
     if general_args.category_embedding_type == "one_hot":
         embedding_dim = args.num_categories
