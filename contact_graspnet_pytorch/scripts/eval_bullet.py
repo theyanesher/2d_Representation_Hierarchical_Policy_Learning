@@ -29,7 +29,7 @@ from contact_graspnet_pytorch import config_utils
 from contact_graspnet_pytorch.checkpoints import CheckpointIO 
 from contact_graspnet_pytorch.contact_grasp_estimator import GraspEstimator
 from moviepy.editor import ImageSequenceClip
-from manipulation.envs.eval_grasp_env import ContactGraspNetEnv
+from manipulation.envs.eval_grasp_env import ContactGraspNetEnv, save_numpy_as_gif
 
 def load_contact_graspnet(args):
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
