@@ -71,6 +71,11 @@ def predict_m2t2(model, pcd, cfg, topk=1):
 
     # import pdb; pdb.set_trace()
     pred_grasps = outputs['grasps']
+    if len(pred_grasps) == 0:
+        null_matrix = np.zeros((1, 4, 4))
+        null_matrix[0, :3, :3] = np.eye(3)
+        return null_matrix
+    
     pred_grasps = np.concatenate(pred_grasps, axis=0)
     pred_confidence = outputs['grasp_confidence']
     pred_confidence = np.concatenate([x.cpu().numpy() for x in pred_confidence], axis=0)
