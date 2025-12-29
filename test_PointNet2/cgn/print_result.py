@@ -31,6 +31,9 @@ gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-27cgn_alone_layernorm_
 # gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-27articubot_cgn_layernorm_model_65000.pth_precontact"
 # gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-29articubot_cgn_both_ln_wdp_50_model_30000.pth_precontact"
 gmm_open_precontact = "data/cgn_eval_results/GMM__2025-07-29articubot_cgn_both_ln_wdp_50_model_50000.pth_precontact"
+gmm_open_precontact = "data/cgn_eval_results/2025-11-05full-pick-place-and-grasping-lift_1017-no-cgn_model_495001.pthreal_precontact"
+gmm_open_precontact = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet_pytorch/data/eval_results/contact_graspnettest_precontact"
+gmm_open_precontact = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/contact_graspnet_pytorch/data/cgn_eval_results/contact_graspnet_precontact"
 
 import argparse
 parser = argparse.ArgumentParser(description="Print results from CGN and GMM evaluation directories.")

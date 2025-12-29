@@ -18,7 +18,7 @@ cgn_path_precontact = "data/eval_results/contact_graspnet_precontact"
 gmm_path_precontact = "data/eval_results/0706_articubot_gmm_3_precontact"
 gmm_open_precontact = "data/eval_results/0706_articubot_gmm_always_open_3_precontact"
 gmm_open_precontact = "data/eval_results/0706_articubot_gmm_always_open_3_precontact"
-
+gmm_open_precontact = "data/cgn_eval_results/contact_graspnet_precontact"
 
 def get_results(dir):
     results = defaultdict(int)
