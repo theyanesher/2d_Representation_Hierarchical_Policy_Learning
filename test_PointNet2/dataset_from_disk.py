@@ -806,10 +806,10 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             print(all_obj_paths)
             
         elif num_train_objects == "sriram_towel":
-            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
+            dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
-            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' not in x]
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' in x]
             print(all_obj_paths)
 
         elif num_train_objects == "sriram_plate_new_rot":
