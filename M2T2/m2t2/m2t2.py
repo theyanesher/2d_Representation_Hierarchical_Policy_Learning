@@ -136,17 +136,17 @@ class M2T2(nn.Module):
         )
         outputs = outputs[-1]
 
-        if 'place' in embedding and embedding['place'].shape[1] > 0:
-            cam_pose = None if cfg.world_coord else data['cam_pose']
-            placement_outputs = infer_placements(
-                data['points'], outputs['placement_masks'],
-                data['bottom_center'], data['ee_pose'],
-                cam_pose, cfg.mask_thresh, cfg.placement_height
-            )
-            outputs.update(placement_outputs)
-            outputs['placement_masks'] = (
-                outputs['placement_masks'].sigmoid() > cfg.mask_thresh
-            )
+        # if 'place' in embedding and embedding['place'].shape[1] > 0:
+        #     cam_pose = None if cfg.world_coord else data['cam_pose']
+        #     placement_outputs = infer_placements(
+        #         data['points'], outputs['placement_masks'],
+        #         data['bottom_center'], data['ee_pose'],
+        #         cam_pose, cfg.mask_thresh, cfg.placement_height
+        #     )
+        #     outputs.update(placement_outputs)
+        #     outputs['placement_masks'] = (
+        #         outputs['placement_masks'].sigmoid() > cfg.mask_thresh
+        #     )
 
         # import pdb; pdb.set_trace()
         if 'grasp' in embedding and embedding['grasp'].shape[1] > 0:

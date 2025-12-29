@@ -257,7 +257,8 @@ class ContactGraspNetEnv():
                  env_state=None,
                  camera_angle_nums=50,
                  precontact=0,
-                 world_frame=0,
+                 obs_mode='cgn',
+                 act_mode='cgn',
                 ):
         
         self.scene_root_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym"
@@ -266,7 +267,8 @@ class ContactGraspNetEnv():
         self.gui = gui
         self.camera_angle_nums = camera_angle_nums
         self.precontact = precontact
-        self.world_frame = world_frame
+        self.obs_mode = obs_mode
+        self.act_mode = act_mode
         
         ### initialize pybullet
         if self.gui:
@@ -536,7 +538,8 @@ class ContactGraspNetEnv():
         lower_bound = self.scene_min_aabb - 0.3
         upper_bound = self.scene_max_aabb + 0.3
         good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
-        if not self.world_frame:
+        
+        if self.obs_mode == 'cgn':
             pc_in_camera = pc_in_camera[good_idx]
                         
             # Convert point cloud coordinates from OpenGL to internal coordinates (x left, y up, z front)
@@ -554,7 +557,7 @@ class ContactGraspNetEnv():
             mean = np.mean(pc_in_camera, axis=0, keepdims=True)
             pc_in_camera -= mean
             return rgb, depth, pc_in_camera, mean
-        else:
+        elif self.obs_mode == 'old_articubot_cgn_world':
             cprint("Using world frame!", "yellow")
             pc_in_world = pc_in_world[good_idx]        
             ### perform the fps on the pcd
@@ -579,6 +582,18 @@ class ContactGraspNetEnv():
             gripper_pcd = get_4_points_from_gripper_pos_orient(gripper_pos, gripper_quat, gripper_q)
             
             pc_in_world = np.concatenate([pc_in_world, gripper_pcd], axis=0)
+            
+            ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
+            mean = np.mean(pc_in_world, axis=0, keepdims=True)
+            pc_in_world -= mean
+            return rgb, depth, pc_in_world, mean
+        
+        elif self.obs_mode == 'm2t2':
+            pc_in_world = pc_in_world[good_idx]
+            
+            ### perform the fps on the pcd
+            kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_world[:, :3], self.num_points_in_pc)
+            pc_in_world = pc_in_world[kdline_fps_samples_idx]
             
             ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
             mean = np.mean(pc_in_world, axis=0, keepdims=True)
@@ -729,11 +744,13 @@ class ContactGraspNetEnv():
         
     def step(self, grasp, debug=False):
         ### TODO: convert grasp from camera frame to world frame
-        if not self.world_frame:
+        if self.act_mode == 'cgn':
             world_to_camera = np.asarray(self.view_matrix).reshape([4, 4], order="F")
             camera_to_world = np.linalg.inv(world_to_camera)
             grasp_in_world = camera_to_world @ grasp
-        else:
+        elif self.act_mode == 'old_articubot_cgn_world':
+            grasp_in_world = grasp
+        elif self.act_mode == 'm2t2':
             grasp_in_world = grasp
         
         target_pos, target_rotation = grasp_in_world[:3, 3], grasp_in_world[:3, :3]
