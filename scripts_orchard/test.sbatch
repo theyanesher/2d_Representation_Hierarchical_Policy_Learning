@@ -2,8 +2,9 @@
 
 #SBATCH -N 1 # Number of nodes
 #SBATCH -n 8
-#SBATCH -p preempt
-#SBATCH --gpus=1 #GPU specification. H100
+#SBATCH --partition=preempt
+#SBATCH --account=dheld
+#SBATCH --gpus=8 #GPU specification. H100
 #SBATCH -t 10:05:00 # Estimated time, 48hour max. DD-HH:MM.
 #SBATCH --job-name test
 #SBATCH -o job_%j.out

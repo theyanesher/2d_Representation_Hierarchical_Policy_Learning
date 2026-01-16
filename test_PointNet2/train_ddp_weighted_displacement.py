@@ -159,7 +159,7 @@ def train(args):
 
 
     gpu_id = int(os.environ["LOCAL_RANK"])
-    model = DDP(model, device_ids=[gpu_id])
+    model = DDP(model, device_ids=[gpu_id], find_unused_parameters=True)
 
     if os.environ['LOCAL_RANK'] == '0':
         if not os.path.exists(args.exp_path):

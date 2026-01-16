@@ -8,8 +8,16 @@ import zipfile
 target_path = "/tmp/165-obj_reset_only_1203"
 target_path = "/tmp/articubot_all_reset_only_1203"
 target_path = "/tmp/invert_push_reset_only"
+
+target_path = "/tmp/pick_and_place/inside_link_cgn_grasp_grasp_only"
+# target_path = "/tmp/pick_and_place/inside_whole_cgn_grasp_grasp_only"
+# target_path = "/tmp/pick_and_place/top_cgn_grasp_grasp_only"
+
+target_path = "/tmp/pick_and_place/inside_link_cgn_1204_place_only"
+# target_path = "/tmp/pick_and_place/inside_whole_cgn_1204_place_only"
+# target_path = "/tmp/pick_and_place/top_cgn_1204_place_only"
 all_obj_trajs = sorted(os.listdir(target_path))
-max_parallel_jobs = 8  # Adjust this to limit parallel zipping
+max_parallel_jobs = 12  # Adjust this to limit parallel zipping
 
 def zip_folder(obj_traj):
     folder_path = os.path.join(target_path, obj_traj)

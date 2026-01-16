@@ -24,12 +24,16 @@ export OMP_NUM_THREADS=2    # often helps dataloaders
 export MKL_NUM_THREADS=2
 
 # bash scripts_orchard/download_articubot_data.sh
-# bash scripts_orchard/download_articubot_data2.sh
+bash scripts_orchard/download_articubot_data2.sh
 # bash scripts_orchard/download_cgn_data2.sh
 # bash scripts_orchard/download_just_articulated_full.sh
 # bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_pap.sh
-bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_open_and_reset.sh
+# bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_open_and_reset.sh
+# bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_pap_grasp.sh
+# bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_pap_grasp_and_grasp_for_pnp.sh
+# bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_pap_grasp_1204_place.sh
 # bash scripts_orchard/download_articubot_data_new_pap.sh
+# bash /project/flame/yufeiw2/RoboGen-sim2real/scripts_orchard/download_articubot_data_just_grasping.sh
 
 ### print all folders in /tmp sorted by newest first
 target=/tmp/
@@ -39,11 +43,67 @@ find "$target" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort
 cd test_PointNet2
 
 torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
-    general.exp_name=just-articubot-plus-reset \
+    general.exp_name=full-new-pick-place-0110 \
     articubot.batch_size=70   \
-    articubot.num_train_objects=articubot_and_reset \
+    articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_0103_grasping_1017 \
     general.tasks="['articubot']" \
-    general.use_lr_scheduler=1 
+    general.use_lr_scheduler=1 \
+    general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2026-01-02full-new-pick-place-0101/model_1070001.pth 
+
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=full-new-pick-place-0101 \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=aritucbot_new_cat_camera_random_close_pick_and_place_0101_grasping_1017 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.load_model_path=/project/flame/yufeiw2/RoboGen-sim2real/test_PointNet2/exps/2025-09-14multinode-cgn-world-articubot-all-w-pick-place/model_155001.pth 
+
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=test_attn_grasping\
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=grasping \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.policy_class=pointnet2_attn 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=test_attn_articubot_50\
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=50 \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 \
+#     general.policy_class=pointnet2_attn \
+#     articubot.dataset_prefix=/tmp/dp3_demo_clean_distorted_goal
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-pick-and-place-new-grasp-1204-place \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=pick_and_place_new_grasp_and_old_place \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-pick-and-place-grasp-plus-grasp-pap \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=pick_and_place_grasp_plus_grasp_pap \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-pick-and-place-grasp \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=pick_and_place_grasp \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 
+
+# torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
+#     general.exp_name=just-articubot-plus-reset \
+#     articubot.batch_size=70   \
+#     articubot.num_train_objects=articubot_and_reset \
+#     general.tasks="['articubot']" \
+#     general.use_lr_scheduler=1 
 
 # torchrun --standalone --nproc_per_node=8 train_multitask_ddp_weighted_displacement_gmm.py --arg_configs    \
 #     general.exp_name=just-pap-new-1204_no_one_hot_goal_open \
