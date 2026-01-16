@@ -18,7 +18,7 @@ import trimesh
 from collections import defaultdict
 import json
 from moviepy.editor import ImageSequenceClip
-from manipulation.envs.eval_grasp_env import ContactGraspNetEnv
+from manipulation.envs.eval_grasp_env import ContactGraspNetEnv, save_numpy_as_gif
 
 def load_contact_graspnet(load_path, args):
     # from test_PointNet2.model_invariant import PointNet2_super_multitask
