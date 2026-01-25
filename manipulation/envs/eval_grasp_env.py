@@ -504,42 +504,59 @@ class ContactGraspNetEnv():
         
         scene_range = (self.scene_max_aabb - self.scene_min_aabb) / 2
         scene_center = (self.scene_max_aabb + self.scene_min_aabb) / 2
-        # camera_target = np.random.uniform(scene_center - scene_range * 0.6, scene_center + scene_range * 0.6)
-        # distance = np.random.uniform(1, 2) * np.linalg.norm(scene_range)
-        # elevation = np.random.uniform(20, 60)  # elevation angle in degrees
-        # azimuth = np.random.uniform(0, 360)  # azimuth angle in degrees
-        camera_target = scene_center
-        distance = distance_ratio * np.linalg.norm(scene_range)
-        elevation = 50
-        azimuth = 0
         
-        delta_z = distance * np.sin(np.deg2rad(elevation))
-        xy_distance = distance * np.cos(np.deg2rad(elevation))
-        delta_x = xy_distance * np.cos(np.deg2rad(azimuth))
-        delta_y = xy_distance * np.sin(np.deg2rad(azimuth))
+        if self.obs_mode == 'cgn':
+            camera_target = np.random.uniform(scene_center - scene_range * 0.6, scene_center + scene_range * 0.6)
+            distance = np.random.uniform(1, 2) * np.linalg.norm(scene_range)
+            elevation = np.random.uniform(20, 60)  # elevation angle in degrees
+            azimuth = np.random.uniform(0, 360)  # azimuth angle in degrees
+            camera_target = scene_center
+            distance = distance_ratio * np.linalg.norm(scene_range)
+            elevation = 50
+            azimuth = 0
+            
+            delta_z = distance * np.sin(np.deg2rad(elevation))
+            xy_distance = distance * np.cos(np.deg2rad(elevation))
+            delta_x = xy_distance * np.cos(np.deg2rad(azimuth))
+            delta_y = xy_distance * np.sin(np.deg2rad(azimuth))
+            
+            camera_position = [camera_target[0] + delta_x, camera_target[1] + delta_y, camera_target[2] + delta_z]
+            self.setup_camera(camera_position, camera_target, camera_width=camera_width, camera_height=camera_height)
         
-        camera_position = [camera_target[0] + delta_x, camera_target[1] + delta_y, camera_target[2] + delta_z]
-        self.setup_camera(camera_position, camera_target, camera_width=camera_width, camera_height=camera_height)
+        elif self.obs_mode == 'm2t2':
+            self.rpy_mean_list = [[-10, 0, -45], [-10, 0, -135]]
+            self.mean_distance = np.linalg.norm(max_aabb - min_aabb) * 0.9
+            self.camera_height = 256
+            self.camera_width = 256
+
+            self.depth_near = 0.01
+            self.depth_far = 100
+            self.view_matrices = []
+            self.project_matrices = []
+
+            self.mean_camera_target = scene_center 
+            self.mean_distance = np.linalg.norm(scene_range * 2) * 1.15
+
+            for rpy_mean in self.rpy_mean_list:
+                rpy = np.array(rpy_mean)
+                camera_center = self.mean_camera_target
+                distance = self.mean_distance
+
+                view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=env.id)
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=1 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=env.id)
+                self.view_matrices.append(view_matrix)
+                self.project_matrices.append(project_matrix)
         
     def get_obs(self):
         rgb, depth = self.render(return_depth=True, mode='depth')
         depth = self.augment_depth(depth)
-        
-        ### convert to pcd in the camera frame
-        pc_in_camera, pc_in_world = get_pc_in_camera_and_world_frame(self.projection_matrix, self.view_matrix, depth, self.camera_width, self.camera_height)
-        # world_to_camera = np.asarray(self.view_matrix).reshape([4, 4], order="F")
-        # pc_in_world_homogeneous = np.hstack((pc_in_world, np.ones((pc_in_world.shape[0], 1))))
-        # pc_in_camera_homogeneous = (world_to_camera @ pc_in_world_homogeneous.T).T
-        # assert np.allclose(pc_in_camera_homogeneous[:, :3], pc_in_camera), "this transfomration is incorrect, please check the code"
-        # filter_idx_1 = pc_in_camera[:, 2] > -2
-        # filter_idx_2 = pc_in_world[:, 2] > 0.1
-        # pc_in_camera = pc_in_camera[np.logical_and(filter_idx_1,  filter_idx_2)]
-        
-        lower_bound = self.scene_min_aabb - 0.3
-        upper_bound = self.scene_max_aabb + 0.3
-        good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
-        
+               
         if self.obs_mode == 'cgn':
+            pc_in_camera, pc_in_world = get_pc_in_camera_and_world_frame(self.projection_matrix, self.view_matrix, depth, self.camera_width, self.camera_height)
+            lower_bound = self.scene_min_aabb - 0.3
+            upper_bound = self.scene_max_aabb + 0.3
+            good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
+            
             pc_in_camera = pc_in_camera[good_idx]
                         
             # Convert point cloud coordinates from OpenGL to internal coordinates (x left, y up, z front)
@@ -558,6 +575,11 @@ class ContactGraspNetEnv():
             pc_in_camera -= mean
             return rgb, depth, pc_in_camera, mean
         elif self.obs_mode == 'old_articubot_cgn_world':
+            pc_in_camera, pc_in_world = get_pc_in_camera_and_world_frame(self.projection_matrix, self.view_matrix, depth, self.camera_width, self.camera_height)
+            lower_bound = self.scene_min_aabb - 0.3
+            upper_bound = self.scene_max_aabb + 0.3
+            good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
+        
             cprint("Using world frame!", "yellow")
             pc_in_world = pc_in_world[good_idx]        
             ### perform the fps on the pcd
@@ -589,11 +611,26 @@ class ContactGraspNetEnv():
             return rgb, depth, pc_in_world, mean
         
         elif self.obs_mode == 'm2t2':
+            pc_in_worlds = []
+            for project_matrix, view_matrix in zip(self.project_matrices, self.view_matrices):
+                _, pc_in_world = get_pc_in_camera_and_world_frame(project_matrix, view_matrix, depth, self.camera_width, self.camera_height)
+                pc_in_worlds.append(pc_in_world)
+            pc_in_world = np.concatenate(pc_in_worlds, axis=0)
+            
+            lower_bound = self.scene_min_aabb - 0.3
+            upper_bound = self.scene_max_aabb + 0.3
+            good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
+        
             pc_in_world = pc_in_world[good_idx]
             
             ### perform the fps on the pcd
             kdline_fps_samples_idx = fpsample.fps_npdu_kdtree_sampling(pc_in_world[:, :3], self.num_points_in_pc)
             pc_in_world = pc_in_world[kdline_fps_samples_idx]
+            
+            ### visualize the pcd using open3d
+            pcd_o3d = o3d.geometry.PointCloud()
+            pcd_o3d.points = o3d.utility.Vector3dVector(pc_in_world)
+            o3d.visualization.draw_geometries([pcd_o3d])
             
             ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
             mean = np.mean(pc_in_world, axis=0, keepdims=True)
