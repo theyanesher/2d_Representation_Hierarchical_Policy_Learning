@@ -525,7 +525,7 @@ class ContactGraspNetEnv():
         
         elif self.obs_mode == 'm2t2':
             self.rpy_mean_list = [[-10, 0, -45], [-10, 0, -135]]
-            self.mean_distance = np.linalg.norm(max_aabb - min_aabb) * 0.9
+            self.mean_distance = np.linalg.norm(self.scene_max_aabb - self.scene_min_aabb) * 0.9
             self.camera_height = 256
             self.camera_width = 256
 
@@ -542,16 +542,18 @@ class ContactGraspNetEnv():
                 camera_center = self.mean_camera_target
                 distance = self.mean_distance
 
-                view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=env.id)
-                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=1 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=env.id)
+                view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=camera_center, distance=distance, yaw=rpy[2], pitch=rpy[0], roll=rpy[1], upAxisIndex=2, physicsClientId=self.id)
+                project_matrix = p.computeProjectionMatrixFOV(fov=60, aspect=1 ,nearVal=self.depth_near, farVal=self.depth_far, physicsClientId=self.id)
                 self.view_matrices.append(view_matrix)
                 self.project_matrices.append(project_matrix)
+                
+            self.view_matrix = self.view_matrices[0]
+            self.projection_matrix = self.project_matrices[0]
         
     def get_obs(self):
-        rgb, depth = self.render(return_depth=True, mode='depth')
-        depth = self.augment_depth(depth)
-               
         if self.obs_mode == 'cgn':
+            rgb, depth = self.render(return_depth=True, mode='depth')
+            depth = self.augment_depth(depth)
             pc_in_camera, pc_in_world = get_pc_in_camera_and_world_frame(self.projection_matrix, self.view_matrix, depth, self.camera_width, self.camera_height)
             lower_bound = self.scene_min_aabb - 0.3
             upper_bound = self.scene_max_aabb + 0.3
@@ -575,6 +577,8 @@ class ContactGraspNetEnv():
             pc_in_camera -= mean
             return rgb, depth, pc_in_camera, mean
         elif self.obs_mode == 'old_articubot_cgn_world':
+            rgb, depth = self.render(return_depth=True, mode='depth')
+            depth = self.augment_depth(depth)
             pc_in_camera, pc_in_world = get_pc_in_camera_and_world_frame(self.projection_matrix, self.view_matrix, depth, self.camera_width, self.camera_height)
             lower_bound = self.scene_min_aabb - 0.3
             upper_bound = self.scene_max_aabb + 0.3
@@ -613,12 +617,14 @@ class ContactGraspNetEnv():
         elif self.obs_mode == 'm2t2':
             pc_in_worlds = []
             for project_matrix, view_matrix in zip(self.project_matrices, self.view_matrices):
+                rgb, depth = self.render(return_depth=True, mode='depth', view_matrix=view_matrix, projection_matrix=project_matrix, camera_width=self.camera_width, camera_height=self.camera_height)
+                depth = self.augment_depth(depth)
                 _, pc_in_world = get_pc_in_camera_and_world_frame(project_matrix, view_matrix, depth, self.camera_width, self.camera_height)
                 pc_in_worlds.append(pc_in_world)
             pc_in_world = np.concatenate(pc_in_worlds, axis=0)
             
-            lower_bound = self.scene_min_aabb - 0.3
-            upper_bound = self.scene_max_aabb + 0.3
+            lower_bound = self.scene_min_aabb - 0.1
+            upper_bound = self.scene_max_aabb + 0.1
             good_idx = np.logical_and(np.all(pc_in_world >= lower_bound, axis=1), np.all(pc_in_world <= upper_bound, axis=1))
         
             pc_in_world = pc_in_world[good_idx]
@@ -628,9 +634,9 @@ class ContactGraspNetEnv():
             pc_in_world = pc_in_world[kdline_fps_samples_idx]
             
             ### visualize the pcd using open3d
-            pcd_o3d = o3d.geometry.PointCloud()
-            pcd_o3d.points = o3d.utility.Vector3dVector(pc_in_world)
-            o3d.visualization.draw_geometries([pcd_o3d])
+            # pcd_o3d = o3d.geometry.PointCloud()
+            # pcd_o3d.points = o3d.utility.Vector3dVector(pc_in_world)
+            # o3d.visualization.draw_geometries([pcd_o3d])
             
             ### TODO: preprocess the pcd to be the same as the training coordinate of contactgraspnet
             mean = np.mean(pc_in_world, axis=0, keepdims=True)
@@ -644,10 +650,17 @@ class ContactGraspNetEnv():
         return depth
 
             
-    def render(self, return_depth=False, mode=None):
-        assert self.view_matrix is not None, 'You must call env.setup_camera() or env.setup_camera_rpy() before getting a camera image'
-        w, h, img, depth, segmask = p.getCameraImage(self.camera_width, self.camera_height, 
-            self.view_matrix, self.projection_matrix, 
+    def render(self, return_depth=False, mode=None, view_matrix=None, projection_matrix=None, camera_width=None, camera_height=None):
+        # assert self.view_matrix is not None, 'You must call self.setup_camera() or self.setup_camera_rpy() before getting a camera image'
+        if view_matrix is None:
+            view_matrix = self.view_matrix
+        if projection_matrix is None:
+            projection_matrix = self.projection_matrix
+        if camera_width is None:
+            camera_width = self.camera_width
+            camera_height = self.camera_height
+        w, h, img, depth, segmask = p.getCameraImage(camera_width, camera_height, 
+            view_matrix, projection_matrix, 
             renderer=p.ER_BULLET_HARDWARE_OPENGL, 
             physicsClientId=self.id)
         img = np.reshape(img, (h, w, 4))[:, :, :3]

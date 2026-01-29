@@ -18,14 +18,17 @@ eval_result_path = '/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/pro
 eval_result_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data_eval/1227_grasp_and_ik_gripper_width_2"
 # eval_result_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data_eval/1227_grasp_and_ik"
 # eval_result_path = '/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data_eval/1229_grasp_attn'
-all_scenes = os.listdir(os.path.join(eval_result_path, "grasp"))
+eval_result_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/contact_graspnet_pytorch/data/cgn_eval_results/contact_graspnet200_precontact"
+# all_scenes = os.listdir(os.path.join(eval_result_path, "grasp"))
+all_scenes = os.listdir(os.path.join(eval_result_path))
 
 
 grasp_successes = []
 lifted_successes = []
 for scene in all_scenes:
     # json_path = os.path.join(eval_result_path, "top_left", scene, "opened_joint_angles.json")
-    json_path = os.path.join(eval_result_path, "grasp", scene, "opened_joint_angles.json")
+    # json_path = os.path.join(eval_result_path, "grasp", scene, "opened_joint_angles.json")
+    json_path = os.path.join(eval_result_path, scene, "opened_joint_angles.json")
     with open(json_path, 'r') as f:
         data = json.load(f)
     for entry in data.values():
