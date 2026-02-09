@@ -103,6 +103,8 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt_dir", type=str, default="checkpoints/contact_graspnet", help="Path to the checkpoint directory")
     parser.add_argument("--save_name", type=str, default="", help="additional name to save the results")
     parser.add_argument("--precontact", type=int, default=1, help="whether to first goto a precontact pose before grasping")
+    parser.add_argument("--topk", type=int, default=1)
+    parser.add_argument("--visual_grasp", type=int, default=0)
     args = parser.parse_args()
     
     contact_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/scene_contacts"
@@ -131,6 +133,14 @@ if __name__ == "__main__":
 "009779", "009798", "009819", "009837", "009855", "009879", "009917", "009935", "009953", "009969", "009988", "010005",
 "009781", "009799", "009820", "009838", "009856", "009880", "009918", "009936", "009954", "009970", "009989", "010006",
     ]
+    
+    eval_scenes = [
+        "009784",
+        "009785",
+        "009789",
+        "009816",
+    ]
+    
     # eval_scenes = [os.path.join(contact_path, "{}.npy".format(x)) for x in eval_scenes]
     scene_path_list = ["scene_contacts/{}.npz".format(scene) for scene in eval_scenes]
     
@@ -163,7 +173,7 @@ if __name__ == "__main__":
         ### run it through the trained contact graspnet model
         # cprint("loading contact graspnet model", "green")
         # cprint("running grasping inference", "green")
-        pred_grasps = infer_contact_graspnet(model, pc_in_camera, gloabl_config, topk=1)
+        pred_grasps = infer_contact_graspnet(model, pc_in_camera, gloabl_config, topk=args.topk)
         # cprint("visualizing predicted grasps", "green")
         # env.visualize_grasp(pc_in_camera, pred_grasps, topk=10)
         
@@ -175,32 +185,38 @@ if __name__ == "__main__":
         this_env_results = defaultdict(int)
         
         ### serial version
-        # results = defaultdict(int)
-        # for idx, grasp in enumerate(pred_grasps):
-        #     new_env = ContactGraspNetEnv(scene_path=scene_path, gui=True, env_state=env_state, precontact=args.precontact)
-        #     success, res_string = new_env.step(grasp, debug=True)
-        #     results[res_string] += 1
-        #     cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
-        #     new_env.close()
+        if not args.visual_grasp:
+            results = defaultdict(int)
+            for idx, grasp in enumerate(pred_grasps):
+                new_env = ContactGraspNetEnv(scene_path=scene_path, gui=True, env_state=env_state, precontact=args.precontact)
+                success, res_string = new_env.step(grasp)
+                results[res_string] += 1
+                cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
+                new_env.close()
+        else:
+            new_env = ContactGraspNetEnv(scene_path=scene_path, gui=True, env_state=env_state, precontact=args.precontact)
+            visual_save_path = os.path.join(save_dir, "{}".format(scene_path.split("/")[-1].replace(".npz", "")))
+            success, res_string = new_env.step(pred_grasps[0], all_grasps=pred_grasps[1:], debug=False, visual=True, visual_save_path=visual_save_path)
+            new_env.close()
         
         ### parallel version
-        all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
-        with Pool(processes=20) as pool:
-            results = pool.map(parallel_eval, all_args)  
+        # all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]
+        # with Pool(processes=20) as pool:
+        #     results = pool.map(parallel_eval, all_args)  
             
-        for idx, res in enumerate(results):
-            success, string, images = res
-            if success:
-                cprint(string, "green")
-            else:
-                cprint(string, "red")
-            this_env_results[string] += 1
-            meta_results[string] += 1
-            if len(images) > 0:
-                save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, string)))
+        # for idx, res in enumerate(results):
+        #     success, string, images = res
+        #     if success:
+        #         cprint(string, "green")
+        #     else:
+        #         cprint(string, "red")
+        #     this_env_results[string] += 1
+        #     meta_results[string] += 1
+        #     if len(images) > 0:
+        #         save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, string)))
             
-        with open(os.path.join(save_dir, scene_path.split("/")[-1].replace(".npz", ".json")), 'w') as f:
-            json.dump(this_env_results, f, indent=4)
+        # with open(os.path.join(save_dir, scene_path.split("/")[-1].replace(".npz", ".json")), 'w') as f:
+        #     json.dump(this_env_results, f, indent=4)
         
         env.close()      
 

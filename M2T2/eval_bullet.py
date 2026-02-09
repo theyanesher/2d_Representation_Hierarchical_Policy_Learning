@@ -100,6 +100,8 @@ def main(cfg):
     parser.add_argument("--ckpt_dir", type=str, default="./")
     parser.add_argument("--save_name", type=str, default="", help="additional name to save the results")
     parser.add_argument("--precontact", type=int, default=1, help="whether to first goto a precontact pose before grasping")
+    parser.add_argument("--topk", type=int, default=1)
+    parser.add_argument("--visual_grasp", type=int, default=0)
     args = parser.parse_args()
     
     all_scenes = os.listdir("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/contact_graspnet/acronym/scene_contacts")
@@ -124,10 +126,18 @@ def main(cfg):
         "009781", "009799", "009820", "009838", "009856", "009880", "009918", "009936", "009954", "009970", "009989", "010006",
     ]
     
+    eval_scenes = [
+        "009784",
+        "009785",
+        "009789",
+        "009816",
+    ]
+    
     scene_path_list = ["scene_contacts/{}.npz".format(scene) for scene in eval_scenes]
     
     ckpt_name = args.ckpt_dir.split("/")[-1] + args.save_name
-    save_dir = "data/cgn_eval_results_200/{}".format(ckpt_name)
+    # save_dir = "data/cgn_eval_results_200/{}".format(ckpt_name)
+    save_dir = "data/cgn_eval_results_200_visual/{}".format(ckpt_name)
     if args.precontact:
         save_dir += "_precontact"
     if not os.path.exists(save_dir):
@@ -153,22 +163,42 @@ def main(cfg):
         # o3d.visualization.draw_geometries([pcd])
         
         ### run it through the trained contact graspnet model
-        pred_grasps = predict_m2t2(model, pc_in_world_unnormlzed, cfg)
+        # pred_grasps = predict_m2t2(model, pc_in_world_unnormlzed, cfg, topk=args.topk)
+        pred_grasps = predict_m2t2(model, pc_in_world_unnormlzed, cfg, topk=32)
     
         ### execute the grasp, determine its success 
         this_env_results = defaultdict(int)
         
         ### serial version
-        results = defaultdict(int)
-        for idx, grasp in enumerate(pred_grasps):
-            new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=args.precontact, obs_mode='m2t2', act_mode='m2t2')
-            success, res_string = new_env.step(grasp)
-            images = new_env.rendered_images
-            this_env_results[res_string] += 1
-            cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
+        # results = defaultdict(int)
+        # for idx, grasp in enumerate(pred_grasps):
+        #     new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=args.precontact, obs_mode='m2t2', act_mode='m2t2')
+        #     success, res_string = new_env.step(grasp)
+        #     images = new_env.rendered_images
+        #     this_env_results[res_string] += 1
+        #     cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
+        #     new_env.close()
+        #     if len(images) > 0:
+        #         save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, res_string)))
+            
+        visual_grasp = True
+        if not visual_grasp:
+            results = defaultdict(int)
+            for idx, grasp in enumerate(pred_grasps):
+                new_env = ContactGraspNetEnv(scene_path=scene_path, gui=False, env_state=env_state, precontact=args.precontact, obs_mode='m2t2', act_mode='m2t2')
+                success, res_string = new_env.step(grasp)
+                images = new_env.rendered_images
+                this_env_results[res_string] += 1
+                cprint("grasp try idx {} success {} reason {}".format(idx, success, res_string), "green")
+                new_env.close()
+                if len(images) > 0:
+                    save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, res_string)))
+            
+        else:
+            new_env = ContactGraspNetEnv(scene_path=scene_path, gui=True, env_state=env_state, precontact=args.precontact, obs_mode='m2t2', act_mode='m2t2')
+            visual_save_path = os.path.join(save_dir, "{}".format(scene_path.split("/")[-1].replace(".npz", "")))
+            success, res_string = new_env.step(pred_grasps[0], all_grasps=pred_grasps[1:], debug=False, visual=True, visual_save_path=visual_save_path)
             new_env.close()
-            if len(images) > 0:
-                save_numpy_as_gif(np.array(images), os.path.join(save_dir, "{}_{}_{}.gif".format(scene_path.split("/")[-1].replace(".npz", ""), idx, res_string)))
             
         ### parallel version
         # all_args = [(pred_grasps[i], scene_path, env_state, args.precontact) for i in range(len(pred_grasps))]

@@ -18,6 +18,7 @@ import trimesh
 from collections import defaultdict
 import json
 from moviepy.editor import ImageSequenceClip
+import cv2
 
 def replace_obj_path(urdf_name):
     file_path = urdf_name  # Replace with your actual file name
@@ -671,6 +672,132 @@ class ContactGraspNetEnv():
         else:
             return img
         
+    def set_debug_camera_to_scene(self):
+        scene_center = (self.scene_min_aabb + self.scene_max_aabb) / 2.0
+        scene_range = self.scene_max_aabb - self.scene_min_aabb
+        distance = max(1e-3, np.linalg.norm(scene_range)) * 1.5
+        p.resetDebugVisualizerCamera(
+            cameraDistance=distance,
+            cameraYaw=-25,
+            cameraPitch=-45,
+            cameraTargetPosition=scene_center.tolist(),
+            physicsClientId=self.id,
+        )
+        
+    def project_world_to_pixel(self, point_world):
+        view = np.asarray(self.view_matrix).reshape([4, 4], order="F")
+        proj = np.asarray(self.projection_matrix).reshape([4, 4], order="F")
+        point_h = np.array([point_world[0], point_world[1], point_world[2], 1.0], dtype=np.float32)
+        clip = proj @ view @ point_h
+        if clip[3] <= 1e-6:
+            return None
+        ndc = clip[:3] / clip[3]
+        u = int((ndc[0] + 1.0) * 0.5 * self.camera_width)
+        v = int((1.0 - ndc[1]) * 0.5 * self.camera_height)
+        return u, v
+
+        
+    def draw_grasp_lines_on_image(self, img_rgb, grasps_cam, color=(0, 255, 0), thickness=2, baseline_axis=1):
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        for grasp in grasps_cam:
+            if np.allclose(grasp, np.eye(4)):
+                continue
+            grasp_world = grasp
+            for p1, p2 in self.grasp_lines_from_pose(grasp_world, baseline_axis=baseline_axis):
+                pt1 = self.project_world_to_pixel(p1)
+                pt2 = self.project_world_to_pixel(p2)
+                if pt1 is None or pt2 is None:
+                    continue
+                cv2.line(img_bgr, pt1, pt2, color, thickness, lineType=cv2.LINE_AA)
+        return img_bgr
+        
+    def save_grasp_debug_image(self, save_path, grasps_cam=None, executed_grasp_cam=None, baseline_axis=1):
+        hidden_rgba = {}
+        if hasattr(self, "urdf_ids") and "robot" in self.urdf_ids and hasattr(self, "panda_joints"):
+            robot_id = self.urdf_ids["robot"]
+            link_indices = [
+                self.panda_joints["hand"],
+                self.panda_joints["left_finger"],
+                self.panda_joints["right_finger"],
+            ]
+            hidden_rgba = self.set_links_invisible(robot_id, link_indices)
+
+        img_rgb = self.render(return_depth=False)
+        if grasps_cam is not None:
+            img_bgr = self.draw_grasp_lines_on_image(img_rgb, grasps_cam, thickness=1, baseline_axis=baseline_axis)
+        else:
+            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        if executed_grasp_cam is not None:
+            if np.asarray(executed_grasp_cam).ndim == 2:
+                executed_grasp_cam = [executed_grasp_cam]
+            img_rgb_for_red = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            img_bgr = self.draw_grasp_lines_on_image(
+                img_rgb_for_red,
+                executed_grasp_cam,
+                color=(0, 0, 255),
+                baseline_axis=baseline_axis,
+            )
+        print("Saving grasp debug image to: {}".format(save_path))
+        cv2.imwrite(save_path, img_bgr)
+
+        if hidden_rgba:
+            self.restore_link_visibility(robot_id, hidden_rgba)
+            
+    def restore_link_visibility(self, body_id, saved_rgba):
+        for link_idx, rgba in saved_rgba.items():
+            p.changeVisualShape(
+                body_id,
+                link_idx,
+                rgbaColor=rgba,
+                physicsClientId=self.id,
+            )
+
+        
+    def set_links_invisible(self, body_id, link_indices):
+        visual_data = p.getVisualShapeData(body_id, physicsClientId=self.id)
+        if not visual_data:
+            return {}
+        saved_rgba = {}
+        link_set = set(link_indices)
+        for data in visual_data:
+            link_idx = data[1]
+            if link_idx not in link_set:
+                continue
+            rgba = data[7]
+            if link_idx not in saved_rgba:
+                saved_rgba[link_idx] = rgba
+            p.changeVisualShape(
+                body_id,
+                link_idx,
+                rgbaColor=[rgba[0], rgba[1], rgba[2], 0.0],
+                physicsClientId=self.id,
+            )
+        return saved_rgba
+        
+    def grasp_lines_from_pose(self, grasp_pose, baseline_axis=1):
+        grasp_pos = grasp_pose[:3, 3]
+        grasp_orn = grasp_pose[:3, :3]
+
+        approaching_dir = grasp_orn[:, 2]
+        baseline_dir = grasp_orn[:, baseline_axis]
+
+        root = grasp_pos
+        grasping_center = grasp_pos + 0.105 * approaching_dir
+        mid_point = grasp_pos + 0.05 * approaching_dir
+        left_finger = mid_point - 0.04 * baseline_dir
+        right_finger = mid_point + 0.04 * baseline_dir
+        left_top = left_finger + (grasping_center - mid_point)
+        right_top = right_finger + (grasping_center - mid_point)
+
+        return [
+            (left_finger, right_finger),
+            (root, mid_point),
+            (left_finger, left_top),
+            (right_finger, right_top),
+        ]
+            
+            
+        
     
         
     def visualize_grasp(self, pcd_cam, grasps_cam, topk=10):
@@ -792,7 +919,7 @@ class ContactGraspNetEnv():
             return False
         return True
         
-    def step(self, grasp, debug=False):
+    def step(self, grasp, all_grasps=None, debug=False, visual=False, visual_save_path=None):
         ### TODO: convert grasp from camera frame to world frame
         if self.act_mode == 'cgn':
             world_to_camera = np.asarray(self.view_matrix).reshape([4, 4], order="F")
@@ -806,6 +933,10 @@ class ContactGraspNetEnv():
         target_pos, target_rotation = grasp_in_world[:3, 3], grasp_in_world[:3, :3]
         target_rotation = target_rotation @ np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # flip the xy axis
         target_quat = R.from_matrix(target_rotation).as_quat()
+        
+        grasp_in_world = np.eye(4)
+        grasp_in_world[:3, :3] = target_rotation
+        grasp_in_world[:3, 3] = target_pos
         
         if self.precontact:
             target_pos = target_pos - 0.05 * target_rotation[:, 2]  # move the end effector a bit back in the approaching direction
@@ -825,6 +956,32 @@ class ContactGraspNetEnv():
         ### save images
         ### zoom in to the object
         self.set_camera(camera_width=640, camera_height=480, distance_ratio=1.5)
+        
+        if visual:
+            # self.set_debug_camera_to_scene()
+            self.obs_mode = 'cgn'
+            self.set_camera()
+            if not os.path.exists(visual_save_path):
+                os.makedirs(visual_save_path, exist_ok=True)
+            other_grasps = []
+            for other_grasp in all_grasps:
+                if self.act_mode == 'cgn':
+                    world_to_camera = np.asarray(self.view_matrix).reshape([4, 4], order="F")
+                    camera_to_world = np.linalg.inv(world_to_camera)
+                    other_grasp_in_world = camera_to_world @ other_grasp
+                elif self.act_mode == 'm2t2':
+                    other_grasp_in_world = other_grasp
+                    
+                o_target_pos, o_target_rotation = other_grasp_in_world[:3, 3], other_grasp_in_world[:3, :3]
+                o_target_rotation = o_target_rotation @ np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # flip the xy axis
+                
+                other_grasp_in_world = np.eye(4)
+                other_grasp_in_world[:3, :3] = o_target_rotation
+                other_grasp_in_world[:3, 3] = o_target_pos
+                other_grasps.append(other_grasp_in_world)
+                
+            self.save_grasp_debug_image(visual_save_path + "topk.png", grasps_cam=other_grasps, executed_grasp_cam=grasp_in_world)
+            
         
         # move to the real grasp pose if self.precontact is True
         if self.precontact:
@@ -891,8 +1048,9 @@ class ContactGraspNetEnv():
         
         if debug:
             import pdb; pdb.set_trace()
-                
-        ### TODO: potentially move left and right
+
+        if visual:
+            cv2.imwrite(visual_save_path + "lifted.png", self.render(return_depth=False)[:, :, ::-1])                
         
         ### TODO: check if the obj is still inside the gripper
         res = p.getContactPoints(bodyA=self.urdf_ids['robot'], bodyB=contact_body, physicsClientId=self.id)
