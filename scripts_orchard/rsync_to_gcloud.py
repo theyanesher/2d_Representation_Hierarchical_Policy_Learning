@@ -54,6 +54,24 @@ BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/invert_push_reset_only"  # Replace as n
 LOCAL_DIR = "/tmp/articubot_all_reset_only_1203"
 BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/articubot_all_reset_only_1203"  # Replace as needed
 
+LOCAL_DIR = "/tmp/pick_and_place/inside_link_cgn_grasp_grasp_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/inside_link_cgn_grasp_grasp_only"  # Replace as needed
+
+LOCAL_DIR = "/tmp/pick_and_place/inside_whole_cgn_grasp_grasp_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/inside_whole_cgn_grasp_grasp_only"  # Replace as needed 
+
+LOCAL_DIR = "/tmp/pick_and_place/top_cgn_grasp_grasp_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/top_cgn_grasp_grasp_only"  # Replace as needed 
+
+LOCAL_DIR = "/tmp/pick_and_place/inside_link_cgn_1204_place_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/inside_link_cgn_1204_place_only"  # Replace as needed 
+
+LOCAL_DIR = "/tmp/pick_and_place/inside_whole_cgn_1204_place_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/inside_whole_cgn_1204_place_only"  # Replace as needed 
+
+LOCAL_DIR = "/tmp/pick_and_place/top_cgn_1204_place_only"
+BUCKET_PATH = "gs://cmu-gpucloud-yufeiw2/top_cgn_1204_place_only"  # Replace as needed 
+
 NUM_PROCESSES = 10
 
 def gcs_file_exists(gcs_path):

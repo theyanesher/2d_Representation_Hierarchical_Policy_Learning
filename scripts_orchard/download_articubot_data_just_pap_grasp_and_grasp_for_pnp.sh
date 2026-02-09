@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Tunables
-JOBS="${JOBS:-8}"
+JOBS="${JOBS:-10}"
 ZIPS_LIMIT="${ZIPS_LIMIT:-}"
 MAX_RETRIES="${MAX_RETRIES:-5}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
@@ -100,6 +100,20 @@ unzip_folder(){
   echo "Total unzip time: $((SECONDS - unzip_start)) seconds"
 }
 
+#### fix pick and place data generation bug
+mkdir -p /tmp/pick_and_place/top_cgn_grasp
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top_cgn_grasp /tmp/pick_and_place/top_cgn_grasp
+
+mkdir -p /tmp/pick_and_place/inside_link_cgn_grasp
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link_cgn_grasp /tmp/pick_and_place/inside_link_cgn_grasp
+
+mkdir -p /tmp/pick_and_place/inside_whole_cgn_grasp
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole_cgn_grasp /tmp/pick_and_place/inside_whole_cgn_grasp
+
+mkdir -p /tmp/pick_and_place/grasp_for_pap
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/grasp_for_pap /tmp/pick_and_place/grasp_for_pap
+
+
 # mkdir -p /tmp/pick_and_place/top_cgn_1204
 # unzip_folder /project/flame/yufeiw2/RoboGen-sim2real/data/top_cgn_1204 /tmp/pick_and_place/top_cgn_1204
 
@@ -122,17 +136,6 @@ unzip_folder(){
 
 # mkdir -p /tmp/dp3_demo_clean_distorted_goal
 # sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_clean_distorted_goal /tmp/dp3_demo_clean_distorted_goal/
-
-
-mkdir -p /tmp/articubot_all_reset_1203
-sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/articubot_all_reset_only_1203 /tmp/articubot_all_reset_1203/
-
-# mkdir -p /tmp/165-obj_reset_1203
-# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/165-obj_reset_1203 /tmp/165-obj_reset_1203/
-
-# mkdir -p /tmp/invert_push_reset
-# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/invert_push_reset /tmp/invert_push_reset/
-
 
 # mkdir -p /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal
 # sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_real_world_noise_pcd_clean_distorted_goal /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal/

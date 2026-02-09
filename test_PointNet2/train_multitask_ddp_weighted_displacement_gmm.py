@@ -436,7 +436,7 @@ def train(args):
                 
             wandb_run.log(all_logs, step=global_step)
             
-            print(f"{global_step} {all_logs}")
+            # print(f"{global_step} {all_logs}")
             
             ### TODO: save the model here
             # if (global_step + 1) % args.general.save_freq == 0:
