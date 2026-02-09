@@ -85,6 +85,14 @@ articulated_new = [
     "toilet_102703", "toilet_102707", "toilet_102708", "toilet_103234"
     ]
 
+articulated_new_replace = [
+    "laptop_10040", "laptop_10248", "laptop_10305", "laptop_10885", "laptop_11248", "laptop_11477", "laptop_11876", "laptop_9992", "toilet_102692",
+    "laptop_10098", "laptop_10269", "laptop_10306", "laptop_10915", "laptop_11395", "laptop_11581", "laptop_11888", "laptop_9996", "toilet_102694",
+    "laptop_10101", "laptop_10270", "laptop_10383", "laptop_11075", "laptop_11405", "laptop_11586", "laptop_11945", "toilet_102630",
+    "laptop_10238", "laptop_10280", "laptop_10626", "laptop_11156", "laptop_11406", "laptop_11691", "laptop_12073", "toilet_102667",
+    "laptop_10243", "laptop_10289", "laptop_10697", "laptop_11242", "laptop_11429", "laptop_11778", "laptop_9968", "toilet_102668"
+]
+
 class PointNetDatasetFromDisk(torch.utils.data.Dataset):
     def __init__(self, all_obj_paths, beg_ratio=0, end_ratio=0.9, eval_episode=None, only_first_stage=False, is_pickle=False, use_all_data=False, 
                  conditioning_on_demo=False, camera_frame=False, goal_always_open=False, use_rgb=False, use_dino=False, pred_gripper_width=False, gripper_width_scale_factor=1.0):
@@ -418,22 +426,62 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             print("all_obj_paths: ", all_obj_paths)
             
         elif "pick_and_place" in num_train_objects and len(num_train_objects) > len("pick_and_place"):
+                     
+            if "25_percent" in num_train_objects:
+                import random
+                random.seed(0)
+                print("using 25 percent of all data!!!!")
+                print("using 25 percent of all data!!!!")
+                print("using 25 percent of all data!!!!")
+                print("using 25 percent of all data!!!!")
+                print("using 25 percent of all data!!!!")
+            if "50_percent" in num_train_objects:
+                import random
+                random.seed(0)
+                print("using 50 percent of all data!!!!")
+                print("using 50 percent of all data!!!!")
+                print("using 50 percent of all data!!!!")
+                print("using 50 percent of all data!!!!")
+                print("using 50 percent of all data!!!!")
+   
             ### articubot with camera randomization
             dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_clean_distorted_goal"
-            # non_real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
-            # non_real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in non_real_world_camera_500_paths]
             non_real_world_camera_500_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(463)]
+            if "25_percent" in num_train_objects:
+                num_non_real = int(0.25 * len(non_real_world_camera_500_paths))
+                random_indices = random.sample(range(len(non_real_world_camera_500_paths)), num_non_real)
+                non_real_world_camera_500_paths = [non_real_world_camera_500_paths[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_non_real = int(0.5 * len(non_real_world_camera_500_paths))
+                random_indices = random.sample(range(len(non_real_world_camera_500_paths)), num_non_real)
+                non_real_world_camera_500_paths = [non_real_world_camera_500_paths[index] for index in random_indices]
 
             ### articubot with real camera randomization
             dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
             real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
             real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in real_world_camera_500_paths]
+            if "25_percent" in num_train_objects:
+                num_real = int(0.25 * len(real_world_camera_500_paths))
+                random_indices = random.sample(range(len(real_world_camera_500_paths)), num_real)
+                real_world_camera_500_paths = [real_world_camera_500_paths[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_real = int(0.5 * len(real_world_camera_500_paths))
+                random_indices = random.sample(range(len(real_world_camera_500_paths)), num_real)
+                real_world_camera_500_paths = [real_world_camera_500_paths[index] for index in random_indices]
             
             ### new category
             dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/articulated'
             articulated = sorted(os.listdir(dataset_prefix))
             # articulated = [os.path.join(dataset_prefix, x) for x in articulated]
             articulated = ["{}/{}".format(dataset_prefix, name) for name in articulated_new]
+            if "25_percent" in num_train_objects:
+                num_articulated = int(0.25 * len(articulated))
+                random_indices = random.sample(range(len(articulated)), num_articulated)
+                articulated = [articulated[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_articulated = int(0.5 * len(articulated))
+                random_indices = random.sample(range(len(articulated)), num_articulated)
+                articulated = [articulated[index] for index in random_indices]
 
             ### new category with camera randomization
             dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/new_7_category_random_cam'
@@ -441,6 +489,14 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             ### only use folders not starting with digit
             articulated_random_cam = [f for f in articulated_random_cam if not f[0].isdigit()]
             articulated_random_cam = [os.path.join(dataset_prefix, x) for x in articulated_random_cam]
+            if "25_percent" in num_train_objects:
+                num_articulated_random = int(0.25 * len(articulated_random_cam))
+                random_indices = random.sample(range(len(articulated_random_cam)), num_articulated_random)
+                articulated_random_cam = [articulated_random_cam[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_articulated_random = int(0.5 * len(articulated_random_cam))
+                random_indices = random.sample(range(len(articulated_random_cam)), num_articulated_random)
+                articulated_random_cam = [articulated_random_cam[index] for index in random_indices]
             
             ### new category with real world randomization
             dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/new_7_category_real_cam'
@@ -448,6 +504,14 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             ### only use folders not starting with digit
             articulated_real_cam = [f for f in articulated_real_cam if not f[0].isdigit()]
             articulated_real_cam = [os.path.join(dataset_prefix, x) for x in articulated_real_cam]
+            if "25_percent" in num_train_objects:
+                num_articulated_real = int(0.25 * len(articulated_real_cam))
+                random_indices = random.sample(range(len(articulated_real_cam)), num_articulated_real)
+                articulated_real_cam = [articulated_real_cam[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_articulated_real = int(0.5 * len(articulated_real_cam))
+                random_indices = random.sample(range(len(articulated_real_cam)), num_articulated_real)
+                articulated_real_cam = [articulated_real_cam[index] for index in random_indices]
             
             ### dagger on new categories
             dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_weighted_full_dagger'
@@ -455,12 +519,27 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             ### only use folders not starting with digit
             articulated_dagger = [f for f in articulated_dagger if not f[0].isdigit()]
             articulated_dagger = [os.path.join(dataset_prefix, x) for x in articulated_dagger]
+            if "25_percent" in num_train_objects:
+                num_articulated_dagger = int(0.25 * len(articulated_dagger))
+                random_indices = random.sample(range(len(articulated_dagger)), num_articulated_dagger)
+                articulated_dagger = [articulated_dagger[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_articulated_dagger = int(0.5 * len(articulated_dagger))
+                random_indices = random.sample(range(len(articulated_dagger)), num_articulated_dagger)
+                articulated_dagger = [articulated_dagger[index] for index in random_indices]
             
             ### close data
             dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/invert_push'
             close_data = sorted(os.listdir(dataset_prefix))
             close_data = [os.path.join(dataset_prefix, x) for x in close_data]
-            # close_data = []
+            if "25_percent" in num_train_objects:
+                num_close = int(0.25 * len(close_data))
+                random_indices = random.sample(range(len(close_data)), num_close)
+                close_data = [close_data[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_close = int(0.5 * len(close_data))
+                random_indices = random.sample(range(len(close_data)), num_close)
+                close_data = [close_data[index] for index in random_indices]
             
             ### pick and place data
             all_pick_place_data = []
@@ -470,6 +549,10 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 dataset_prefix = ["inside_whole_1005", "inside_link_1005", "top_1005"]
             elif "pick_and_place_new_1204" in num_train_objects:
                 dataset_prefix = ["top_cgn_1204", "inside_link_cgn_1204", "inside_whole_cgn_1204"]
+            elif "pick_and_place_0101" in num_train_objects:
+                dataset_prefix = ["inside_link_cgn_grasp_0101_grasp_only", "inside_whole_cgn_grasp_0101_grasp_only", "top_cgn_grasp_0101_grasp_only", 
+                                  "top_cgn_place_0101", "inside_link_cgn_place_0101", "inside_whole_cgn_place_0101"]
+                
                 
                 
             for name in dataset_prefix:
@@ -477,20 +560,36 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 all_data = sorted(os.listdir(path))
                 all_data = [os.path.join(path, x) for x in all_data]
                 all_pick_place_data.extend(all_data)
+            if "25_percent" in num_train_objects:
+                num_pick_place = int(0.25 * len(all_pick_place_data))
+                random_indices = random.sample(range(len(all_pick_place_data)), num_pick_place)
+                all_pick_place_data = [all_pick_place_data[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_pick_place = int(0.5 * len(all_pick_place_data))
+                random_indices = random.sample(range(len(all_pick_place_data)), num_pick_place)
+                all_pick_place_data = [all_pick_place_data[index] for index in random_indices]
             
             all_grasping_data = []
             if "grasping_1009" in num_train_objects:
                 name = "gen_grasp_1009"
-                path = f"/tmp/grasping/{name}"
+                path = f"/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/grasping/{name}"
                 all_data = sorted(os.listdir(path))
                 all_data = [os.path.join(path, x) for x in all_data]
                 all_grasping_data.extend(all_data)
             elif "grasping_1017" in num_train_objects:
                 name = "gen_grasp_1017"
-                path = f"/tmp/grasping/{name}"
+                path = f"/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/grasping/{name}"
                 all_data = sorted(os.listdir(path))
                 all_data = [os.path.join(path, x) for x in all_data]
                 all_grasping_data.extend(all_data)
+            if "25_percent" in num_train_objects:
+                num_grasping = int(0.25 * len(all_grasping_data))
+                random_indices = random.sample(range(len(all_grasping_data)), num_grasping)
+                all_grasping_data = [all_grasping_data[index] for index in random_indices]
+            if "50_percent" in num_train_objects:
+                num_grasping = int(0.5 * len(all_grasping_data))
+                random_indices = random.sample(range(len(all_grasping_data)), num_grasping)
+                all_grasping_data = [all_grasping_data[index] for index in random_indices]
 
             all_obj_paths = non_real_world_camera_500_paths + real_world_camera_500_paths + articulated + \
                 articulated_random_cam + articulated_real_cam + articulated_dagger + close_data + all_pick_place_data + \
@@ -523,10 +622,23 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 save_data_name_70, save_data_name_71, save_data_name_72, save_data_name_73, save_data_name_74, save_data_name_75, save_data_name_76, save_data_name_77, save_data_name_78, save_data_name_79,
                 save_data_name_80, save_data_name_81, save_data_name_82, save_data_name_83, save_data_name_84, save_data_name_85, save_data_name_86, save_data_name_87, save_data_name_88, save_data_name_89,
                 save_data_name_90, save_data_name_91, save_data_name_92, save_data_name_93, save_data_name_94, save_data_name_95, save_data_name_96, save_data_name_97, save_data_name_98, save_data_name_99,
-            ] + articulated_new
+            ] 
+            
+            articulated_new_not_replace = [name for name in articulated_new if name not in articulated_new_replace]
+            data_name += articulated_new_not_replace
             all_obj_paths = [
                 "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
             ]
+            
+            dataset_prefix = "/project_data/held/chenyuah/RoboGen-sim2real/data/dp3_demo/165-obj_1219"
+            replaced_articulated_paths = [
+                "{}/{}".format(dataset_prefix, name) for name in articulated_new_replace
+            ]
+            all_obj_paths += replaced_articulated_paths
+            
+            print("total articulated 250 objects: ", len(all_obj_paths))
+            print("all_obj_paths: ", all_obj_paths)
+            
         elif num_train_objects == 'articulated_full':
             all_zarr_paths_part_1 = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(246)]
             all_subfolders = sorted(os.listdir(dataset_prefix))

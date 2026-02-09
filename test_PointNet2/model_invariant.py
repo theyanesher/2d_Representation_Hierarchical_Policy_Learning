@@ -910,41 +910,41 @@ class PointNet2_super_multitask_attn(nn.Module):
         
         self.sa1 = PointNetSetAbstractionMsg(npoint=first_sa_point, radius_list=[0.025, 0.05], nsample_list=[16, 32], in_channel=in_channel, mlp_list=[[16, 16, 32], [32, 32, 64]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)                                                     
-        self.sa_cross_attn_1 = cross_attention_module(feature_dim=96, attention_num_heads=4, attention_num_layers=2)
+        self.sa_cross_attn_1 = cross_attention_module(feature_dim=96, attention_num_heads=6, attention_num_layers=2)
         self.gripper_learnable_embedding = nn.Embedding(1, 96)
         
         self.sa2 = PointNetSetAbstractionMsg(npoint=512, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=96, mlp_list=[[64, 64, 128], [64, 96, 128]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
         
-        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], 
+        self.sa3 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 128+128, [[128, 196, 256], [128, 196, 254]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.sa_cross_attn_3 = cross_attention_module(feature_dim=512, attention_num_heads=4, attention_num_layers=2)
-        self.linear_1_to_3 = nn.Linear(96, 512)
+        self.sa_cross_attn_3 = cross_attention_module(feature_dim=510, attention_num_heads=6, attention_num_layers=2)
+        self.linear_1_to_3 = nn.Linear(96, 510)
 
-        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], 
+        self.sa4 = PointNetSetAbstractionMsg(128, [0.2, 0.4], [16, 32], 256+254, [[256, 256, 510], [256, 384, 510]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], 
+        self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 510+510, [[512, 512, 510], [512, 512, 510]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.sa_cross_attn_5 = cross_attention_module(feature_dim=1024, attention_num_heads=4, attention_num_layers=2)
-        self.linear_3_to_5 = nn.Linear(512, 1024)
+        self.sa_cross_attn_5 = cross_attention_module(feature_dim=1020, attention_num_heads=6, attention_num_layers=2)
+        self.linear_3_to_5 = nn.Linear(512, 1020)
         
-        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 512+512, [[512, 512, 512], [512, 512, 512]], 
+        self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 1020, [[512, 512, 512], [512, 512, 512]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
         if embedding_dim is not None:
             self.film = FiLM(embedding_dim, 1024)
-        self.fp6 = PointNetFeaturePropagation(512+512+512+512, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.fp_cross_attn_6 = cross_attention_module(feature_dim=512, attention_num_heads=4, attention_num_layers=2)
-        self.linear_5_to_6 = nn.Linear(1024, 512)
+        self.fp6 = PointNetFeaturePropagation(512+512+510+510, [512, 510], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp_cross_attn_6 = cross_attention_module(feature_dim=510, attention_num_heads=6, attention_num_layers=2)
+        self.linear_5_to_6 = nn.Linear(1020, 510)
         
-        self.fp5 = PointNetFeaturePropagation(512+512+256+256, [512, 512], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.fp4 = PointNetFeaturePropagation(1024, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.fp_cross_attn_4 = cross_attention_module(feature_dim=256, attention_num_heads=4, attention_num_layers=2)
-        self.linear_6_to_4 = nn.Linear(512, 256)
+        self.fp5 = PointNetFeaturePropagation(510+510+510, [512, 510], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp4 = PointNetFeaturePropagation(510 + 510, [256, 252], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp_cross_attn_4 = cross_attention_module(feature_dim=252, attention_num_heads=6, attention_num_layers=2)
+        self.linear_6_to_4 = nn.Linear(510, 252)
         
-        self.fp3 = PointNetFeaturePropagation(128+128+256, [256, 256], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.fp2 = PointNetFeaturePropagation(32+64+256, [256, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
-        self.fp_cross_attn_2 = cross_attention_module(feature_dim=128, attention_num_heads=4, attention_num_layers=2)
-        self.linear_4_to_2 = nn.Linear(256, 128)
+        self.fp3 = PointNetFeaturePropagation(252+256, [256, 252], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp2 = PointNetFeaturePropagation(252+96, [256, 126], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
+        self.fp_cross_attn_2 = cross_attention_module(feature_dim=126, attention_num_heads=6, attention_num_layers=2)
+        self.linear_4_to_2 = nn.Linear(252, 126)
 
         if fp_to_full:
             self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128], embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
@@ -952,7 +952,7 @@ class PointNet2_super_multitask_attn(nn.Module):
         self.film_in_sa_and_fp = film_in_sa_and_fp
         
         self.binary_seg_head = nn.Sequential(
-            nn.Conv1d(128, 128, 1, padding=0),
+            nn.Conv1d(126, 128, 1, padding=0),
             # nn.BatchNorm1d(128),
             nn.GroupNorm(32, 128),
             nn.ReLU(),
@@ -962,7 +962,7 @@ class PointNet2_super_multitask_attn(nn.Module):
                 
         ### this will be the displacement for each point
         self.four_point_head = nn.Sequential(
-            nn.Conv1d(128, 128, 1, padding=0),
+            nn.Conv1d(126, 128, 1, padding=0),
             # nn.BatchNorm1d(128),
             nn.GroupNorm(32, 128),
             nn.ReLU(),
