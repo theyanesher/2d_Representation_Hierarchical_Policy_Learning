@@ -87,6 +87,35 @@ sync_gcs_zip_folder() {
 
 # sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/dp3_demo_165 /tmp/
 
+### chenyuan full pick and place new data fixed bug as of 1/1
+mkdir -p /tmp/pick_and_place/inside_link_cgn_grasp_0101_grasp_only
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link_cgn_grasp_0101_grasp_only /tmp/pick_and_place/inside_link_cgn_grasp_0101_grasp_only
+
+mkdir -p /tmp/pick_and_place/inside_whole_cgn_grasp_0101_grasp_only
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole_cgn_grasp_0101_grasp_only /tmp/pick_and_place/inside_whole_cgn_grasp_0101_grasp_only
+
+mkdir -p /tmp/pick_and_place/top_cgn_grasp_0101_grasp_only
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top_cgn_grasp_0101_grasp_only /tmp/pick_and_place/top_cgn_grasp_0101_grasp_only
+
+mkdir -p /tmp/pick_and_place/top_cgn_place_0101
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top_cgn_place_0101 /tmp/pick_and_place/top_cgn_place_0101
+
+mkdir -p /tmp/pick_and_place/inside_link_cgn_place_0101
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link_cgn_place_0101 /tmp/pick_and_place/inside_link_cgn_place_0101
+
+mkdir -p /tmp/pick_and_place/inside_whole_cgn_place_0101
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole_cgn_place_0101 /tmp/pick_and_place/inside_whole_cgn_place_0101
+
+### new pick and place inside container
+mkdir -p /tmp/pick_and_place/inside_whole_cgn_place_0103
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole_cgn_place_0103 /tmp/pick_and_place/inside_whole_cgn_place_0103
+
+mkdir -p /tmp/pick_and_place/inside_link_cgn_place_0103
+sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link_cgn_place_0103 /tmp/pick_and_place/inside_link_cgn_place_0103
+
+
+
+
 ###
 mkdir -p /tmp/articulated
 sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/articulated /tmp/articulated/
@@ -130,14 +159,14 @@ sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/invert_push /tmp/invert_push/
 # sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/pick-and-place/inside_link /tmp/pick_and_place/inside_link
 
 ### chenyuan full pick and place as of 10/05
-mkdir -p /tmp/pick_and_place/inside_whole_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole /tmp/pick_and_place/inside_whole_1005
+# mkdir -p /tmp/pick_and_place/inside_whole_1005
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_whole /tmp/pick_and_place/inside_whole_1005
 
-mkdir -p /tmp/pick_and_place/inside_link_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link /tmp/pick_and_place/inside_link_1005
+# mkdir -p /tmp/pick_and_place/inside_link_1005
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/inside_link /tmp/pick_and_place/inside_link_1005
 
-mkdir -p /tmp/pick_and_place/top_1005
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top /tmp/pick_and_place/top_1005
+# mkdir -p /tmp/pick_and_place/top_1005
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/top /tmp/pick_and_place/top_1005
 
 
 ### use chenyuan's dataset for training high-level grasping

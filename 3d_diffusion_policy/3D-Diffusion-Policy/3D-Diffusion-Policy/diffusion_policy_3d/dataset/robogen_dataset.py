@@ -253,7 +253,7 @@ def get_zarry_paths(zarr_path):
         all_zarr_paths = all_obj_paths
         
     if  zarr_path == "sriram_towel":
-        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
+        dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
         all_obj_paths = os.listdir(dataset_prefix)
         all_obj_paths = sorted(all_obj_paths)
         all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' in x]

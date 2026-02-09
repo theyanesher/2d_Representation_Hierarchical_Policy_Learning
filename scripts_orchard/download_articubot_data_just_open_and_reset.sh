@@ -125,13 +125,13 @@ unzip_folder(){
 
 
 mkdir -p /tmp/articubot_all_reset_1203
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/articubot_all_reset_1203 /tmp/articubot_all_reset_1203/
+sync_gcs_zip_folder gs://cmu-gpucloud-yufeiw2/articubot_all_reset_only_1203 /tmp/articubot_all_reset_1203/
 
-mkdir -p /tmp/165-obj_reset_1203
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/165-obj_reset_1203 /tmp/165-obj_reset_1203/
+# mkdir -p /tmp/165-obj_reset_1203
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/165-obj_reset_1203 /tmp/165-obj_reset_1203/
 
-mkdir -p /tmp/invert_push_reset
-sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/invert_push_reset /tmp/invert_push_reset/
+# mkdir -p /tmp/invert_push_reset
+# sync_gcs_zip_folder gs://cmu-gpucloud-chenyuah/dp3_demo/invert_push_reset /tmp/invert_push_reset/
 
 
 # mkdir -p /tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal

@@ -149,6 +149,8 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
                     cat_idx = 13
                 if 'inside' in obj_path:
                     cat_idx = 14
+                if 'grasp_for_pap' in obj_path:
+                    cat_idx = random.choice([13, 14])
             
             if 'aloha' in obj_path and 'plate' in obj_path:
                 print("using sriram plate category")
@@ -356,6 +358,15 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             articulated_real_cam = [os.path.join(dataset_prefix, x) for x in articulated_real_cam]
             all_obj_paths = [articulated_real_cam[0]]
             
+        elif num_train_objects == 'articubot_and_reset':
+            dataset_prefix = "/tmp/dp3_demo_clean_distorted_goal"
+            non_real_world_camera_500_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(463)]
+            
+            dataset_prefix = "/tmp/articubot_all_reset_1203"
+            reset_path = sorted(os.listdir(dataset_prefix))
+            reset_path = [os.path.join(dataset_prefix, x) for x in reset_path]
+            
+            all_obj_paths = non_real_world_camera_500_paths + reset_path        
             
         elif num_train_objects == 'aritucbot_new_cat_camera_random_close':
             ### articubot with camera randomization
@@ -409,11 +420,24 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             print(all_obj_paths)
             print("all obj paths: ============================================")
             
-        elif num_train_objects in ['pick_and_place', 'pick_and_place_new_1024']:
+        elif num_train_objects == 'grasping':
+            dataset_prefix = '/tmp/grasping/gen_grasp_1017'
+            all_obj_paths = sorted(os.listdir(dataset_prefix))
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths]
+            print("all_obj_paths: ", all_obj_paths)
+            
+        elif num_train_objects in ['pick_and_place', 'pick_and_place_new_1024', 'pick_and_place_grasp', "pick_and_place_grasp_plus_grasp_pap", 
+                                   "pick_and_place_new_grasp_and_old_place"]:
             if num_train_objects == 'pick_and_place':
                 dataset_prefix = ["top", "inside_whole_1", "inside_whole", "inside_link_2", "inside_link_1", "inside_link"]
             elif num_train_objects == 'pick_and_place_new_1024':
                 dataset_prefix = ["top_cgn_1204", "inside_link_cgn_1204", "inside_whole_cgn_1204"]
+            elif num_train_objects == 'pick_and_place_grasp':
+                dataset_prefix = ["top_cgn_grasp", "inside_link_cgn_grasp", "inside_whole_cgn_grasp"]
+            elif num_train_objects == 'pick_and_place_grasp_plus_grasp_pap':
+                dataset_prefix = ["top_cgn_grasp", "inside_link_cgn_grasp", "inside_whole_cgn_grasp", "grasp_for_pap"]
+            elif num_train_objects == 'pick_and_place_new_grasp_and_old_place':
+                dataset_prefix = ["top_cgn_grasp_grasp_only", "inside_link_cgn_grasp_grasp_only", "inside_whole_cgn_grasp_grasp_only", "top_cgn_1204_place_only", "inside_link_cgn_1204_place_only", "inside_whole_cgn_1204_place_only"]
                 
             all_pick_place_data = []
             for name in dataset_prefix:
@@ -457,7 +481,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 non_real_world_camera_500_paths = [non_real_world_camera_500_paths[index] for index in random_indices]
 
             ### articubot with real camera randomization
-            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
+            dataset_prefix = "/tmp/dp3_demo_real_world_noise_pcd_clean_distorted_goal"
             real_world_camera_500_paths = sorted(os.listdir(dataset_prefix))
             real_world_camera_500_paths = [os.path.join(dataset_prefix, x) for x in real_world_camera_500_paths]
             if "25_percent" in num_train_objects:
@@ -470,7 +494,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 real_world_camera_500_paths = [real_world_camera_500_paths[index] for index in random_indices]
             
             ### new category
-            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/articulated'
+            dataset_prefix = '/tmp/articulated'
             articulated = sorted(os.listdir(dataset_prefix))
             # articulated = [os.path.join(dataset_prefix, x) for x in articulated]
             articulated = ["{}/{}".format(dataset_prefix, name) for name in articulated_new]
@@ -484,7 +508,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 articulated = [articulated[index] for index in random_indices]
 
             ### new category with camera randomization
-            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/new_7_category_random_cam'
+            dataset_prefix = '/tmp/new_7_category_random_cam'
             articulated_random_cam = sorted(os.listdir(dataset_prefix))
             ### only use folders not starting with digit
             articulated_random_cam = [f for f in articulated_random_cam if not f[0].isdigit()]
@@ -499,7 +523,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 articulated_random_cam = [articulated_random_cam[index] for index in random_indices]
             
             ### new category with real world randomization
-            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/new_7_category_real_cam'
+            dataset_prefix = '/tmp/new_7_category_real_cam'
             articulated_real_cam = sorted(os.listdir(dataset_prefix))
             ### only use folders not starting with digit
             articulated_real_cam = [f for f in articulated_real_cam if not f[0].isdigit()]
@@ -514,7 +538,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 articulated_real_cam = [articulated_real_cam[index] for index in random_indices]
             
             ### dagger on new categories
-            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/dp3_demo_weighted_full_dagger'
+            dataset_prefix = '/tmp/dp3_demo_weighted_full_dagger'
             articulated_dagger = sorted(os.listdir(dataset_prefix))
             ### only use folders not starting with digit
             articulated_dagger = [f for f in articulated_dagger if not f[0].isdigit()]
@@ -529,7 +553,7 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 articulated_dagger = [articulated_dagger[index] for index in random_indices]
             
             ### close data
-            dataset_prefix = '/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/invert_push'
+            dataset_prefix = '/tmp/invert_push'
             close_data = sorted(os.listdir(dataset_prefix))
             close_data = [os.path.join(dataset_prefix, x) for x in close_data]
             if "25_percent" in num_train_objects:
@@ -552,11 +576,15 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             elif "pick_and_place_0101" in num_train_objects:
                 dataset_prefix = ["inside_link_cgn_grasp_0101_grasp_only", "inside_whole_cgn_grasp_0101_grasp_only", "top_cgn_grasp_0101_grasp_only", 
                                   "top_cgn_place_0101", "inside_link_cgn_place_0101", "inside_whole_cgn_place_0101"]
-                
+            elif "pick_and_place_0103" in num_train_objects:
+                dataset_prefix = ["inside_link_cgn_grasp_0101_grasp_only", "inside_whole_cgn_grasp_0101_grasp_only", "top_cgn_grasp_0101_grasp_only", 
+                                  "top_cgn_place_0101", "inside_link_cgn_place_0101", "inside_whole_cgn_place_0101",
+                                  "inside_whole_cgn_place_0103", "inside_link_cgn_place_0103"
+                                  ]
                 
                 
             for name in dataset_prefix:
-                path = f"/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data/multitask_all_training_data/pick_and_place/{name}"
+                path = f"/tmp/pick_and_place/{name}"
                 all_data = sorted(os.listdir(path))
                 all_data = [os.path.join(path, x) for x in all_data]
                 all_pick_place_data.extend(all_data)
@@ -749,7 +777,8 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
                 "{}/{}".format(dataset_prefix, data_name[i]) for i in range(len(data_name))
             ]
         elif num_train_objects == 'debug':
-            all_obj_paths = [f'{dataset_prefix}/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']
+            # all_obj_paths = [f'{dataset_prefix}/0622-act3d-obj-45448-remove-reaching-collision-resize-2-full-per-step-gripper-goal-displacement-to-closest-obj-point']
+            all_obj_paths = ["/tmp/pick_and_place/top_cgn_1204/"]
         elif num_train_objects == '10':
             all_obj_paths = ["{}/{}".format(dataset_prefix, globals()["save_data_name_{}".format(i)]) for i in range(10)]
         elif num_train_objects == '50':
@@ -918,10 +947,10 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             print(all_obj_paths)
             
         elif num_train_objects == "sriram_towel":
-            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/aloha"
+            dataset_prefix = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/aloha"
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
-            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' not in x]
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'towel' in x]
             print(all_obj_paths)
 
         elif num_train_objects == "sriram_plate_new_rot":

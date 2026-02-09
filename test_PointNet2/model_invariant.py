@@ -879,13 +879,13 @@ class cross_attention_module(nn.Module):
         scene_pos_embedding = self.relative_pe_layer(scene_pos)
         
         # cross attention
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         updated_gripper_feature = self.cross_attn_gripper_to_scene(
             query=gripper_feature, value=scene_feature,
             query_pos=gripper_pos_embedding, value_pos=scene_pos_embedding,
         )[-1] 
         updated_scene_feature = self.cross_attn_scene_to_gripper(
-            query=scene_feature, value=gripper_feature,
+            query=scene_feature, value=updated_gripper_feature,
             query_pos=scene_pos_embedding, value_pos=gripper_pos_embedding,
         )[-1] # L, B, C
         
@@ -926,7 +926,7 @@ class PointNet2_super_multitask_attn(nn.Module):
         self.sa5 = PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 510+510, [[512, 512, 510], [512, 512, 510]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
         self.sa_cross_attn_5 = cross_attention_module(feature_dim=1020, attention_num_heads=6, attention_num_layers=2)
-        self.linear_3_to_5 = nn.Linear(512, 1020)
+        self.linear_3_to_5 = nn.Linear(510, 1020)
         
         self.sa6 = PointNetSetAbstractionMsg(16, [0.8, 1.6], [16, 32], 1020, [[512, 512, 512], [512, 512, 512]], 
                                              keep_gripper_in_fps=keep_gripper_in_fps, embedding_dim=embedding_dim if film_in_sa_and_fp else None, layernorm=replace_bn_w_ln)
@@ -999,7 +999,7 @@ class PointNet2_super_multitask_attn(nn.Module):
         gripper_feature = self.gripper_learnable_embedding.weight.unsqueeze(0).repeat(4, B, 1) # 4 x B x 96
                 
         l0_points = scene_xyz
-        l0_xyz = xyz[:, :3, :]
+        l0_xyz = scene_xyz[:, :3, :]
         
         if self.embedding_as_input:
             # import pdb; pdb.set_trace()
@@ -1025,7 +1025,7 @@ class PointNet2_super_multitask_attn(nn.Module):
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points, embedding=embedding if self.film_in_sa_and_fp else None) # (B, 3, 256) (B, 512, 256)
         
         gripper_feature = self.linear_1_to_3(gripper_feature)
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         gripper_feature, l3_points = self.sa_cross_attn_3(
             gripper_pos=gripper_xyz.permute(0, 2, 1), # B x 4 x 3
             gripper_feature=gripper_feature,
