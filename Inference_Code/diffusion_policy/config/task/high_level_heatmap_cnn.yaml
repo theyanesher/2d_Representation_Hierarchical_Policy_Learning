@@ -1,0 +1,82 @@
+name: high_level_heatmap_cnn
+
+image_shape: &image_shape [19, 128, 128]
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  # obs:
+  #   agentview_image:
+  #     shape: [15, 128, 128]
+  #     type: rgb
+  #   robot0_eye_in_hand_image:
+  #     shape: [15, 128, 128]
+  #     type: rgb
+  #   robot0_eef_pos:
+  #     shape: [3]
+  #     # type default: low_dim
+  #   robot0_eef_quat:
+  #     shape: [4]
+  #   robot0_gripper_qpos:
+  #     shape: [2]
+  # action: 
+  #   shape: [8]
+  obs:
+    image:
+      shape: *image_shape
+      type: rgb
+    agent_pos:
+      shape: [8]
+      type: low_dim
+  action:
+    shape: [8]
+
+# task_name: &task_name lift
+# dataset_type: &dataset_type ph
+# dataset_path: &dataset_path data/robomimic/datasets/${task.task_name}/${task.dataset_type}/image_abs.hdf5
+# abs_action: &abs_action True
+
+# env_runner:
+#   _target_: diffusion_policy.env_runner.robomimic_image_runner.RobomimicImageRunner
+#   dataset_path: *dataset_path
+#   shape_meta: *shape_meta
+#   n_train: 6
+#   n_train_vis: 2
+#   train_start_idx: 0
+#   n_test: 50
+#   n_test_vis: 4
+#   test_start_seed: 100000
+#   # use python's eval function as resolver, single-quoted string as argument
+#   max_steps: ${eval:'500 if "${task.dataset_type}" == "mh" else 400'}
+#   n_obs_steps: ${n_obs_steps}
+#   n_action_steps: ${n_action_steps}
+#   render_obs_key: 'agentview_image'
+#   fps: 10
+#   crf: 22
+#   past_action: ${past_action_visible}
+#   abs_action: *abs_action
+#   tqdm_interval_sec: 1.0
+#   n_envs: 28
+# evaluation at this config requires a 16 core 64GB instance.
+
+dataset:
+  _target_: diffusion_policy.dataset.High_Level_Heatmap_Train.HighLevelHeatmapTrain
+  image_path:  /home/pratik_final/Downloads/Bimanual/Original_RVT2_Inference/RVT/outputs_11th_TRAIN_DATASET_ALL_EPISODE_TRAIN_PRETRAINED_RVT/unnormalized_rgb #data/High_Level_Heatmaps_Train_Data_Final/image
+  heatmap_path: /home/pratik_final/Downloads/Bimanual/Original_RVT2_Inference/RVT/outputs_11th_TRAIN_DATASET_ALL_EPISODE_TRAIN_PRETRAINED_RVT/unnormalized_heatmap_images #data/High_Level_Heatmaps_Train_Data_Final/heatmap
+  low_dim_path: /home/pratik_final/Downloads/Bimanual/Original_RVT2_Inference/RVT/outputs_11th_TRAIN_DATASET_ALL_EPISODE_TRAIN_PRETRAINED_RVT/gripper_pose #data/High_Level_Heatmaps_Train_Data_Final/low_dim
+  depth_path: /home/pratik_final/Downloads/Bimanual/Original_RVT2_Inference/RVT/outputs_11th_TRAIN_DATASET_ALL_EPISODE_TRAIN_PRETRAINED_RVT/depth/
+  sequence_length: 16
+  pad_before: 4
+  pad_after: 4
+  use_wrist_camera: True #True
+  # _target_: diffusion_policy.dataset.robomimic_replay_image_dataset.RobomimicReplayImageDataset
+  # shape_meta: *shape_meta
+  # dataset_path: *dataset_path
+  # horizon: ${horizon}
+  # pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  # pad_after: ${eval:'${n_action_steps}-1'}
+  # n_obs_steps: ${dataset_obs_steps}
+  # abs_action: *abs_action
+  # rotation_rep: 'rotation_6d'
+  # use_legacy_normalizer: False
+  # use_cache: True
+  # seed: 42
+  # val_ratio: 0.02

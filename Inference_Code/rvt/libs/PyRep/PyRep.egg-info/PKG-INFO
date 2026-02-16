@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: PyRep
+Version: 4.1.0.3
+Summary: Python CoppeliaSim wrapper
+Home-page: https://www.doc.ic.ac.uk/~slj12
+Author: Stephen James
+Author-email: slj12@ic.ac.uk
+License-File: LICENSE
