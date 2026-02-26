@@ -77,7 +77,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             # import pdb; pdb.set_trace();
             # lastest_ckpt_path = "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.04/21.30.20_train_diffusion_unet_hybrid_high_level_heatmap_cnn/checkpoints/latest.ckpt" #self.get_checkpoint_path()
             # lastest_ckpt_path = "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.11.24/23.34.37_train_diffusion_unet_hybrid_high_level_heatmap_cnn_NO_INPAINT_TRAIN/checkpoints/latest.ckpt"
-            # lastest_ckpt_path = "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.13/17.20.42_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/epoch=2290-train_loss=0.001.ckpt"#"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.13/17.20.42_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/latest.ckpt" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.11/19.43.56_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/latest.ckpt" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.08/22.41.02_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/latest.ckpt"
+            lastest_ckpt_path = "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2026.02.22/21.23.31_RVT_Heatmap_ALL_Tasks_LATER_high_level_heatmap_cnn_zarr_dataloader_LATER_RVT_Heatmap/checkpoints/latest.ckpt"#"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.13/17.20.42_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/latest.ckpt" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.11/19.43.56_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/latest.ckpt" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Diffusion_Policy_Paper/Diff_Policy/diffusion_policy/data/outputs/2025.12.08/22.41.02_train_diffusion_unet_hybrid_WHOLE_DATASET_WRIST_high_level_heatmap_cnn/checkpoints/latest.ckpt"
             # if lastest_ckpt_path.is_file():
             print(f"Resuming from checkpoint {lastest_ckpt_path}")
             self.load_checkpoint(path=lastest_ckpt_path)
@@ -98,7 +98,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # configure dataset
         dataset: BaseImageDataset = hydra.utils.instantiate(cfg.task.dataset)
         assert isinstance(dataset, BaseImageDataset)
-
+        if rank == 0:
+            print("LENGTH OF THE DATASET = ", len(dataset))
         # distributed sampler for multi-GPU
         if world_size > 1:
             train_sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
@@ -205,11 +206,14 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         with JsonLogger(log_path) as json_logger:
             for local_epoch_idx in range(cfg.training.num_epochs):
+                if train_sampler is not None:
+                    train_sampler.set_epoch(self.epoch)
                 step_log = dict()
                 # ========= train for this epoch ==========
                 train_losses = list()
-                with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
-                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}",
+                        leave=False, mininterval=cfg.training.tqdm_interval_sec,
+                        disable=not is_main) as tepoch:
                     for batch_idx, batch in enumerate(tepoch):
                         # device transfer
                         # import pdb; pdb.set_trace();
@@ -302,8 +306,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 if (self.epoch % cfg.training.val_every) == 0 and not cfg.training.no_validation:
                     with torch.no_grad():
                         val_losses = list()
-                        with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
-                                leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                        with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
+                                leave=False, mininterval=cfg.training.tqdm_interval_sec,
+                                disable=not is_main) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                                 loss = self.model.compute_loss(batch)
@@ -317,7 +322,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             step_log['val_loss'] = val_loss
 
                 # run diffusion sampling on a training batch
-                if (self.epoch % cfg.training.sample_every) == 0:
+                if is_main and (self.epoch % cfg.training.sample_every) == 0:
                     with torch.no_grad():
                         # sample trajectory from training set, and evaluate difference
                         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
@@ -350,7 +355,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         del mse_open_close
                 
                 # checkpoint
-                if (self.epoch % cfg.training.checkpoint_every) == 0:
+                if is_main and (self.epoch % cfg.training.checkpoint_every) == 0:
                     # checkpointing
                     if cfg.checkpoint.save_last_ckpt:
                         self.save_checkpoint()
@@ -360,10 +365,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                     # sanitize metric names
                     metric_dict = dict()
                     for key, value in step_log.items():
-                        
+
                         new_key = key.replace('/', '_')
                         metric_dict[new_key] = value
-                    
+
                     # We can't copy the last checkpoint here
                     # since save_checkpoint uses threads.
                     # therefore at this point the file might have been empty!
@@ -379,7 +384,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 # log of last step is combined with validation and rollout
                 if is_main:
                     wandb_run.log(step_log, step=self.global_step)
-                json_logger.log(step_log)
+                    json_logger.log(step_log)
                 self.global_step += 1
                 self.epoch += 1
 

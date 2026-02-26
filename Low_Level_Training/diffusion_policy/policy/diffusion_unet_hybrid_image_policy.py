@@ -303,7 +303,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
     def compute_loss(self, batch):
-        debug = True
+        debug = False
         # normalize input
         assert 'valid_mask' not in batch
         # import pdb; pdb.set_trace();
@@ -313,13 +313,13 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         if debug:
             import pdb; pdb.set_trace();
             import os
-            os.makedirs("dump", exist_ok=True)
+            os.makedirs("dump/CHECK_RVT_TRAINING/", exist_ok=True)
             dump = {
                 "obs": {k: v.detach().cpu() for k, v in nobs.items()},
                 "action": batch["action"].detach().cpu(),
             }
 
-            torch.save(dump, "dump/debug_dump.pt")
+            torch.save(dump, "dump/CHECK_RVT_TRAINING/debug_dump.pt")
             import pdb; pdb.set_trace();
 
 

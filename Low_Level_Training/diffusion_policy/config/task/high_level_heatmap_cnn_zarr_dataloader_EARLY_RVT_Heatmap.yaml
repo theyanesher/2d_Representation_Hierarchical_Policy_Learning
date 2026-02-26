@@ -1,4 +1,4 @@
-name: high_level_heatmap_cnn_zarr_dataloader_EARLY
+name: high_level_heatmap_cnn_zarr_dataloader_EARLY_RVT_Heatmap
 ######## 3 VARIATIONS => 1st variation => 1 ENCODER WITH 19 CHANNELS (RGBD * 4 + 3 HEATMAPS) ############
 # image_shape: &image_shape [19, 128, 128]
 # ######## 3 VARIATIONS => 2nd variation (Early Fusion Architecture)=> 4 ENCODER WITH 5 CHANNELS FOR VIRTUAL CAMERA AND 4 CHANNEL FOR WRIST CAMERA ############
@@ -109,19 +109,22 @@ shape_meta: &shape_meta
 #   n_envs: 28
 # evaluation at this config requires a 16 core 64GB instance.
 
+
+###### DATA SIZE FOR THIS TRAINING = 254060
 dataset:
   _target_: diffusion_policy.dataset.High_Level_Heatmap_Train_Zarr_Sliced.HighLevelHeatmapTrain
   # episode_path: "/scratch/pbhowal/Diffusion_Policy_Training/Zarr_Trajectories/insert_onto_square_peg_WITH_LANGUAGE_EMBEDDINGS" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/outputs_1st_insert_onto_square_peg/trajectories_data_FINAL_WITH_TEXT_EMBEDDING" #"/scratch/pbhowal/Diffusion_Policy_Training/Zarr_Trajectories/insert_onto_square_peg" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/outputs_1st_insert_onto_square_peg/trajectories_data"
-  base_dir : "/scratch/pbhowal/data_Diffusion_Policy_DEBUG" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/" #outputs_1st_insert_onto_square_peg/trajectories_data" #"/scratch/pbhowal/Diffusion_Policy_Training/Zarr_Trajectories/insert_onto_square_peg_WITH_LANGUAGE_EMBEDDINGS/" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/outputs_1st_insert_onto_square_peg/trajectories_data_FINAL_WITH_TEXT_EMBEDDING" #"/scratch/pbhowal/Diffusion_Policy_Training/Zarr_Trajectories/insert_onto_square_peg/" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/outputs_1st_insert_onto_square_peg/trajectories_data"
+  base_dir : "/scratch/pbhowal/data_Diffusion_Policy" #"/scratch/pbhowal/data_Diffusion_Policy_DEBUG" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/" #outputs_1st_insert_onto_square_peg/trajectories_data" #"/scratch/pbhowal/Diffusion_Policy_Training/Zarr_Trajectories/insert_onto_square_peg_WITH_LANGUAGE_EMBEDDINGS/" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/outputs_1st_insert_onto_square_peg/trajectories_data_FINAL_WITH_TEXT_EMBEDDING" #"/scratch/pbhowal/Diffusion_Policy_Training/Zarr_Trajectories/insert_onto_square_peg/" #"/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/RVT2_GMM_Codebase/RVT2_Codebase/RVT_Backup_IDK/RVT/data_diffusion_policy/outputs_1st_insert_onto_square_peg/trajectories_data"
   # tasks : ["close_jar",  "insert_onto_square_peg",  "light_bulb_in",  "meat_off_grill",  "open_drawer",  "place_shape_in_shape_sorter",  "place_wine_at_rack_location",  "reach_and_drag",  "slide_block_to_color_target", "stack_blocks"]
-  # tasks: ["close_jar","open_drawer","push_buttons","reach_and_drag","insert_onto_square_peg","place_cups","put_groceries_in_cupboard","slide_block_to_color_target","light_bulb_in","place_shape_in_shape_sorter","put_item_in_drawer","stack_blocks","meat_off_grill","place_wine_at_rack_location","put_money_in_safe","sweep_to_dustpan_of_size"]
+  tasks: ["light_bulb_in" , "push_buttons", "close_jar","open_drawer","reach_and_drag","insert_onto_square_peg","place_cups","put_groceries_in_cupboard","slide_block_to_color_target","place_shape_in_shape_sorter","stack_blocks","meat_off_grill","place_wine_at_rack_location","put_money_in_safe","sweep_to_dustpan_of_size"] #  "put_item_in_drawer",
   # tasks: ["close_jar"]
-  tasks: ["insert_onto_square_peg"]
+  # tasks: ["insert_onto_square_peg"]
   early_fusion: True
   sequence_length: 16
   pad_before: 4
   pad_after: 4
   use_wrist_camera: True
+  use_rvt_dist_heatmap: True
   # _target_: diffusion_policy.dataset.robomimic_replay_image_dataset.RobomimicReplayImageDataset
   # shape_meta: *shape_meta
   # dataset_path: *dataset_path

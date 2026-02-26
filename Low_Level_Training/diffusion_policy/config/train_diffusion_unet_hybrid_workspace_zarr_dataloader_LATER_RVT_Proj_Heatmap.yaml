@@ -1,8 +1,8 @@
 defaults:
   - _self_
-  - task: high_level_heatmap_cnn_zarr_dataloader
+  - task: high_level_heatmap_cnn_zarr_dataloader_LATER_RVT_Heatmap
 
-name: train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_EARLY_Fusion # FINAL_diffusion_unet_hybrid_wrist_language_16_Tasks_LATE_Fusion #_DUMMY_TESTING_EARLY_FUSION #train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_EARLY_Fusion #train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_LATE_Fusion #_DUMMY_TESTING_LATE_FUSION #train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_LATE_Fusion   # WHOLE_DATASET_WRIST_high_level_heatmap_cnn_zarr_dataloader
+name: RVT_Heatmap_ALL_Tasks_LATER #DEBUG_ONE_EPISODE_INSERT_SQ_PEG #RESTART_diffusion_unet_hybrid_wrist_language_16_Tasks_EARLY # FINAL_diffusion_unet_hybrid_wrist_language_16_Tasks_LATE_Fusion #_DUMMY_TESTING_EARLY_FUSION #train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_EARLY_Fusion #train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_LATE_Fusion #_DUMMY_TESTING_LATE_FUSION #train_diffusion_unet_hybrid_multitask_wrist_language_Whole_dataset_16_Tasks_LATE_Fusion   # WHOLE_DATASET_WRIST_high_level_heatmap_cnn_zarr_dataloader
 _target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
 
 task_name: ${task.name}
@@ -94,8 +94,8 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 128 #128 # (A6000) 128 # 64
-  num_workers: 8 # 16 # (A6000) # 16
+  batch_size: 128 #64 #128 # (A6000) 128 # 64
+  num_workers: 12 #8 # 16 # (A6000) # 16
   shuffle: False #True
   pin_memory: False #True
   persistent_workers: False
@@ -118,11 +118,11 @@ training:
   device: "cuda:0"
   seed: 42
   debug: False
-  resume: False
+  resume: True
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 3050
+  num_epochs: 1400 #3050 (Original DP)
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -142,7 +142,7 @@ training:
 
 logging:
   project: diffusion_policy_debug
-  resume: False
+  resume: True
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
   tags: ["${name}", "${task_name}", "${exp_name}"]

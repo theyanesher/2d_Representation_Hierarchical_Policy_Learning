@@ -152,7 +152,7 @@ logging:
 checkpoint:
   topk:
     monitor_key: train_loss #test_mean_score
-    mode: max
+    mode: min
     k: 50
     format_str: 'epoch={epoch:04d}-train_loss={train_loss:.3f}.ckpt'
   save_last_ckpt: True
