@@ -82,6 +82,49 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             print(f"Resuming from checkpoint {lastest_ckpt_path}")
             self.load_checkpoint(path=lastest_ckpt_path)
 
+        # ========= test_model mode: open-loop MSE evaluation =========
+        if cfg.training.get('test_model', False):
+            if rank == 0:
+                print("[test_model] Building full-dataset dataloader (batch_size=1, shuffle=False)...")
+            dataset: BaseImageDataset = hydra.utils.instantiate(cfg.task.dataset)
+            assert isinstance(dataset, BaseImageDataset)
+            if rank == 0:
+                print(f"[test_model] Dataset length: {len(dataset)}")
+            test_dataloader = DataLoader(
+                dataset, batch_size=1, shuffle=False,
+                num_workers=cfg.dataloader.num_workers, pin_memory=False
+            )
+            normalizer = dataset.get_normalizer()
+            self.model.set_normalizer(normalizer)
+            if cfg.training.use_ema:
+                self.ema_model.set_normalizer(normalizer)
+            policy = self.ema_model if (cfg.training.use_ema and self.ema_model is not None) else self.model
+            policy.to(device)
+            policy.eval()
+
+            all_mse, all_mse_trans, all_mse_quat, all_mse_open_close = [], [], [], []
+            with torch.no_grad():
+                for batch in tqdm.tqdm(test_dataloader, desc="[test_model] Evaluating", disable=(rank != 0)):
+                    batch = dict_apply(batch, lambda x: x.to(device))
+                    obs_dict = batch['obs']
+                    gt_action = batch['action']
+                    result = policy.predict_action(obs_dict, batch['obs_lang_emb'])
+                    pred_action = result['action_pred']['action']
+                    all_mse.append(torch.nn.functional.mse_loss(pred_action, gt_action).item())
+                    all_mse_trans.append(torch.nn.functional.mse_loss(pred_action[:, :, :3], gt_action[:, :, :3]).item())
+                    all_mse_quat.append(torch.nn.functional.mse_loss(pred_action[:, :, 3:7], gt_action[:, :, 3:7]).item())
+                    all_mse_open_close.append(torch.nn.functional.mse_loss(pred_action[:, :, 7], gt_action[:, :, 7]).item())
+
+            if rank == 0:
+                n = len(all_mse)
+                print(f"\n===== TEST MODEL RESULTS (N={n} samples) =====")
+                print(f"Avg MSE (full action):  {np.mean(all_mse):.6f}  ± {np.std(all_mse):.6f}")
+                print(f"Avg MSE (translation):  {np.mean(all_mse_trans):.6f}  ± {np.std(all_mse_trans):.6f}")
+                print(f"Avg MSE (quaternion):   {np.mean(all_mse_quat):.6f}  ± {np.std(all_mse_quat):.6f}")
+                print(f"Avg MSE (open/close):   {np.mean(all_mse_open_close):.6f}  ± {np.std(all_mse_open_close):.6f}")
+            return
+        # ========= end test_model mode =========
+
         # # configure dataset
         # dataset: BaseImageDataset
         # dataset = hydra.utils.instantiate(cfg.task.dataset)
@@ -93,7 +136,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # val_dataset = dataset.get_validation_dataset()
         # val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
-        
+
 
         # configure dataset
         dataset: BaseImageDataset = hydra.utils.instantiate(cfg.task.dataset)

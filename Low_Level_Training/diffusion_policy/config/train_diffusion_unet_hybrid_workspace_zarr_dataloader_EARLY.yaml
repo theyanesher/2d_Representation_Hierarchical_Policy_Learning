@@ -139,6 +139,8 @@ training:
   max_val_steps: null
   # misc
   tqdm_interval_sec: 1.0
+  # open-loop evaluation mode: skip training, compute avg MSE over full dataset
+  test_model: False
 
 logging:
   project: diffusion_policy_debug
