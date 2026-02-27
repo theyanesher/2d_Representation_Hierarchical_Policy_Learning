@@ -233,17 +233,21 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 output_device=rank,
                 find_unused_parameters=False  # change only if needed
             )
-        # save batch for sampling
-        train_sampling_batch = None
+        # full-dataset eval dataloader for sample_every MSE (rank 0 only, no DDP sampler)
+        if is_main:
+            sample_eval_dataloader = DataLoader(
+                dataset, batch_size=cfg.dataloader.batch_size, shuffle=False,
+                num_workers=cfg.dataloader.num_workers, pin_memory=False
+            )
 
         if cfg.training.debug:
             cfg.training.num_epochs = 2
             cfg.training.max_train_steps = 3
             cfg.training.max_val_steps = 3
             cfg.training.rollout_every = 1
-            cfg.training.checkpoint_every = 1
+            cfg.training.checkpoint_every = 20
             cfg.training.val_every = 1
-            cfg.training.sample_every = 1
+            cfg.training.sample_every = 20
 
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
@@ -261,8 +265,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         # device transfer
                         # import pdb; pdb.set_trace();
                         batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                        if train_sampling_batch is None:
-                            train_sampling_batch = batch
 
                         # compute loss
                         if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
@@ -364,38 +366,31 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             # log epoch average validation loss
                             step_log['val_loss'] = val_loss
 
-                # run diffusion sampling on a training batch
+                # run diffusion sampling on the full dataset
                 if is_main and (self.epoch % cfg.training.sample_every) == 0:
                     with torch.no_grad():
-                        # sample trajectory from training set, and evaluate difference
-                        batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
-                        obs_dict = batch['obs']
-                        gt_action = batch['action']
-                        
-                        # import pdb; pdb.set_trace();
-                        result = policy.predict_action(obs_dict, batch['obs_lang_emb'])
-                        # import pdb; pdb.set_trace();
-                        pred_action = result['action_pred']['action']
-                        mse = torch.nn.functional.mse_loss(pred_action, gt_action)
-                        mse_trans = torch.nn.functional.mse_loss(pred_action[:,:,:3], gt_action[:,:,:3])
-                        mse_quat = torch.nn.functional.mse_loss(pred_action[:,:,3:7], gt_action[:,:,3:7])
-                        # import pdb; pdb.set_trace();
-                        mse_open_close = torch.nn.functional.mse_loss(pred_action[:,:,7], gt_action[:,:,7])
+                        all_mse, all_mse_trans, all_mse_quat, all_mse_open_close = [], [], [], []
+                        for eval_batch in tqdm.tqdm(sample_eval_dataloader,
+                                desc=f"Sample eval epoch {self.epoch}",
+                                leave=False, mininterval=cfg.training.tqdm_interval_sec):
+                            eval_batch = dict_apply(eval_batch, lambda x: x.to(device, non_blocking=True))
+                            obs_dict = eval_batch['obs']
+                            gt_action = eval_batch['action']
+                            result = policy.predict_action(obs_dict, eval_batch['obs_lang_emb'])
+                            pred_action = result['action_pred']['action']
+                            all_mse.append(torch.nn.functional.mse_loss(pred_action, gt_action).item())
+                            all_mse_trans.append(torch.nn.functional.mse_loss(pred_action[:,:,:3], gt_action[:,:,:3]).item())
+                            all_mse_quat.append(torch.nn.functional.mse_loss(pred_action[:,:,3:7], gt_action[:,:,3:7]).item())
+                            all_mse_open_close.append(torch.nn.functional.mse_loss(pred_action[:,:,7], gt_action[:,:,7]).item())
+                        mse = np.mean(all_mse)
+                        mse_trans = np.mean(all_mse_trans)
+                        mse_quat = np.mean(all_mse_quat)
+                        mse_open_close = np.mean(all_mse_open_close)
                         print("MSEEEEEEEE", mse, mse_trans, mse_quat)
-                        # import pdb; pdb.set_trace();
-                        step_log['train_action_mse_error'] = mse.item()
-                        step_log['train_trans_action_mse_error'] = mse_trans.item()
-                        step_log['train_quat_action_mse_error'] = mse_quat.item()
-                        step_log['train_open_close_action_mse_error'] = mse_open_close.item()
-                        del batch
-                        del obs_dict
-                        del gt_action
-                        del result
-                        del pred_action
-                        del mse
-                        del mse_trans
-                        del mse_quat
-                        del mse_open_close
+                        step_log['train_action_mse_error'] = mse
+                        step_log['train_trans_action_mse_error'] = mse_trans
+                        step_log['train_quat_action_mse_error'] = mse_quat
+                        step_log['train_open_close_action_mse_error'] = mse_open_close
                 
                 # checkpoint
                 if is_main and (self.epoch % cfg.training.checkpoint_every) == 0:

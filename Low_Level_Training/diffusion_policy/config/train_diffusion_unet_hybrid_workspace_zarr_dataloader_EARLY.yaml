@@ -35,6 +35,7 @@ policy:
     prediction_type: epsilon # or sample
 
   seperate_open_close: False
+  impainting: False #True
   horizon: ${horizon}
   n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
   n_obs_steps: ${n_obs_steps}

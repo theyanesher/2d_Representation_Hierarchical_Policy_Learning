@@ -38,6 +38,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             eval_fixed_crop=False,
             seperate_open_close = False,
             lang_cond = True,
+            impainting = True,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -170,6 +171,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.n_action_steps = n_action_steps
         self.n_obs_steps = n_obs_steps
         self.obs_as_global_cond = obs_as_global_cond
+        self.impainting = impainting
         self.kwargs = kwargs
         # import pdb; pdb.set_trace();
         if num_inference_steps is None:
@@ -230,12 +232,12 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         nobs = self.normalizer.normalize(obs_dict , seperate_params_pos_ori = True)
         value = next(iter(nobs.values()))
         B, To = value.shape[:2]
-        
-        T = self.horizon
+
         Da = self.action_dim
         Do = self.obs_feature_dim
         # import pdb; pdb.set_trace();
         To = self.n_obs_steps
+        T = self.horizon if self.impainting else self.horizon - To
         # import pdb; pdb.set_trace();
         action_observation = nobs["agent_pos"][:,:4,7].unsqueeze(-1)     #nobs["agent_pos"][:,:,7].unsqueeze(-1) 
         # build input
@@ -287,8 +289,12 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             action_pred["action"] = torch.cat([action_pred["action"], action_open_close], dim=-1)
         # import pdb; pdb.set_trace();
         # get action
-        start = To - 1
-        end = start + self.n_action_steps
+        if self.impainting:
+            start = To - 1
+            end = start + self.n_action_steps
+        else:
+            start = 0
+            end = self.n_action_steps
         # action = action_pred[:,start:end]
         action = action_pred["action"][:,start:end]
         # import pdb; pdb.set_trace();
@@ -336,7 +342,10 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         # handle different ways of passing observation
         local_cond = None
         global_cond = None
-        trajectory = nactions
+        if self.impainting:
+            trajectory = nactions
+        else:
+            trajectory = nactions[:, self.n_obs_steps:, :]
         cond_data = trajectory
         if self.obs_as_global_cond:
             # reshape B, T, ... to B*T
