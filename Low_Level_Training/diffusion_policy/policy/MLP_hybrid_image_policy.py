@@ -21,13 +21,16 @@ class MLPHybridImagePolicy(BaseImagePolicy):
 
     Uses the same ResNet observation encoder as DiffusionUnetHybridImagePolicy,
     but replaces the diffusion UNet with a simple MLP that directly regresses
-    the next n_action_steps of actions from the encoded observation.
+    actions from the encoded observation.
 
-    Training loss: MSE in normalized action space (committed steps only).
-    Inference:     single forward pass — fully deterministic, no stochasticity.
+    impainting=True  : MLP predicts full horizon (16 steps); committed steps
+                       are sliced at inference (start=n_obs_steps-1, len=n_action_steps).
+                       Training target = all 16 normalized action steps (MSE over full horizon).
+    impainting=False : MLP predicts committed n_action_steps directly (smaller output head).
+                       Training target = committed steps only.
 
-    Use this as a debugging baseline to verify that the obs encoder + data
-    pipeline can overfit to a small dataset before running the diffusion model.
+    Inference is fully deterministic (no DDPM stochasticity) — use as a
+    debugging baseline to verify the obs encoder + data pipeline can overfit.
     """
 
     def __init__(self,
@@ -41,6 +44,7 @@ class MLPHybridImagePolicy(BaseImagePolicy):
             eval_fixed_crop=True,
             mlp_hidden_dims=(1024, 512, 256),
             lang_cond=True,
+            impainting=True,
             **kwargs):
         super().__init__()
 
@@ -122,7 +126,9 @@ class MLPHybridImagePolicy(BaseImagePolicy):
         global_cond_dim = obs_feature_dim * n_obs_steps  # flattened obs features
 
         # -------- MLP head --------
-        output_dim = n_action_steps * action_dim
+        # impainting=True  → predict full horizon; slice at inference
+        # impainting=False → predict committed steps only (smaller head)
+        output_dim = horizon * action_dim if impainting else n_action_steps * action_dim
         layers = []
         in_dim = global_cond_dim
         for hidden_dim in mlp_hidden_dims:
@@ -142,6 +148,7 @@ class MLPHybridImagePolicy(BaseImagePolicy):
         self.n_action_steps = n_action_steps
         self.n_obs_steps = n_obs_steps
         self.obs_as_global_cond = obs_as_global_cond
+        self.impainting = impainting
 
         print("MLP params:    %e" % sum(p.numel() for p in self.mlp.parameters()))
         print("Vision params: %e" % sum(p.numel() for p in self.obs_encoder.parameters()))
@@ -172,13 +179,23 @@ class MLPHybridImagePolicy(BaseImagePolicy):
 
         global_cond = self._encode_obs(nobs, lang_emb, B)  # (B, global_cond_dim)
 
-        pred_normalized = self.mlp(global_cond)             # (B, n_action_steps * action_dim)
-        pred_normalized = pred_normalized.reshape(B, self.n_action_steps, self.action_dim)
+        pred_normalized = self.mlp(global_cond)  # (B, output_dim)
 
-        action_pred = self.normalizer.unnormalize(
-            {"action": pred_normalized}, seperate_params_pos_ori=True)
+        if self.impainting:
+            # predict full horizon, then slice committed steps (mirrors diffusion policy)
+            pred_normalized = pred_normalized.reshape(B, self.horizon, self.action_dim)
+            action_pred = self.normalizer.unnormalize(
+                {"action": pred_normalized}, seperate_params_pos_ori=True)
+            start = self.n_obs_steps - 1
+            end = start + self.n_action_steps
+            action = action_pred["action"][:, start:end, :]  # (B, n_action_steps, action_dim)
+        else:
+            # predict committed steps directly
+            pred_normalized = pred_normalized.reshape(B, self.n_action_steps, self.action_dim)
+            action_pred = self.normalizer.unnormalize(
+                {"action": pred_normalized}, seperate_params_pos_ori=True)
+            action = action_pred["action"]  # (B, n_action_steps, action_dim)
 
-        action = action_pred["action"]  # (B, n_action_steps, action_dim)
         return {
             'action': action,
             'action_pred': action_pred,
@@ -195,16 +212,21 @@ class MLPHybridImagePolicy(BaseImagePolicy):
         nactions = self.normalizer.normalize(
             {"action": batch['action']}, seperate_params_pos_ori=True)["action"]
 
-        # committed GT steps in normalized space
-        start = self.n_obs_steps - 1
-        end = start + self.n_action_steps
-        nactions_committed = nactions[:, start:end, :]  # (B, n_action_steps, action_dim)
-
         batch_size = nactions.shape[0]
         global_cond = self._encode_obs(nobs, batch['obs_lang_emb'], batch_size)
 
-        pred = self.mlp(global_cond)                                     # (B, n_action_steps * action_dim)
-        pred = pred.reshape(batch_size, self.n_action_steps, self.action_dim)
+        pred = self.mlp(global_cond)  # (B, output_dim)
 
-        loss = F.mse_loss(pred, nactions_committed)
+        if self.impainting:
+            # predict full horizon, MSE over all 16 steps
+            pred = pred.reshape(batch_size, self.horizon, self.action_dim)
+            loss = F.mse_loss(pred, nactions)
+        else:
+            # predict committed steps only
+            start = self.n_obs_steps - 1
+            end = start + self.n_action_steps
+            nactions_committed = nactions[:, start:end, :]
+            pred = pred.reshape(batch_size, self.n_action_steps, self.action_dim)
+            loss = F.mse_loss(pred, nactions_committed)
+
         return loss

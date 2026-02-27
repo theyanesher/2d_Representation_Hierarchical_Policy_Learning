@@ -18,6 +18,7 @@ import robomimic.models.base_nets as rmbn
 import diffusion_policy.model.vision.crop_randomizer as dmvc
 from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
 from diffusion_policy.model.language.clip_lang_cond import LanguageConditioning
+from diffusion_policy.policy.snr_calculation_utils import apply_min_snr_weighted_loss
 
 class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
     def __init__(self, 
@@ -39,6 +40,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             seperate_open_close = False,
             lang_cond = True,
             impainting = True,
+            use_min_snr_strategy = False,
+            min_snr_gamma = 5.0,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -172,6 +175,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.n_obs_steps = n_obs_steps
         self.obs_as_global_cond = obs_as_global_cond
         self.impainting = impainting
+        self.use_min_snr_strategy = use_min_snr_strategy
+        self.min_snr_gamma = min_snr_gamma
         self.kwargs = kwargs
         # import pdb; pdb.set_trace();
         if num_inference_steps is None:
@@ -414,8 +419,17 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             loss_bce = bce_loss_fn(pred_open_close, nactions_open_close.float())
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
+        if self.use_min_snr_strategy:
+            # Reduce to per-sample scalar (B,), then apply Min-SNR timestep weights.
+            # The normal diffusion path below is completely unchanged when this flag is off.
+            per_sample_loss = loss.mean(dim=list(range(1, loss.ndim)))
+            loss = apply_min_snr_weighted_loss(
+                per_sample_loss, self.noise_scheduler, timesteps,
+                gamma=self.min_snr_gamma, prediction_type=pred_type
+            )
+        else:
+            loss = reduce(loss, 'b ... -> b (...)', 'mean')
+            loss = loss.mean()
         if self.seperate_open_close:
             loss = loss + loss_bce
             return loss, loss_bce

@@ -29,6 +29,7 @@ policy:
   obs_encoder_group_norm: True
   eval_fixed_crop: True
   lang_cond: True
+  impainting: True   # True=predict full horizon (16 steps), False=predict committed steps only (8 steps)
   # MLP hidden layer sizes — increase for more capacity
   mlp_hidden_dims: [1024, 512, 256]
 
