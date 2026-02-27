@@ -235,6 +235,9 @@ class TrainMLPHybridWorkspace(BaseWorkspace):
 
                 # -------- eval policy --------
                 policy = self.ema_model if cfg.training.use_ema else self.model
+                # unwrap DDP — predict_action lives on the underlying module
+                if isinstance(policy, torch.nn.parallel.DistributedDataParallel):
+                    policy = policy.module
                 policy.eval()
 
                 # -------- validation loss --------
