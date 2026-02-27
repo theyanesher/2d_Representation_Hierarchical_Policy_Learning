@@ -50,6 +50,8 @@ policy:
   cond_predict_scale: True
   obs_encoder_group_norm: True
   eval_fixed_crop: True
+  use_min_snr_strategy: False
+  min_snr_gamma: 5.0
 
 
 
