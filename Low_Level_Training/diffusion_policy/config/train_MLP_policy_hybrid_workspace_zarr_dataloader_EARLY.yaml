@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: high_level_heatmap_cnn_zarr_dataloader_EARLY
+  - task: high_level_heatmap_cnn_zarr_dataloader_EARLY_PUSH_BUTTONS
 
 name: MLP_BC_OVERFIT_TEST
 _target_: diffusion_policy.workspace.train_MLP_policy_hybrid_workspace.TrainMLPHybridWorkspace
@@ -43,7 +43,7 @@ ema:
 
 
 dataloader:
-  batch_size: 64
+  batch_size: 128
   num_workers: 8
   shuffle: False
   pin_memory: False
