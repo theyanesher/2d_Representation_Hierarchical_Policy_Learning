@@ -450,7 +450,7 @@ def train(args):
                 torch.save(save_dict, save_path)
                 
                 ### TODO: rsync all models to google drive
-                upload_file(general_args.exp_path)
+                # upload_file(general_args.exp_path)
                 
         
         # torch.cuda.empty_cache()        

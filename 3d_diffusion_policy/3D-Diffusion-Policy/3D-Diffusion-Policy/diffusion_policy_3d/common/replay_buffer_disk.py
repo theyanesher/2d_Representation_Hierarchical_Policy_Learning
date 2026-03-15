@@ -139,6 +139,8 @@ class ReplayBuffer:
             if 'aloha' in zarr_path and 'towel' in zarr_path:
                 print("using sriram towel category")
                 cat_idx = 0 ### put plate on top of the category 13 (top)
+            if 'mimicgen' in zarr_path:
+                cat_idx = 0
 
             if not load_per_step:
                 if is_pickle:

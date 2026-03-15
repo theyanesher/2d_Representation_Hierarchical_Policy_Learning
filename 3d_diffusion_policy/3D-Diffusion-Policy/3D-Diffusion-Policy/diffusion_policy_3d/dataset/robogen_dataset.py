@@ -283,7 +283,39 @@ def get_zarry_paths(zarr_path):
         all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'new_rot' in x]
         print(all_obj_paths)
         all_zarr_paths = all_obj_paths
-        
+    
+    if  zarr_path == "mimicgen_square_d2":
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'square_d2' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+
+    if  zarr_path == "mimicgen_three_piece_assembly_d2":
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'three_piece_assembly_d2' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+
+    if  zarr_path == "mimicgen_threading_d2":
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'threading_d2' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+
+    if  zarr_path == "mimicgen_mug_cleanup_d1":
+        dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen"
+        all_obj_paths = os.listdir(dataset_prefix)
+        all_obj_paths = sorted(all_obj_paths)
+        all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'mug_cleanup_d1' in x]
+        print(all_obj_paths)
+        all_zarr_paths = all_obj_paths
+
     if zarr_path == "pick_and_place_1204":
         top_prefix = '/scratch/chenyuah/dp3_demo_combined_2_step_0/inside_link_cgn'
         top_names = os.listdir(top_prefix)

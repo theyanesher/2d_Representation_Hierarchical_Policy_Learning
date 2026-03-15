@@ -17,7 +17,7 @@ training_epoches=301
 train_ratio=1.0 # for generalization
 num_load_episodes=1000    # for generalization
 pc_channel=3 # we should modify this
-batch_size=40 #######
+batch_size=70 #######
 encoder_type=act3d
 use_mlp=1
 use_lightweight_unet=0
@@ -26,7 +26,7 @@ self_attention=false
 final_attention=false
 normalize_action=true
 augmentation_rot=false
-augmentation_pcd=true
+augmentation_pcd=false
 use_absolute_waypoint=false
 dense_pcd_for_goal=false
 ##########
@@ -40,6 +40,7 @@ use_pretrained_high_level_policy_as_low_level_input=false
 
 time_stamp=$(date +%m%d%H%M)
 use_dataset_normalization=0
+# use_dataset_normalization=1
 # exp_name="1204_finetune_ours_sriram_plate_combine_2_step_train_longer"
 # exp_name="debug"
 # exp_name="1204_finetune_ours_sriram_plate_combine_2_step_train_longer_keep_old_normalizer"
@@ -48,14 +49,24 @@ use_dataset_normalization=0
 exp_name="1210_finetune_ours_sriram_plate_new_rot_raw_delta_train_longer_keep_old_normalizer"
 exp_name="1204_finetune_ours_sriram_plate_new_rot_rgb_train_longer_keep_old_normalizer"
 exp_name="1230_finetune_ours_sriram_towel_rgb_dataset_train_longer_keep_old_normalizer"
+exp_name="0307_finetune_ours_mimicgen_square_d2_not_keep_old_normalizer"
+exp_name="0307_finetune_ours_mimicgen_square_d2_correct_keep_old_normalizer"
+exp_name="0307_finetune_ours_mimicgen_square_d2_correct_not_keep_old_normalizer"
+exp_name="0310_scratch_mimicgen_square_d2_correct"
+# exp_name="0310_finetune_ours_mimicgen_three_piece_assembly_d2_keep_old_normalizer"
+# exp_name="0313_finetune_ours_mimicgen_three_piece_assembly_d2_not_keep_old_normalizer"
+# exp_name="0311_scratch_mimicgen_three_piece_assembly_d2"
+exp_name="0313_finetune_ours_mimicgen_threading_d2_keep_old_normalizer"
+exp_name="0313_scratch_mimicgen_threading_d2"
+exp_name="0315_finetune_mimicgen_mug_cleanup_d1"
 
 action_dim=10
 agent_pos_dim=10
 
-torchrun --standalone --nproc_per_node=1 \
+torchrun --standalone --nproc_per_node=8 \
     train_ddp.py --config-name=dp3.yaml task=robogen_open_door exp_name="${exp_name}" eval_first=0  \
     use_pretrained_high_level_policy_as_low_level_input=${use_pretrained_high_level_policy_as_low_level_input} \
-    task.dataset.zarr_path=sriram_towel \
+    task.dataset.zarr_path=mimicgen_mug_cleanup_d1 \
     training.use_dataset_normalization="${use_dataset_normalization}" \
     task.env_runner.demo_experiment_path="[]" \
     task.env_runner.experiment_name="[]" \
@@ -82,7 +93,7 @@ torchrun --standalone --nproc_per_node=1 \
     task.dataset.enumerate=True \
     training.num_epochs="${training_epoches}" \
     training.rollout_every=2000 \
-    training.checkpoint_every=20 \
+    training.checkpoint_every=50 \
     task.env_runner.max_steps=35 \
     task.dataset.train_ratio="${train_ratio}" \
     task.dataset.num_load_episodes=${num_load_episodes} \
@@ -97,7 +108,7 @@ torchrun --standalone --nproc_per_node=1 \
     task.dataset.dataset_keys="['state', 'action', 'point_cloud', 'gripper_pcd', 'goal_gripper_pcd']" \
     policy.noise_model_type=unet \
     policy.policy_type=low_level \
-    load_policy_path="/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/data/ckpts/1020_grasp_lift_closed_goal_full/checkpoints/epoch-92.ckpt" \
+    load_policy_path="/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy/data/0114_test/checkpoints/epoch-92.ckpt" \
 
 
 

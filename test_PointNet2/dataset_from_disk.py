@@ -158,6 +158,9 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
             if 'aloha' in obj_path and 'towel' in obj_path:
                 print("using sriram towel category")
                 cat_idx = 0 ### use open 
+            if 'mimicgen' in obj_path:
+                print("using mimicgen task")
+                cat_idx = 0
                     
             # storage furniture, bucket, faucet, foldingchair, laptop, stapler, toilet, invert storage furniture, invert foldingchair, invert laptop, invert stapler, invert toilet
             for s in ['action_dist', 'demo_rgbs', 'all_demo_path.txt', 'meta_info.json', 'example_pointcloud']:
@@ -972,6 +975,34 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_obj_paths = os.listdir(dataset_prefix)
             all_obj_paths = sorted(all_obj_paths)
             all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'folding-towel' in x]
+            print(all_obj_paths)
+
+        elif num_train_objects == "mimicgen_square_d2":
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen/"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'square_d2' in x]
+            print(all_obj_paths)
+
+        elif num_train_objects == "mimicgen_three_piece_assembly_d2":
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen/"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'three_piece_assembly_d2' in x]
+            print(all_obj_paths)
+
+        elif num_train_objects == "mimicgen_threading_d2":
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen/"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'threading_d2' in x]
+            print(all_obj_paths)
+
+        elif num_train_objects == "mimicgen_mug_cleanup_d1":
+            dataset_prefix = "/project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/data_yufei/mimicgen/"
+            all_obj_paths = os.listdir(dataset_prefix)
+            all_obj_paths = sorted(all_obj_paths)
+            all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'mug_cleanup_d1' in x]
             print(all_obj_paths)
                         
         else:

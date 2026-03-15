@@ -26,15 +26,15 @@ articubot:
   gripper_width_scale_factor: 1.0
 
 general:
-  num_iterations: 500000
-  save_freq: 5000
+  num_iterations: 100000
+  save_freq: 2500
   lr: 0.001
   load_model_path: null
   exp_name: articubot_cgn_first_try-2
   optimizer: adamw
   add_one_hot_encoding: 0
   keep_gripper_in_fps: 0
-  exp_path: /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
+  exp_path: /project_data/held/yufeiw2/articubot_multitask/RoboGen-sim2real/test_PointNet2/exps
   tasks: [articubot, cgn]
   fp_to_full: 0
   first_sa_point: 2048
