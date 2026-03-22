@@ -1,0 +1,43 @@
+COMMAND: pixi run python manipulation/extract_images_from_states.py --folder_name data/diverse_objects_mino/ --exp_name test_gen_demo --extract_name 41510 --traj_idx 378 --angle_threshold 0.9736744769604139 --randomize_camera 0 --observation_mode image --save_path data/rgb_mino_data/ --extract_pcds
+LOG_FILE: logs/extraction/41510/job_0378.log
+----------------------------------------
+
+--- STREAMING OUTPUT ---
+pybullet build time: Sep  3 2024 12:51:57
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+baseb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+link_0b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+link_1b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+link_2b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+baseb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+link_0b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+link_1b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
+link_2/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/gym/spaces/box.py:127: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  logger.warn(f"Box bound precision lowered by casting to {self.dtype}")
+all experiments to render:  ['2025-11-08-06-40-34']
+Using forced angle threshold: 0.9736744769604139
+tracikpy not installed, using just default pybullet ik solver
+  0%|          | 0/84 [00:00<?, ?it/s]  1%|          | 1/84 [00:00<00:46,  1.77it/s]  2%|▏         | 2/84 [00:01<00:45,  1.82it/s]  4%|▎         | 3/84 [00:01<00:44,  1.83it/s]  5%|▍         | 4/84 [00:02<00:42,  1.88it/s]  6%|▌         | 5/84 [00:02<00:41,  1.90it/s]  7%|▋         | 6/84 [00:03<00:41,  1.87it/s]  8%|▊         | 7/84 [00:03<00:44,  1.72it/s] 10%|▉         | 8/84 [00:04<00:44,  1.71it/s] 11%|█         | 9/84 [00:05<00:43,  1.71it/s] 12%|█▏        | 10/84 [00:05<00:50,  1.48it/s] 13%|█▎        | 11/84 [00:06<00:50,  1.44it/s] 14%|█▍        | 12/84 [00:07<00:51,  1.40it/s] 15%|█▌        | 13/84 [00:08<00:51,  1.37it/s] 17%|█▋        | 14/84 [00:08<00:51,  1.36it/s] 18%|█▊        | 15/84 [00:09<00:51,  1.33it/s] 19%|█▉        | 16/84 [00:10<00:48,  1.40it/s] 20%|██        | 17/84 [00:11<00:47,  1.41it/s] 21%|██▏       | 18/84 [00:11<00:45,  1.47it/s] 23%|██▎       | 19/84 [00:12<00:42,  1.51it/s] 24%|██▍       | 20/84 [00:13<00:43,  1.47it/s] 25%|██▌       | 21/84 [00:13<00:41,  1.52it/s] 26%|██▌       | 22/84 [00:14<00:40,  1.52it/s] 27%|██▋       | 23/84 [00:15<00:41,  1.47it/s] 29%|██▊       | 24/84 [00:15<00:43,  1.39it/s] 30%|██▉       | 25/84 [00:16<00:41,  1.41it/s] 31%|███       | 26/84 [00:17<00:37,  1.55it/s] 32%|███▏      | 27/84 [00:17<00:35,  1.63it/s] 33%|███▎      | 28/84 [00:18<00:37,  1.48it/s] 35%|███▍      | 29/84 [00:19<00:38,  1.43it/s] 36%|███▌      | 30/84 [00:19<00:35,  1.52it/s] 37%|███▋      | 31/84 [00:20<00:32,  1.63it/s] 38%|███▊      | 32/84 [00:20<00:30,  1.73it/s] 39%|███▉      | 33/84 [00:21<00:29,  1.72it/s] 40%|████      | 34/84 [00:22<00:31,  1.60it/s] 42%|████▏     | 35/84 [00:22<00:30,  1.61it/s] 43%|████▎     | 36/84 [00:23<00:29,  1.62it/s] 44%|████▍     | 37/84 [00:24<00:32,  1.43it/s] 45%|████▌     | 38/84 [00:25<00:34,  1.33it/s] 46%|████▋     | 39/84 [00:25<00:32,  1.40it/s] 48%|████▊     | 40/84 [00:26<00:31,  1.41it/s] 49%|████▉     | 41/84 [00:27<00:30,  1.43it/s] 50%|█████     | 42/84 [00:27<00:28,  1.46it/s] 51%|█████     | 43/84 [00:28<00:25,  1.59it/s] 52%|█████▏    | 44/84 [00:28<00:25,  1.60it/s] 54%|█████▎    | 45/84 [00:29<00:24,  1.59it/s] 55%|█████▍    | 46/84 [00:30<00:24,  1.57it/s] 56%|█████▌    | 47/84 [00:30<00:23,  1.60it/s] 57%|█████▋    | 48/84 [00:31<00:22,  1.58it/s] 58%|█████▊    | 49/84 [00:31<00:21,  1.61it/s] 60%|█████▉    | 50/84 [00:32<00:22,  1.54it/s] 61%|██████    | 51/84 [00:33<00:21,  1.56it/s] 62%|██████▏   | 52/84 [00:33<00:20,  1.54it/s] 63%|██████▎   | 53/84 [00:34<00:21,  1.45it/s] 64%|██████▍   | 54/84 [00:35<00:20,  1.50it/s] 65%|██████▌   | 55/84 [00:36<00:19,  1.46it/s] 67%|██████▋   | 56/84 [00:36<00:17,  1.56it/s] 68%|██████▊   | 57/84 [00:37<00:17,  1.52it/s] 69%|██████▉   | 58/84 [00:37<00:16,  1.54it/s] 70%|███████   | 59/84 [00:38<00:15,  1.65it/s] 71%|███████▏  | 60/84 [00:38<00:13,  1.72it/s] 73%|███████▎  | 61/84 [00:39<00:15,  1.46it/s] 74%|███████▍  | 62/84 [00:40<00:16,  1.33it/s] 75%|███████▌  | 63/84 [00:41<00:17,  1.20it/s] 76%|███████▌  | 64/84 [00:42<00:18,  1.08it/s] 77%|███████▋  | 65/84 [00:44<00:18,  1.00it/s] 79%|███████▊  | 66/84 [00:45<00:18,  1.00s/it] 80%|███████▉  | 67/84 [00:45<00:14,  1.14it/s] 81%|████████  | 68/84 [00:46<00:14,  1.12it/s] 82%|████████▏ | 69/84 [00:47<00:14,  1.06it/s] 83%|████████▎ | 70/84 [00:48<00:11,  1.19it/s] 85%|████████▍ | 71/84 [00:48<00:09,  1.30it/s] 86%|████████▌ | 72/84 [00:49<00:09,  1.33it/s] 87%|████████▋ | 73/84 [00:50<00:07,  1.46it/s] 88%|████████▊ | 74/84 [00:50<00:06,  1.48it/s] 89%|████████▉ | 75/84 [00:51<00:05,  1.61it/s] 90%|█████████ | 76/84 [00:51<00:04,  1.63it/s] 92%|█████████▏| 77/84 [00:52<00:04,  1.69it/s] 93%|█████████▎| 78/84 [00:52<00:03,  1.72it/s] 94%|█████████▍| 79/84 [00:53<00:02,  1.80it/s] 95%|█████████▌| 80/84 [00:54<00:02,  1.75it/s] 96%|█████████▋| 81/84 [00:54<00:01,  1.73it/s] 98%|█████████▊| 82/84 [00:55<00:01,  1.75it/s] 99%|█████████▉| 83/84 [00:55<00:00,  1.81it/s]100%|██████████| 84/84 [00:56<00:00,  1.76it/s]100%|██████████| 84/84 [00:56<00:00,  1.49it/s]
+Finished extracting data from trajectory with length: 42 time cost 62.61424231529236
+all traj_pos_ori length:  1
+  0%|          | 0/1 [00:00<?, ?it/s]/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/manipulation/extract_images_from_states.py:351: RuntimeWarning: invalid value encountered in arccos
+  quat_diff = np.arccos(2 * np.dot(base_ori_quat, target_ori_quat)**2 - 1)
+/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/manipulation/extract_images_from_states.py:352: RuntimeWarning: invalid value encountered in arccos
+  one_step_quaternion_diff = np.arccos(2 * np.dot(cur_ori_quat, target_ori_quat)**2 - 1)
+100%|██████████| 1/1 [00:05<00:00,  5.04s/it]100%|██████████| 1/1 [00:05<00:00,  5.04s/it]
+
+----------------------------------------
+STATUS: SUCCESS
+EXIT_CODE: 0

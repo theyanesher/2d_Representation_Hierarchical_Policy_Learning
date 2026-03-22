@@ -1,0 +1,50 @@
+COMMAND: pixi run python manipulation/extract_images_from_states.py --folder_name data/diverse_objects_mino/ --exp_name test_gen_demo --extract_name 41510 --traj_idx 2 --angle_threshold 0.9736744769604139 --randomize_camera 0 --observation_mode image --save_path data/rgb_mino_data/ --extract_pcds
+LOG_FILE: logs/extraction/41510/job_0002.log
+----------------------------------------
+
+--- STREAMING OUTPUT ---
+pybullet build time: Sep  3 2024 12:51:57
+[?25hTraceback (most recent call last):
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/manipulation/extract_images_from_states.py", line 9, in <module>
+    from manipulation.robogen_image_wrapper import RobogenImageWrapper
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/manipulation/robogen_image_wrapper.py", line 1, in <module>
+    import wandb
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/__init__.py", line 22, in <module>
+    from wandb.sdk.lib import wb_logging as _wb_logging
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/__init__.py", line 25, in <module>
+    from .artifacts.artifact import Artifact
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/artifact.py", line 71, in <module>
+    from ._factories import make_storage_policy
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/_factories.py", line 6, in <module>
+    from .storage_policies import WandbStoragePolicy
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/storage_policies/__init__.py", line 2, in <module>
+    from wandb.sdk.artifacts.storage_policies.wandb_storage_policy import WandbStoragePolicy
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/storage_policies/wandb_storage_policy.py", line 43, in <module>
+    from ._factories import make_http_session, make_storage_handlers
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/storage_policies/_factories.py", line 7, in <module>
+    from ..storage_handlers.gcs_handler import GCSHandler
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/storage_handlers/gcs_handler.py", line 43, in <module>
+    class _GCSPath:
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/dataclasses.py", line 283, in dataclass
+    return create_dataclass if _cls is None else create_dataclass(_cls)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/dataclasses.py", line 280, in create_dataclass
+    _pydantic_dataclasses.complete_dataclass(cls, config_wrapper, raise_errors=False)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_dataclasses.py", line 166, in complete_dataclass
+    schema = gen_schema.generate_schema(cls)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 711, in generate_schema
+    schema = self._generate_schema_inner(obj)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 1009, in _generate_schema_inner
+    return self.match_type(obj)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 1119, in match_type
+    return self._dataclass_schema(obj, None)  # pyright: ignore[reportArgumentType]
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 1961, in _dataclass_schema
+    args = sorted(
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 1962, in <genexpr>
+    (self._generate_dc_field_schema(k, v, decorators) for k, v in fields.items()),
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 1223, in _generate_dc_field_schema
+    common_field = self._common_field_schema(name, field_info, decorators)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 1372, in _common_field_schema
+    schema = self._apply_annotations(
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py", line 2288, in _apply_annotations
+    get_inner_schema = CallbackGetCoreSchemaHandler(inner_handler, self)
+KeyboardInterrupt

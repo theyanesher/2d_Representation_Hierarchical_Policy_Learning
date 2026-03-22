@@ -1,0 +1,14 @@
+# @package policy
+visual_encoder_type: dinov2_rgb_resnet_heatmap
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  # DINOv2 branch (for _image keys)
+  model_name: facebook/dinov2-base
+  frozen: true
+  dino_vis_spatial_embed_type: none
+  # ResNet branch (for _heatmap keys)
+  backbone: resnet18
+  pretrained: false
+  use_group_norm: true
+  resnet_vis_spatial_embed_type: sinusoidal
+  heatmap_channels: 1

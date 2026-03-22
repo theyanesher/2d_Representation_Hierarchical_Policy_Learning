@@ -1,0 +1,7 @@
+# @package policy
+visual_encoder_type: resnet
+use_separate_wrist_encoder: True
+visual_encoder_cfg:
+  backbone: resnet18
+  pretrained: true
+  use_group_norm: true

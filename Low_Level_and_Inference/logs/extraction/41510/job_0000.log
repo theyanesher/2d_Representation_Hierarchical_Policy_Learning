@@ -1,0 +1,49 @@
+COMMAND: pixi run python manipulation/extract_images_from_states.py --folder_name data/diverse_objects_mino/ --exp_name test_gen_demo --extract_name 41510 --traj_idx 0 --angle_threshold 0.9736744769604139 --randomize_camera 0 --observation_mode image --save_path data/rgb_mino_data/ --extract_pcds
+LOG_FILE: logs/extraction/41510/job_0000.log
+----------------------------------------
+
+--- STREAMING OUTPUT ---
+pybullet build time: Sep  3 2024 12:51:57
+[?25hTraceback (most recent call last):
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/manipulation/extract_images_from_states.py", line 9, in <module>
+    from manipulation.robogen_image_wrapper import RobogenImageWrapper
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/manipulation/robogen_image_wrapper.py", line 1, in <module>
+    import wandb
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/__init__.py", line 22, in <module>
+    from wandb.sdk.lib import wb_logging as _wb_logging
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/__init__.py", line 25, in <module>
+    from .artifacts.artifact import Artifact
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/artifact.py", line 79, in <module>
+    from .artifact_manifest import ArtifactManifest
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/wandb/sdk/artifacts/artifact_manifest.py", line 20, in <module>
+    class ArtifactManifest(ArtifactsBase, ABC):
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_model_construction.py", line 221, in __new__
+    set_model_fields(cls, config_wrapper=config_wrapper, ns_resolver=ns_resolver)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_model_construction.py", line 544, in set_model_fields
+    fields, class_vars = collect_model_fields(cls, config_wrapper, ns_resolver, typevars_map=typevars_map)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_fields.py", line 118, in collect_model_fields
+    type_hints = _typing_extra.get_model_type_hints(cls, ns_resolver=ns_resolver)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_typing_extra.py", line 329, in get_model_type_hints
+    hints[name] = try_eval_type(value, globalns, localns)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_typing_extra.py", line 378, in try_eval_type
+    return eval_type_backport(value, globalns, localns), True
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_typing_extra.py", line 429, in eval_type_backport
+    return _eval_type_backport(value, globalns, localns, type_params)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_typing_extra.py", line 466, in _eval_type_backport
+    return _eval_type(value, globalns, localns, type_params)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/pydantic/_internal/_typing_extra.py", line 500, in _eval_type
+    return typing._eval_type(  # type: ignore
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/typing.py", line 327, in _eval_type
+    return t._evaluate(globalns, localns, recursive_guard)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/typing.py", line 694, in _evaluate
+    eval(self.__forward_code__, globalns, localns),
+  File "<string>", line 1, in <module>
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/typing.py", line 309, in inner
+    return cached(*args, **kwds)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/typing.py", line 1704, in __class_getitem__
+    return _AnnotatedAlias(origin, metadata)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/typing.py", line 1625, in __init__
+    super().__init__(origin, origin)
+  File "/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/typing.py", line 1019, in __init__
+    super().__init__(origin, inst=inst, name=name)
+KeyboardInterrupt

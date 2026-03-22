@@ -1,0 +1,6 @@
+# @package policy
+visual_encoder_type: dinov2
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  model_name: facebook/dinov2-base
+  frozen: true

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mino-utils"
+version = "0.1.0"
+description = "Lightweight utilities for the RoboHanger project."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "imageio>=2.31",
+]
+authors = [
+    { name = "RoboHanger Team" },
+]
+
+[tool.setuptools]
+packages = ["mino_utils"]

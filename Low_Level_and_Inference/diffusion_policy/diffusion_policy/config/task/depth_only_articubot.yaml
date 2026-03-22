@@ -1,0 +1,51 @@
+name: depth_only
+
+image_shape: &image_shape [3, 256, 256]
+depth_shape: &depth_shape [1, 256, 256]
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    cam0_depth:
+      shape: *depth_shape
+      type: depth
+    cam1_depth:
+      shape: *depth_shape
+      type: depth
+    cam2_depth: # wrist camera
+      shape: *depth_shape
+      type: depth
+    state:
+      shape: [10]
+      type: low_dim
+  action:
+    shape: [10]
+
+env_runner:
+  _target_: diffusion_policy.env_runner.articubot_image_runner.ArticubotImageRunner
+  n_train: 6
+  n_train_vis: 2
+  train_start_seed: 0
+  n_test: 50
+  n_test_vis: 4
+  legacy_test: True
+  test_start_seed: 100000
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  n_envs: null
+  observation_mode: depth_only
+
+dataset:
+  _target_: diffusion_policy.dataset.articubot_dataset.ArticuBotDataset
+  shape_meta: *shape_meta
+  data_dir: data/rgb/41510/
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  action_mode: ${action_mode}

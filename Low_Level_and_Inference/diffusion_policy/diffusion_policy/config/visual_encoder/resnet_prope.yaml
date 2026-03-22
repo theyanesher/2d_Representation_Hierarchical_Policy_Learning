@@ -1,0 +1,9 @@
+# @package policy
+visual_encoder_type: resnet_prope
+use_separate_wrist_encoder: True
+visual_encoder_cfg:
+  backbone: resnet18
+  pretrained: true
+  use_group_norm: true
+  num_prope_layers: 2
+  num_heads: 8
