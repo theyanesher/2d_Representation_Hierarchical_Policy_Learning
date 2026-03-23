@@ -2,14 +2,9 @@
 #
 # Licensed under the NVIDIA Source Code License [see LICENSE for details].
 """
-python train.py \
-  --exp_cfg_path configs/rvt2.yaml \
-  --mvt_cfg_path mvt/configs/rvt2.yaml \
-  --device 0,1,2,3,4,5,6,7 \
-  --use_articubot_dataset \
-  --articubot_dataset_path /path/to/Heatmap_Articubot_Dataset/ \
-  --no_virtual_image
-  
+python rvt/train.py --exp_cfg_path rvt/configs/rvt2.yaml --mvt_cfg_path rvt/mvt/configs/rvt2.yaml --device 0 --use_articubot_dataset --articubot_dataset_path ../../../../ArticuBot/outputs/Heatmap_Articubot_Dataset/ --no_virtual_image --mvt_cfg_opts "img_size 256" --mvt_cfg_opts "final_dim 256"
+
+
 """
 import pprint
 
@@ -743,6 +738,8 @@ class RVTAgent:
             if self.no_virtual_image and self.use_articubot_dataset:
                 # Use pre-computed heatmaps from the batch directly.
                 # Keys sorted alphabetically to match real_img camera stacking order.
+                from rvt.utils.rvt_utils import ForkedPdb
+                ForkedPdb().set_trace()
                 hm_keys = sorted(k for k in replay_sample if k.endswith("_heatmap"))
                 # Each heatmap: (bs, 1, H, W) -> squeeze -> (bs, H*W)
                 hm_list = [
@@ -764,6 +761,8 @@ class RVTAgent:
         if backprop:
             with autocast(enabled=self.amp):
                 # cross-entropy loss
+                from rvt.utils.rvt_utils import ForkedPdb
+                ForkedPdb().set_trace()
                 trans_loss = self._cross_entropy_loss(q_trans, action_trans).mean()
                 rot_loss_x = rot_loss_y = rot_loss_z = 0.0
                 grip_loss = 0.0

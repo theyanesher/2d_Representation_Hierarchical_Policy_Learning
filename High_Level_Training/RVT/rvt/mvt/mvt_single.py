@@ -428,6 +428,8 @@ class MVT(nn.Module):
         bs, num_img, img_feat_dim, h, w = img.shape
         num_pat_img = h // self.img_patch_size
         assert num_img == self.num_img
+        # from rvt.utils.rvt_utils import ForkedPdb
+        # ForkedPdb().set_trace()
         # assert img_feat_dim == self.img_feat_dim
         assert h == w == self.img_size
 

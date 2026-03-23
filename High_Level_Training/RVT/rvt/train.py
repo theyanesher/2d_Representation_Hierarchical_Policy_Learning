@@ -4,13 +4,7 @@
 """
 Usage for Articubot Dataset
 
-python train.py \
-  --exp_cfg_path configs/rvt2.yaml \
-  --mvt_cfg_path mvt/configs/rvt2.yaml \
-  --device 0,1,2,3,4,5,6,7 \
-  --use_articubot_dataset \
-  --articubot_dataset_path /scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/
-
+python rvt/train.py --exp_cfg_path rvt/configs/rvt2.yaml --mvt_cfg_path rvt/mvt/configs/rvt2.yaml --device 0 --use_articubot_dataset --articubot_dataset_path ../../../../ArticuBot/outputs/Heatmap_Articubot_Dataset/ --no_virtual_image --mvt_cfg_opts "img_size 256 img_patch_size 16 stage_two False"
 """
 import os
 import time
