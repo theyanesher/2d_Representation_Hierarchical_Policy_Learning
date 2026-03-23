@@ -72,8 +72,8 @@ def train(agent, dataset, training_iterations, rank=0):
             for k, v in raw_batch.items()
             if type(v) == torch.Tensor
         }
-        batch["tasks"] = raw_batch["tasks"]
-        batch["lang_goal"] = raw_batch["lang_goal"]
+        batch["tasks"] = raw_batch.get("tasks", [])
+        batch["lang_goal"] = raw_batch.get("lang_goal", [])
         update_args = {
             "step": iteration,
         }
@@ -186,8 +186,12 @@ def experiment(rank, cmd_args, devices, port):
     TRAIN_REPLAY_STORAGE_DIR = "replay/replay_train"
     TEST_REPLAY_STORAGE_DIR = "replay/replay_val"
     log_dir = get_logdir(cmd_args, exp_cfg)
-    tasks = get_tasks(exp_cfg)
-    print("Training on {} tasks: {}".format(len(tasks), tasks))
+    if cmd_args.use_articubot_dataset:
+        tasks = []
+        print("Training on Articubot dataset (no task names)")
+    else:
+        tasks = get_tasks(exp_cfg)
+        print("Training on {} tasks: {}".format(len(tasks), tasks))
 
     t_start = time.time()
     if cmd_args.use_articubot_dataset:
@@ -229,6 +233,8 @@ def experiment(rank, cmd_args, devices, port):
         mvt_cfg.feat_dim = get_num_feat(exp_cfg.peract)
         if cmd_args.no_virtual_image:
             mvt_cfg.no_virtual_image = True
+        if cmd_args.use_articubot_dataset:
+            mvt_cfg.add_lang = False
         mvt_cfg.freeze()
 
         # for maintaining backward compatibility

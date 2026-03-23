@@ -426,7 +426,8 @@ class MVT(nn.Module):
                 wpt_local_stage_one = wpt_local_stage_one.clone().detach()
         else:
             wpt_local_stage_one = wpt_local
-
+        from rvt.utils.rvt_utils import ForkedPdb
+        ForkedPdb().set_trace()
         out = self.mvt1(
             img=img,
             proprio=proprio,

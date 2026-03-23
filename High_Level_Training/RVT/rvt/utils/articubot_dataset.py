@@ -27,6 +27,7 @@ Actions       -> (A,)      float32
 
 import numpy as np
 import torch
+import h5py
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 
@@ -40,15 +41,6 @@ class ArticubotH5Dataset(Dataset):
     """
 
     def __init__(self, data_dir: str, max_episodes: int = None):
-        try:
-            import h5py
-            self._h5py = h5py
-        except ImportError as e:
-            raise ImportError(
-                "h5py is required to load the Articubot dataset. "
-                "Install it with:  pip install h5py"
-            ) from e
-
         self.data_dir = Path(data_dir)
         self.h5_paths = sorted(self.data_dir.glob("*.h5"))
         if not self.h5_paths:
@@ -57,14 +49,14 @@ class ArticubotH5Dataset(Dataset):
             self.h5_paths = self.h5_paths[:max_episodes]
 
         # Discover available keys from the first file.
-        with self._h5py.File(str(self.h5_paths[0]), "r") as f:
+        with h5py.File(str(self.h5_paths[0]), "r") as f:
             self.obs_keys = list(f["obs"].keys())
             self.action_keys = list(f["action"].keys()) if "action" in f else []
 
         # Build a flat index: list of (file_path_str, timestep_idx)
         self.index = []
         for path in self.h5_paths:
-            with self._h5py.File(str(path), "r") as f:
+            with h5py.File(str(path), "r") as f:
                 T = f[f"obs/{self.obs_keys[0]}"].shape[0]
             for t in range(T):
                 self.index.append((str(path), t))
@@ -83,7 +75,7 @@ class ArticubotH5Dataset(Dataset):
         path, t = self.index[idx]
         sample = {}
 
-        with self._h5py.File(path, "r") as f:
+        with h5py.File(path, "r") as f:
             for key in self.obs_keys:
                 raw = f[f"obs/{key}"][t]
                 sample[key] = _to_tensor(key, raw)

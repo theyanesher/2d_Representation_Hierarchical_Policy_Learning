@@ -1,7 +1,16 @@
 # Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the NVIDIA Source Code License [see LICENSE for details].
-
+"""
+python train.py \
+  --exp_cfg_path configs/rvt2.yaml \
+  --mvt_cfg_path mvt/configs/rvt2.yaml \
+  --device 0,1,2,3,4,5,6,7 \
+  --use_articubot_dataset \
+  --articubot_dataset_path /path/to/Heatmap_Articubot_Dataset/ \
+  --no_virtual_image
+  
+"""
 import pprint
 
 import clip
@@ -564,10 +573,8 @@ class RVTAgent:
             action_ignore_collisions = torch.zeros(
                 (bs_art, 1), dtype=torch.int, device=self._device
             )
-            # Language: zeros (no language conditioning for Articubot)
-            lang_goal_embs = torch.zeros(
-                (bs_art, 77, 512), dtype=torch.float32, device=self._device
-            )
+            # No language conditioning for Articubot; network is built with add_lang=False
+            lang_goal_embs = None
             tasks = replay_sample.get("tasks", ["articubot"] * bs_art)
             # Proprio: use state, truncated or zero-padded to proprio_dim
             proprio_dim = self._net_mod.proprio_dim
