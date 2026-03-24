@@ -47,6 +47,7 @@ _C.st_wpt_loc_aug = 0.05
 _C.st_wpt_loc_inp_no_noise = False
 _C.img_aug_2 = 0.0
 _C.no_virtual_image = False
+_C.predict_collision = True
 
 
 def get_cfg_defaults():

@@ -66,6 +66,7 @@ class MVT(nn.Module):
         renderer_device="cuda:0",
         renderer=None,
         no_feat=False,
+        predict_collision=True,
     ):
         """MultiView Transfomer
 
@@ -153,6 +154,7 @@ class MVT(nn.Module):
         self.rot_ver = rot_ver
         self.num_rot = num_rot
         self.no_feat = no_feat
+        self.predict_collision = predict_collision
 
         if self.cvx_up:
             assert not self.inp_pre_con, (
@@ -367,13 +369,19 @@ class MVT(nn.Module):
             feat_out_size = feat_dim
 
             if self.rot_ver == 0:
+                # When not predicting collision, drop the 2 collision logit dims.
+                _feat_out_size = feat_out_size - (0 if predict_collision else 2)
                 self.feat_fc = get_feat_fc(
                     self.num_img * feat_fc_dim,
-                    feat_out_size,
+                    _feat_out_size,
                 )
             elif self.rot_ver == 1:
                 assert self.num_rot * 3 <= feat_out_size
-                feat_out_size_ex_rot = feat_out_size - (self.num_rot * 3)
+                if predict_collision:
+                    feat_out_size_ex_rot = feat_out_size - (self.num_rot * 3)
+                else:
+                    # Grip only (2 logits); collision head is disabled.
+                    feat_out_size_ex_rot = 2
                 if feat_out_size_ex_rot > 0:
                     self.feat_fc_ex_rot = get_feat_fc(
                         self.num_img * feat_fc_dim, feat_out_size_ex_rot
@@ -424,7 +432,8 @@ class MVT(nn.Module):
         :param img_aug: (float) magnitude of augmentation in rgb image
         :param rot_x_y: (bs, 2)
         """
-
+        # from rvt.utils.rvt_utils import ForkedPdb
+        # ForkedPdb().set_trace()
         bs, num_img, img_feat_dim, h, w = img.shape
         num_pat_img = h // self.img_patch_size
         assert num_img == self.num_img
@@ -661,7 +670,8 @@ class MVT(nn.Module):
             out = {}
 
         out.update({"trans": trans})
-
+        # from rvt.utils.rvt_utils import ForkedPdb
+        # ForkedPdb().set_trace()
         return out
 
     def get_wpt(self, out, dyn_cam_info, y_q=None):

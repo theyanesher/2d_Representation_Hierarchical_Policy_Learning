@@ -5,6 +5,9 @@
 Usage for Articubot Dataset
 
 python rvt/train.py --exp_cfg_path rvt/configs/rvt2.yaml --mvt_cfg_path rvt/mvt/configs/rvt2.yaml --device 0 --use_articubot_dataset --articubot_dataset_path ../../../../ArticuBot/outputs/Heatmap_Articubot_Dataset/ --no_virtual_image --mvt_cfg_opts "img_size 256 img_patch_size 16 stage_two False"
+
+python rvt/train.py --exp_cfg_path rvt/configs/rvt2.yaml --mvt_cfg_path rvt/mvt/configs/rvt2.yaml --device 0 --use_articubot_dataset --articubot_dataset_path /home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/ --no_virtual_image --mvt_cfg_opts "img_size 256 img_patch_size 16 stage_two False"
+
 """
 import os
 import time
@@ -175,8 +178,9 @@ def experiment(rank, cmd_args, devices, port):
     BATCH_SIZE_TRAIN = exp_cfg.bs
     NUM_TRAIN = 100
     # to match peract, iterations per epoch
-    TRAINING_ITERATIONS = int(exp_cfg.train_iter // (exp_cfg.bs * len(devices)))
+    # TRAINING_ITERATIONS is set below: from dataset length (Articubot) or train_iter (RLBench)
     EPOCHS = exp_cfg.epochs
+    print("EPOCHESSSSSSSSSSSSSS", EPOCHS)
     TRAIN_REPLAY_STORAGE_DIR = "replay/replay_train"
     TEST_REPLAY_STORAGE_DIR = "replay/replay_val"
     log_dir = get_logdir(cmd_args, exp_cfg)
@@ -197,6 +201,8 @@ def experiment(rank, cmd_args, devices, port):
             batch_size=BATCH_SIZE_TRAIN,
             num_workers=exp_cfg.num_workers,
         )
+        # One epoch = one full pass through the dataset.
+        TRAINING_ITERATIONS = len(train_dataset)
     else:
         get_dataset_func = lambda: get_dataset(
             tasks,
@@ -214,6 +220,7 @@ def experiment(rank, cmd_args, devices, port):
             sample_distribution_mode=exp_cfg.sample_distribution_mode,
         )
         train_dataset, _ = get_dataset_func()
+        TRAINING_ITERATIONS = int(exp_cfg.train_iter // (exp_cfg.bs * len(devices)))
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
@@ -229,6 +236,7 @@ def experiment(rank, cmd_args, devices, port):
             mvt_cfg.no_virtual_image = True
         if cmd_args.use_articubot_dataset:
             mvt_cfg.add_lang = False
+            mvt_cfg.predict_collision = False
         mvt_cfg.freeze()
 
         # for maintaining backward compatibility

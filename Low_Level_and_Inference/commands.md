@@ -29,9 +29,11 @@ pixi run python scripts/visualization_scripts/visualize_hdf5_dataset.py multi da
 ## training:
 ```
 # regular diffpo
-pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml \
-  task.dataset.data_dir=data/rgb/41510 \
-  task.dataset.max_train_episodes=1
+pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task.dataset.data_dir=data/rgb/41510 task.dataset.max_train_episodes=1
+
+#### FOR LOCAL ######
+
+pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/
 
 #DP + Heatmap
 pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot.yaml \task.dataset.data_dir=/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/

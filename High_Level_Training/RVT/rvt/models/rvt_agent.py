@@ -450,7 +450,12 @@ class RVTAgent:
             (bs, self._num_rotation_classes), dtype=int, device=device
         )
         action_grip_one_hot = torch.zeros((bs, 2), dtype=int, device=device)
-        action_collision_one_hot = torch.zeros((bs, 2), dtype=int, device=device)
+        # Collision one-hot is only built when collision data is available.
+        action_collision_one_hot = (
+            torch.zeros((bs, 2), dtype=int, device=device)
+            if action_ignore_collisions is not None
+            else None
+        )
 
         # fill one-hots
         for b in range(bs):
@@ -466,9 +471,10 @@ class RVTAgent:
             gt_grip = action_grip[b]
             action_grip_one_hot[b, gt_grip] = 1
 
-            # ignore collision
-            gt_ignore_collisions = action_ignore_collisions[b, :]
-            action_collision_one_hot[b, gt_ignore_collisions[0]] = 1
+            # ignore collision (skipped when not available)
+            if action_ignore_collisions is not None:
+                gt_ignore_collisions = action_ignore_collisions[b, :]
+                action_collision_one_hot[b, gt_ignore_collisions[0]] = 1
 
         return (
             action_rot_x_one_hot,
@@ -515,15 +521,25 @@ class RVTAgent:
             # (bs, 218)
             rot_q = out["feat"].view(bs, -1)[:, 0 : self.num_all_rot]
             grip_q = out["feat"].view(bs, -1)[:, self.num_all_rot : self.num_all_rot + 2]
-            # (bs, 2)
-            collision_q = out["feat"].view(bs, -1)[
-                :, self.num_all_rot + 2 : self.num_all_rot + 4
-            ]
+            # Collision head is absent when predict_collision=False (Articubot).
+            if self.use_articubot_dataset:
+                collision_q = None
+            else:
+                collision_q = out["feat"].view(bs, -1)[
+                    :, self.num_all_rot + 2 : self.num_all_rot + 4
+                ]
         elif self.rot_ver == 1:
             rot_q = torch.cat((out["feat_x"], out["feat_y"], out["feat_z"]),
                               dim=-1).view(bs, -1)
             grip_q = out["feat_ex_rot"].view(bs, -1)[:, :2]
-            collision_q = out["feat_ex_rot"].view(bs, -1)[:, 2:]
+            # Collision head is absent when predict_collision=False (Articubot).
+            # from rvt.utils.rvt_utils import ForkedPdb
+            # ForkedPdb().set_trace()
+            collision_q = (
+                None
+                if self.use_articubot_dataset
+                else out["feat_ex_rot"].view(bs, -1)[:, 2:]
+            )
         else:
             assert False
 
@@ -564,10 +580,12 @@ class RVTAgent:
                 action_rot[i] = _q
 
             # Grip and collision: zeros placeholders
-            action_grip = torch.zeros(bs_art, dtype=torch.int, device=self._device)
-            action_ignore_collisions = torch.zeros(
-                (bs_art, 1), dtype=torch.int, device=self._device
+            # from rvt.utils.rvt_utils import ForkedPdb
+            # ForkedPdb().set_trace()
+            action_grip = replay_sample["state"][:, -1].to(
+                dtype=torch.int, device=self._device
             )
+            action_ignore_collisions = None  # no collision avoidance in Articubot
             # No language conditioning for Articubot; network is built with add_lang=False
             lang_goal_embs = None
             tasks = replay_sample.get("tasks", ["articubot"] * bs_art)
@@ -738,8 +756,8 @@ class RVTAgent:
             if self.no_virtual_image and self.use_articubot_dataset:
                 # Use pre-computed heatmaps from the batch directly.
                 # Keys sorted alphabetically to match real_img camera stacking order.
-                from rvt.utils.rvt_utils import ForkedPdb
-                ForkedPdb().set_trace()
+                # from rvt.utils.rvt_utils import ForkedPdb
+                # ForkedPdb().set_trace()
                 hm_keys = sorted(k for k in replay_sample if k.endswith("_heatmap"))
                 # Each heatmap: (bs, 1, H, W) -> squeeze -> (bs, H*W)
                 hm_list = [
@@ -761,8 +779,8 @@ class RVTAgent:
         if backprop:
             with autocast(enabled=self.amp):
                 # cross-entropy loss
-                from rvt.utils.rvt_utils import ForkedPdb
-                ForkedPdb().set_trace()
+                # from rvt.utils.rvt_utils import ForkedPdb
+                # ForkedPdb().set_trace()
                 trans_loss = self._cross_entropy_loss(q_trans, action_trans).mean()
                 rot_loss_x = rot_loss_y = rot_loss_z = 0.0
                 grip_loss = 0.0
@@ -797,9 +815,10 @@ class RVTAgent:
                         action_grip_one_hot.argmax(-1),
                     ).mean()
 
-                    collision_loss = self._cross_entropy_loss(
-                        collision_q, action_collision_one_hot.argmax(-1)
-                    ).mean()
+                    if collision_q is not None and action_collision_one_hot is not None:
+                        collision_loss = self._cross_entropy_loss(
+                            collision_q, action_collision_one_hot.argmax(-1)
+                        ).mean()
 
                 total_loss = (
                     trans_loss
@@ -823,7 +842,7 @@ class RVTAgent:
                 "rot_loss_y": rot_loss_y.item(),
                 "rot_loss_z": rot_loss_z.item(),
                 "grip_loss": grip_loss.item(),
-                "collision_loss": collision_loss.item(),
+                "collision_loss": collision_loss.item() if hasattr(collision_loss, "item") else collision_loss,
                 "lr": self._optimizer.param_groups[0]["lr"],
             }
             manage_loss_log(self, loss_log, reset_log=reset_log)

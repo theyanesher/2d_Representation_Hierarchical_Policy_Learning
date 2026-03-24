@@ -59,6 +59,7 @@ class MVT(nn.Module):
         st_wpt_loc_inp_no_noise,
         img_aug_2,
         no_virtual_image=False,
+        predict_collision=True,
         renderer_device="cuda:0",
     ):
         """MultiView Transfomer
@@ -114,6 +115,7 @@ class MVT(nn.Module):
 
         self.rot_ver = rot_ver
         self.num_rot = num_rot
+        self.predict_collision = predict_collision
         self.stage_two = stage_two
         self.st_sca = st_sca
         self.st_wpt_loc_aug = st_wpt_loc_aug
@@ -426,8 +428,8 @@ class MVT(nn.Module):
                 wpt_local_stage_one = wpt_local_stage_one.clone().detach()
         else:
             wpt_local_stage_one = wpt_local
-        from rvt.utils.rvt_utils import ForkedPdb
-        ForkedPdb().set_trace()
+        # from rvt.utils.rvt_utils import ForkedPdb
+        # ForkedPdb().set_trace()
         out = self.mvt1(
             img=img,
             proprio=proprio,
