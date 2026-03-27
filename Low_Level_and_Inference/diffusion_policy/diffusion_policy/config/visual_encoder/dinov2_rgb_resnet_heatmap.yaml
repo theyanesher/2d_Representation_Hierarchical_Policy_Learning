@@ -12,3 +12,16 @@ visual_encoder_cfg:
   use_group_norm: true
   resnet_vis_spatial_embed_type: sinusoidal
   heatmap_channels: 1
+  # Mixing mode: set one of the two to true (mutually exclusive)
+  # Self-attention: concat DINO+heatmap tokens → self-attn → (B, N_dino+N_resnet, D)
+  add_self_attention_mixing: false
+  num_attn_layerPs: 2
+  attn_num_heads: 8
+  attn_ffn_dim: 2048
+  attn_dropout: 0.0
+  # Cross-attention: Q=DINO tokens, KV=heatmap tokens → (B, N_dino, D)
+  add_cross_attention_mixing: false
+  num_cross_attn_layers: 2
+  cross_attn_num_heads: 8
+  cross_attn_ffn_dim: 2048
+  cross_attn_dropout: 0.0

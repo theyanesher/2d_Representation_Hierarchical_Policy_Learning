@@ -65,6 +65,7 @@ class LazyArticuBotDataset(BaseImageDataset):
         self.rgb_keys = []
         self.depth_keys = []
         self.heatmap_keys = []
+        self.ghost_heatmap_keys = []
         self.pointmap_keys = []
         self.plucker_keys = []
         self.lowdim_keys = []
@@ -82,6 +83,8 @@ class LazyArticuBotDataset(BaseImageDataset):
                 self.plucker_keys.append(key)
             elif type_name == 'heatmap':
                 self.heatmap_keys.append(key)
+            elif type_name == 'ghost_heatmap':
+                self.ghost_heatmap_keys.append(key)
             elif type_name == 'low_dim':
                 self.lowdim_keys.append(key)
             elif 'intrinsic' in key or 'extrinsic' in key:
@@ -90,8 +93,8 @@ class LazyArticuBotDataset(BaseImageDataset):
                 self.lowdim_keys.append(key)
 
         all_obs_keys = (
-            self.rgb_keys + self.depth_keys + self.heatmap_keys + 
-            self.pointmap_keys + self.plucker_keys +
+            self.rgb_keys + self.depth_keys + self.heatmap_keys +
+            self.ghost_heatmap_keys + self.pointmap_keys + self.plucker_keys +
             self.lowdim_keys + self.matrix_keys
         )
         if self.pointmap_frame == 'gripper_frame':
@@ -204,7 +207,10 @@ class LazyArticuBotDataset(BaseImageDataset):
 
         for key in self.heatmap_keys:
             normalizer[key] = get_identity_normalizer()
-        
+
+        for key in self.ghost_heatmap_keys:
+            normalizer[key] = get_identity_normalizer()
+
         # Plucker / Pointmap / Matrices — identity (geometric data)
         for key in self.pointmap_keys + self.plucker_keys + self.matrix_keys:
             normalizer[key] = get_identity_normalizer()
@@ -239,6 +245,12 @@ class LazyArticuBotDataset(BaseImageDataset):
             if h_float.ndim == 3:
                 h_float = h_float[:, None, :, :]             # (T, 1, H, W)
             obs_dict[key] = h_float
+            del data[key]
+
+        # Ghost heatmap: (T, H, W, 4) uint8 on disk -> (T, 4, H, W) float32 [0, 1]
+        for key in self.ghost_heatmap_keys:
+            g = data[key][T_slice].astype(np.float32) / 255.  # (T, H, W, 4)
+            obs_dict[key] = np.moveaxis(g, -1, 1)             # (T, 4, H, W)
             del data[key]
 
 

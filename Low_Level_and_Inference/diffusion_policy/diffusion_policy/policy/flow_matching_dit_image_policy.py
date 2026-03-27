@@ -112,7 +112,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         for key, attr in obs_shape_meta.items():
             shape = list(attr["shape"])
             stype = attr.get("type", "low_dim")
-            if stype in ("rgb", "depth", "pointmap", "plucker", "heatmap"):
+            if stype in ("rgb", "depth", "pointmap", "plucker", "heatmap", "ghost_heatmap"):
                 visual_obs_key_shapes[key] = shape
             elif stype == "low_dim":
                 state_obs_key_shapes[key] = shape

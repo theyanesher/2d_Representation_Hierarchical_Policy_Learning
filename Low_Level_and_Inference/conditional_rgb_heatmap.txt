@@ -1,0 +1,67 @@
+Papers on Conditioning RGB Visual Encoders with Heatmaps / Spatial Maps
+=======================================================================
+
+--- Attention Bias / Positional Encoding ---
+
+1. Spatially-Informed Transformers: Injecting Geostatistical Covariance Biases into Self-Attention
+   https://arxiv.org/abs/2512.17696
+
+2. Learning Spatial Decay for Vision Transformers (RMT / RetNet-ViT)
+   https://www.arxiv.org/pdf/2508.09525
+
+3. RoPE-ViT: Rotary Position Embedding for Vision Transformers (ECCV 2024)
+   https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/01584.pdf
+
+4. SAVE: Encoding Spatial Interactions for Vision Transformers
+   https://www.sciencedirect.com/science/article/abs/pii/S0262885624004177
+
+5. SaPE: A 2D Semantic-Aware Position Encoding for Vision Transformers
+   https://arxiv.org/html/2505.09466v1
+
+6. Positional Embeddings in Transformer Models: Evolution from Text to Vision (ICLR Blogposts 2025)
+   https://iclr-blogposts.github.io/2025/blog/positional-embedding/
+
+--- Cross-Attention / Spatial Conditioning ---
+
+7. ControlNet: Adding Conditional Control to Text-to-Image Diffusion Models
+   https://ar5iv.labs.arxiv.org/html/2302.05543
+
+8. A Practical Investigation of Spatially-Controlled Image Generation with Transformers (ControlNet-Transformer)
+   https://arxiv.org/html/2507.15724
+
+9. GR00T N1: Open Foundation Model for Generalist Humanoid Robots
+   https://d1qx31qr3h6wln.cloudfront.net/publications/GR00T%20N1%20Whitepaper.pdf
+
+10. Towards Fusing Point Cloud and Visual Representations for Imitation Learning (FPV-Net)
+    https://arxiv.org/abs/2502.12320
+
+--- Robot Learning with Heatmap Conditioning ---
+
+11. RT-Affordance: Affordances are Versatile Intermediate Representations for Robot Manipulation
+    https://arxiv.org/abs/2411.02704
+
+12. More than A Point: Adaptive Affordance Heatmaps for Spatial Grounding (RoboMAP)
+    https://arxiv.org/abs/2510.10912
+
+13. VIRT: Vision Instructed Transformer for Robotic Manipulation
+    https://arxiv.org/abs/2410.07169
+
+14. Look, Focus, Act: Foveated Vision Transformers for Robot Learning
+    https://arxiv.org/abs/2507.15833
+
+15. Large Pre-Trained Models for Bimanual Manipulation in 3D (DINOv2 + VoxAct-B)
+    https://arxiv.org/abs/2509.20579
+
+16. VoxAct-B: Voxel-Based Acting and Stabilizing Policy for Bimanual Manipulation
+    https://arxiv.org/abs/2407.04152
+
+17. DINOBot: Robot Manipulation via Retrieval and Alignment with Vision Foundation Models
+    https://arxiv.org/html/2402.13181v1
+
+18. Affordances from Human Videos as a Versatile Representation for Robotics (VRB)
+    https://robo-affordances.github.io/resources/vrb_paper.pdf
+
+--- Spatial Conditioning in Vision-Language Models ---
+
+19. SpatialVLM: Endowing Vision-Language Models with Spatial Reasoning (CVPR 2024)
+    https://openaccess.thecvf.com/content/CVPR2024/papers/Chen_SpatialVLM_Endowing_Vision-Language_Models_with_Spatial_Reasoning_Capabilities_CVPR_2024_paper.pdf

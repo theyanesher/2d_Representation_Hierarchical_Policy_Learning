@@ -1,0 +1,177 @@
+Positional Embedding Strategies for Heatmap-Conditioned Visual Encoders
+========================================================================
+
+Context
+-------
+We have a 4-channel ghost heatmap where each channel i encodes the distance
+from every pixel to gripper keypoint i:
+
+    channel_i[px, py] = ( ||pixel - keypoint_i|| / max_dist / sigma )^0.5 * 255
+
+The ^0.5 transformation gives steep gradients near the keypoint and flat
+gradients far away — high resolution near the gripper, low resolution far away.
+
+Each patch in the image therefore has a 4D distance vector:
+    pos_patch = [d0, d1, d2, d3]
+
+where d_i is the distance from that patch to keypoint i. This is a valid
+coordinate system — given 4 non-collinear reference points, every 2D pixel
+position is uniquely determined by its distances to them (trilateration / GPS).
+
+
+Strategy 1: Additive Positional Embedding (Current Implementation)
+-------------------------------------------------------------------
+In ViTHeatmapPosEmbedding and DINOHoMMIStyleEmbedding:
+
+    token_i = content_i + heatmap_pos_embed_i
+
+where heatmap_pos_embed_i is produced by Conv2d on the 4-channel distance field.
+
+Problem: content and position are entangled after this addition.
+When computing attention:
+
+    q_i . k_j = (W_Q * token_i) . (W_K * token_j)
+              = (W_Q * (content_i + pos_i)) . (W_K * (content_j + pos_j))
+
+This expands to 4 terms:
+
+    = W_Q*content_i . W_K*content_j     <- content-content (desired)
+    + W_Q*pos_i     . W_K*pos_j         <- pos-pos (implicit attention bias)
+    + W_Q*content_i . W_K*pos_j         <- unwanted cross term
+    + W_Q*pos_i     . W_K*content_j     <- unwanted cross term
+
+The cross terms are noise. The pos-pos term is effectively an attention bias
+that the network cannot remove. However, the network CAN partially disentangle
+content from position through subsequent transformer layers — so this mixing
+is not permanent.
+
+Advantage: Simple, already implemented, works in practice.
+Disadvantage: Content and position mixed; cross terms pollute attention scores.
+
+
+Strategy 2: Attention Bias
+--------------------------
+Add a heatmap-derived scalar directly to the attention logits:
+
+    Attention(i,j) = softmax( q_i.k_j / sqrt(d)  +  bias(h_i, h_j) )
+
+where bias(h_i, h_j) = MLP([h_i || h_j]) -> scalar.
+
+This is worse than Strategy 1 in a subtle but important way:
+- In Strategy 1, the mixing happens at the token level and subsequent layers
+  can partially correct it.
+- Here the bias is injected directly into attention weights AFTER the dot
+  product. The network has no mechanism to disentangle or correct it —
+  the positional bias is permanently baked into which tokens attend to which,
+  at every layer it is applied.
+
+The W_Q*pos_i . W_K*pos_j term from Strategy 1 IS an implicit attention bias.
+Strategy 2 just makes this explicit and adds it directly — skipping even the
+partial correction opportunity that Strategy 1 allows.
+
+Advantage: Directly modulates attention, interpretable.
+Disadvantage: Hardcoded into attention weights, network cannot disentangle it,
+              strictly worse than Strategy 1 in terms of correctability.
+
+
+Strategy 3: RoPE with Heatmap Coordinates (Cleanest)
+-----------------------------------------------------
+Use the heatmap distance values [d0, d1, d2, d3] as rotation angles in a
+RoPE-style mechanism, applied to Q and K AFTER the linear projection:
+
+    q_i = R(pos_i) . W_Q . content_i
+    k_j = R(pos_j) . W_K . content_j
+
+where R(pos) is a block-diagonal rotation matrix with one 2D rotation block
+per distance channel:
+
+    R(pos_i) = block_diag( R(d0_i * theta_0),
+                            R(d1_i * theta_1),
+                            R(d2_i * theta_2),
+                            R(d3_i * theta_3) )
+
+The dot product then becomes:
+
+    q_i . k_j = (W_Q * content_i)^T . R(pos_i)^T . R(pos_j) . (W_K * content_j)
+              = (W_Q * content_i)^T . R(pos_j - pos_i) . (W_K * content_j)
+
+Key properties:
+- Position enters MULTIPLICATIVELY as R(pos_j - pos_i) — a rotation between
+  the two content vectors.
+- There is NO additive bias term.
+- There are NO content-position cross terms.
+- Content and position are fully separated.
+- Attention between patch i and patch j is modulated by how differently they
+  are positioned relative to each of the 4 gripper keypoints.
+
+Two patches that are similarly positioned relative to all 4 keypoints
+(R(pos_j - pos_i) ≈ identity) attend strongly to each other. Two patches
+with very different gripper-relative positions attend less.
+
+Advantage: No entanglement, no bias, mathematically clean.
+Disadvantage: Requires implementing custom RoPE with heatmap coordinates;
+              loses absolute spatial grid structure (patches with same
+              [d0,d1,d2,d3] but different image locations are indistinguishable).
+
+
+Comparison Table
+----------------
+Strategy               | Entanglement | Network can correct? | Bias injected?
+-----------------------|--------------|---------------------|---------------
+Additive embed (cur.)  | Yes          | Partially (via depth)| Implicitly
+Attention bias         | Yes          | No                  | Explicitly
+RoPE w/ heatmap coords | No           | N/A (never mixed)   | No
+
+
+Single Convolution on Heatmap == Implicit Trilateration Coordinate System
+-------------------------------------------------------------------------
+The key insight connecting Strategy 1 (current) and Strategy 3 (RoPE):
+
+When use_single_conv=False (simple Conv2d, patch_size stride):
+    patch at (px, py) -> Conv2d -> embed vector f([d0, d1, d2, d3])
+
+When use_single_conv=True (ResNet backbone + AdaptiveAvgPool2d):
+    patch at (px, py) -> deep conv -> richer f([d0, d1, d2, d3] + context)
+
+In both cases, the conv output is a FUNCTION of the 4 distance values at
+that patch. Two patches with similar [d0, d1, d2, d3] produce similar conv
+output vectors. When these are added to RGB tokens and then dot-producted:
+
+    q_i . k_j is large  <=>  patches i,j have similar heatmap embeddings
+                         <=>  patches i,j are similarly positioned relative
+                              to all 4 gripper keypoints
+
+This is EXACTLY what the RoPE trilateration coordinate system encodes —
+patches that are near the same gripper region (same distance vector) attend
+more to each other. The difference is:
+
+- Conv approach: implicit, learned, soft — the network decides how much
+  weight to put on the heatmap signal vs content
+- RoPE approach: explicit, geometric, principled — the distance values
+  directly set rotation angles with no learning involved
+
+The ^0.5 nonlinearity in the distance field gives the conv high resolution
+near keypoints (where gradient is steep) and low resolution far away —
+a natural inductive bias that the conv filters can exploit. This is the
+"Idea 3" discussed during implementation of use_single_conv=True.
+
+So the current implementation with use_single_conv=True is effectively doing
+soft implicit trilateration as a positional signal, just without the clean
+mathematical separation that RoPE would provide.
+
+
+Conclusion
+----------
+1. Current additive approach (use_single_conv=True) already implicitly
+   captures the trilateration structure of the 4-channel distance field.
+
+2. Attention bias is strictly worse than additive embedding — no advantage,
+   loses the ability to disentangle.
+
+3. RoPE with heatmap coordinates is the mathematically cleanest approach —
+   no entanglement, no implicit bias — but requires custom implementation
+   and loses absolute spatial grid structure.
+
+4. The practical gap between the current implementation and RoPE may be
+   small if the transformer is deep enough to disentangle content from
+   the additive positional signal across layers.

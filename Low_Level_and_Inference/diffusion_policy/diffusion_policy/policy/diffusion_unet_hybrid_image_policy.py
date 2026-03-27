@@ -25,6 +25,7 @@ from diffusion_policy.model.common.mlp import create_mlp
 from diffusion_policy.common.debug_util import save_pointcloud_video, save_pointmap_visualization
 from matplotlib import pyplot as plt
 from diffusion_policy.model.vision.vggt_encoder import VGGTEncoder
+from diffusion_policy.model.vision.vit_heatmap_rope_obs_encoder import ViTHeatmapRoPEObsEncoder
 
 
 
@@ -49,6 +50,9 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             observation_mode='image',
             compress_encoder_feature=False,
             no_spatial_softmax=False,
+            vit_rope_cfg: dict = None,
+            use_min_snr: bool = False,
+            min_snr_gamma: float = 5.0,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -84,6 +88,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             elif stype == 'plucker':
                 obs_config['rgb'].append(key)
             elif stype == 'heatmap':
+                obs_config['rgb'].append(key)
+            elif stype == 'ghost_heatmap':
                 obs_config['rgb'].append(key)
             elif stype in ['extrinsic', 'intrinsic']:
                 pass
@@ -182,8 +188,25 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             )
         elif encoder_backbone == 'prope':
             obs_encoder = poe.PRoPEObsEncoder(obs_encoder=obs_encoder)
-        elif encoder_backbone == 'vggt':    
+        elif encoder_backbone == 'vggt':
             obs_encoder = VGGTEncoder(obs_key_shapes, crop_shape)
+        elif encoder_backbone == 'vit_heatmap_rope':
+            cam_keys = obs_config['rgb']   # contains both _image and _heatmap keys
+            cfg = vit_rope_cfg or {}
+            obs_encoder = ViTHeatmapRoPEObsEncoder(
+                cam_keys=cam_keys,
+                n_obs_steps=n_obs_steps,
+                embed_dim=cfg.get('embed_dim', 512),
+                crop_shape=crop_shape,
+                in_channels=3,
+                image_size=cfg.get('image_size', 256),
+                heatmap_channels=cfg.get('heatmap_channels', 4),
+                patch_size=cfg.get('patch_size', 14),
+                num_rope_layers=cfg.get('num_rope_layers', 4),
+                num_heads=cfg.get('num_heads', 8),
+                ffn_dim=cfg.get('ffn_dim', 2048),
+                dropout=cfg.get('dropout', 0.0),
+            )
 
 
         obs_feature_dim = obs_encoder.output_shape()[0]
@@ -231,6 +254,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.compress_encoder_feature = compress_encoder_feature
         self.encoder_backbone = encoder_backbone
         self.kwargs = kwargs
+        self.use_min_snr  = use_min_snr
+        self.min_snr_gamma = min_snr_gamma
 
         self.total_enc_fwd_time = 0
         self.total_enc_fwd_count = 0
@@ -408,6 +433,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
                         new_nobs[key] = this_nobs[key]
                 nobs_features = self.obs_encoder(new_nobs)
             else:     
+                # import pdb; pdb.set_trace()
                 nobs_features = self.obs_encoder(this_nobs)
             # end = time.time()
             # self.total_enc_fwd_time += (end - start)
@@ -469,8 +495,29 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
 
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
+        loss = reduce(loss, 'b ... -> b (...)', 'mean')   # (B,)
+        # import pdb; pdb.set_trace()
+        if self.use_min_snr:
+            # SNR(t) = alphas_cumprod[t] / (1 - alphas_cumprod[t])
+            alphas_cumprod = self.noise_scheduler.alphas_cumprod.to(
+                device=timesteps.device, dtype=loss.dtype
+            )
+            snr = alphas_cumprod[timesteps] / (1.0 - alphas_cumprod[timesteps])
+
+            if pred_type == 'epsilon':
+                # w(t) = min(SNR, γ) / SNR — down-weights easy near-clean steps
+                min_snr_weights = torch.clamp(snr, max=self.min_snr_gamma) / snr
+            elif pred_type == 'sample':
+                # w(t) = min(SNR, γ) / (SNR + 1)
+                min_snr_weights = torch.clamp(snr, max=self.min_snr_gamma) / (snr + 1.0)
+            else:
+                min_snr_weights = torch.ones_like(snr)
+
+            # loss: (B, T*Da), min_snr_weights: (B,) → unsqueeze to broadcast
+            loss = (loss * min_snr_weights.unsqueeze(-1)).mean()
+        else:
+            loss = loss.mean()
+
         return loss
 
 

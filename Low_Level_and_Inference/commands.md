@@ -38,6 +38,9 @@ pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hyb
 #DP + Heatmap
 pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot.yaml \task.dataset.data_dir=/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/
 
+pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot.yaml \task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/
+
+
 pixi run torchrun --standalone --nproc_per_node=1 diffusion_policy/train_ddp.py --config-name=train_ddp_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot.yaml \task.dataset.data_dir=/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml \
@@ -52,6 +55,69 @@ pixi run torchrun --standalone --nproc_per_node=8 diffusion_policy/train_ddp.py 
 
 
 pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/2026.01.24/14.51.48_diffusion_unet_hybrid_image --low_level_ckpt_name epoch_60.ckpt --high_level_ckpt_name path/to/pointnet2.pth --update_goal_freq 5 --folder_name data/rgb_eval
+
+pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/2026.03.25/15.30.38_diffusion_unet_hybrid_hybrid/ --low_level_ckpt_name epoch_40.ckpt --high_level_ckpt_name ../../../outputs/High_Level_Model/model_8.pth --update_goal_freq 8 --folder_name ../../../data/rgb_eval/
+
+
+
+####### DP + GHOST HEATMAP
+
+pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot_ghost.yaml
+
+######### DP + GHOST HEATMAP + HEATMAP_ROPE_VIT_ENCODER
+
+pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot_ghost policy.encoder_backbone=vit_heatmap_rope task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=diffusion_vit_heatmap_rope name=diffusion_vit_heatmap_rope dataloader.batch_size=32 policy.use_min_snr=true policy.min_snr_gamma=5.0
+
+
+
+
+
+####### GROOT + GHOST HEATMAP + HOMMI STYLE HEATMAPS + CHUNKS USED AS POSITIONAL EMBEDDINGS
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml \
+task=rgb_heatmap_articubot_ghost \
+task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ \
+logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object \
+name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object \
+dataloader.batch_size=64 \
+visual_encoder=dinov2_hommi_style_heatmap
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object dataloader.batch_size=22 visual_encoder=dinov2_hommi_style_heatmap
+
+
+####### GROOT + GHOST HEATMAP + HOMMI STYLE HEATMAPS + ENTIRE IMAGE AND RESNET AS POSITIONAL EMBEDDINGS
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_dinov2_hommi_single_conv_rgb_resnet_heatmap_single_object name=groot_dinov2_hommi_single_conv_rgb_resnet_heatmap_single_object dataloader.batch_size=22 visual_encoder=dinov2_hommi_style_heatmap policy.visual_encoder_cfg.use_single_conv=true
+
+####### GROOT + GHOST HEATMAP + VIT WITH HEATMAP AS POSITIONAL EMBEDDINGS (NOT ROPE)
+
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_VIT_Heatmap_positional_embedding_single_object name=groot_VIT_Heatmap_positional_embedding_single_object dataloader.batch_size=22 visual_encoder=vit_heatmap_pos_embedding
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # image-only diffpo
@@ -107,6 +173,12 @@ pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hyb
 ## evaluation:
 ```
 # diffpo_hybrid
+pixi run python diffusion_policy/eval_diffpo_single_object.py \
+  --low_level_exp_dir outputs/2026.03.23/15.38.45_diffusion_unet_hybrid_hybrid/ \
+  --low_level_ckpt_name epoch_40.ckpt --eval_exp_name Just_DP_No_Heatmaps \
+  --folder_name ../../../data/rgb_eval/
+
+
 pixi run python diffusion_policy/eval_diffpo_single_object.py \
   --low_level_exp_dir outputs/2026.01.23/18.04.21_diffusion_unet_hybrid_articubot_image \
   --low_level_ckpt_name epoch_60.ckpt --eval_exp_name diffpo_low_obj_variation \

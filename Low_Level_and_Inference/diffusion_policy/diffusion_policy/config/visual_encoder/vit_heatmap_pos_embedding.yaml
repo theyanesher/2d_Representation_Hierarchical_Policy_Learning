@@ -1,0 +1,13 @@
+# @package policy
+visual_encoder_type: vit_heatmap_pos_embedding
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  # Patch size: must divide crop_shape evenly (crop_shape=256 → 256/14=18 patches per side)
+  patch_size: 14
+  # Heatmap channels (4 for ghost heatmap with 4 keypoints)
+  heatmap_channels: 4
+  # Transformer on top of patched tokens
+  num_transformer_layers: 4
+  num_heads: 8
+  ffn_dim: 2048
+  dropout: 0.0

@@ -1,0 +1,16 @@
+# @package policy
+visual_encoder_type: dinov2_hommi_style_heatmap
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  # DINOv2 branch (for _image keys)
+  model_name: facebook/dinov2-base
+  frozen: true
+  dino_vis_spatial_embed_type: none
+  # Heatmap patch embedder (for _heatmap* keys)
+  # patch_size must match DINOv2 patch size (14 for dinov2-base/large)
+  heatmap_channels: 4
+  patch_size: 14
+  # use_single_conv=false: simple Conv2d(kernel=patch_size, stride=patch_size) — fast, no context
+  # use_single_conv=true:  ResNet backbone + AdaptiveAvgPool2d to match DINO grid — richer features
+  use_single_conv: false
+  resnet_backbone: resnet18   # only used when use_single_conv: true

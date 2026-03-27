@@ -70,6 +70,33 @@ def _compute_heatmap_for_cam(point_world, extrinsic, intrinsic, H, W, sigma):
         return np.zeros((H, W), dtype=np.float32)
     return _gaussian_heatmap(H, W, cx=u, cy=v, sigma=sigma)
 
+def _ghost_heatmap(points_2d: np.ndarray, H: int, W: int, n: float = 0.5, sigma: float = 1.0) -> np.ndarray:
+    """Distance-field heatmap: (H, W, 4) uint8, mirroring ghost_heatmap() in project_gripper_to_images.py."""
+    max_distance = np.sqrt(W ** 2 + H ** 2)
+    clipped = np.clip(points_2d, [0, 0], [W - 1, H - 1]).astype(int)
+    num_pts = clipped.shape[0]
+    goal_image = np.zeros((H, W, num_pts), dtype=np.float64)
+    y_coords, x_coords = np.mgrid[0:H, 0:W]
+    pixel_coords = np.stack([x_coords, y_coords], axis=-1)
+    for i in range(num_pts):
+        distances = np.linalg.norm(pixel_coords - clipped[i], axis=-1)
+        goal_image[:, :, i] = distances
+    goal_image = (goal_image / max_distance / sigma) ** n * 255
+    return np.clip(goal_image, 0, 255).astype(np.uint8)
+
+def _compute_ghost_heatmap_for_cam(points_world: np.ndarray, extrinsic: np.ndarray,
+                                    intrinsic: np.ndarray, H: int, W: int,
+                                    n: float = 0.5, sigma: float = 1.0) -> np.ndarray:
+    """Projects N world points → ghost_heatmap (H, W, 4) uint8.  Always returns 4 channels."""
+    points_world = np.atleast_2d(points_world)
+    while points_world.shape[0] < 4:
+        points_world = np.vstack([points_world, points_world[:1]])
+    points_2d = []
+    for pt in points_world[:4]:
+        result = _project_world_to_pixel(pt, extrinsic, intrinsic)
+        points_2d.append(np.array([result[0], result[1]]) if result is not None else np.array([0.0, 0.0]))
+    return _ghost_heatmap(np.array(points_2d), H, W, n=n, sigma=sigma)  # (H, W, 4) uint8
+
 def generate_goal_heatmaps(predicted_goal, parallel_input_dict, sigma=20.0, num_cams=3):
     """Project the predicted goal gripper position onto each camera as a Gaussian heatmap.
 
@@ -98,6 +125,38 @@ def generate_goal_heatmaps(predicted_goal, parallel_input_dict, sigma=20.0, num_
         # Replicate to (B, T, 1, H, W) — channel dim matches training dataset convention
         hm = torch.from_numpy(hm_np).to(predicted_goal.device)
         heatmaps[f'cam{cam}_heatmap'] = hm[None, None, None].expand(B, T, 1, H, W).contiguous()
+    return heatmaps
+
+
+def generate_goal_ghost_heatmaps(predicted_goal, parallel_input_dict, num_cams=2):
+    """Project the predicted goal gripper position onto each camera as a ghost heatmap.
+
+    predicted_goal : torch.Tensor (B, 2, 4, 3) — gripper keypoints in world coords.
+                     Uses the last keypoint (index -1) of the first gripper as the single point
+                     (1-point ghost heatmap, matching project_gripper_to_images.py default).
+    parallel_input_dict : obs dict containing cam{i}_extrinsic (B,T,4,4),
+                          cam{i}_intrinsic (B,T,3,3), and cam{i}_image (B,T,H,W,3).
+
+    Returns dict {'cam0_heatmap_ghost': tensor(B,T,4,H,W), ...} on cuda, float32 [0,1].
+    The heatmap is replicated across all T obs steps.
+    """
+    print("USINNNNNNNNNNG GHOST HEATMAPSSSSSSS")
+    # Use all 4 keypoints of the first gripper — each becomes one heatmap channel
+    pts_world = predicted_goal[0, 0, :, :].cpu().numpy()  # (4, 3)
+
+    img_shape = parallel_input_dict['cam0_image'].shape  # (B, T, H, W, 3)
+    H, W, T = int(img_shape[2]), int(img_shape[3]), int(img_shape[1])
+    B = predicted_goal.shape[0]
+
+    heatmaps = {}
+    for cam in range(num_cams):
+        E = parallel_input_dict[f'cam{cam}_extrinsic'][0, -1].cpu().numpy()  # (4, 4)
+        K = parallel_input_dict[f'cam{cam}_intrinsic'][0, -1].cpu().numpy()  # (3, 3)
+        # (H, W, 4) uint8 → (4, H, W) float32 [0, 1]
+        gh_np = _compute_ghost_heatmap_for_cam(pts_world, E, K, H, W)        # (H, W, 4) uint8
+        gh_np = np.moveaxis(gh_np.astype(np.float32) / 255., -1, 0)          # (4, H, W)
+        gh = torch.from_numpy(gh_np).to(predicted_goal.device)
+        heatmaps[f'cam{cam}_heatmap_ghost'] = gh[None, None].expand(B, T, 4, H, W).contiguous()
     return heatmaps
 
 # ---------------------------------------------------------------------------
@@ -236,6 +295,7 @@ def run_eval_non_parallel(cfg, low_level_policy, high_level_policy,
                           action_mode='delta',
                           hl_num_points=4500,
                           hl_obs_mode='act3d',
+                          use_ghost_heatmap=True,
                           ):
 
     ### loop through each test object
@@ -319,33 +379,40 @@ def run_eval_non_parallel(cfg, low_level_policy, high_level_policy,
                     predicted_goal = predicted_goal.repeat(1, 2, 1, 1)
                     parallel_input_dict['goal_gripper_pcd'] = predicted_goal
 
-                    # Project goal onto each camera as a Gaussian heatmap
-                    goal_heatmaps = generate_goal_heatmaps(predicted_goal, parallel_input_dict)
+                    # Project goal onto each camera as a heatmap (ghost or Gaussian)
+                    if use_ghost_heatmap:
+                        goal_heatmaps = generate_goal_ghost_heatmaps(predicted_goal, parallel_input_dict)
+                    else:
+                        goal_heatmaps = generate_goal_heatmaps(predicted_goal, parallel_input_dict)
                     parallel_input_dict.update(goal_heatmaps)
 
                     # --- Heatmap + goal-point visualization (before filter_obs_keys) ---
-                    # goal point in world coords: last keypoint of first gripper
-                    goal_pt_world = predicted_goal[0, 0, -1, :].cpu().numpy()  # (3,)
+                    goal_pts_world = predicted_goal[0, 0, :, :].cpu().numpy()  # (4, 3)
                     vis_frames = []
                     for cam in range(2):  # cam0 and cam1 only (in shape_meta)
                         cam_rgb = parallel_input_dict[f'cam{cam}_image'][0, -1].cpu().numpy()  # (H, W, 3) uint8
-                        hm = goal_heatmaps[f'cam{cam}_heatmap'][0, -1, 0].cpu().numpy()        # (H, W) float32 [0,1]
                         H_img, W_img = cam_rgb.shape[:2]
-                        # Blend heatmap as green overlay on top of RGB
-                        hm_color = np.stack([np.zeros_like(hm), hm, np.zeros_like(hm)], axis=-1) * 255.0  # (H,W,3) green
+                        if use_ghost_heatmap:
+                            # ghost heatmap: (B, T, 4, H, W) float32 → use first 3 channels as RGB
+                            gh = goal_heatmaps[f'cam{cam}_heatmap_ghost'][0, -1].cpu().numpy()  # (4, H, W)
+                            hm_color = (np.moveaxis(gh[:3], 0, -1) * 255.0)                     # (H, W, 3)
+                        else:
+                            hm = goal_heatmaps[f'cam{cam}_heatmap'][0, -1, 0].cpu().numpy()     # (H, W) float32
+                            hm_color = np.stack([np.zeros_like(hm), hm, np.zeros_like(hm)], axis=-1) * 255.0
                         blended = np.clip(0.6 * cam_rgb.astype(np.float32) + 0.4 * hm_color, 0, 255).astype(np.uint8)
-                        # Draw the goal point as a red filled square
+                        # Draw all 4 goal keypoints as blue circle outlines
                         E = parallel_input_dict[f'cam{cam}_extrinsic'][0, -1].cpu().numpy()
                         K = parallel_input_dict[f'cam{cam}_intrinsic'][0, -1].cpu().numpy()
-                        proj = _project_world_to_pixel(goal_pt_world, E, K)
-                        if proj is not None:
-                            u, v, _ = proj
-                            cy, cx = int(round(v)), int(round(u))
-                            r = 8  # circle radius in pixels
-                            ys, xs = np.ogrid[:H_img, :W_img]
-                            ring = (((ys - cy)**2 + (xs - cx)**2) <= r**2) & \
-                                   (((ys - cy)**2 + (xs - cx)**2) >= (r - 2)**2)
-                            blended[ring] = [0, 0, 255]  # blue circle outline
+                        ys, xs = np.ogrid[:H_img, :W_img]
+                        for pt_world in goal_pts_world:
+                            proj = _project_world_to_pixel(pt_world, E, K)
+                            if proj is not None:
+                                u, v, _ = proj
+                                cy, cx = int(round(v)), int(round(u))
+                                r = 8
+                                ring = (((ys - cy)**2 + (xs - cx)**2) <= r**2) & \
+                                       (((ys - cy)**2 + (xs - cx)**2) >= (r - 2)**2)
+                                blended[ring] = [0, 0, 255]
                         vis_frames.append(blended)
                     all_heatmap_rgbs.append(np.concatenate(vis_frames, axis=1))  # (H, 2*W, 3)
 
@@ -472,16 +539,25 @@ if __name__ == "__main__":
 
     action_mode = cfg.get('action_mode', 'hybrid_delta')
     print("Using action mode: ", action_mode)
+
+    # Detect whether the model was trained with ghost heatmaps
+    use_ghost_heatmap = 'cam0_heatmap_ghost' in cfg.task.shape_meta.obs
+    print(f"Using ghost heatmap: {use_ghost_heatmap}")
+
     # import pdb; pdb.set_trace()
     randomize_camera = None
-    if cfg.task.dataset.data_dir.startswith('data/rgb/') or cfg.task.dataset.data_dir.startswith('/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/'):
+    _data_dir = cfg.task.dataset.data_dir
+    if (_data_dir.startswith('data/rgb/')
+            or _data_dir.startswith('/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/')
+            or _data_dir.startswith('/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/')
+            or 'ghost_heatmap_dataset' in _data_dir):
         randomize_camera = 0
-    elif cfg.task.dataset.data_dir.startswith('data/rgb_camera_left_right_randomized/'):
+    elif _data_dir.startswith('data/rgb_camera_left_right_randomized/'):
         randomize_camera = 1
-    elif cfg.task.dataset.data_dir.startswith('data/rgb_camera_randomized/'):
+    elif _data_dir.startswith('data/rgb_camera_randomized/'):
         randomize_camera = 2
     else:
-        raise ValueError(f"Unsupported dataset: {cfg.task.dataset.data_dir}")
+        raise ValueError(f"Unsupported dataset: {_data_dir}")
     print("Using randomize_camera: ", randomize_camera)
 
     checkpoint_info = {
@@ -507,6 +583,7 @@ if __name__ == "__main__":
             action_mode=action_mode,
             output_obj_pcd_only=bool(args.output_obj_pcd_only),
             update_goal_freq=args.update_goal_freq,
+            use_ghost_heatmap=use_ghost_heatmap,
     )
 
 """

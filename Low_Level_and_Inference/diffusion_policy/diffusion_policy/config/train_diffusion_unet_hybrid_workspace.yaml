@@ -52,6 +52,8 @@ policy:
   observation_mode: ${observation_mode}
   compress_encoder_feature: False
   no_spatial_softmax: False
+  use_min_snr: False      # set True to enable Min-SNR loss weighting
+  min_snr_gamma: 5.0      # clipping threshold γ (5.0 recommended in paper)
   # scheduler.step params
   # predict_epsilon: True
 
@@ -64,14 +66,14 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 72
+  batch_size: 48
   num_workers: 8
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 64
+  batch_size: 48
   num_workers: 0 #8
   shuffle: False
   pin_memory: True
@@ -88,11 +90,11 @@ training:
   device: "cuda:0"
   seed: 42
   debug: False
-  resume: True
+  resume: False #True
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 300
+  num_epochs: 100
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -111,7 +113,7 @@ training:
 
 logging:
   project: diffusion_policy
-  resume: True
+  resume: False #True
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
   tags: ["${name}", "${task_name}", "${exp_name}"]

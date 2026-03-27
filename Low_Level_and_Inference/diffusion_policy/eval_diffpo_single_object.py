@@ -343,7 +343,7 @@ if __name__ == "__main__":
     print("Using action mode: ", action_mode)
 
     randomize_camera = None
-    if cfg.task.dataset.data_dir.startswith('data/rgb/'):
+    if cfg.task.dataset.data_dir.startswith('data/rgb/') or cfg.task.dataset.data_dir.startswith('/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/'):
         randomize_camera = 0
     elif cfg.task.dataset.data_dir.startswith('data/rgb_camera_left_right_randomized/'):
         randomize_camera = 1

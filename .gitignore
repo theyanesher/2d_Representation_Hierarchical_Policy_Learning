@@ -1,2 +1,6 @@
-outputs/
-outputs_eval/
+**/__pycache__/
+*.pyc
+High_Level_Training/RVT/runs/
+Low_Level_and_Inference/data/
+Low_Level_and_Inference/outputs/
+Low_Level_and_Inference/outputs_eval/

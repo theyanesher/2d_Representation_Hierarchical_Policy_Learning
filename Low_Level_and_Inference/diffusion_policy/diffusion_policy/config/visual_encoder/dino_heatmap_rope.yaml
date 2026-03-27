@@ -1,0 +1,17 @@
+# @package policy
+visual_encoder_type: dino_heatmap_rope
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  # DINOv2 branch (for _image keys)
+  model_name: facebook/dinov2-base
+  frozen: true
+  dino_vis_spatial_embed_type: none
+  # Heatmap coord extraction
+  # patch_size must match DINOv2 patch size (14 for dinov2-base/large)
+  heatmap_channels: 4
+  patch_size: 14
+  # RoPE transformer layers applied on top of DINOv2 tokens
+  num_rope_layers: 2
+  num_heads: 8
+  ffn_dim: 2048
+  dropout: 0.0
