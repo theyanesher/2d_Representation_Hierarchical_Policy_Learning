@@ -265,6 +265,7 @@ def experiment(rank, cmd_args, devices, port):
             cos_dec_max_step=EPOCHS * TRAINING_ITERATIONS,
             no_virtual_image=cmd_args.no_virtual_image,
             use_articubot_dataset=cmd_args.use_articubot_dataset,
+            ghost_heatmap=not cmd_args.not_ghost_heatmap,
             **exp_cfg.peract,
             **exp_cfg.rvt,
         )
@@ -347,6 +348,16 @@ if __name__ == "__main__":
             "Path to the directory containing Articubot *.h5 episode files. "
             "Required when --use_articubot_dataset is set. "
             "Example: /scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/"
+        ),
+    )
+    parser.add_argument(
+        "--not_ghost_heatmap",
+        action="store_true",
+        default=False,
+        help=(
+            "When --use_articubot_dataset is set, use the single-channel heatmap "
+            "(cam{N}_heatmap) instead of the default 4-channel ghost heatmap "
+            "(cam{N}_heatmap_ghost)."
         ),
     )
     parser.add_argument(

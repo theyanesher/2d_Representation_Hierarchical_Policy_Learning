@@ -303,6 +303,7 @@ class RVTAgent:
         rot_x_y_aug: int = 2,
         no_virtual_image: bool = False,
         use_articubot_dataset: bool = False,
+        ghost_heatmap: bool = True,
         log_dir="",
     ):
         """
@@ -352,6 +353,7 @@ class RVTAgent:
         self.rot_x_y_aug = rot_x_y_aug
         self.no_virtual_image = no_virtual_image
         self.use_articubot_dataset = use_articubot_dataset
+        self.ghost_heatmap = ghost_heatmap
 
         self._cross_entropy_loss = nn.CrossEntropyLoss(reduction="none")
         if isinstance(self._network, DistributedDataParallel):
@@ -758,12 +760,23 @@ class RVTAgent:
                 # Keys sorted alphabetically to match real_img camera stacking order.
                 # from rvt.utils.rvt_utils import ForkedPdb
                 # ForkedPdb().set_trace()
-                hm_keys = sorted(k for k in replay_sample if k.endswith("_heatmap"))
-                # Each heatmap: (bs, 1, H, W) -> squeeze -> (bs, H*W)
-                hm_list = [
-                    replay_sample[k].to(self._device).squeeze(1).view(bs, -1)
-                    for k in hm_keys
-                ]
+                if self.ghost_heatmap:
+                    # Ghost heatmap keys: cam{N}_heatmap_ghost, shape (bs, 4, H, W)
+                    hm_keys = sorted(k for k in replay_sample if k.endswith("_heatmap_ghost"))
+                    # Each ghost heatmap: (bs, 4, H, W) -> split into 4 x (bs, H*W)
+                    hm_list = []
+                    for k in hm_keys:
+                        t = replay_sample[k].to(self._device)  # (bs, 4, H, W)
+                        for c in range(t.shape[1]):
+                            hm_list.append(t[:, c, :, :].contiguous().view(bs, -1))
+                else:
+                    # Regular heatmap keys: cam{N}_heatmap, shape (bs, 1, H, W)
+                    hm_keys = sorted(k for k in replay_sample if k.endswith("_heatmap") and not k.endswith("_heatmap_ghost"))
+                    # Each heatmap: (bs, 1, H, W) -> squeeze -> (bs, H*W)
+                    hm_list = [
+                        replay_sample[k].to(self._device).squeeze(1).view(bs, -1)
+                        for k in hm_keys
+                    ]
                 # Stack: (bs, nc, H*W) -> transpose -> (bs, H*W, nc)
                 action_trans = torch.stack(hm_list, dim=1).transpose(1, 2)
                 # Normalize to a valid probability distribution over spatial bins

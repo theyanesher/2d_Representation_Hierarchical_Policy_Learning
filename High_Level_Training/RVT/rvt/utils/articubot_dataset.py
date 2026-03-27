@@ -106,6 +106,10 @@ def _to_tensor(key: str, data) -> torch.Tensor:
         if arr.ndim == 2:
             arr = arr[np.newaxis]  # add channel dim -> (1, H, W)
 
+    elif "heatmap_ghost" in key:
+        # (H, W, 4) uint8 -> (4, H, W) float32 normalised to [0, 1]
+        arr = np.moveaxis(data, -1, 0).astype(np.float32) / 255.0
+
     elif "heatmap" in key:
         # (H, W) float16 -> (1, H, W) float32
         arr = data.astype(np.float32)
