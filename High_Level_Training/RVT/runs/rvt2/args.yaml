@@ -1,4 +1,4 @@
-articubot_dataset_path: ../../../../ArticuBot/outputs/Heatmap_Articubot_Dataset/
+articubot_dataset_path: ../../../../../data/
 device: '0'
 exp_cfg_opts: ''
 exp_cfg_path: rvt/configs/rvt2.yaml
@@ -6,6 +6,7 @@ log_dir: runs
 mvt_cfg_opts: ''
 mvt_cfg_path: rvt/mvt/configs/rvt2.yaml
 no_virtual_image: true
+not_ghost_heatmap: false
 refresh_replay: false
 use_articubot_dataset: true
 with_eval: false

@@ -1664,9 +1664,9 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         # coords: (B*To, n_rgb * N_tok, 4)
         tokens = torch.cat(cam_tokens_list, dim=1)               # (B*To, n_rgb*N_tok, D)
         coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, 4)
-
+        coords = coords * N_tok
         # ---- RoPE transformer layers (cross-camera, within each timestep) ----
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
         for layer in self.rope_layers:
             tokens = layer(tokens, coords)
         # import pdb; pdb.set_trace()

@@ -5,8 +5,8 @@ use_point_renderer: True
 inp_pre_pro: False
 inp_pre_con: False
 feat_ver: 1
-img_size: 224
-img_patch_size: 14
+img_size: 256
+img_patch_size: 16
 cvx_up: True
 xops: True
 rot_ver: 1

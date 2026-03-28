@@ -70,6 +70,16 @@ pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hyb
 
 
 
+####### GROOT + GHOST HEATMAP + HEATMAP ROPE STYLE POSITION EMBEDDING
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../../data/ logging.name=groot_vit_rope_heatmap_single_object name=groot_vit_rope_heatmap_single_object dataloader.batch_size=64 visual_encoder=vit_heatmap_rope
+
+
+
+
+
+
+
 
 
 ####### GROOT + GHOST HEATMAP + HOMMI STYLE HEATMAPS + CHUNKS USED AS POSITIONAL EMBEDDINGS

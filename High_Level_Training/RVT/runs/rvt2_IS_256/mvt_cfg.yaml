@@ -27,6 +27,7 @@ no_virtual_image: true
 norm_corr: true
 num_rot: 72
 pe_fix: true
+predict_collision: false
 proprio_dim: 4
 rend_three_views: true
 rot_ver: 1

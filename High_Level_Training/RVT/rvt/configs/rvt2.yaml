@@ -1,6 +1,6 @@
 exp_id: rvt2
 tasks: all
-bs: 48
+bs: 32
 num_workers: 3
 epochs: 40
 sample_distribution_mode: task_uniform

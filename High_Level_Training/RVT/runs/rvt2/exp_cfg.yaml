@@ -1,6 +1,6 @@
 agent: our
-bs: 24
-epochs: 15
+bs: 32
+epochs: 40
 exp_id: rvt2
 num_workers: 3
 peract:

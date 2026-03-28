@@ -17,8 +17,8 @@ final_dim: 64
 im_channels: 64
 img_aug_2: 0.05
 img_feat_dim: 3
-img_patch_size: 14
-img_size: 224
+img_patch_size: 16
+img_size: 256
 inp_pre_con: false
 inp_pre_pro: false
 lang_dim: 512
@@ -27,6 +27,7 @@ no_virtual_image: true
 norm_corr: true
 num_rot: 72
 pe_fix: true
+predict_collision: false
 proprio_dim: 4
 rend_three_views: true
 rot_ver: 1
