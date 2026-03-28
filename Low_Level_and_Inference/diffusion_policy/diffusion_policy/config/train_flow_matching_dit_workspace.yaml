@@ -104,7 +104,7 @@ training:
   device: "cuda:0"
   seed: 42
   debug: False
-  resume: True #False
+  resume: False #False
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
@@ -123,7 +123,7 @@ training:
 
 logging:
   project: diffusion_policy
-  resume: True # False
+  resume: False # False
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
   tags: ["${name}", "${task_name}", "${exp_name}"]

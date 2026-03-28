@@ -155,6 +155,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         with JsonLogger(log_path) as json_logger:
+            print("TOTAL EPOCHSSSSSSSSSSSS", cfg.training.num_epochs)
             for local_epoch_idx in range(cfg.training.num_epochs):
                 step_log = dict()
                 # ========= train for this epoch ==========
