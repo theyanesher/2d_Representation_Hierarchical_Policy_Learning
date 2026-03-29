@@ -64,15 +64,17 @@ pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low
 
 pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot_ghost.yaml
 
-######### DP + GHOST HEATMAP + HEATMAP_ROPE_VIT_ENCODER
+######### DP + GHOST HEATMAP + HEATMAP_ROPE_VIT_ENCODER + MINSNR
 
-pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot_ghost policy.encoder_backbone=vit_heatmap_rope task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=diffusion_vit_heatmap_rope name=diffusion_vit_heatmap_rope dataloader.batch_size=32 policy.use_min_snr=true policy.min_snr_gamma=5.0
+pixi run python diffusion_policy/train.py --config-name=train_diffusion_unet_hybrid_workspace.yaml task=rgb_heatmap_articubot_ghost policy.encoder_backbone=vit_heatmap_rope task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=diffusion_vit_heatmap_rope_minsnr name=diffusion_vit_heatmap_rope_minsnr dataloader.batch_size=24 policy.use_min_snr=true policy.min_snr_gamma=5.0
 
-
+pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/2026.03.27/00.59.09_diffusion_vit_heatmap_rope_minsnr_hybrid/ --low_level_ckpt_name epoch_40.ckpt --high_level_ckpt_name ../../../outputs/High_Level_Model/model_8.pth --update_goal_freq 8 --folder_name ../../../data/rgb_eval/
 
 ####### GROOT + GHOST HEATMAP + HEATMAP ROPE STYLE POSITION EMBEDDING
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../../data/ logging.name=groot_vit_rope_heatmap_single_object name=groot_vit_rope_heatmap_single_object dataloader.batch_size=64 visual_encoder=vit_heatmap_rope
+
+pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/RoPE_Unscaled_GROOT/ --low_level_ckpt_name epoch_50.ckpt --high_level_ckpt_name ../../../outputs/High_Level_Model/model_8.pth --update_goal_freq 8 --folder_name ../../../data/rgb_eval/
 
 
 
@@ -84,13 +86,13 @@ pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_
 
 ####### GROOT + GHOST HEATMAP + HOMMI STYLE HEATMAPS + CHUNKS USED AS POSITIONAL EMBEDDINGS
 
-pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml \
-task=rgb_heatmap_articubot_ghost \
-task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ \
-logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object \
-name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object \
-dataloader.batch_size=64 \
-visual_encoder=dinov2_hommi_style_heatmap
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap
+_articubot_ghost task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_
+ghost_heatmap_dataset/ logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object name=groot_dinov2_hommi_rgb_resnet_
+heatmap_single_object dataloader.batch_size=22 visual_encoder=dinov2_hommi_style_heatmap 
+
+
+pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/2026.03.27/02.01.52_groot_dinov2_hommi_rgb_resnet_heatmap_single_object_hybrid/ --low_level_ckpt_name epoch_40.ckpt --high_level_ckpt_name ../../../outputs/High_Level_Model/model_8.pth --update_goal_freq 8 --folder_name ../../../data/rgb_eval/
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object dataloader.batch_size=22 visual_encoder=dinov2_hommi_style_heatmap
 

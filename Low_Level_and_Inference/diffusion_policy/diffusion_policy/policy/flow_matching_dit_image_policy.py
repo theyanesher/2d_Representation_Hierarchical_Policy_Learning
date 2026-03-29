@@ -42,7 +42,7 @@ Swapping the visual encoder
       ...                         frozen: true
 """
 
-from typing import Dict
+from typing import Dict, Optional
 import copy
 
 import numpy as np
@@ -245,9 +245,14 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
         return (self.noise_s - sample) / self.noise_s
 
-    def _encode_obs(self, nobs: dict, batch_size: int):
+    def _encode_obs(self, nobs: dict, batch_size: int, t: Optional[torch.Tensor] = None):
         """
         Convert a normalised obs dict into DiT-ready tokens.
+
+        Parameters
+        ----------
+        t : (B,) flow timestep in [0, 1], or None.
+            Passed to the visual encoder for dynamic RoPE frequency scaling.
 
         Returns
         -------
@@ -255,7 +260,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         state_tokens  : (B, n_obs_steps, embed_dim)  or  None
         """
         # -- Visual tokens ------------------------------------------------- #
-        visual_tokens = self.visual_encoder.encode(nobs)
+        visual_tokens = self.visual_encoder.encode(nobs, t=t)
 
         # -- State tokens -------------------------------------------------- #
         state_tokens = None
@@ -316,10 +321,11 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
 
         process_observations(nobs, self.observation_mode)
 
-        visual_tokens, state_tokens = self._encode_obs(nobs, batch_size)
-        # Flow matching: interpolate between noise and clean action.
+        # Sample t first so it can be passed to the visual encoder for dynamic RoPE.
         noise = torch.randn_like(nactions)
         t = self._sample_time(batch_size, device=device, dtype=dtype)
+
+        visual_tokens, state_tokens = self._encode_obs(nobs, batch_size, t=t)
         t_bc = t[:, None, None]                          # (B, 1, 1)
         noisy_actions   = (1 - t_bc) * noise + t_bc * nactions
         velocity_target = nactions - noise
@@ -348,8 +354,24 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # import pdb; pdb.set_trace()
         process_observations(nobs, self.observation_mode)
 
-        # Encode observations once; reuse across denoising steps.
-        visual_tokens, state_tokens = self._encode_obs(nobs, batch_size)
+        # Precompute t-independent visual tokens once; reuse across denoising steps.
+        # Encoders with dynamic RoPE expose precompute()+run_rope(); others just use encode().
+        _has_rope = hasattr(self.visual_encoder, 'precompute')
+        if _has_rope:
+            raw_tokens, coords, B = self.visual_encoder.precompute(nobs)
+        else:
+            visual_tokens_static = self.visual_encoder.encode(nobs)
+
+        # State tokens are t-independent — compute once separately.
+        state_tokens = None
+        if self.has_state:
+            state_parts = [
+                nobs[k][:, :self.n_obs_steps].reshape(batch_size, self.n_obs_steps, -1)
+                for k in self.state_obs_keys
+                if k in nobs
+            ]
+            state = torch.cat(state_parts, dim=-1)
+            state_tokens = self.state_encoder(state)
 
         # Start from pure noise.
         actions = torch.randn(
@@ -362,6 +384,13 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             t_cont = step / float(self.num_inference_timesteps)
             t_disc = int(t_cont * self.num_timestep_buckets)
             timesteps = torch.full((batch_size,), fill_value=t_disc, device=device)
+
+            # Re-run RoPE layers with current t (dynamic freq scaling).
+            t_tensor      = torch.full((batch_size,), fill_value=t_cont, dtype=dtype, device=device)
+            if _has_rope:
+                visual_tokens = self.visual_encoder.run_rope(raw_tokens, coords, B, t=t_tensor)
+            else:
+                visual_tokens = visual_tokens_static
 
             action_features = self.action_encoder(actions, timesteps)
             if self.add_pos_embed:

@@ -31,11 +31,11 @@ def plot_open_door_results(directory, num_objs=10, start_idx=0):
             normalized_performance = (np.array(opened_joint_angles) - np.array(initial_angles)) / (np.array(expert_angles) - np.array(initial_angles))
             # print(normalized_performance.mean())
             # print(normalized_performance.min())
-            # print(normalized_performance)
+            print(normalized_performance)
             normalized_performance[normalized_performance > 1] = 1
             normalized_performance = normalized_performance[~np.isnan(normalized_performance)]
             normalized_performance = normalized_performance[~np.isinf(normalized_performance)]
-            if len(normalized_performance) >= 10:
+            if len(normalized_performance) >= 1:
                 normalized_performance = np.mean(normalized_performance)
                 one_exp_results.append(normalized_performance)
             

@@ -550,6 +550,7 @@ if __name__ == "__main__":
     if (_data_dir.startswith('data/rgb/')
             or _data_dir.startswith('/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/')
             or _data_dir.startswith('/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/')
+            or _data_dir.startswith('../../../../data/')
             or 'ghost_heatmap_dataset' in _data_dir):
         randomize_camera = 0
     elif _data_dir.startswith('data/rgb_camera_left_right_randomized/'):
