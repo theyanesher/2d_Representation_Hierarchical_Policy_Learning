@@ -544,13 +544,12 @@ if __name__ == "__main__":
     use_ghost_heatmap = 'cam0_heatmap_ghost' in cfg.task.shape_meta.obs
     print(f"Using ghost heatmap: {use_ghost_heatmap}")
 
-    # import pdb; pdb.set_trace()
     randomize_camera = None
     _data_dir = cfg.task.dataset.data_dir
     if (_data_dir.startswith('data/rgb/')
             or _data_dir.startswith('/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/')
             or _data_dir.startswith('/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/')
-            or _data_dir.startswith('../../../../data/')
+            or _data_dir.startswith('../../../../data')
             or 'ghost_heatmap_dataset' in _data_dir):
         randomize_camera = 0
     elif _data_dir.startswith('data/rgb_camera_left_right_randomized/'):

@@ -12,3 +12,4 @@ visual_encoder_cfg:
   ffn_dim: 2048
   dropout: 0.0
   use_flow_timestep_rope: False
+  use_exact_cropping: False

@@ -1526,15 +1526,6 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         num_heads: int = 8,
         ffn_dim: int = 2048,
         dropout: float = 0.0,
-        # dynamic RoPE
-        use_flow_timestep_rope: bool = False,
-        # cropping strategy:
-        #   False (default) — separate randomizers for RGB and heatmap; crops are
-        #     independent during training (acts as positional noise regularization)
-        #     and both center-crop at inference (aligned).
-        #   True — single combined randomizer; crops are always perfectly aligned
-        #     (correct during training too, but may over-rely on exact coords).
-        use_exact_cropping: bool = False,
     ):
         super().__init__()
 
@@ -1546,8 +1537,6 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         self.embed_dim   = embed_dim
         self._rgb_keys   = rgb_keys
         self._patch_size = patch_size
-        self.use_flow_timestep_rope = use_flow_timestep_rope
-        self.use_exact_cropping = use_exact_cropping
 
         # Map cam_num → heatmap key
         self._heatmap_map: dict = {}
@@ -1571,35 +1560,23 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
               f"N_tok={self._N_tok}, num_rope_layers={num_rope_layers}")
 
         # ---- RGB patch embedding ----
+        self.rgb_crop_randomizer = CropRandomizer(
+            input_shape=(in_channels, image_size, image_size),
+            crop_height=crop_shape[0],
+            crop_width=crop_shape[1],
+        )
         self.rgb_patch_embed = nn.Conv2d(
             in_channels, embed_dim,
             kernel_size=patch_size, stride=patch_size,
         )
 
-        self._in_channels = in_channels
-        self._heatmap_channels = heatmap_channels
+        # ---- Heatmap crop randomizer (same crop as RGB) ----
+        self.heatmap_crop_randomizer = CropRandomizer(
+            input_shape=(heatmap_channels, image_size, image_size),
+            crop_height=crop_shape[0],
+            crop_width=crop_shape[1],
+        )
 
-        if use_exact_cropping:
-            # Single combined randomizer — RGB and heatmap always get identical crop offsets.
-            # Crops are aligned during both training and inference.
-            self.combined_crop_randomizer = CropRandomizer(
-                input_shape=(in_channels + heatmap_channels, image_size, image_size),
-                crop_height=crop_shape[0],
-                crop_width=crop_shape[1],
-            )
-        else:
-            # Separate randomizers — independent random offsets during training
-            # (positional noise regularization), both center-crop at inference (aligned).
-            self.rgb_crop_randomizer = CropRandomizer(
-                input_shape=(in_channels, image_size, image_size),
-                crop_height=crop_shape[0],
-                crop_width=crop_shape[1],
-            )
-            self.heatmap_crop_randomizer = CropRandomizer(
-                input_shape=(heatmap_channels, image_size, image_size),
-                crop_height=crop_shape[0],
-                crop_width=crop_shape[1],
-            )
         # ---- Camera and temporal identity embeddings ----
         self.vis_camera_embed   = nn.Embedding(n_rgb, embed_dim)
         self.vis_temporal_embed = nn.Embedding(n_obs_steps, embed_dim)
@@ -1611,8 +1588,7 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
             f"embed_dim ({embed_dim}) must be divisible by 8 for 4-keypoint RoPE."
         )
         self.rope_layers = nn.ModuleList([
-            HeatmapRoPEAttentionLayer(embed_dim, num_heads, ffn_dim, dropout,
-                                      use_flow_timestep_rope=use_flow_timestep_rope)
+            HeatmapRoPEAttentionLayer(embed_dim, num_heads, ffn_dim, dropout)
             for _ in range(num_rope_layers)
         ])
 
@@ -1627,200 +1603,82 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
     def forward(self, _x: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("ViTHeatmapRoPEEmbedding: use encode() directly.")
 
-    def precompute(self, nobs: dict) -> Tuple[torch.Tensor, torch.Tensor, int]:
-        """
-        t-independent stage: patch embed + camera/temporal embeds + heatmap avgpool.
-
-        Returns
-        -------
-        tokens : (B*To, n_rgb*N_tok, D)  — patch tokens with cam/temporal embeds, no RoPE
-        coords : (B*To, n_rgb*N_tok, 4)  — heatmap distances scaled by N_tok
-        B      : int                     — batch size
-        """
-        B     = next(iter(nobs.values())).shape[0]
-        To    = self.n_obs_steps
+    def encode(self, nobs: dict) -> torch.Tensor:
+        """Full pipeline. Returns (B, To * n_rgb * N_tok, embed_dim)."""
+        B   = next(iter(nobs.values())).shape[0]
+        To  = self.n_obs_steps
         N_tok = self._N_tok
-        D     = self.embed_dim
-        dev   = next(self.parameters()).device
+        D   = self.embed_dim
+        dev = next(self.parameters()).device
 
-        cam_tokens_list = []
-        cam_coords_list = []
+        cam_tokens_list  = []
+        cam_coords_list  = []
 
         for cam_idx, (rgb_key, cam_num) in enumerate(
             zip(self._rgb_keys, self._rgb_cam_nums)
         ):
-            # ---- Crop RGB and heatmap ----
-            rgb      = nobs[rgb_key][:, :To]                     # (B, To, C, H, W)
-            rgb_flat = rgb.reshape(B * To, *rgb.shape[2:])       # (B*To, C, H, W)
-
-            if cam_num in self._heatmap_map:
-                h_key  = self._heatmap_map[cam_num]
-                h_data = nobs[h_key][:, :To]                     # (B, To, 4, H, W)
-                h_flat = h_data.reshape(B * To, *h_data.shape[2:])
-            else:
-                h_flat = torch.zeros(
-                    B * To, self._heatmap_channels, *rgb_flat.shape[2:],
-                    device=dev, dtype=rgb_flat.dtype,
-                )
-
-            if self.use_exact_cropping:
-                # Combined crop — identical offsets for RGB and heatmap always
-                combined = torch.cat([rgb_flat, h_flat], dim=1)      # (B*To, C+4, H, W)
-                combined = self.combined_crop_randomizer(combined)    # (B*To, C+4, Hc, Wc)
-                rgb_flat = combined[:, :self._in_channels]            # (B*To, C, Hc, Wc)
-                h_flat   = combined[:, self._in_channels:]            # (B*To, 4, Hc, Wc)
-            else:
-                # Separate crops — independent random offsets during training,
-                # both center-crop (aligned) at inference
-                rgb_flat = self.rgb_crop_randomizer(rgb_flat)         # (B*To, C, Hc, Wc)
-                h_flat   = self.heatmap_crop_randomizer(h_flat)       # (B*To, 4, Hc, Wc)
-
+            # import pdb; pdb.set_trace()
             # ---- RGB patch tokens ----
+            rgb      = nobs[rgb_key][:, :To]                     # (B, To, C, H, W)
+            rgb_flat = rgb.reshape(B * To, *rgb.shape[2:])
+            rgb_flat = self.rgb_crop_randomizer(rgb_flat)        # (B*To, C, Hc, Wc)
             rgb_toks = self.rgb_patch_embed(rgb_flat)            # (B*To, D, N_h, N_w)
             rgb_toks = rgb_toks.flatten(2).transpose(1, 2)       # (B*To, N_tok, D)
 
             # ---- Camera + temporal embeddings ----
-            cam_emb = self.vis_camera_embed(
+            cam_emb  = self.vis_camera_embed(
                 torch.tensor(cam_idx, device=dev)
             )                                                    # (D,)
-            t_ids   = torch.arange(To, device=dev)
-            t_emb   = self.vis_temporal_embed(t_ids)             # (To, D)
+            t_ids    = torch.arange(To, device=dev)
+            t_emb    = self.vis_temporal_embed(t_ids)            # (To, D)
 
             rgb_toks = rgb_toks.reshape(B, To, N_tok, D)
             rgb_toks = rgb_toks + cam_emb[None, None, None, :]
             rgb_toks = rgb_toks + t_emb[None, :, None, :]
             rgb_toks = rgb_toks.reshape(B * To, N_tok, D)
 
-            cam_tokens_list.append(rgb_toks)
+            cam_tokens_list.append(rgb_toks)                     # (B*To, N_tok, D)
 
             # ---- Heatmap coords via avgpool ----
             if cam_num in self._heatmap_map:
-                coords = F.avg_pool2d(
+                h_key   = self._heatmap_map[cam_num]
+                h_data  = nobs[h_key][:, :To]                   # (B, To, 4, H, W)
+                h_flat  = h_data.reshape(B * To, *h_data.shape[2:])
+                h_flat  = self.heatmap_crop_randomizer(h_flat)  # (B*To, 4, Hc, Wc)
+                coords  = F.avg_pool2d(
                     h_flat,
                     kernel_size=self._patch_size,
                     stride=self._patch_size,
                 )                                                # (B*To, 4, N_h, N_w)
-                coords = coords.flatten(2).permute(0, 2, 1)     # (B*To, N_tok, 4)
+                coords  = coords.flatten(2).permute(0, 2, 1)    # (B*To, N_tok, 4)
             else:
+                # No heatmap → zero coords → R(0) = identity → standard attention
                 coords = torch.zeros(
                     B * To, N_tok, 4, device=dev, dtype=rgb_toks.dtype
                 )
 
-            cam_coords_list.append(coords)
-
+            cam_coords_list.append(coords)                       # (B*To, N_tok, 4)
+        # import pdb; pdb.set_trace()
+        # ---- Assemble all cameras into one sequence ----
+        # tokens: (B*To, n_rgb * N_tok, D)
+        # coords: (B*To, n_rgb * N_tok, 4)
         tokens = torch.cat(cam_tokens_list, dim=1)               # (B*To, n_rgb*N_tok, D)
         coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, 4)
         coords = coords * N_tok
-        return tokens, coords, B
-
-    def run_rope(
-        self,
-        tokens: torch.Tensor,
-        coords: torch.Tensor,
-        B: int,
-        t: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """
-        t-dependent stage: RoPE transformer layers with optional dynamic freq scaling.
-
-        Parameters
-        ----------
-        tokens : (B*To, n_rgb*N_tok, D)
-        coords : (B*To, n_rgb*N_tok, 4)
-        B      : batch size
-        t      : (B,) flow timestep in [0, 1], or None
-
-        Returns
-        -------
-        (B, To * n_rgb * N_tok, D)
-        """
-        To = self.n_obs_steps
-
-        # ---- Sinusoidal timestep embedding: (B,) → (B*To, 64) ----
-        if self.use_flow_timestep_rope and t is not None:
-            t_embed = sinusoidal_embed_1d(t, dim=64)             # (B, 64)
-            t_embed = t_embed.repeat_interleave(To, dim=0)       # (B*To, 64)
-        else:
-            t_embed = None
-
+        # ---- RoPE transformer layers (cross-camera, within each timestep) ----
+        import pdb; pdb.set_trace()
         for layer in self.rope_layers:
-            tokens = layer(tokens, coords, t_embed)
-
-        n_rgb = len(self._rgb_keys)
-        return tokens.reshape(B, To * n_rgb * self._N_tok, self.embed_dim)
-
-    def encode(self, nobs: dict, t: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        Full pipeline. Used during training — gradients flow through both stages.
-        For inference with dynamic RoPE, use precompute() + run_rope() directly.
-
-        t: (B,) flow matching timestep in [0, 1], or None.
-        """
-        tokens, coords, B = self.precompute(nobs)
-        return self.run_rope(tokens, coords, B, t=t)
+            tokens = layer(tokens, coords)
+        # import pdb; pdb.set_trace()
+        # ---- Reshape to (B, To * n_rgb * N_tok, D) ----
+        n_rgb   = len(self._rgb_keys)
+        tokens  = tokens.reshape(B, To * n_rgb * N_tok, D)
+        return tokens
 
 
 # ---------------------------------------------------------------------------
 # Heatmap RoPE — custom attention layer + full encoder
 # ---------------------------------------------------------------------------
-
-def sinusoidal_embed_1d(x: torch.Tensor, dim: int = 64) -> torch.Tensor:
-    """
-    Sinusoidal embedding for a scalar tensor x of any shape.
-    x: (...,)  →  (..., dim)
-    dim must be even.
-    """
-    assert dim % 2 == 0
-    half = dim // 2
-    freqs = torch.exp(
-        -torch.arange(half, device=x.device, dtype=x.dtype)
-        * (torch.log(torch.tensor(10000.0)) / (half - 1))
-    )                                          # (half,)
-    angles = x.unsqueeze(-1) * freqs          # (..., half)
-    return torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)  # (..., dim)
-
-
-class FrequencyMLP(nn.Module):
-    """
-    Small MLP that outputs a per-(patch, keypoint) frequency scaling factor.
-
-    Both the flow timestep t and the heatmap distance d are sinusoidally embedded
-    before being fed to the MLP. This gives the network a rich frequency
-    decomposition of both inputs, allowing it to learn different scaling behaviors
-    for different distance ranges (effectively different weights per spatial region).
-
-    Input:  cat(sinusoidal_embed(t), sinusoidal_embed(d_ik))  — (t_embed_dim + d_embed_dim,)
-    Output: softplus(h) + 1  — always > 1, starts ≈ 1 at init
-
-    Initialization: final layer weight=0, bias=-5 so that
-        softplus(-5) + 1 ≈ 1.007  →  recovers standard RoPE at start of training.
-    """
-
-    def __init__(self, t_embed_dim: int = 64, d_embed_dim: int = 64, hidden_dim: int = 64):
-        super().__init__()
-        self.t_embed_dim = t_embed_dim
-        self.d_embed_dim = d_embed_dim
-        self.net = nn.Sequential(
-            nn.Linear(t_embed_dim + d_embed_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, 1),
-        )
-        # Init final layer → near-identity at start of training
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.constant_(self.net[-1].bias, -5.0)
-
-    def forward(self, t_embed: torch.Tensor, d_embed: torch.Tensor) -> torch.Tensor:
-        """
-        t_embed: (B*To, t_embed_dim)           — sinusoidal embed of flow timestep
-        d_embed: (B*To, N_tok, 4, d_embed_dim) — sinusoidal embed of heatmap distances
-        returns: (B*To, N_tok, 4)              — scaling factors in (1, ∞)
-        """
-        BTo, N_tok, n_kp, _ = d_embed.shape
-        t = t_embed[:, None, None, :].expand(BTo, N_tok, n_kp, self.t_embed_dim)
-        x = torch.cat([t, d_embed], dim=-1)    # (BTo, N_tok, 4, t_dim+d_dim)
-        h = self.net(x).squeeze(-1)            # (BTo, N_tok, 4)
-        return F.softplus(h) + 1.0
-
 
 class HeatmapRoPEAttentionLayer(nn.Module):
     """
@@ -1837,8 +1695,7 @@ class HeatmapRoPEAttentionLayer(nn.Module):
     V is NOT rotated — positional encoding never contaminates the value space.
     """
 
-    def __init__(self, embed_dim: int, num_heads: int, ffn_dim: int, dropout: float = 0.0,
-                 use_flow_timestep_rope: bool = False):
+    def __init__(self, embed_dim: int, num_heads: int, ffn_dim: int, dropout: float = 0.0):
         super().__init__()
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
         head_dim = embed_dim // num_heads
@@ -1852,7 +1709,6 @@ class HeatmapRoPEAttentionLayer(nn.Module):
         self.num_heads  = num_heads
         self.head_dim   = head_dim
         self.scale      = head_dim ** -0.5
-        self.use_flow_timestep_rope = use_flow_timestep_rope
 
         self.W_Q     = nn.Linear(embed_dim, embed_dim, bias=False)
         self.W_K     = nn.Linear(embed_dim, embed_dim, bias=False)
@@ -1878,24 +1734,12 @@ class HeatmapRoPEAttentionLayer(nn.Module):
         )
         self.register_buffer("rope_freqs", freqs)   # (pairs_per_kp,)
 
-        if use_flow_timestep_rope:
-            self.freq_mlp = FrequencyMLP(t_embed_dim=64, d_embed_dim=64, hidden_dim=64)
-
-    def _apply_rope(
-        self,
-        x: torch.Tensor,
-        coords: torch.Tensor,
-        t_embed: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    def _apply_rope(self, x: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
         """
         Rotate x using heatmap coords.
 
-        x:       (B, n_heads, N_tok, head_dim)
-        coords:  (B, N_tok, 4)  values expected in [0, 1]
-        t_embed: (B, 64) sinusoidal timestep embedding, or None
-
-        If use_flow_timestep_rope and t_embed is not None, each distance is
-        scaled by freq_mlp(t_embed, coords) before computing angles.
+        x:      (B, n_heads, N_tok, head_dim)
+        coords: (B, N_tok, 4)  values expected in [0, 1]
 
         Returns rotated tensor of same shape.
         """
@@ -1903,15 +1747,6 @@ class HeatmapRoPEAttentionLayer(nn.Module):
         dims_per_kp = head_dim // 4     # number of dims per keypoint
 
         freqs = self.rope_freqs                          # (pairs_per_kp,)
-
-        # Dynamic frequency scaling: (B, N_tok, 4) scaling factors
-        if self.use_flow_timestep_rope and t_embed is not None:
-            d_embed = sinusoidal_embed_1d(coords, dim=64)    # (B, N_tok, 4, 64)
-            f = self.freq_mlp(t_embed, d_embed)              # (B, N_tok, 4)
-            effective_coords = f * coords                    # (B, N_tok, 4)
-        else:
-            effective_coords = coords                    # (B, N_tok, 4)
-
         x_out = x.clone()
 
         for kp in range(4):
@@ -1920,7 +1755,7 @@ class HeatmapRoPEAttentionLayer(nn.Module):
             x_kp  = x[:, :, :, start:end]               # (B, H, N, dims_per_kp)
 
             # distance for this keypoint: (B, N_tok) → (B, 1, N_tok, 1)
-            d = effective_coords[:, :, kp].unsqueeze(1).unsqueeze(-1)  # (B, 1, N, 1)
+            d = coords[:, :, kp].unsqueeze(1).unsqueeze(-1)   # (B, 1, N, 1)
 
             # angles: (B, 1, N_tok, pairs_per_kp)
             angles = d * freqs                           # broadcast
@@ -1939,16 +1774,10 @@ class HeatmapRoPEAttentionLayer(nn.Module):
 
         return x_out
 
-    def forward(
-        self,
-        tokens: torch.Tensor,
-        coords: torch.Tensor,
-        t_embed: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    def forward(self, tokens: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
         """
-        tokens:  (B, N_tok, D)
-        coords:  (B, N_tok, 4)  — heatmap distances in [0, 1]; zeros for no-heatmap cameras
-        t_embed: (B, 64) sinusoidal timestep embedding, or None
+        tokens: (B, N_tok, D)
+        coords: (B, N_tok, 4)  — heatmap distances in [0, 1]; zeros for no-heatmap cameras
 
         Returns: (B, N_tok, D)
         """
@@ -1963,8 +1792,8 @@ class HeatmapRoPEAttentionLayer(nn.Module):
         V = self.W_V(tokens_n).reshape(B, N_tok, self.num_heads, self.head_dim).transpose(1, 2)
 
         # Apply RoPE only to Q and K — V carries content, not position
-        Q = self._apply_rope(Q, coords, t_embed)
-        K = self._apply_rope(K, coords, t_embed)
+        Q = self._apply_rope(Q, coords)
+        K = self._apply_rope(K, coords)
 
         attn = torch.matmul(Q, K.transpose(-2, -1)) * self.scale   # (B, H, N, N)
         attn = torch.softmax(attn, dim=-1)

@@ -78,6 +78,10 @@ pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low
 
 
 
+####### GROOT + GHOST HEATMAP + HEATMAP ROPE STYLE POSITION EMBEDDING
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_vit_rope_heatmap_single_object_timestep_flow name=groot_vit_rope_heatmap_single_object_timestep_flow dataloader.batch_size=64 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.use_flow_timestep_rope=true
+
 
 
 
