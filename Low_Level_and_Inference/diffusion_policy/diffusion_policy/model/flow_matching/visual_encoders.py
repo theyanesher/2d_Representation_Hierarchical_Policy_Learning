@@ -38,7 +38,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as tv_models
-
+from diffusion_policy.model.flow_matching.dino_cross_view_encoder import DinoCrossViewTokenEncoder
 from diffusion_policy.model.flow_matching.helpers import make_2d_sinusoidal_pos_embed
 from diffusion_policy.model.vision.crop_randomizer import CropRandomizer
 from diffusion_policy.model.vision.prope import PropeDotProductAttention
@@ -2160,6 +2160,7 @@ def build_visual_encoder(encoder_type: str, encoder_cfg: dict) -> VisualTokenEnc
         "resnet_prope": ResNetPRoPETokenEncoder,
         "dinov2":       DINOv2TokenEncoder,
         "dinov3":       DINOv3TokenEncoder,
+        "dino_crossview":       DinoCrossViewTokenEncoder,
         "dinov2_rgb_resnet_heatmap":   DINOv2ResnetTokenEncoder,
         "dinov2_hommi_style_heatmap":  DINOHoMMIStyleEmbedding,
         "vit_heatmap_pos_embedding":   ViTHeatmapPosEmbedding,

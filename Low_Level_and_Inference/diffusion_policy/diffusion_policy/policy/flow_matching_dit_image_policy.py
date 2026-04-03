@@ -168,6 +168,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.visual_encoder = build_visual_encoder(
             visual_encoder_type, _make_encoder_cfg(main_cam_keys)
         )
+        import inspect
+        self._encoder_accepts_t = 't' in inspect.signature(self.visual_encoder.encode).parameters
 
         # ------------------------------------------------------------------ #
         # 3. State encoder (low-dim → DiT hidden_state prefix tokens)         #
@@ -260,7 +262,10 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         state_tokens  : (B, n_obs_steps, embed_dim)  or  None
         """
         # -- Visual tokens ------------------------------------------------- #
-        visual_tokens = self.visual_encoder.encode(nobs, t=t)
+        if self._encoder_accepts_t:
+            visual_tokens = self.visual_encoder.encode(nobs, t=t)
+        else:
+            visual_tokens = self.visual_encoder.encode(nobs)
 
         # -- State tokens -------------------------------------------------- #
         state_tokens = None

@@ -15,7 +15,7 @@ visual_encoder_cfg:
   # Mixing mode: set one of the two to true (mutually exclusive)
   # Self-attention: concat DINO+heatmap tokens → self-attn → (B, N_dino+N_resnet, D)
   add_self_attention_mixing: false
-  num_attn_layerPs: 2
+  num_attn_layers: 2
   attn_num_heads: 8
   attn_ffn_dim: 2048
   attn_dropout: 0.0

@@ -1,0 +1,30 @@
+# @package policy
+visual_encoder_type: dino_crossview
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  backbone: vitb
+  pretrained: true
+  alt_start: 6
+  qknorm_start: 6
+  rope_start: 6
+  cat_token: true
+  crop_shape: ${policy.crop_shape}
+  crop_scale: [0.75, 1.0]
+  crop_ratio: [0.9, 1.1]
+  augmentation_cfg:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    blur_kernel_size: 5
+    blur_sigma: [0.1, 2.0]
+    blur_p: 0.2
+    posterize_bits: 4
+    posterize_p: 0.1
+    sharpness_factor: 1.5
+    sharpness_p: 0.2
+    grayscale_p: 0.05
+  camera_noise_cfg:
+    translation_std: 0.01
+    rotation_deg_std: 1.5
+    focal_rel_std: 0.015
+    principal_point_px_std: 3.0
