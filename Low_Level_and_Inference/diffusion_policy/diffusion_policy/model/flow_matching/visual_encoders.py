@@ -1607,12 +1607,14 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         nn.init.normal_(self.vis_temporal_embed.weight, std=0.02)
 
         # ---- RoPE transformer layers ----
-        assert embed_dim % 8 == 0, (
-            f"embed_dim ({embed_dim}) must be divisible by 8 for 4-keypoint RoPE."
+        assert embed_dim % (heatmap_channels * 2) == 0, (
+            f"embed_dim ({embed_dim}) must be divisible by heatmap_channels*2 "
+            f"({heatmap_channels*2}) for RoPE."
         )
         self.rope_layers = nn.ModuleList([
             HeatmapRoPEAttentionLayer(embed_dim, num_heads, ffn_dim, dropout,
-                                      use_flow_timestep_rope=use_flow_timestep_rope)
+                                      use_flow_timestep_rope=use_flow_timestep_rope,
+                                      n_heatmap_channels=heatmap_channels)
             for _ in range(num_rope_layers)
         ])
 
@@ -1699,17 +1701,17 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
                     h_flat,
                     kernel_size=self._patch_size,
                     stride=self._patch_size,
-                )                                                # (B*To, 4, N_h, N_w)
-                coords = coords.flatten(2).permute(0, 2, 1)     # (B*To, N_tok, 4)
+                )                                                # (B*To, C, N_h, N_w)
+                coords = coords.flatten(2).permute(0, 2, 1)     # (B*To, N_tok, C)
             else:
                 coords = torch.zeros(
-                    B * To, N_tok, 4, device=dev, dtype=rgb_toks.dtype
+                    B * To, N_tok, self._heatmap_channels, device=dev, dtype=rgb_toks.dtype
                 )
 
             cam_coords_list.append(coords)
 
         tokens = torch.cat(cam_tokens_list, dim=1)               # (B*To, n_rgb*N_tok, D)
-        coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, 4)
+        coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, C)
         coords = coords * N_tok
         return tokens, coords, B
 
@@ -1838,14 +1840,13 @@ class HeatmapRoPEAttentionLayer(nn.Module):
     """
 
     def __init__(self, embed_dim: int, num_heads: int, ffn_dim: int, dropout: float = 0.0,
-                 use_flow_timestep_rope: bool = False):
+                 use_flow_timestep_rope: bool = False, n_heatmap_channels: int = 4):
         super().__init__()
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
         head_dim = embed_dim // num_heads
-        assert head_dim % 8 == 0, (
-            f"head_dim ({head_dim}) must be divisible by 8 "
-            f"(4 keypoints × 2 for rotation pairs). "
-            f"Got embed_dim={embed_dim}, num_heads={num_heads}."
+        assert head_dim % (n_heatmap_channels * 2) == 0, (
+            f"head_dim ({head_dim}) must be divisible by n_heatmap_channels*2 "
+            f"({n_heatmap_channels*2}). Got embed_dim={embed_dim}, num_heads={num_heads}."
         )
 
         self.embed_dim  = embed_dim
@@ -1871,8 +1872,8 @@ class HeatmapRoPEAttentionLayer(nn.Module):
         )
 
         # Frequency schedule: one set of frequencies per keypoint slice.
-        # pairs_per_kp = (head_dim // 4) // 2 = head_dim // 8
-        pairs_per_kp = head_dim // 8
+        # pairs_per_kp = (head_dim // n_heatmap_channels) // 2
+        pairs_per_kp = head_dim // (n_heatmap_channels * 2)
         freqs = 1.0 / (
             10000 ** (torch.arange(0, pairs_per_kp).float() / pairs_per_kp)
         )
@@ -1900,21 +1901,22 @@ class HeatmapRoPEAttentionLayer(nn.Module):
         Returns rotated tensor of same shape.
         """
         head_dim = x.shape[-1]
-        dims_per_kp = head_dim // 4     # number of dims per keypoint
+        n_kp = coords.shape[-1]          # actual number of heatmap channels (e.g. 1 or 4)
+        dims_per_kp = head_dim // n_kp   # distribute all head dims evenly across keypoints
 
         freqs = self.rope_freqs                          # (pairs_per_kp,)
 
-        # Dynamic frequency scaling: (B, N_tok, 4) scaling factors
+        # Dynamic frequency scaling: (B, N_tok, n_kp) scaling factors
         if self.use_flow_timestep_rope and t_embed is not None:
-            d_embed = sinusoidal_embed_1d(coords, dim=64)    # (B, N_tok, 4, 64)
-            f = self.freq_mlp(t_embed, d_embed)              # (B, N_tok, 4)
-            effective_coords = f * coords                    # (B, N_tok, 4)
+            d_embed = sinusoidal_embed_1d(coords, dim=64)    # (B, N_tok, n_kp, 64)
+            f = self.freq_mlp(t_embed, d_embed)              # (B, N_tok, n_kp)
+            effective_coords = f * coords                    # (B, N_tok, n_kp)
         else:
-            effective_coords = coords                    # (B, N_tok, 4)
+            effective_coords = coords                    # (B, N_tok, n_kp)
 
         x_out = x.clone()
 
-        for kp in range(4):
+        for kp in range(n_kp):
             start = kp * dims_per_kp
             end   = start + dims_per_kp
             x_kp  = x[:, :, :, start:end]               # (B, H, N, dims_per_kp)

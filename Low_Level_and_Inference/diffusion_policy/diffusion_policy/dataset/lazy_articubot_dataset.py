@@ -42,8 +42,12 @@ class LazyArticuBotDataset(BaseImageDataset):
             max_train_episodes=None,
             action_mode='hybrid_delta',
             pointmap_frame='robot_frame',
+            ghost_heatmap_last_channel_only=False,
+            add_current_heatmap=False,
         ):
         super().__init__()
+        self.ghost_heatmap_last_channel_only = ghost_heatmap_last_channel_only
+        self.add_current_heatmap = add_current_heatmap
 
         self.shape_meta = shape_meta
         self.data_dir = Path(data_dir)
@@ -99,6 +103,13 @@ class LazyArticuBotDataset(BaseImageDataset):
         )
         if self.pointmap_frame == 'gripper_frame':
             all_obs_keys.append('gripper_to_world')
+        if add_current_heatmap:
+            for key in self.ghost_heatmap_keys:
+                cam_prefix = key.split('_heatmap')[0]
+                all_obs_keys.append(f'{cam_prefix}_present_heatmap_ghost')
+            for key in self.heatmap_keys:
+                cam_prefix = key.split('_heatmap')[0]
+                all_obs_keys.append(f'{cam_prefix}_present_heatmap')
 
         # -----------------------------------------------------------------------
         # 2. Build LazyH5Buffer — reads only metadata (shapes/dtypes/lengths),
@@ -241,17 +252,43 @@ class LazyArticuBotDataset(BaseImageDataset):
             del data[key]
 
         for key in self.heatmap_keys:
-            h_float = data[key][T_slice].astype(np.float32)  # (T, H, W) float16 on disk -> float32
-            if h_float.ndim == 3:
-                h_float = h_float[:, None, :, :]             # (T, 1, H, W)
+            raw = data[key][T_slice]
+            if raw.dtype == np.uint8:
+                # New dataset: (T, H, W, C) uint8 -> (T, C, H, W) float32 [0, 1]
+                h_float = np.moveaxis(raw.astype(np.float32) / 255., -1, 1)
+            else:
+                # Old dataset: (T, H, W) float16, already [0, 1]
+                h_float = raw.astype(np.float32)
+                if h_float.ndim == 3:
+                    h_float = h_float[:, None, :, :]         # (T, 1, H, W)
             obs_dict[key] = h_float
             del data[key]
 
         # Ghost heatmap: (T, H, W, 4) uint8 on disk -> (T, 4, H, W) float32 [0, 1]
         for key in self.ghost_heatmap_keys:
             g = data[key][T_slice].astype(np.float32) / 255.  # (T, H, W, 4)
-            obs_dict[key] = np.moveaxis(g, -1, 1)             # (T, 4, H, W)
+            if self.ghost_heatmap_last_channel_only:
+                g = g[..., -1:]                                # (T, H, W, 1)
+            goal = np.moveaxis(g, -1, 1)                       # (T, 4or1, H, W)
+            if self.add_current_heatmap:
+                # key e.g. "cam0_heatmap_ghost" -> present key "cam0_present_heatmap_ghost"
+                cam_prefix = key.split('_heatmap')[0]          # e.g. "cam0"
+                present_key = f"{cam_prefix}_present_heatmap_ghost"
+                p = data[present_key][T_slice].astype(np.float32) / 255.
+                present = np.moveaxis(p, -1, 1)                # (T, 4, H, W)
+                obs_dict[key] = np.concatenate([goal, present], axis=1)  # (T, 8, H, W)
+            else:
+                obs_dict[key] = goal
             del data[key]
+
+        # Gaussian heatmap: append current gripper heatmap channels if requested
+        if self.add_current_heatmap:
+            for key in self.heatmap_keys:
+                cam_prefix = key.split('_heatmap')[0]          # e.g. "cam0"
+                present_key = f"{cam_prefix}_present_heatmap"
+                p = data[present_key][T_slice].astype(np.float32) / 255.
+                present = np.moveaxis(p, -1, 1)                # (T, 4, H, W)
+                obs_dict[key] = np.concatenate([obs_dict[key], present], axis=1)  # (T, 8, H, W)
 
 
         # Pointmap: (T, 3, H, W) -> decompress

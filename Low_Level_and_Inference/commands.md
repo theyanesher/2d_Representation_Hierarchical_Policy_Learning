@@ -78,7 +78,7 @@ pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low
 
 
 
-####### GROOT + GHOST HEATMAP + HEATMAP ROPE STYLE POSITION EMBEDDING
+####### GROOT + GHOST HEATMAP + HEATMAP ROPE STYLE POSITION EMBEDDING + FLOW TIME EMBEDDING
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_vit_rope_heatmap_single_object_timestep_flow name=groot_vit_rope_heatmap_single_object_timestep_flow dataloader.batch_size=64 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.use_flow_timestep_rope=true
 
@@ -99,6 +99,11 @@ heatmap_single_object dataloader.batch_size=22 visual_encoder=dinov2_hommi_style
 pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/2026.03.27/02.01.52_groot_dinov2_hommi_rgb_resnet_heatmap_single_object_hybrid/ --low_level_ckpt_name epoch_40.ckpt --high_level_ckpt_name ../../../outputs/High_Level_Model/model_8.pth --update_goal_freq 8 --folder_name ../../../data/rgb_eval/
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object dataloader.batch_size=22 visual_encoder=dinov2_hommi_style_heatmap
+
+####### GROOT + GHOST HEATMAP + HOMMI STYLE HEATMAPS + CHUNKS USED AS POSITIONAL EMBEDDINGS + SINGLE HEATMAP FOR GHOST HEATMAP
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost_single_channel task.dataset.data_dir=/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/data/rgb_mino_data_ghost_heatmap_dataset/ logging.name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object_single_channel name=groot_dinov2_hommi_rgb_resnet_heatmap_single_object_single_channel dataloader.batch_size=22 visual_encoder=dinov2_hommi_style_heatmap policy.visual_encoder_cfg.heatmap_channels=1
+
 
 
 ####### GROOT + GHOST HEATMAP + HOMMI STYLE HEATMAPS + ENTIRE IMAGE AND RESNET AS POSITIONAL EMBEDDINGS
@@ -246,4 +251,28 @@ pixi run python diffusion_policy/eval_diffpo_single_object.py \
 # print eval results
 pixi run python scripts/print_eval_results.py --num_objs 1 --d outputs_eval/2026.02.03/04.06.51_diffusion_unet_hybrid_pointmap/epoch_60.ckpt/2026-02-04_00-07
 ```
+
+
+Commands Final
+
+GROOT + ROPE POSITION EMBEDDING + 1 CHANNEL GHOST HEATMAP
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=outputs/one_object_4_point_sqrt_heatmap/ logging.name=groot_vit_rope_heatmap_single_object_single_channel name=groot_vit_rope_heatmap_single_object_single_channel dataloader.batch_size=4 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.heatmap_channels=1
+
+
+GROOT + ROPE POSITION EMBEDDING + 4 CHANNEL EXPONENTIAL HEATMAP
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_four_channels task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_vit_rope_exp_heatmap_single_object_four_channel name=groot_vit_rope_exp_heatmap_single_object_four_channel dataloader.batch_size=4 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.heatmap_channels=4
+
+GROOT + ROPE POSITION EMBEDDING + 4 CHANNEL GHOST HEATMAP + 4 CHANNEL CURRENT GRIPPER HEATMAPS
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost_current_heatmaps_added task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_vit_rope_ghost_heatmap_single_object_eight_channel name=groot_vit_rope_ghost_heatmap_single_object_eight_channel dataloader.batch_size=4 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.heatmap_channels=8
+
+
+
+GROOT + ROPE POSITION EMBEDDING + 4 CHANNEL EXPONENTIAL HEATMAP + 4 CHANNEL CURRENT GRIPPER HEATMAPS
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_current_heatmaps_added task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_vit_rope_exp_heatmap_single_object_eight_channel name=groot_vit_rope_exp_heatmap_single_object_eight_channel dataloader.batch_size=4 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.heatmap_channels=8
+
+
 

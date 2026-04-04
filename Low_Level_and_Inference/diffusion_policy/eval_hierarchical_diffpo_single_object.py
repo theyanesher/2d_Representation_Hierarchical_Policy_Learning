@@ -548,6 +548,7 @@ if __name__ == "__main__":
     _data_dir = cfg.task.dataset.data_dir
     if (_data_dir.startswith('data/rgb/')
             or _data_dir.startswith('/scratch/pbhowal/Articubot_Data_For_DP_and_Groot/Heatmap_Articubot_Dataset/')
+            or _data_dir.startswith('/scratch/pbhowal/Articubot_Heatmap_Data/')
             or _data_dir.startswith('/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/')
             or _data_dir.startswith('../../../../data')
             or 'ghost_heatmap_dataset' in _data_dir):
