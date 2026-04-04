@@ -1,0 +1,31 @@
+Data copy done in 38s
+[FlowMatchingDiTImagePolicy] visual_encoder_type='dinov2', use_separate_wrist_encoder=False, use_wrist=False, main_cam_keys=['cam0_image', 'cam1_image', 'cam2_image']
+[FlowMatchingDiTImagePolicy] visual_encoder_type='dinov2_rgb_resnet_heatmap', use_separate_wrist_encoder=False, use_wrist=False, main_cam_keys=['cam0_image', 'cam1_image', 'cam2_image', 'cam0_heatmap_ghost', 'cam1_heatmap_ghost']
+[FlowMatchingDiTImagePolicy] visual_encoder_type='dinov2_rgb_resnet_heatmap', use_separate_wrist_encoder=False, use_wrist=False, main_cam_keys=['cam0_image', 'cam1_image', 'cam2_image', 'cam0_heatmap_ghost', 'cam1_heatmap_ghost']
+[DINOv2ResnetTokenEncoder] rgb_keys=['cam0_image', 'cam1_image', 'cam2_image'], heatmap_keys=['cam0_heatmap_ghost', 'cam1_heatmap_ghost'], model_name=facebook/dinov2-base, frozen=True, backbone=resnet18, mixing_mode=self
+[DINOv2ResnetTokenEncoder] rgb_keys=['cam0_image', 'cam1_image', 'cam2_image'], heatmap_keys=['cam0_heatmap_ghost', 'cam1_heatmap_ghost'], model_name=facebook/dinov2-base, frozen=True, backbone=resnet18, mixing_mode=cross
+[ResNetTokenEncoder] cam_keys=['cam0_heatmap_ghost', 'cam1_heatmap_ghost'], backbone=resnet18, pretrained=False, wrist_cam_key=None
+[ResNetTokenEncoder] cam_keys=['cam0_heatmap_ghost', 'cam1_heatmap_ghost'], backbone=resnet18, pretrained=False, wrist_cam_key=None
+[_ResNetBackbone] backbone=resnet18, pretrained=False → weights=None
+[_ResNetBackbone] backbone=resnet18, pretrained=False → weights=None
+Total number of DiT parameters:  180757504
+Diffusion params: 1.807575e+08
+Vision params: 8.737306e+07
+Resuming from checkpoint /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/groot_dinov2_baseline/checkpoints/latest.ckpt
+Total number of DiT parameters:  180757504
+Diffusion params: 1.807575e+08
+Vision params: 1.242828e+08
+Resuming from checkpoint /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/groot_Dinov2_rgb_resnet_heatmap_cross_attention/checkpoints/latest.ckpt
+Total number of DiT parameters:  180757504
+Diffusion params: 1.807575e+08
+Vision params: 1.158819e+08
+Resuming from checkpoint /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/groot_Dinov2_rgb_resnet_heatmap_self_attention/checkpoints/latest.ckpt
+Indexing 989 trajectories from /local/slurm-38431198/local/pbhowal/one_object_4_point_sqrt_heatmap/ (lazy)...
+Indexing 989 trajectories from /local/slurm-38431198/local/pbhowal/one_object_4_point_sqrt_heatmap/ (lazy)...
+Indexing 989 trajectories from /local/slurm-38431198/local/pbhowal/one_object_4_point_sqrt_heatmap/ (lazy)...
+Dataset initialized with 100479 training sequences.
+Dataset initialized with 100479 training sequences.
+Dataset initialized with 100479 training sequences.
+TOTAL EPOCHSSSSSSSSSSSS 100
+TOTAL EPOCHSSSSSSSSSSSS 100
+TOTAL EPOCHSSSSSSSSSSSS 100

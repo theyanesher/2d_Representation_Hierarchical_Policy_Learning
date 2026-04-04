@@ -262,7 +262,12 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         state_tokens  : (B, n_obs_steps, embed_dim)  or  None
         """
         # -- Visual tokens ------------------------------------------------- #
+<<<<<<< HEAD
         if self._encoder_accepts_t:
+=======
+        import inspect
+        if 't' in inspect.signature(self.visual_encoder.encode).parameters:
+>>>>>>> 97d3d7cd (ROBO Cluster Running changes)
             visual_tokens = self.visual_encoder.encode(nobs, t=t)
         else:
             visual_tokens = self.visual_encoder.encode(nobs)

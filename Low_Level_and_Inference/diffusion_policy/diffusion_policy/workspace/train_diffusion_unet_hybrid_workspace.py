@@ -62,13 +62,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         cfg = copy.deepcopy(self.cfg)
 
         # resume training
-        import pdb; pdb.set_trace()
         if cfg.training.resume:
-            # lastest_ckpt_path = self.get_checkpoint_path()
-            lastest_ckpt_path = "/home/ksaha/pratik_works/Code/2D_Hierarchical_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.03.27/02.24.33_groot_vit_rope_heatmap_single_object_hybrid/checkpoints/latest.ckpt"
-            # lastest_ckpt_path = "/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.03.26/17.22.30_groot_dinov2_hommi_rgb_resnet_heatmap_single_object_hybrid/checkpoints/latest.ckpt"
-            # lastest_ckpt_path = "/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.03.26/02.11.29_groot_dinov2_hommi_rgb_resnet_heatmap_single_object_hybrid/checkpoints/latest.ckpt"
-            import pdb; pdb.set_trace()
+            if cfg.training.get('resume_ckpt_path', None) is not None:
+                lastest_ckpt_path = cfg.training.resume_ckpt_path
+            # else:
+            #     lastest_ckpt_path = self.get_checkpoint_path()
             # if lastest_ckpt_path.is_file():
             print(f"Resuming from checkpoint {lastest_ckpt_path}")
             self.load_checkpoint(path=lastest_ckpt_path)
