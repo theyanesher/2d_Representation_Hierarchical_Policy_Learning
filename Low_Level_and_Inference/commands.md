@@ -275,4 +275,9 @@ GROOT + ROPE POSITION EMBEDDING + 4 CHANNEL EXPONENTIAL HEATMAP + 4 CHANNEL CURR
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_current_heatmaps_added task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_vit_rope_exp_heatmap_single_object_eight_channel name=groot_vit_rope_exp_heatmap_single_object_eight_channel dataloader.batch_size=4 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.heatmap_channels=8
 
 
+ADD ROTATION AUGMENTATION TO STANDARD HEATMAP ROPE
+
+
+
+
 
