@@ -27,6 +27,7 @@ from diffusion_policy.common.action_util import (
     hybrid_delta_to_hybrid_relative_actions,
 )
 from common.data_utils import process_pointmap, process_plucker, process_depth
+from diffusion_policy.common.heatmap_augmentation import HeatmapRotationAugmentation
 
 
 class LazyArticuBotDataset(BaseImageDataset):
@@ -44,10 +45,22 @@ class LazyArticuBotDataset(BaseImageDataset):
             pointmap_frame='robot_frame',
             ghost_heatmap_last_channel_only=False,
             add_current_heatmap=False,
+            heatmap_augmentation=None,
         ):
         super().__init__()
         self.ghost_heatmap_last_channel_only = ghost_heatmap_last_channel_only
         self.add_current_heatmap = add_current_heatmap
+
+        # Build augmenters — one per heatmap type with the correct border fill.
+        # border_fill=0.0 for Gaussian (no signal = keypoint not here)
+        # border_fill=1.0 for ghost/distance-field (max distance = keypoint not here)
+        aug_cfg = heatmap_augmentation or {}
+        self.gaussian_heatmap_aug = HeatmapRotationAugmentation(
+            border_fill=0.0, **aug_cfg
+        ) if aug_cfg else None
+        self.ghost_heatmap_aug = HeatmapRotationAugmentation(
+            border_fill=1.0, **aug_cfg
+        ) if aug_cfg else None
 
         self.shape_meta = shape_meta
         self.data_dir = Path(data_dir)
@@ -168,6 +181,13 @@ class LazyArticuBotDataset(BaseImageDataset):
             pad_after=self.pad_after,
             episode_mask=~self.train_mask,
         )
+        # Disable heatmap augmentation for validation
+        if val_set.gaussian_heatmap_aug is not None:
+            val_set.gaussian_heatmap_aug = copy.copy(val_set.gaussian_heatmap_aug)
+            val_set.gaussian_heatmap_aug.enabled = False
+        if val_set.ghost_heatmap_aug is not None:
+            val_set.ghost_heatmap_aug = copy.copy(val_set.ghost_heatmap_aug)
+            val_set.ghost_heatmap_aug.enabled = False
         return val_set
 
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
@@ -261,6 +281,8 @@ class LazyArticuBotDataset(BaseImageDataset):
                 h_float = raw.astype(np.float32)
                 if h_float.ndim == 3:
                     h_float = h_float[:, None, :, :]         # (T, 1, H, W)
+            if self.gaussian_heatmap_aug is not None:
+                h_float = self.gaussian_heatmap_aug(h_float)
             obs_dict[key] = h_float
             del data[key]
 
@@ -270,6 +292,8 @@ class LazyArticuBotDataset(BaseImageDataset):
             if self.ghost_heatmap_last_channel_only:
                 g = g[..., -1:]                                # (T, H, W, 1)
             goal = np.moveaxis(g, -1, 1)                       # (T, 4or1, H, W)
+            if self.ghost_heatmap_aug is not None:
+                goal = self.ghost_heatmap_aug(goal)
             if self.add_current_heatmap:
                 # key e.g. "cam0_heatmap_ghost" -> present key "cam0_present_heatmap_ghost"
                 cam_prefix = key.split('_heatmap')[0]          # e.g. "cam0"

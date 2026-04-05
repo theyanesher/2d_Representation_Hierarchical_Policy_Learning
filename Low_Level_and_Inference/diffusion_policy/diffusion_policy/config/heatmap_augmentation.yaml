@@ -1,0 +1,19 @@
+# Heatmap rotation augmentation config.
+# Add this block under dataset: in any task yaml to enable augmentation.
+#
+# Example task yaml usage:
+#   dataset:
+#     heatmap_augmentation:
+#       enabled: true
+#       rot_sigma: 3.0
+#       rot_max: 10.0
+#       p: 0.5
+#
+# border_fill is set automatically per heatmap type in the dataset class:
+#   Gaussian heatmaps (type: heatmap)      → border_fill=0.0
+#   Ghost heatmaps    (type: ghost_heatmap) → border_fill=1.0
+
+enabled: true
+rot_sigma: 3.0   # std of rotation in degrees
+rot_max: 10.0    # hard clamp on abs rotation in degrees
+p: 0.5           # probability of augmenting each timestep
