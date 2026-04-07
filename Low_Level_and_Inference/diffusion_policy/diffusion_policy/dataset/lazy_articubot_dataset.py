@@ -87,6 +87,7 @@ class LazyArticuBotDataset(BaseImageDataset):
         self.plucker_keys = []
         self.lowdim_keys = []
         self.matrix_keys = []
+        self.goal_gripper_keys = []
 
         for key, attr in shape_meta['obs'].items():
             type_name = attr.get('type')
@@ -102,6 +103,8 @@ class LazyArticuBotDataset(BaseImageDataset):
                 self.heatmap_keys.append(key)
             elif type_name == 'ghost_heatmap':
                 self.ghost_heatmap_keys.append(key)
+            elif type_name == 'goal_gripper':
+                self.goal_gripper_keys.append(key)
             elif type_name == 'low_dim':
                 self.lowdim_keys.append(key)
             elif 'intrinsic' in key or 'extrinsic' in key:
@@ -112,7 +115,7 @@ class LazyArticuBotDataset(BaseImageDataset):
         all_obs_keys = (
             self.rgb_keys + self.depth_keys + self.heatmap_keys +
             self.ghost_heatmap_keys + self.pointmap_keys + self.plucker_keys +
-            self.lowdim_keys + self.matrix_keys
+            self.lowdim_keys + self.matrix_keys + self.goal_gripper_keys
         )
         if self.pointmap_frame == 'gripper_frame':
             all_obs_keys.append('gripper_to_world')
@@ -242,6 +245,9 @@ class LazyArticuBotDataset(BaseImageDataset):
         for key in self.ghost_heatmap_keys:
             normalizer[key] = get_identity_normalizer()
 
+        for key in self.goal_gripper_keys:
+            normalizer[key] = get_identity_normalizer()
+
         # Plucker / Pointmap / Matrices — identity (geometric data)
         for key in self.pointmap_keys + self.plucker_keys + self.matrix_keys:
             normalizer[key] = get_identity_normalizer()
@@ -339,6 +345,11 @@ class LazyArticuBotDataset(BaseImageDataset):
 
         # Low dim & matrices
         for key in self.lowdim_keys + self.matrix_keys:
+            obs_dict[key] = data[key][T_slice].astype(np.float32)
+            del data[key]
+
+        # Goal gripper pts: (T, 4, 3) float32 — loaded as-is, no reshape
+        for key in self.goal_gripper_keys:
             obs_dict[key] = data[key][T_slice].astype(np.float32)
             del data[key]
 

@@ -58,6 +58,8 @@ from diffusion_policy.common.obs_util import process_observations, process_obs_s
 from diffusion_policy.model.flow_matching.cross_attention_dit import DiT
 from diffusion_policy.model.flow_matching.helpers import ActionEncoder, SimpleMLP
 from diffusion_policy.model.flow_matching.visual_encoders import build_visual_encoder
+from diffusion_policy.model.goal_gripper_encoder.base_goal_gripper_encoder import BaseGoalGripperEncoder
+from diffusion_policy.model.goal_gripper_encoder.keypoint_aware_goal_gripper_encoder import KeypointAwareGoalGripperEncoder
 
 
 class FlowMatchingDiTImagePolicy(BaseImagePolicy):
@@ -89,6 +91,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         add_pos_embed: bool = True,
         max_seq_len: int = 64,
         diffusion_model_cfg: dict = None,
+        # ---- goal gripper encoder ----
+        goal_gripper_encoder_type: str = "base",  # "base" or "keypoint_aware"
         **kwargs,
     ):
         super().__init__()
@@ -108,18 +112,22 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # consumed directly by ResNetPRoPETokenEncoder from nobs.
         visual_obs_key_shapes: Dict[str, list] = {}
         state_obs_key_shapes: Dict[str, list] = {}
+        goal_gripper_key_shapes: Dict[str, list] = {}
 
         for key, attr in obs_shape_meta.items():
             shape = list(attr["shape"])
             stype = attr.get("type", "low_dim")
             if stype in ("rgb", "depth", "pointmap", "plucker", "heatmap", "ghost_heatmap"):
                 visual_obs_key_shapes[key] = shape
+            elif stype == "goal_gripper":
+                goal_gripper_key_shapes[key] = shape
             elif stype == "low_dim":
                 state_obs_key_shapes[key] = shape
             # extrinsic/intrinsic: skip — encoder reads them from nobs directly
 
-        self.visual_obs_keys = list(visual_obs_key_shapes.keys())
-        self.state_obs_keys  = sorted(state_obs_key_shapes.keys())
+        self.visual_obs_keys       = list(visual_obs_key_shapes.keys())
+        self.state_obs_keys        = sorted(state_obs_key_shapes.keys())
+        self.goal_gripper_obs_keys = list(goal_gripper_key_shapes.keys())
         self.n_cams = len(self.visual_obs_keys)
 
         # ------------------------------------------------------------------ #
@@ -182,6 +190,23 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                 hidden_dim=hidden_size,
                 output_dim=input_embedding_dim,
             )
+
+        # ------------------------------------------------------------------ #
+        # 3b. Goal gripper encoder                                             #
+        # ------------------------------------------------------------------ #
+        self.has_goal_gripper = len(self.goal_gripper_obs_keys) > 0
+        if self.has_goal_gripper:
+            if goal_gripper_encoder_type == "keypoint_aware":
+                self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
+                    embed_dim=input_embedding_dim,
+                    n_obs_steps=n_obs_steps,
+                )
+            else:  # "base"
+                self.goal_gripper_encoder = BaseGoalGripperEncoder(
+                    embed_dim=input_embedding_dim,
+                )
+            print(f"[FlowMatchingDiTImagePolicy] goal_gripper_encoder_type={goal_gripper_encoder_type!r}, "
+                  f"keys={self.goal_gripper_obs_keys}")
 
         # ------------------------------------------------------------------ #
         # 4. Action encoder (noisy actions + timestep → DiT hidden tokens)    #
@@ -258,8 +283,9 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
 
         Returns
         -------
-        visual_tokens : (B, n_obs_steps · n_cams · N_tokens, embed_dim)
-        state_tokens  : (B, n_obs_steps, embed_dim)  or  None
+        visual_tokens       : (B, n_obs_steps · n_cams · N_tokens, embed_dim)
+        state_tokens        : (B, n_obs_steps, embed_dim)  or  None
+        goal_gripper_tokens : (B, n_obs_steps [* n_keypoints], embed_dim)  or  None
         """
         # -- Visual tokens ------------------------------------------------- #
         if self._encoder_accepts_t:
@@ -278,7 +304,19 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             state = torch.cat(state_parts, dim=-1)       # (B, To, state_dim)
             state_tokens = self.state_encoder(state)     # (B, To, D)
 
-        return visual_tokens, state_tokens
+        # -- Goal gripper tokens ------------------------------------------- #
+        goal_gripper_tokens = None
+        if self.has_goal_gripper:
+            # All goal_gripper keys are (B, To, 4, 3) — sum/cat across keys if multiple
+            gripper_parts = [
+                nobs[k][:, : self.n_obs_steps]           # (B, To, 4, 3)
+                for k in self.goal_gripper_obs_keys
+                if k in nobs
+            ]
+            goal_pts = gripper_parts[0] if len(gripper_parts) == 1 else torch.cat(gripper_parts, dim=2)
+            goal_gripper_tokens = self.goal_gripper_encoder(goal_pts)
+
+        return visual_tokens, state_tokens, goal_gripper_tokens
 
     def _run_dit(
         self,
@@ -286,16 +324,20 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         visual_tokens: torch.Tensor,
         state_tokens,
         t_discretized: torch.Tensor,
+        goal_gripper_tokens=None,
     ) -> torch.Tensor:
         """
-        hidden_states        = cat([state_tokens, action_features])
+        hidden_states        = cat([state_tokens, goal_gripper_tokens, action_features])
         encoder_hidden_states = visual_tokens
         Returns last action_horizon output tokens: (B, action_horizon, hidden_size)
         """
+        parts = []
         if self.has_state and state_tokens is not None:
-            hidden_states = torch.cat([state_tokens, action_features], dim=1)
-        else:
-            hidden_states = action_features
+            parts.append(state_tokens)
+        if goal_gripper_tokens is not None:
+            parts.append(goal_gripper_tokens)
+        parts.append(action_features)
+        hidden_states = torch.cat(parts, dim=1) if len(parts) > 1 else parts[0]
 
         model_output = self.model(
             hidden_states=hidden_states,
@@ -330,7 +372,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         noise = torch.randn_like(nactions)
         t = self._sample_time(batch_size, device=device, dtype=dtype)
 
-        visual_tokens, state_tokens = self._encode_obs(nobs, batch_size, t=t)
+        visual_tokens, state_tokens, goal_gripper_tokens = self._encode_obs(nobs, batch_size, t=t)
         t_bc = t[:, None, None]                          # (B, 1, 1)
         noisy_actions   = (1 - t_bc) * noise + t_bc * nactions
         velocity_target = nactions - noise
@@ -342,7 +384,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
             action_features = action_features + self.position_embedding(pos_ids).unsqueeze(0)
 
-        dit_out      = self._run_dit(action_features, visual_tokens, state_tokens, t_disc)
+        dit_out      = self._run_dit(action_features, visual_tokens, state_tokens, t_disc, goal_gripper_tokens)
         pred_velocity = self.action_decoder(dit_out)
         # import pdb; pdb.set_trace()
         return F.mse_loss(pred_velocity, velocity_target)
@@ -378,6 +420,17 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             state = torch.cat(state_parts, dim=-1)
             state_tokens = self.state_encoder(state)
 
+        # Goal gripper tokens are also t-independent — compute once.
+        goal_gripper_tokens = None
+        if self.has_goal_gripper:
+            gripper_parts = [
+                nobs[k][:, :self.n_obs_steps]
+                for k in self.goal_gripper_obs_keys
+                if k in nobs
+            ]
+            goal_pts = gripper_parts[0] if len(gripper_parts) == 1 else torch.cat(gripper_parts, dim=2)
+            goal_gripper_tokens = self.goal_gripper_encoder(goal_pts)
+
         # Start from pure noise.
         actions = torch.randn(
             batch_size, self.action_horizon, self.action_dim,
@@ -402,7 +455,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                 pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
                 action_features = action_features + self.position_embedding(pos_ids).unsqueeze(0)
 
-            dit_out       = self._run_dit(action_features, visual_tokens, state_tokens, timesteps)
+            dit_out       = self._run_dit(action_features, visual_tokens, state_tokens, timesteps, goal_gripper_tokens)
             pred_velocity = self.action_decoder(dit_out)
             actions       = actions + dt * pred_velocity
 
