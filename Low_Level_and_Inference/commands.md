@@ -279,6 +279,9 @@ ADD ROTATION AUGMENTATION TO STANDARD HEATMAP ROPE
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../../data/ logging.name=groot_vit_rope_heatmap_single_object name=groot_vit_rope_heatmap_single_object dataloader.batch_size=64 visual_encoder=vit_heatmap_rope task.dataset.heatmap_augmentation.enabled=true task.dataset.heatmap_augmentation.rot_sigma=3.0 task.dataset.heatmap_augmentation.rot_max=10.0 task.dataset.heatmap_augmentation.p=0.5
 
+ADD ANGULAR COMPONENT TO STANDARD ROPE 
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../../data/ logging.name=groot_vit_rope_heatmap_single_object name=groot_vit_rope_heatmap_single_object dataloader.batch_size=64 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.use_direction_axes_in_rope=true policy.hidden_size=1020 policy.input_embedding_dim=1020
 
 
 

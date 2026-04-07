@@ -1528,6 +1528,8 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         dropout: float = 0.0,
         # dynamic RoPE
         use_flow_timestep_rope: bool = False,
+        # direction axes in RoPE
+        use_direction_axes_in_rope: bool = False,
         # cropping strategy:
         #   False (default) — separate randomizers for RGB and heatmap; crops are
         #     independent during training (acts as positional noise regularization)
@@ -1563,12 +1565,23 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         N_h = crop_shape[0] // patch_size
         N_w = crop_shape[1] // patch_size
         self._N_tok = N_h * N_w
+        self._N_h   = N_h
+        self._N_w   = N_w
 
         n_rgb = len(rgb_keys)
 
+        self.use_direction_axes_in_rope = use_direction_axes_in_rope
+        # Detect heatmap type (ghost=argmin, Gaussian=argmax) from key name
+        heatmap_key_sample = next(iter(heatmap_keys), "")
+        self._heatmap_is_ghost = "ghost" in heatmap_key_sample
+
+        # Number of RoPE coordinate axes: distance channels [+ sinθ, cosθ]
+        n_rope_axes = heatmap_channels + 2 if use_direction_axes_in_rope else heatmap_channels
+
         print(f"[ViTHeatmapRoPEEmbedding] rgb_keys={rgb_keys}, "
               f"heatmap_keys={heatmap_keys}, heatmap_map={self._heatmap_map}, "
-              f"N_tok={self._N_tok}, num_rope_layers={num_rope_layers}")
+              f"N_tok={self._N_tok}, num_rope_layers={num_rope_layers}, "
+              f"n_rope_axes={n_rope_axes}, use_direction_axes_in_rope={use_direction_axes_in_rope}")
 
         # ---- RGB patch embedding ----
         self.rgb_patch_embed = nn.Conv2d(
@@ -1578,6 +1591,7 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
 
         self._in_channels = in_channels
         self._heatmap_channels = heatmap_channels
+        self._n_rope_axes = n_rope_axes
 
         if use_exact_cropping:
             # Single combined randomizer — RGB and heatmap always get identical crop offsets.
@@ -1607,14 +1621,15 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
         nn.init.normal_(self.vis_temporal_embed.weight, std=0.02)
 
         # ---- RoPE transformer layers ----
-        assert embed_dim % (heatmap_channels * 2) == 0, (
-            f"embed_dim ({embed_dim}) must be divisible by heatmap_channels*2 "
-            f"({heatmap_channels*2}) for RoPE."
+        assert embed_dim % (n_rope_axes * 2) == 0, (
+            f"embed_dim ({embed_dim}) must be divisible by n_rope_axes*2 "
+            f"({n_rope_axes*2}) for RoPE. n_rope_axes={n_rope_axes} "
+            f"({'heatmap_channels + 2 (direction axes)' if use_direction_axes_in_rope else 'heatmap_channels'})."
         )
         self.rope_layers = nn.ModuleList([
             HeatmapRoPEAttentionLayer(embed_dim, num_heads, ffn_dim, dropout,
                                       use_flow_timestep_rope=use_flow_timestep_rope,
-                                      n_heatmap_channels=heatmap_channels)
+                                      n_heatmap_channels=n_rope_axes)
             for _ in range(num_rope_layers)
         ])
 
@@ -1703,16 +1718,55 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
                     stride=self._patch_size,
                 )                                                # (B*To, C, N_h, N_w)
                 coords = coords.flatten(2).permute(0, 2, 1)     # (B*To, N_tok, C)
+
+                if self.use_direction_axes_in_rope:
+                    # Find keypoint patch locations via argmin (ghost) or argmax (Gaussian)
+                    if self._heatmap_is_ghost:
+                        kp_patch_idx = coords.argmin(dim=1)      # (B*To, C)
+                    else:
+                        kp_patch_idx = coords.argmax(dim=1)      # (B*To, C)
+
+                    # Convert flat patch index → (row, col) in N_h x N_w grid
+                    kp_rows = (kp_patch_idx // self._N_w).float()  # (B*To, C)
+                    kp_cols = (kp_patch_idx  % self._N_w).float()  # (B*To, C)
+
+                    # Centroid of keypoints in patch grid
+                    cx = kp_cols.mean(dim=-1, keepdim=True)        # (B*To, 1)
+                    cy = kp_rows.mean(dim=-1, keepdim=True)        # (B*To, 1)
+
+                    # Per-patch displacement from centroid
+                    patch_ids  = torch.arange(N_tok, device=dev, dtype=torch.float32)
+                    patch_rows = (patch_ids // self._N_w)          # (N_tok,)
+                    patch_cols = (patch_ids  % self._N_w)          # (N_tok,)
+
+                    dx = patch_cols[None, :] - cx                  # (B*To, N_tok)
+                    dy = patch_rows[None, :] - cy                  # (B*To, N_tok)
+
+                    r = torch.sqrt(dx ** 2 + dy ** 2).clamp(min=1e-6)
+                    sin_theta = (dy / r).unsqueeze(-1)             # (B*To, N_tok, 1)
+                    cos_theta = (dx / r).unsqueeze(-1)             # (B*To, N_tok, 1)
+
+                    coords = torch.cat([coords, sin_theta, cos_theta], dim=-1)  # (B*To, N_tok, C+2)
             else:
                 coords = torch.zeros(
-                    B * To, N_tok, self._heatmap_channels, device=dev, dtype=rgb_toks.dtype
+                    B * To, N_tok, self._n_rope_axes, device=dev, dtype=rgb_toks.dtype
                 )
 
             cam_coords_list.append(coords)
 
         tokens = torch.cat(cam_tokens_list, dim=1)               # (B*To, n_rgb*N_tok, D)
-        coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, C)
-        coords = coords * N_tok
+        coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, n_rope_axes)
+
+        # Scale distance channels by N_tok for RoPE angle range.
+        # sinθ/cosθ are already in [-1, 1] — do not scale.
+        if self.use_direction_axes_in_rope:
+            coords = torch.cat([
+                coords[..., :self._heatmap_channels] * N_tok,    # distance axes
+                coords[..., self._heatmap_channels:],            # sinθ, cosθ unchanged
+            ], dim=-1)
+        else:
+            coords = coords * N_tok
+
         return tokens, coords, B
 
     def run_rope(

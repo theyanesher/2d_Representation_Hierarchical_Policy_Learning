@@ -13,3 +13,8 @@ visual_encoder_cfg:
   dropout: 0.0
   use_flow_timestep_rope: False
   use_exact_cropping: False
+  # When enabled: appends sinθ, cosθ of the direction from the projected gripper
+  # centroid to each patch center, giving 6 RoPE axes instead of 4.
+  # embed_dim will be auto-rounded down to the nearest multiple of 12.
+  # Requires goal_gripper_pts and camera intrinsic/extrinsic keys in nobs.
+  use_direction_axes_in_rope: False
