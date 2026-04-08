@@ -1721,6 +1721,7 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
 
                 if self.use_direction_axes_in_rope:
                     # Find keypoint patch locations via argmin (ghost) or argmax (Gaussian)
+                    # import pdb; pdb.set_trace();
                     if self._heatmap_is_ghost:
                         kp_patch_idx = coords.argmin(dim=1)      # (B*To, C)
                     else:
@@ -1747,6 +1748,7 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
                     cos_theta = (dx / r).unsqueeze(-1)             # (B*To, N_tok, 1)
 
                     coords = torch.cat([coords, sin_theta, cos_theta], dim=-1)  # (B*To, N_tok, C+2)
+                    # import pdb; pdb.set_trace();
             else:
                 coords = torch.zeros(
                     B * To, N_tok, self._n_rope_axes, device=dev, dtype=rgb_toks.dtype

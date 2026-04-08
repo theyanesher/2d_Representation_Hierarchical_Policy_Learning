@@ -281,7 +281,12 @@ pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_
 
 ADD ANGULAR COMPONENT TO STANDARD ROPE 
 
-pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=../../../../data/ logging.name=groot_vit_rope_heatmap_single_object name=groot_vit_rope_heatmap_single_object dataloader.batch_size=64 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.use_direction_axes_in_rope=true policy.hidden_size=1020 policy.input_embedding_dim=1020
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_vit_rope_heatmap_single_object name=groot_vit_rope_heatmap_single_object dataloader.batch_size=1 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.use_direction_axes_in_rope=true policy.hidden_size=1152 policy.input_embedding_dim=1152 policy.diffusion_model_cfg.output_dim=1152
+
+
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_goal_gripper task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_dinov2_goal_gripper_DIT name=groot_dinov2_goal_gripper_DIT dataloader.batch_size=22 visual_encoder=dinov2
+
 
 
 
