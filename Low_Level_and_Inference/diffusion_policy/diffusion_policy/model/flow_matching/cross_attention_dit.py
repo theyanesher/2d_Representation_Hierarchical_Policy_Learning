@@ -88,6 +88,9 @@ class BasicTransformerBlock(nn.Module):
         ff_inner_dim: Optional[int] = None,
         ff_bias: bool = True,
         attention_out_bias: bool = True,
+        # Goal cross-attention: runs before visual cross-attention when enabled.
+        use_goal_cross_attention: bool = False,
+        goal_cross_attention_dim: Optional[int] = None,
     ):
         super().__init__()
         self.dim = dim
@@ -101,6 +104,7 @@ class BasicTransformerBlock(nn.Module):
         self.positional_embeddings = positional_embeddings
         self.num_positional_embeddings = num_positional_embeddings
         self.norm_type = norm_type
+        self.use_goal_cross_attention = use_goal_cross_attention
 
         if positional_embeddings and (num_positional_embeddings is None):
             raise ValueError(
@@ -132,6 +136,25 @@ class BasicTransformerBlock(nn.Module):
             out_bias=attention_out_bias,
         )
 
+        # 2. Goal cross-attention (optional) — fires before visual cross-attention.
+        # Uses AdaLayerNorm when norm_type=="ada_norm" so it gets the same
+        # timestep conditioning as the other norms in this block.
+        if use_goal_cross_attention:
+            if norm_type == "ada_norm":
+                self.norm_goal = AdaLayerNorm(dim)
+            else:
+                self.norm_goal = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
+            self.attn_goal = Attention(
+                query_dim=dim,
+                heads=num_attention_heads,
+                dim_head=attention_head_dim,
+                dropout=dropout,
+                bias=attention_bias,
+                cross_attention_dim=goal_cross_attention_dim or dim,
+                upcast_attention=upcast_attention,
+                out_bias=attention_out_bias,
+            )
+
         # 3. Feed-forward
         self.norm3 = nn.LayerNorm(dim, norm_eps, norm_elementwise_affine)
         self.ff = FeedForward(
@@ -154,8 +177,25 @@ class BasicTransformerBlock(nn.Module):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.LongTensor] = None,
+        goal_hidden_states: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        # 0. Self-Attention
+        # 1. Goal cross-attention (only fires when flag is on AND goal tokens provided)
+        if self.use_goal_cross_attention and goal_hidden_states is not None:
+            if self.norm_type == "ada_norm":
+                norm_hidden_states = self.norm_goal(hidden_states, temb)
+            else:
+                norm_hidden_states = self.norm_goal(hidden_states)
+            attn_output = self.attn_goal(
+                norm_hidden_states,
+                encoder_hidden_states=goal_hidden_states,
+            )
+            if self.final_dropout:
+                attn_output = self.final_dropout(attn_output)
+            hidden_states = attn_output + hidden_states
+            if hidden_states.ndim == 4:
+                hidden_states = hidden_states.squeeze(1)
+
+        # 2. Visual cross-attention (or self-attention when encoder_hidden_states is None)
         if self.norm_type == "ada_norm":
             norm_hidden_states = self.norm1(hidden_states, temb)
         else:
@@ -168,7 +208,6 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states,
             attention_mask=attention_mask,
-            # encoder_attention_mask=encoder_attention_mask,
         )
         if self.final_dropout:
             attn_output = self.final_dropout(attn_output)
@@ -177,7 +216,7 @@ class BasicTransformerBlock(nn.Module):
         if hidden_states.ndim == 4:
             hidden_states = hidden_states.squeeze(1)
 
-        # 4. Feed-forward
+        # 3. Feed-forward
         norm_hidden_states = self.norm3(hidden_states)
         ff_output = self.ff(norm_hidden_states)
 
@@ -210,6 +249,10 @@ class DiT(ModelMixin, ConfigMixin):
         final_dropout: bool = True,
         positional_embeddings: Optional[str] = "sinusoidal",
         interleave_self_attention=False,
+        # Goal cross-attention: adds a cross-attn to goal tokens before every
+        # visual cross-attention block (even-indexed blocks when interleave_self_attention=True).
+        use_goal_cross_attention: bool = False,
+        goal_cross_attention_dim: Optional[int] = None,
     ):
         super().__init__()
 
@@ -238,8 +281,15 @@ class DiT(ModelMixin, ConfigMixin):
                     positional_embeddings=positional_embeddings,
                     num_positional_embeddings=max_num_positional_embeddings,
                     final_dropout=final_dropout,
+                    # Goal cross-attn only on cross-attention blocks (even idx when interleaving).
+                    # With interleave_self_attention=False every block is a cross-attn block.
+                    use_goal_cross_attention=(
+                        use_goal_cross_attention
+                        and (not interleave_self_attention or idx % 2 == 0)
+                    ),
+                    goal_cross_attention_dim=goal_cross_attention_dim,
                 )
-                for _ in range(num_layers)
+                for idx in range(num_layers)
             ]
         )
 
@@ -258,6 +308,7 @@ class DiT(ModelMixin, ConfigMixin):
         encoder_hidden_states: torch.Tensor,  # Shape: (B, S, D)
         timestep: Optional[torch.LongTensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
+        goal_hidden_states: Optional[torch.Tensor] = None,  # Shape: (B, G, D)
         return_all_hidden_states: bool = False,
     ):
         # Encode timesteps
@@ -271,21 +322,26 @@ class DiT(ModelMixin, ConfigMixin):
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
-            if idx % 2 == 1 and self.config.interleave_self_attention:
+            is_self_attn_block = idx % 2 == 1 and self.config.interleave_self_attention
+            if is_self_attn_block:
+                # Self-attention block: no visual or goal cross-attention
                 hidden_states = block(
                     hidden_states,
                     attention_mask=None,
                     encoder_hidden_states=None,
                     encoder_attention_mask=None,
                     temb=temb,
+                    goal_hidden_states=None,
                 )
             else:
+                # Visual cross-attention block: optionally also cross-attend to goals
                 hidden_states = block(
                     hidden_states,
                     attention_mask=None,
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_attention_mask=None,
                     temb=temb,
+                    goal_hidden_states=goal_hidden_states,
                 )
             all_hidden_states.append(hidden_states)
 

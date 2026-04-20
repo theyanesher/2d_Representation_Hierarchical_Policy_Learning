@@ -93,6 +93,10 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         diffusion_model_cfg: dict = None,
         # ---- goal gripper encoder ----
         goal_gripper_encoder_type: str = "base",  # "base" or "keypoint_aware"
+        # When True, goal tokens are fed to the DiT via dedicated cross-attention
+        # (one cross-attn to goals before every visual cross-attn block) rather
+        # than being prepended to hidden_states for self-attention.
+        use_goal_cross_attention: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -113,6 +117,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         visual_obs_key_shapes: Dict[str, list] = {}
         state_obs_key_shapes: Dict[str, list] = {}
         goal_gripper_key_shapes: Dict[str, list] = {}
+        gmm_goals_key = None
+        gmm_weights_key = None
 
         for key, attr in obs_shape_meta.items():
             shape = list(attr["shape"])
@@ -121,6 +127,10 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                 visual_obs_key_shapes[key] = shape
             elif stype == "goal_gripper":
                 goal_gripper_key_shapes[key] = shape
+            elif stype == "gmm_goals":
+                gmm_goals_key = key
+            elif stype == "gmm_weights":
+                gmm_weights_key = key
             elif stype == "low_dim":
                 state_obs_key_shapes[key] = shape
             # extrinsic/intrinsic: skip — encoder reads them from nobs directly
@@ -128,6 +138,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.visual_obs_keys       = list(visual_obs_key_shapes.keys())
         self.state_obs_keys        = sorted(state_obs_key_shapes.keys())
         self.goal_gripper_obs_keys = list(goal_gripper_key_shapes.keys())
+        self.gmm_goals_key         = gmm_goals_key
+        self.gmm_weights_key       = gmm_weights_key
         self.n_cams = len(self.visual_obs_keys)
 
         # ------------------------------------------------------------------ #
@@ -195,7 +207,20 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # 3b. Goal gripper encoder                                             #
         # ------------------------------------------------------------------ #
         self.has_goal_gripper = len(self.goal_gripper_obs_keys) > 0
-        if self.has_goal_gripper:
+        self.has_gmm = gmm_goals_key is not None and gmm_weights_key is not None
+        self.use_goal_cross_attention = use_goal_cross_attention
+
+        if self.has_gmm:
+            # GMM mode: one token per candidate, weight appended before encoding
+            self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
+                embed_dim=input_embedding_dim,
+                n_obs_steps=n_obs_steps,
+                use_gmm=True,
+            )
+            print(f"[FlowMatchingDiTImagePolicy] GMM goal encoder: "
+                  f"goals_key={gmm_goals_key!r}, weights_key={gmm_weights_key!r}, "
+                  f"use_goal_cross_attention={use_goal_cross_attention}")
+        elif self.has_goal_gripper:
             if goal_gripper_encoder_type == "keypoint_aware":
                 self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
                     embed_dim=input_embedding_dim,
@@ -206,6 +231,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                     embed_dim=input_embedding_dim,
                 )
             print(f"[FlowMatchingDiTImagePolicy] goal_gripper_encoder_type={goal_gripper_encoder_type!r}, "
+                  f"use_goal_cross_attention={use_goal_cross_attention}, "
                   f"keys={self.goal_gripper_obs_keys}")
 
         # ------------------------------------------------------------------ #
@@ -306,10 +332,15 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
 
         # -- Goal gripper tokens ------------------------------------------- #
         goal_gripper_tokens = None
-        if self.has_goal_gripper:
-            # All goal_gripper keys are (B, To, 4, 3) — sum/cat across keys if multiple
+        if self.has_gmm:
+            # GMM mode: encode all candidates with their weights appended
+            goal_pts = nobs[self.gmm_goals_key][:, : self.n_obs_steps]    # (B, To, N, 4, 3)
+            weights  = nobs[self.gmm_weights_key][:, : self.n_obs_steps]  # (B, To, N)
+            goal_gripper_tokens = self.goal_gripper_encoder(goal_pts, weights=weights)
+        elif self.has_goal_gripper:
+            # Standard mode: encode single goal (B, To, 4, 3) per key
             gripper_parts = [
-                nobs[k][:, : self.n_obs_steps]           # (B, To, 4, 3)
+                nobs[k][:, : self.n_obs_steps]
                 for k in self.goal_gripper_obs_keys
                 if k in nobs
             ]
@@ -327,15 +358,29 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         goal_gripper_tokens=None,
     ) -> torch.Tensor:
         """
-        hidden_states        = cat([state_tokens, goal_gripper_tokens, action_features])
-        encoder_hidden_states = visual_tokens
+        When use_goal_cross_attention=False (default):
+          hidden_states        = cat([state_tokens, goal_gripper_tokens, action_features])
+          goal_hidden_states   = None  (goal tokens participate in self-attention)
+
+        When use_goal_cross_attention=True:
+          hidden_states        = cat([state_tokens, action_features])
+          goal_hidden_states   = goal_gripper_tokens  (dedicated cross-attn in DiT)
+
+        encoder_hidden_states = visual_tokens (cross-attended in every even block)
         Returns last action_horizon output tokens: (B, action_horizon, hidden_size)
         """
         parts = []
         if self.has_state and state_tokens is not None:
             parts.append(state_tokens)
+
+        # Route goal tokens: into hidden_states (self-attn) or goal_hidden_states (cross-attn)
+        dit_goal_hidden_states = None
         if goal_gripper_tokens is not None:
-            parts.append(goal_gripper_tokens)
+            if self.use_goal_cross_attention:
+                dit_goal_hidden_states = goal_gripper_tokens
+            else:
+                parts.append(goal_gripper_tokens)
+
         parts.append(action_features)
         hidden_states = torch.cat(parts, dim=1) if len(parts) > 1 else parts[0]
 
@@ -343,6 +388,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             hidden_states=hidden_states,
             encoder_hidden_states=visual_tokens,
             timestep=t_discretized,
+            goal_hidden_states=dit_goal_hidden_states,
         )
         return model_output[:, -self.action_horizon :]
 
@@ -422,7 +468,11 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
 
         # Goal gripper tokens are also t-independent — compute once.
         goal_gripper_tokens = None
-        if self.has_goal_gripper:
+        if self.has_gmm:
+            goal_pts = nobs[self.gmm_goals_key][:, :self.n_obs_steps]    # (B, To, N, 4, 3)
+            weights  = nobs[self.gmm_weights_key][:, :self.n_obs_steps]  # (B, To, N)
+            goal_gripper_tokens = self.goal_gripper_encoder(goal_pts, weights=weights)
+        elif self.has_goal_gripper:
             gripper_parts = [
                 nobs[k][:, :self.n_obs_steps]
                 for k in self.goal_gripper_obs_keys

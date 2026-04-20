@@ -54,6 +54,10 @@ policy:
   add_pos_embed: False
   max_seq_len: 64   # must be >= action_horizon (16 is safe with 64)
 
+  # Set to true to route goal tokens through dedicated DiT cross-attention layers
+  # (one cross-attn to goals before every visual cross-attn block).
+  use_goal_cross_attention: false
+
   diffusion_model_cfg:
     # inner_dim = num_attention_heads * attention_head_dim = 8 * 64 = 512
     num_attention_heads: ${eval:'${policy.hidden_size} // ${policy.diffusion_model_cfg.attention_head_dim}'}
@@ -70,6 +74,7 @@ policy:
     positional_embeddings: sinusoidal
     max_num_positional_embeddings: 64
     interleave_self_attention: true
+    use_goal_cross_attention: ${policy.use_goal_cross_attention}
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel

@@ -1718,7 +1718,7 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
                     stride=self._patch_size,
                 )                                                # (B*To, C, N_h, N_w)
                 coords = coords.flatten(2).permute(0, 2, 1)     # (B*To, N_tok, C)
-
+                # import pdb; pdb.set_trace()
                 if self.use_direction_axes_in_rope:
                     # Find keypoint patch locations via argmin (ghost) or argmax (Gaussian)
                     # import pdb; pdb.set_trace();
@@ -1755,7 +1755,7 @@ class ViTHeatmapRoPEEmbedding(VisualTokenEncoder):
                 )
 
             cam_coords_list.append(coords)
-
+        # import pdb; pdb.set_trace()
         tokens = torch.cat(cam_tokens_list, dim=1)               # (B*To, n_rgb*N_tok, D)
         coords = torch.cat(cam_coords_list, dim=1)               # (B*To, n_rgb*N_tok, n_rope_axes)
 

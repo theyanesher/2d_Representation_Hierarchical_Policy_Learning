@@ -88,6 +88,7 @@ class LazyArticuBotDataset(BaseImageDataset):
         self.lowdim_keys = []
         self.matrix_keys = []
         self.goal_gripper_keys = []
+        self.gmm_keys = []  # gmm_goals and gmm_weights — loaded as-is, identity normalizer
 
         for key, attr in shape_meta['obs'].items():
             type_name = attr.get('type')
@@ -105,6 +106,8 @@ class LazyArticuBotDataset(BaseImageDataset):
                 self.ghost_heatmap_keys.append(key)
             elif type_name == 'goal_gripper':
                 self.goal_gripper_keys.append(key)
+            elif type_name in ('gmm_goals', 'gmm_weights'):
+                self.gmm_keys.append(key)
             elif type_name == 'low_dim':
                 self.lowdim_keys.append(key)
             elif 'intrinsic' in key or 'extrinsic' in key:
@@ -115,7 +118,8 @@ class LazyArticuBotDataset(BaseImageDataset):
         all_obs_keys = (
             self.rgb_keys + self.depth_keys + self.heatmap_keys +
             self.ghost_heatmap_keys + self.pointmap_keys + self.plucker_keys +
-            self.lowdim_keys + self.matrix_keys + self.goal_gripper_keys
+            self.lowdim_keys + self.matrix_keys + self.goal_gripper_keys +
+            self.gmm_keys
         )
         if self.pointmap_frame == 'gripper_frame':
             all_obs_keys.append('gripper_to_world')
@@ -248,6 +252,10 @@ class LazyArticuBotDataset(BaseImageDataset):
         for key in self.goal_gripper_keys:
             normalizer[key] = get_identity_normalizer()
 
+        # GMM distribution keys — identity (probabilities and 3D coords, no normalization)
+        for key in self.gmm_keys:
+            normalizer[key] = get_identity_normalizer()
+
         # Plucker / Pointmap / Matrices — identity (geometric data)
         for key in self.pointmap_keys + self.plucker_keys + self.matrix_keys:
             normalizer[key] = get_identity_normalizer()
@@ -350,6 +358,13 @@ class LazyArticuBotDataset(BaseImageDataset):
 
         # Goal gripper pts: (T, 4, 3) float32 — loaded as-is, no reshape
         for key in self.goal_gripper_keys:
+            obs_dict[key] = data[key][T_slice].astype(np.float32)
+            del data[key]
+
+        # GMM distribution: loaded as-is (no reshape, no normalization)
+        # gmm_all_goals:   (T, 2044, 4, 3) float32
+        # gmm_all_weights: (T, 2044)       float32
+        for key in self.gmm_keys:
             obs_dict[key] = data[key][T_slice].astype(np.float32)
             del data[key]
 

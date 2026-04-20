@@ -28,6 +28,8 @@ from diffusion_policy.diffusion_policy.workspace.train_diffusion_unet_hybrid_wor
 from diffusion_policy.diffusion_policy.workspace.train_diffusion_unet_image_workspace import TrainDiffusionUnetImageWorkspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from manipulation.utils import build_up_image_env, save_numpy_as_mp4
+from manipulation.utils import rotation_transfer_6D_to_matrix
+from scipy.spatial.transform import Rotation as _Rotation
 from diffusion_policy.common.action_util import (
     hybrid_relative_to_hybrid_delta_actions,
     hybrid_delta_to_hybrid_relative_actions,
@@ -97,6 +99,54 @@ def _compute_ghost_heatmap_for_cam(points_world: np.ndarray, extrinsic: np.ndarr
         points_2d.append(np.array([result[0], result[1]]) if result is not None else np.array([0.0, 0.0]))
     return _ghost_heatmap(np.array(points_2d), H, W, n=n, sigma=sigma)  # (H, W, 4) uint8
 
+_ORIGINAL_GRIPPER_PCD = np.array([
+    [ 0.10432111,  0.00228697,  0.8474241 ],
+    [ 0.12816067, -0.04368229,  0.8114649 ],
+    [ 0.08953098,  0.0484529 ,  0.80711854],
+    [ 0.11198021,  0.00245327,  0.7828771 ],
+], dtype=np.float64)
+_ORIGINAL_GRIPPER_ORN = np.array([0.97841681, 0.19802945, 0.0581003, 0.01045192])
+
+
+def _gripper_pts_from_state(state_10d: np.ndarray) -> np.ndarray:
+    """Convert a 10-D state vector (pos[3] + rot6d[6] + gripper[1]) to (4, 3) world keypoints."""
+    pos = state_10d[:3].astype(np.float64)
+    orient = state_10d[3:9]
+    R = rotation_transfer_6D_to_matrix(orient)
+    R_orig = _Rotation.from_quat(_ORIGINAL_GRIPPER_ORN).as_matrix()
+    R_transfer = R * R_orig.T
+    pcd_centered = _ORIGINAL_GRIPPER_PCD - _ORIGINAL_GRIPPER_PCD[3]
+    return (np.dot(pcd_centered, R_transfer.T) + pos).astype(np.float32)  # (4, 3)
+
+
+def generate_present_ghost_heatmaps(parallel_input_dict, num_cams=2):
+    """Compute ghost heatmaps for the *current* gripper from obs state.
+
+    Uses the last obs timestep's state (10D) to derive 4 gripper keypoints,
+    projects them onto each camera, and returns ghost heatmaps matching the
+    same format as generate_goal_ghost_heatmaps.
+
+    Returns dict {'cam0_present_heatmap_ghost': tensor(B,T,4,H,W), ...} float32 [0,1].
+    """
+    # state: (B, T, 10) — take last timestep of first batch element
+    state_np = parallel_input_dict['state'][0, -1].cpu().numpy()  # (10,)
+    pts_world = _gripper_pts_from_state(state_np)                  # (4, 3)
+
+    img_shape = parallel_input_dict['cam0_image'].shape  # (B, T, H, W, 3)
+    H, W, T = int(img_shape[2]), int(img_shape[3]), int(img_shape[1])
+    B = parallel_input_dict['cam0_image'].shape[0]
+
+    heatmaps = {}
+    for cam in range(num_cams):
+        E = parallel_input_dict[f'cam{cam}_extrinsic'][0, -1].cpu().numpy()
+        K = parallel_input_dict[f'cam{cam}_intrinsic'][0, -1].cpu().numpy()
+        gh_np = _compute_ghost_heatmap_for_cam(pts_world, E, K, H, W)   # (H, W, 4) uint8
+        gh_np = np.moveaxis(gh_np.astype(np.float32) / 255., -1, 0)     # (4, H, W)
+        gh = torch.from_numpy(gh_np).to(parallel_input_dict['state'].device)
+        heatmaps[f'cam{cam}_present_heatmap_ghost'] = gh[None, None].expand(B, T, 4, H, W).contiguous()
+    return heatmaps
+
+
 def generate_goal_heatmaps(predicted_goal, parallel_input_dict, sigma=20.0, num_cams=3):
     """Project the predicted goal gripper position onto each camera as a Gaussian heatmap.
 
@@ -125,6 +175,34 @@ def generate_goal_heatmaps(predicted_goal, parallel_input_dict, sigma=20.0, num_
         # Replicate to (B, T, 1, H, W) — channel dim matches training dataset convention
         hm = torch.from_numpy(hm_np).to(predicted_goal.device)
         heatmaps[f'cam{cam}_heatmap'] = hm[None, None, None].expand(B, T, 1, H, W).contiguous()
+    return heatmaps
+
+
+def generate_goal_heatmaps_4_points(predicted_goal, parallel_input_dict, sigma=20.0, num_cams=2):
+    """Project all 4 gripper keypoints onto each camera as separate Gaussian heatmap channels.
+
+    Same as generate_goal_heatmaps but generates one channel per keypoint (4 total)
+    instead of a single channel. Used when the model was trained with cam0_heatmap of
+    shape (4, H, W) (e.g. one_object_4_point_sqrt_heatmap datasets).
+
+    Returns dict {'cam0_heatmap': tensor(B,T,4,H,W), 'cam1_heatmap': ...} float32 [0,1].
+    """
+    B = predicted_goal.shape[0]
+    pts_world = predicted_goal[0, 0, :, :].cpu().numpy()  # (4, 3)
+
+    img_shape = parallel_input_dict['cam0_image'].shape  # (B, T, H, W, 3)
+    H, W, T = int(img_shape[2]), int(img_shape[3]), int(img_shape[1])
+
+    heatmaps = {}
+    for cam in range(num_cams):
+        E = parallel_input_dict[f'cam{cam}_extrinsic'][0, -1].cpu().numpy()
+        K = parallel_input_dict[f'cam{cam}_intrinsic'][0, -1].cpu().numpy()
+        channels = []
+        for pt in pts_world:
+            hm_np = _compute_heatmap_for_cam(pt, E, K, H, W, sigma)  # (H, W)
+            channels.append(torch.from_numpy(hm_np))
+        hm = torch.stack(channels, dim=0).to(predicted_goal.device)  # (4, H, W)
+        heatmaps[f'cam{cam}_heatmap'] = hm[None, None].expand(B, T, 4, H, W).contiguous()
     return heatmaps
 
 
@@ -157,6 +235,29 @@ def generate_goal_ghost_heatmaps(predicted_goal, parallel_input_dict, num_cams=2
         gh_np = np.moveaxis(gh_np.astype(np.float32) / 255., -1, 0)          # (4, H, W)
         gh = torch.from_numpy(gh_np).to(predicted_goal.device)
         heatmaps[f'cam{cam}_heatmap_ghost'] = gh[None, None].expand(B, T, 4, H, W).contiguous()
+    return heatmaps
+
+
+def generate_goal_ghost_heatmaps_1_channel(predicted_goal, parallel_input_dict, sigma=20.0, num_cams=2):
+    """Generate a 1-channel Gaussian heatmap from the last gripper keypoint, stored under
+    cam{i}_heatmap_ghost keys.  Used when the model was trained with heatmap_channels=1
+    but the key name is still cam0_heatmap_ghost (not cam0_heatmap).
+
+    Returns dict {'cam0_heatmap_ghost': tensor(B,T,1,H,W), ...} float32 [0,1].
+    """
+    B = predicted_goal.shape[0]
+    point_world = predicted_goal[0, 0, -1, :].cpu().numpy()  # last keypoint, (3,)
+
+    img_shape = parallel_input_dict['cam0_image'].shape  # (B, T, H, W, 3)
+    H, W, T = int(img_shape[2]), int(img_shape[3]), int(img_shape[1])
+
+    heatmaps = {}
+    for cam in range(num_cams):
+        E = parallel_input_dict[f'cam{cam}_extrinsic'][0, -1].cpu().numpy()
+        K = parallel_input_dict[f'cam{cam}_intrinsic'][0, -1].cpu().numpy()
+        hm_np = _compute_heatmap_for_cam(point_world, E, K, H, W, sigma)  # (H, W)
+        hm = torch.from_numpy(hm_np).to(predicted_goal.device)
+        heatmaps[f'cam{cam}_heatmap_ghost'] = hm[None, None, None].expand(B, T, 1, H, W).contiguous()
     return heatmaps
 
 # ---------------------------------------------------------------------------
@@ -296,6 +397,7 @@ def run_eval_non_parallel(cfg, low_level_policy, high_level_policy,
                           hl_num_points=4500,
                           hl_obs_mode='act3d',
                           use_ghost_heatmap=True,
+                          add_current_heatmap=False,
                           ):
 
     ### loop through each test object
@@ -381,9 +483,28 @@ def run_eval_non_parallel(cfg, low_level_policy, high_level_policy,
 
                     # Project goal onto each camera as a heatmap (ghost or Gaussian)
                     if use_ghost_heatmap:
-                        goal_heatmaps = generate_goal_ghost_heatmaps(predicted_goal, parallel_input_dict)
+                        if heatmap_channels == 1:
+                            # Model trained with 1-channel ghost key: generate single Gaussian
+                            # from the last keypoint only.
+                            goal_heatmaps = generate_goal_ghost_heatmaps_1_channel(predicted_goal, parallel_input_dict)
+                        else:
+                            goal_heatmaps = generate_goal_ghost_heatmaps(predicted_goal, parallel_input_dict)
+                        if add_current_heatmap:
+                            # Concatenate [goal(4) | present(4)] along channel dim to match training
+                            present_heatmaps = generate_present_ghost_heatmaps(parallel_input_dict)
+                            for cam_key in goal_heatmaps:
+                                cam_prefix = cam_key.replace('_heatmap_ghost', '')
+                                present_key = f'{cam_prefix}_present_heatmap_ghost'
+                                goal_heatmaps[cam_key] = torch.cat(
+                                    [goal_heatmaps[cam_key], present_heatmaps[present_key]], dim=2
+                                )  # (B, T, 8, H, W)
                     else:
-                        goal_heatmaps = generate_goal_heatmaps(predicted_goal, parallel_input_dict)
+                        if heatmap_channels == 4:
+                            # Non-ghost key but 4-channel heatmap (e.g. one_object_4_point_sqrt_heatmap):
+                            # generate one Gaussian per keypoint so channel count matches training.
+                            goal_heatmaps = generate_goal_heatmaps_4_points(predicted_goal, parallel_input_dict)
+                        else:
+                            goal_heatmaps = generate_goal_heatmaps(predicted_goal, parallel_input_dict)
                     parallel_input_dict.update(goal_heatmaps)
 
                     # --- Heatmap + goal-point visualization (before filter_obs_keys) ---
@@ -544,6 +665,13 @@ if __name__ == "__main__":
     use_ghost_heatmap = 'cam0_heatmap_ghost' in cfg.task.shape_meta.obs
     print(f"Using ghost heatmap: {use_ghost_heatmap}")
 
+    # Detect whether the model was trained with present (current) gripper heatmaps
+    # Training uses add_current_heatmap=True which doubles heatmap channels (4 → 8)
+    heatmap_key = 'cam0_heatmap_ghost' if use_ghost_heatmap else 'cam0_heatmap'
+    heatmap_channels = cfg.task.shape_meta.obs.get(heatmap_key, {}).get('shape', [4])[0] if heatmap_key in cfg.task.shape_meta.obs else 4
+    add_current_heatmap = (heatmap_channels == 8)
+    print(f"Add current gripper heatmap: {add_current_heatmap} (heatmap_channels={heatmap_channels})")
+
     randomize_camera = None
     _data_dir = cfg.task.dataset.data_dir
     if (_data_dir.startswith('data/rgb/')
@@ -551,7 +679,9 @@ if __name__ == "__main__":
             or _data_dir.startswith('/scratch/pbhowal/Articubot_Heatmap_Data/')
             or _data_dir.startswith('/home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/outputs/Heatmap_Articubot_Dataset/')
             or _data_dir.startswith('../../../../data')
-            or 'ghost_heatmap_dataset' in _data_dir):
+            or 'ghost_heatmap_dataset' in _data_dir
+            or 'All_Heatmap_Dataset' in _data_dir
+            or _data_dir.startswith('/local/') and 'pbhowal' in _data_dir):
         randomize_camera = 0
     elif _data_dir.startswith('data/rgb_camera_left_right_randomized/'):
         randomize_camera = 1
@@ -585,6 +715,7 @@ if __name__ == "__main__":
             output_obj_pcd_only=bool(args.output_obj_pcd_only),
             update_goal_freq=args.update_goal_freq,
             use_ghost_heatmap=use_ghost_heatmap,
+            add_current_heatmap=add_current_heatmap,
     )
 
 """

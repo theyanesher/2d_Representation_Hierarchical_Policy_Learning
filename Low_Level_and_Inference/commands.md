@@ -269,6 +269,9 @@ GROOT + ROPE POSITION EMBEDDING + 4 CHANNEL GHOST HEATMAP + 4 CHANNEL CURRENT GR
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=rgb_heatmap_articubot_ghost_current_heatmaps_added task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_vit_rope_ghost_heatmap_single_object_eight_channel name=groot_vit_rope_ghost_heatmap_single_object_eight_channel dataloader.batch_size=4 visual_encoder=vit_heatmap_rope policy.visual_encoder_cfg.heatmap_channels=8
 
 
+pixi run python diffusion_policy/eval_hierarchical_diffpo_single_object.py --low_level_exp_dir outputs/groot_vit_rope_ghost_heatmap_single_object_eight_channel/ --low_level_ckpt_name epoch_45.ckpt --high_level_ckpt_name ../../../ArticuBot/outputs/High_Level_Policy/model_8.pth --update_goal_freq 8 --folder_name ../../../ArticuBot/data/rgb_eval/
+
+
 
 GROOT + ROPE POSITION EMBEDDING + 4 CHANNEL EXPONENTIAL HEATMAP + 4 CHANNEL CURRENT GRIPPER HEATMAPS
 
