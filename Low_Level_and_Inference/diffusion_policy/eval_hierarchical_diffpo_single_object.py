@@ -398,6 +398,7 @@ def run_eval_non_parallel(cfg, low_level_policy, high_level_policy,
                           hl_obs_mode='act3d',
                           use_ghost_heatmap=True,
                           add_current_heatmap=False,
+                          add_goal_gripper_pts=False,
                           ):
 
     ### loop through each test object
@@ -480,6 +481,8 @@ def run_eval_non_parallel(cfg, low_level_policy, high_level_policy,
 
                     predicted_goal = predicted_goal.repeat(1, 2, 1, 1)
                     parallel_input_dict['goal_gripper_pcd'] = predicted_goal
+                    if add_goal_gripper_pts:
+                        parallel_input_dict['goal_gripper_pts'] = predicted_goal  # (B, To, 4, 3)
 
                     # Project goal onto each camera as a heatmap (ghost or Gaussian)
                     if use_ghost_heatmap:
@@ -672,6 +675,10 @@ if __name__ == "__main__":
     add_current_heatmap = (heatmap_channels == 8)
     print(f"Add current gripper heatmap: {add_current_heatmap} (heatmap_channels={heatmap_channels})")
 
+    # Detect whether the model was trained with goal_gripper_pts
+    add_goal_gripper_pts = 'goal_gripper_pts' in cfg.task.shape_meta.obs
+    print(f"Add goal gripper pts: {add_goal_gripper_pts}")
+
     randomize_camera = None
     _data_dir = cfg.task.dataset.data_dir
     if (_data_dir.startswith('data/rgb/')
@@ -716,6 +723,7 @@ if __name__ == "__main__":
             update_goal_freq=args.update_goal_freq,
             use_ghost_heatmap=use_ghost_heatmap,
             add_current_heatmap=add_current_heatmap,
+            add_goal_gripper_pts=add_goal_gripper_pts,
     )
 
 """
