@@ -291,5 +291,32 @@ pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_goal_gripper task.dataset.data_dir=outputs/All_Heatmap_Dataset/ logging.name=groot_dinov2_goal_gripper_DIT name=groot_dinov2_goal_gripper_DIT dataloader.batch_size=22 visual_encoder=dinov2
 
 
+GMM BASED TRAINING COMMANDS
+
+1. Self-attention (GMM tokens concatenated into DiT hidden states):
+
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=false policy.gmm_top_k=20 task.dataset.data_dir=../../../../data/All_Heatmap_Dataset logging.name=groot_GMM_Self_Attention_ingle_object name=groot_GMM_Self_Attention_ingle_object dataloader.batch_size=4
+
+
+
+
+2. Cross-attention (GMM tokens as dedicated goal_hidden_states in DiT):
+
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=true task.dataset.data_dir=../../../../data/All_Heatmap_Dataset logging.name=groot_GMM_Cross_Attention_ingle_object name=groot_GMM_Cross_Attention_ingle_object
+_single_object dataloader.batch_size=4 dataloader.num_workers=0
+
+
+3. Weighted cross-attention (GMM probabilities as log-bias on attention logits):
+
+
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=true policy.use_weighted_cross_attention=true task.dataset.data_dir=../../../../data/All_Heatmap_Dataset logging.name=groot_GMM_Weighted_Cross_Attention_ingle_object name=groot_GMM_Weighted_Cross_Attention_ingle_object dataloader.batch_size=4 dataloader.num_workers=0
+
+
+
+
+
+
 
 

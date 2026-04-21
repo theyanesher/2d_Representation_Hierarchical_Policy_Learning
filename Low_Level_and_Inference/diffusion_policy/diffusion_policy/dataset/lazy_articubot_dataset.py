@@ -379,7 +379,7 @@ class LazyArticuBotDataset(BaseImageDataset):
         elif 'delta' in self.action_mode:
             action = torch.from_numpy(data['action'].astype(np.float32))
 
-
+        # import pdb; pdb.set_trace()
         return {
             'obs': dict_apply(obs_dict, torch.from_numpy),
             'action': action,

@@ -97,6 +97,14 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # (one cross-attn to goals before every visual cross-attn block) rather
         # than being prepended to hidden_states for self-attention.
         use_goal_cross_attention: bool = False,
+        # When True (requires use_goal_cross_attention=True and has_gmm=True), the goal
+        # cross-attention uses the GMM probability weights as a log-prior bias on attention
+        # logits: logits += log(w_j). The encoder does NOT append weight as an input feature.
+        use_weighted_cross_attention: bool = False,
+        # When set, keep only the top-K GMM candidates by weight before encoding.
+        # Useful with use_goal_cross_attention=False (self-attention) to bound sequence length.
+        # None = use all candidates.
+        gmm_top_k: int = None,
         **kwargs,
     ):
         super().__init__()
@@ -209,17 +217,20 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.has_goal_gripper = len(self.goal_gripper_obs_keys) > 0
         self.has_gmm = gmm_goals_key is not None and gmm_weights_key is not None
         self.use_goal_cross_attention = use_goal_cross_attention
+        self.use_weighted_cross_attention = use_weighted_cross_attention
+        self.gmm_top_k = gmm_top_k
 
         if self.has_gmm:
-            # GMM mode: one token per candidate, weight appended before encoding
             self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
                 embed_dim=input_embedding_dim,
                 n_obs_steps=n_obs_steps,
                 use_gmm=True,
+                use_weighted_cross_attention=use_weighted_cross_attention,
             )
             print(f"[FlowMatchingDiTImagePolicy] GMM goal encoder: "
                   f"goals_key={gmm_goals_key!r}, weights_key={gmm_weights_key!r}, "
-                  f"use_goal_cross_attention={use_goal_cross_attention}")
+                  f"use_goal_cross_attention={use_goal_cross_attention}, "
+                  f"use_weighted_cross_attention={use_weighted_cross_attention}")
         elif self.has_goal_gripper:
             if goal_gripper_encoder_type == "keypoint_aware":
                 self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
@@ -312,6 +323,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         visual_tokens       : (B, n_obs_steps · n_cams · N_tokens, embed_dim)
         state_tokens        : (B, n_obs_steps, embed_dim)  or  None
         goal_gripper_tokens : (B, n_obs_steps [* n_keypoints], embed_dim)  or  None
+        goal_weights        : (B, n_obs_steps * N_candidates)  or  None
+                              Only non-None when use_weighted_cross_attention=True.
         """
         # -- Visual tokens ------------------------------------------------- #
         if self._encoder_accepts_t:
@@ -332,13 +345,28 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
 
         # -- Goal gripper tokens ------------------------------------------- #
         goal_gripper_tokens = None
+        goal_weights = None
         if self.has_gmm:
-            # GMM mode: encode all candidates with their weights appended
             goal_pts = nobs[self.gmm_goals_key][:, : self.n_obs_steps]    # (B, To, N, 4, 3)
             weights  = nobs[self.gmm_weights_key][:, : self.n_obs_steps]  # (B, To, N)
-            goal_gripper_tokens = self.goal_gripper_encoder(goal_pts, weights=weights)
+
+            # Keep only the top-K candidates by weight (per batch, per obs step).
+            if self.gmm_top_k is not None:
+                K = min(self.gmm_top_k, weights.shape[-1])
+                topk_idx = torch.topk(weights, K, dim=-1).indices          # (B, To, K)
+                # Gather goal_pts: expand idx to match (B, To, K, 4, 3)
+                idx_pts = topk_idx.unsqueeze(-1).unsqueeze(-1).expand(
+                    *topk_idx.shape, goal_pts.shape[-2], goal_pts.shape[-1]
+                )
+                goal_pts = torch.gather(goal_pts, 2, idx_pts)             # (B, To, K, 4, 3)
+                weights  = torch.gather(weights, 2, topk_idx)             # (B, To, K)
+
+            enc_out = self.goal_gripper_encoder(goal_pts, weights=weights)
+            if self.use_weighted_cross_attention:
+                goal_gripper_tokens, goal_weights = enc_out  # tokens + flat weights
+            else:
+                goal_gripper_tokens = enc_out
         elif self.has_goal_gripper:
-            # Standard mode: encode single goal (B, To, 4, 3) per key
             gripper_parts = [
                 nobs[k][:, : self.n_obs_steps]
                 for k in self.goal_gripper_obs_keys
@@ -347,7 +375,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             goal_pts = gripper_parts[0] if len(gripper_parts) == 1 else torch.cat(gripper_parts, dim=2)
             goal_gripper_tokens = self.goal_gripper_encoder(goal_pts)
 
-        return visual_tokens, state_tokens, goal_gripper_tokens
+        return visual_tokens, state_tokens, goal_gripper_tokens, goal_weights
 
     def _run_dit(
         self,
@@ -356,15 +384,21 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         state_tokens,
         t_discretized: torch.Tensor,
         goal_gripper_tokens=None,
+        goal_weights=None,
     ) -> torch.Tensor:
         """
         When use_goal_cross_attention=False (default):
           hidden_states        = cat([state_tokens, goal_gripper_tokens, action_features])
           goal_hidden_states   = None  (goal tokens participate in self-attention)
 
-        When use_goal_cross_attention=True:
+        When use_goal_cross_attention=True, use_weighted_cross_attention=False:
           hidden_states        = cat([state_tokens, action_features])
-          goal_hidden_states   = goal_gripper_tokens  (dedicated cross-attn in DiT)
+          goal_hidden_states   = goal_gripper_tokens  (standard cross-attn in DiT)
+
+        When use_goal_cross_attention=True, use_weighted_cross_attention=True:
+          hidden_states        = cat([state_tokens, action_features])
+          goal_hidden_states   = goal_gripper_tokens  (WeightedCrossAttention in DiT)
+          goal_weights         = (B, N_goals) GMM probs for log-bias
 
         encoder_hidden_states = visual_tokens (cross-attended in every even block)
         Returns last action_horizon output tokens: (B, action_horizon, hidden_size)
@@ -373,11 +407,13 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         if self.has_state and state_tokens is not None:
             parts.append(state_tokens)
 
-        # Route goal tokens: into hidden_states (self-attn) or goal_hidden_states (cross-attn)
         dit_goal_hidden_states = None
+        dit_goal_weights = None
         if goal_gripper_tokens is not None:
             if self.use_goal_cross_attention:
                 dit_goal_hidden_states = goal_gripper_tokens
+                if self.use_weighted_cross_attention:
+                    dit_goal_weights = goal_weights
             else:
                 parts.append(goal_gripper_tokens)
 
@@ -389,6 +425,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             encoder_hidden_states=visual_tokens,
             timestep=t_discretized,
             goal_hidden_states=dit_goal_hidden_states,
+            goal_weights=dit_goal_weights,
         )
         return model_output[:, -self.action_horizon :]
 
@@ -418,7 +455,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         noise = torch.randn_like(nactions)
         t = self._sample_time(batch_size, device=device, dtype=dtype)
 
-        visual_tokens, state_tokens, goal_gripper_tokens = self._encode_obs(nobs, batch_size, t=t)
+        visual_tokens, state_tokens, goal_gripper_tokens, goal_weights = self._encode_obs(nobs, batch_size, t=t)
         t_bc = t[:, None, None]                          # (B, 1, 1)
         noisy_actions   = (1 - t_bc) * noise + t_bc * nactions
         velocity_target = nactions - noise
@@ -430,7 +467,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
             action_features = action_features + self.position_embedding(pos_ids).unsqueeze(0)
 
-        dit_out      = self._run_dit(action_features, visual_tokens, state_tokens, t_disc, goal_gripper_tokens)
+        dit_out      = self._run_dit(action_features, visual_tokens, state_tokens, t_disc, goal_gripper_tokens, goal_weights)
         pred_velocity = self.action_decoder(dit_out)
         # import pdb; pdb.set_trace()
         return F.mse_loss(pred_velocity, velocity_target)
@@ -468,10 +505,25 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
 
         # Goal gripper tokens are also t-independent — compute once.
         goal_gripper_tokens = None
+        goal_weights = None
         if self.has_gmm:
             goal_pts = nobs[self.gmm_goals_key][:, :self.n_obs_steps]    # (B, To, N, 4, 3)
             weights  = nobs[self.gmm_weights_key][:, :self.n_obs_steps]  # (B, To, N)
-            goal_gripper_tokens = self.goal_gripper_encoder(goal_pts, weights=weights)
+
+            if self.gmm_top_k is not None:
+                K = min(self.gmm_top_k, weights.shape[-1])
+                topk_idx = torch.topk(weights, K, dim=-1).indices
+                idx_pts = topk_idx.unsqueeze(-1).unsqueeze(-1).expand(
+                    *topk_idx.shape, goal_pts.shape[-2], goal_pts.shape[-1]
+                )
+                goal_pts = torch.gather(goal_pts, 2, idx_pts)
+                weights  = torch.gather(weights, 2, topk_idx)
+
+            enc_out = self.goal_gripper_encoder(goal_pts, weights=weights)
+            if self.use_weighted_cross_attention:
+                goal_gripper_tokens, goal_weights = enc_out
+            else:
+                goal_gripper_tokens = enc_out
         elif self.has_goal_gripper:
             gripper_parts = [
                 nobs[k][:, :self.n_obs_steps]
@@ -505,7 +557,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                 pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
                 action_features = action_features + self.position_embedding(pos_ids).unsqueeze(0)
 
-            dit_out       = self._run_dit(action_features, visual_tokens, state_tokens, timesteps, goal_gripper_tokens)
+            dit_out       = self._run_dit(action_features, visual_tokens, state_tokens, timesteps, goal_gripper_tokens, goal_weights)
             pred_velocity = self.action_decoder(dit_out)
             actions       = actions + dt * pred_velocity
 

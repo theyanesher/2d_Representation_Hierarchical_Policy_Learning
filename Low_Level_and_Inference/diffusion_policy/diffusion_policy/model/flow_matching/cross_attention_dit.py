@@ -67,6 +67,71 @@ class AdaLayerNorm(nn.Module):
         return x
 
 
+class WeightedCrossAttention(nn.Module):
+    """
+    Multi-head cross-attention with per-key log-prior from GMM weights.
+
+    Implements:
+        logits_{i,j} = (Q_i · K_j) / sqrt(d_k) + log(w_j)
+        attn         = softmax(logits, dim=-1)
+        out_i        = sum_j  attn_{i,j} · V_j
+
+    This is equivalent to multiplying the un-normalised attention scores by w_j
+    before the softmax, i.e. high-probability GMM candidates attract more
+    attention regardless of the query content.
+    """
+
+    def __init__(
+        self,
+        query_dim: int,
+        key_dim: int,
+        num_heads: int,
+        head_dim: int,
+        dropout: float = 0.0,
+        bias: bool = True,
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+        self.scale = head_dim ** -0.5
+        inner_dim = num_heads * head_dim
+
+        self.to_q   = nn.Linear(query_dim, inner_dim, bias=bias)
+        self.to_k   = nn.Linear(key_dim,   inner_dim, bias=bias)
+        self.to_v   = nn.Linear(key_dim,   inner_dim, bias=bias)
+        self.to_out = nn.Linear(inner_dim, query_dim, bias=bias)
+        self.drop   = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,          # (B, T_q, query_dim)
+        encoder_hidden_states: torch.Tensor,  # (B, N_k, key_dim)
+        weights: torch.Tensor,                # (B, N_k)  GMM probabilities
+    ) -> torch.Tensor:
+        # import pdb; pdb.set_trace()
+        B, T_q, _ = hidden_states.shape
+        N_k = encoder_hidden_states.shape[1]
+        H, Dh = self.num_heads, self.head_dim
+
+        Q = self.to_q(hidden_states).view(B, T_q, H, Dh).transpose(1, 2)   # (B,H,T_q,Dh)
+        K = self.to_k(encoder_hidden_states).view(B, N_k, H, Dh).transpose(1, 2)  # (B,H,N_k,Dh)
+        V = self.to_v(encoder_hidden_states).view(B, N_k, H, Dh).transpose(1, 2)  # (B,H,N_k,Dh)
+
+        logits = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # (B,H,T_q,N_k)
+
+        # Add log-weight bias: boost high-probability keys, suppress low-probability ones.
+        log_w = torch.log(weights.clamp(min=1e-8))        # (B, N_k)
+        logits = logits + log_w[:, None, None, :]          # broadcast over H and T_q
+
+        attn = torch.softmax(logits, dim=-1)
+        attn = self.drop(attn)
+
+        out = torch.matmul(attn, V)                        # (B,H,T_q,Dh)
+        out = out.transpose(1, 2).contiguous().view(B, T_q, H * Dh)
+        # import pdb; pdb.set_trace()
+        return self.to_out(out)                            # (B,T_q,query_dim)
+
+
 class BasicTransformerBlock(nn.Module):
     def __init__(
         self,
@@ -91,6 +156,9 @@ class BasicTransformerBlock(nn.Module):
         # Goal cross-attention: runs before visual cross-attention when enabled.
         use_goal_cross_attention: bool = False,
         goal_cross_attention_dim: Optional[int] = None,
+        # When True, goal cross-attention uses WeightedCrossAttention (log-bias from GMM weights)
+        # instead of standard Attention. Requires use_goal_cross_attention=True.
+        use_weighted_cross_attention: bool = False,
     ):
         super().__init__()
         self.dim = dim
@@ -105,6 +173,7 @@ class BasicTransformerBlock(nn.Module):
         self.num_positional_embeddings = num_positional_embeddings
         self.norm_type = norm_type
         self.use_goal_cross_attention = use_goal_cross_attention
+        self.use_weighted_cross_attention = use_weighted_cross_attention
 
         if positional_embeddings and (num_positional_embeddings is None):
             raise ValueError(
@@ -144,16 +213,28 @@ class BasicTransformerBlock(nn.Module):
                 self.norm_goal = AdaLayerNorm(dim)
             else:
                 self.norm_goal = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
-            self.attn_goal = Attention(
-                query_dim=dim,
-                heads=num_attention_heads,
-                dim_head=attention_head_dim,
-                dropout=dropout,
-                bias=attention_bias,
-                cross_attention_dim=goal_cross_attention_dim or dim,
-                upcast_attention=upcast_attention,
-                out_bias=attention_out_bias,
-            )
+
+            if use_weighted_cross_attention:
+                # WeightedCrossAttention: log-biases attention logits by GMM weights.
+                self.attn_goal = WeightedCrossAttention(
+                    query_dim=dim,
+                    key_dim=goal_cross_attention_dim or dim,
+                    num_heads=num_attention_heads,
+                    head_dim=attention_head_dim,
+                    dropout=dropout,
+                    bias=attention_bias,
+                )
+            else:
+                self.attn_goal = Attention(
+                    query_dim=dim,
+                    heads=num_attention_heads,
+                    dim_head=attention_head_dim,
+                    dropout=dropout,
+                    bias=attention_bias,
+                    cross_attention_dim=goal_cross_attention_dim or dim,
+                    upcast_attention=upcast_attention,
+                    out_bias=attention_out_bias,
+                )
 
         # 3. Feed-forward
         self.norm3 = nn.LayerNorm(dim, norm_eps, norm_elementwise_affine)
@@ -178,6 +259,7 @@ class BasicTransformerBlock(nn.Module):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.LongTensor] = None,
         goal_hidden_states: Optional[torch.Tensor] = None,
+        goal_weights: Optional[torch.Tensor] = None,  # (B, N_goals) — required when use_weighted_cross_attention
     ) -> torch.Tensor:
         # 1. Goal cross-attention (only fires when flag is on AND goal tokens provided)
         if self.use_goal_cross_attention and goal_hidden_states is not None:
@@ -185,10 +267,22 @@ class BasicTransformerBlock(nn.Module):
                 norm_hidden_states = self.norm_goal(hidden_states, temb)
             else:
                 norm_hidden_states = self.norm_goal(hidden_states)
-            attn_output = self.attn_goal(
-                norm_hidden_states,
-                encoder_hidden_states=goal_hidden_states,
-            )
+
+            if self.use_weighted_cross_attention:
+                assert goal_weights is not None, (
+                    "goal_weights must be provided when use_weighted_cross_attention=True"
+                )
+                attn_output = self.attn_goal(
+                    norm_hidden_states,
+                    encoder_hidden_states=goal_hidden_states,
+                    weights=goal_weights,
+                )
+            else:
+                attn_output = self.attn_goal(
+                    norm_hidden_states,
+                    encoder_hidden_states=goal_hidden_states,
+                )
+
             if self.final_dropout:
                 attn_output = self.final_dropout(attn_output)
             hidden_states = attn_output + hidden_states
@@ -253,6 +347,10 @@ class DiT(ModelMixin, ConfigMixin):
         # visual cross-attention block (even-indexed blocks when interleave_self_attention=True).
         use_goal_cross_attention: bool = False,
         goal_cross_attention_dim: Optional[int] = None,
+        # When True, the goal cross-attention uses WeightedCrossAttention (log-bias from GMM
+        # weights) instead of standard scaled-dot-product attention.
+        # Requires use_goal_cross_attention=True and goal_weights passed to forward().
+        use_weighted_cross_attention: bool = False,
     ):
         super().__init__()
 
@@ -288,6 +386,11 @@ class DiT(ModelMixin, ConfigMixin):
                         and (not interleave_self_attention or idx % 2 == 0)
                     ),
                     goal_cross_attention_dim=goal_cross_attention_dim,
+                    use_weighted_cross_attention=(
+                        use_weighted_cross_attention
+                        and use_goal_cross_attention
+                        and (not interleave_self_attention or idx % 2 == 0)
+                    ),
                 )
                 for idx in range(num_layers)
             ]
@@ -304,11 +407,12 @@ class DiT(ModelMixin, ConfigMixin):
 
     def forward(
         self,
-        hidden_states: torch.Tensor,  # Shape: (B, T, D)
-        encoder_hidden_states: torch.Tensor,  # Shape: (B, S, D)
+        hidden_states: torch.Tensor,           # (B, T, D)
+        encoder_hidden_states: torch.Tensor,   # (B, S, D)
         timestep: Optional[torch.LongTensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        goal_hidden_states: Optional[torch.Tensor] = None,  # Shape: (B, G, D)
+        goal_hidden_states: Optional[torch.Tensor] = None,  # (B, G, D)
+        goal_weights: Optional[torch.Tensor] = None,        # (B, G) — GMM probs for weighted cross-attn
         return_all_hidden_states: bool = False,
     ):
         # Encode timesteps
@@ -332,6 +436,7 @@ class DiT(ModelMixin, ConfigMixin):
                     encoder_attention_mask=None,
                     temb=temb,
                     goal_hidden_states=None,
+                    goal_weights=None,
                 )
             else:
                 # Visual cross-attention block: optionally also cross-attend to goals
@@ -342,6 +447,7 @@ class DiT(ModelMixin, ConfigMixin):
                     encoder_attention_mask=None,
                     temb=temb,
                     goal_hidden_states=goal_hidden_states,
+                    goal_weights=goal_weights,
                 )
             all_hidden_states.append(hidden_states)
 

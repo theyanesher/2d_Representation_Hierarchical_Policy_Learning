@@ -58,6 +58,15 @@ policy:
   # (one cross-attn to goals before every visual cross-attn block).
   use_goal_cross_attention: false
 
+  # Set to true to use GMM probabilities as a log-prior bias on goal cross-attention logits:
+  #   logits += log(w_j)  — requires use_goal_cross_attention=true and GMM obs keys.
+  use_weighted_cross_attention: false
+
+  # Keep only the top-K GMM candidates by weight before encoding.
+  # Useful with use_goal_cross_attention=false (self-attention) to bound sequence length.
+  # null = use all candidates.
+  gmm_top_k: null
+
   diffusion_model_cfg:
     # inner_dim = num_attention_heads * attention_head_dim = 8 * 64 = 512
     num_attention_heads: ${eval:'${policy.hidden_size} // ${policy.diffusion_model_cfg.attention_head_dim}'}
@@ -75,6 +84,7 @@ policy:
     max_num_positional_embeddings: 64
     interleave_self_attention: true
     use_goal_cross_attention: ${policy.use_goal_cross_attention}
+    use_weighted_cross_attention: ${policy.use_weighted_cross_attention}
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel

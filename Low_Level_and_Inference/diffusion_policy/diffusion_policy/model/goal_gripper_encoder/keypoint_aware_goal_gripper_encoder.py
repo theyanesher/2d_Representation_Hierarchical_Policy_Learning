@@ -12,7 +12,7 @@ use_gmm=False (default) — goal_gripper mode:
         + learned keypoint identity embedding (which of the 4 keypoints)
         + learned timestep embedding (which obs step)
 
-use_gmm=True — GMM distribution mode:
+use_gmm=True, use_weighted_cross_attention=False — GMM feature mode:
     Input : goal_pts (B, To, N, 4, 3)  — N candidates, each with 4 keypoints
             weights  (B, To, N)         — softmax probability of each candidate
     Output: (B, To * N, D)             — one token per candidate per timestep
@@ -21,6 +21,18 @@ use_gmm=True — GMM distribution mode:
         flatten (4, 3) → 12, append weight → 13
         Linear(13, hidden_dim) → ReLU → Linear(hidden_dim, embed_dim)
         + learned temporal embedding (which obs step)
+
+use_gmm=True, use_weighted_cross_attention=True — GMM weighted cross-attention mode:
+    Input : goal_pts (B, To, N, 4, 3)
+            weights  (B, To, N)
+    Output: tokens  (B, To * N, D)   — encoded WITHOUT weight appended
+            weights (B, To * N)      — flat weights for log-bias in cross-attention
+
+    Pipeline (per candidate):
+        flatten (4, 3) → 12
+        Linear(12, hidden_dim) → ReLU → Linear(hidden_dim, embed_dim)
+        + learned temporal embedding (which obs step)
+    Weights are returned separately for use in WeightedCrossAttention.
 """
 
 import torch
@@ -47,16 +59,22 @@ class KeypointAwareGoalGripperEncoder(nn.Module):
         hidden_dim: int = None,
         n_keypoints: int = 4,
         use_gmm: bool = False,
+        use_weighted_cross_attention: bool = False,
     ):
         super().__init__()
         hidden_dim = hidden_dim or embed_dim
         self.n_keypoints = n_keypoints
         self.n_obs_steps = n_obs_steps
         self.use_gmm = use_gmm
+        self.use_weighted_cross_attention = use_weighted_cross_attention
 
         if use_gmm:
-            # Each candidate: flatten (n_keypoints, 3) → n_keypoints*3, append weight → +1
-            candidate_dim = n_keypoints * 3 + 1
+            if use_weighted_cross_attention:
+                # Encode keypoints only — weight is returned separately for log-bias attention.
+                candidate_dim = n_keypoints * 3
+            else:
+                # Append weight as an input feature.
+                candidate_dim = n_keypoints * 3 + 1
             self.point_encoder = nn.Sequential(
                 nn.Linear(candidate_dim, hidden_dim),
                 nn.ReLU(),
@@ -81,7 +99,7 @@ class KeypointAwareGoalGripperEncoder(nn.Module):
         self,
         goal_pts: torch.Tensor,
         weights: torch.Tensor = None,
-    ) -> torch.Tensor:
+    ):
         """
         Parameters
         ----------
@@ -91,28 +109,46 @@ class KeypointAwareGoalGripperEncoder(nn.Module):
 
         Returns
         -------
-        tokens : (B, To * 4, D)          when use_gmm=False
-                 (B, To * N, D)          when use_gmm=True
+        use_gmm=False or (use_gmm=True, use_weighted_cross_attention=False):
+            tokens : (B, To*4, D) or (B, To*N, D)
+
+        use_gmm=True, use_weighted_cross_attention=True:
+            (tokens, flat_weights) : (B, To*N, D), (B, To*N)
+            flat_weights are the raw GMM probabilities flattened across (To, N),
+            ready to be passed as log-bias in WeightedCrossAttention.
         """
         device = goal_pts.device
 
         if self.use_gmm:
+            # import pdb; pdb.set_trace()
             B, To, N, K, _ = goal_pts.shape
             assert weights is not None, "weights required when use_gmm=True"
 
-            # Flatten (N, 4, 3) → (N, 12), append weight → (N, 13)
             flat = goal_pts.reshape(B, To, N, K * 3)              # (B, To, N, 12)
-            w = weights.unsqueeze(-1)                              # (B, To, N, 1)
-            flat = torch.cat([flat, w], dim=-1)                    # (B, To, N, 13)
 
-            toks = self.point_encoder(flat.reshape(B * To * N, -1))  # (B*To*N, D)
-            toks = toks.reshape(B, To, N, -1)                        # (B, To, N, D)
+            if self.use_weighted_cross_attention:
+                # Encode without weight feature; return weights separately.
+                toks = self.point_encoder(flat.reshape(B * To * N, -1))  # (B*To*N, D)
+                toks = toks.reshape(B, To, N, -1)                        # (B, To, N, D)
 
-            # Add temporal embedding
-            t_ids = torch.arange(To, device=device)
-            toks = toks + self.temporal_embed(t_ids)[None, :, None, :]  # (1, To, 1, D)
+                t_ids = torch.arange(To, device=device)
+                toks = toks + self.temporal_embed(t_ids)[None, :, None, :]
 
-            return toks.reshape(B, To * N, -1)                     # (B, To*N, D)
+                flat_weights = weights.reshape(B, To * N)          # (B, To*N)
+                # import pdb; pdb.set_trace()
+                return toks.reshape(B, To * N, -1), flat_weights
+            else:
+                # Append weight as input feature → (N, 13)
+                w = weights.unsqueeze(-1)                          # (B, To, N, 1)
+                flat = torch.cat([flat, w], dim=-1)                # (B, To, N, 13)
+
+                toks = self.point_encoder(flat.reshape(B * To * N, -1))  # (B*To*N, D)
+                toks = toks.reshape(B, To, N, -1)                        # (B, To, N, D)
+
+                t_ids = torch.arange(To, device=device)
+                toks = toks + self.temporal_embed(t_ids)[None, :, None, :]
+
+                return toks.reshape(B, To * N, -1)                 # (B, To*N, D)
 
         else:
             B, To, K, _ = goal_pts.shape
