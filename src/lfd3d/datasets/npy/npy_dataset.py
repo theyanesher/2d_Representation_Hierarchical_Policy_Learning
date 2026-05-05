@@ -108,8 +108,15 @@ class NpyDataset(BaseDataset):
         if split == "train" and dataset_cfg.get("use_weighted_sampler", False):
             p = float(dataset_cfg.get("transition_p", 0.5))
             radius = int(dataset_cfg.get("transition_radius", 10))
-            print(f"[NpyDataset] Computing transition weights (p={p}, radius={radius})...")
-            self.sample_weights = self._compute_sample_weights(p=p, transition_radius=radius)
+            cache_file = self.data_dir / f".sample_weights_p{p}_r{radius}.npy"
+            if cache_file.exists():
+                print(f"[NpyDataset] Loading cached transition weights from {cache_file}")
+                self.sample_weights = np.load(cache_file)
+            else:
+                print(f"[NpyDataset] Computing transition weights (p={p}, radius={radius})...")
+                self.sample_weights = self._compute_sample_weights(p=p, transition_radius=radius)
+                np.save(cache_file, self.sample_weights)
+                print(f"[NpyDataset] Saved weights to {cache_file}")
 
     def _compute_sample_weights(self, p: float, transition_radius: int) -> np.ndarray:
         """
