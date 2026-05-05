@@ -4,7 +4,12 @@ import hydra
 import omegaconf
 import pytorch_lightning as pl
 import torch
+import torch.multiprocessing
 import wandb
+
+# Avoid "received 0 items of ancdata" when DataLoader workers pass tensors
+# between processes under DDP on Linux (file-descriptor limit exhausted).
+torch.multiprocessing.set_sharing_strategy("file_system")
 from lfd3d.utils.lora_utils import apply_lora
 from lfd3d.utils.script_utils import (
     PROJECT_ROOT,
