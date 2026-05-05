@@ -1,0 +1,20 @@
+defaults:
+  - base_dataset
+
+name: Coffee_Preparation
+
+data_dir: /home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/GMM_Based_Training_LOw_Level/Data_MimicGen/HIGH_LEVEL_FINETUNE_DATASET/Coffee_Preparation
+
+task_caption: "perform the coffee preparation task"
+
+use_text_embed: False
+
+text_embed_cache: /home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/GMM_Based_Training_LOw_Level/Data_MimicGen/HIGH_LEVEL_FINETUNE_DATASET/Coffee_Preparation/coffee_preparation_text_embed.npy
+
+val_episode_ratio: 0.1
+
+# PCD config
+num_points: 4500
+max_depth: 2.0
+
+normalize: False

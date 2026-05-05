@@ -103,6 +103,58 @@ class NpyDataset(BaseDataset):
             self.task_caption, cache_path, use_text_embed
         )
 
+        # Weighted sampler support — only computed for train split when enabled.
+        self.sample_weights = None
+        if split == "train" and dataset_cfg.get("use_weighted_sampler", False):
+            p = float(dataset_cfg.get("transition_p", 0.5))
+            radius = int(dataset_cfg.get("transition_radius", 10))
+            print(f"[NpyDataset] Computing transition weights (p={p}, radius={radius})...")
+            self.sample_weights = self._compute_sample_weights(p=p, transition_radius=radius)
+
+    def _compute_sample_weights(self, p: float, transition_radius: int) -> np.ndarray:
+        """
+        Frames within transition_radius of a goal transition get collective
+        probability p; all other frames get collective probability (1-p).
+        """
+        is_near = np.zeros(len(self.frames), dtype=bool)
+
+        # Group frames by demo directory
+        frame_groups: dict = {}
+        for i, f in enumerate(self.frames):
+            frame_groups.setdefault(str(f.parent), []).append((i, f))
+
+        for indexed_frames in frame_groups.values():
+            indices = [i for i, _ in indexed_frames]
+            paths   = [f for _, f in indexed_frames]
+
+            goals = np.array([
+                np.load(path, allow_pickle=True)["goal_gripper_pcd"][0]
+                for path in paths
+            ])  # (T, 4, 3)
+
+            transitions = [
+                t for t in range(1, len(goals))
+                if not np.allclose(goals[t], goals[t - 1], atol=1e-6)
+            ]
+
+            for t_trans in transitions:
+                for local_i in range(
+                    max(0, t_trans - transition_radius),
+                    min(len(goals), t_trans + transition_radius + 1),
+                ):
+                    is_near[indices[local_i]] = True
+
+        n_near  = is_near.sum()
+        n_other = len(self.frames) - n_near
+
+        weights = np.zeros(len(self.frames), dtype=np.float32)
+        if n_near > 0:
+            weights[is_near]  = p / n_near
+        if n_other > 0:
+            weights[~is_near] = (1.0 - p) / n_other
+
+        return weights
+
     def __len__(self):
         return len(self.frames)
 
@@ -249,3 +301,19 @@ class NpyDataModule(BaseDataModule):
         }
         self.val_tags = list(self.val_datasets.keys())
         self.test_datasets = {}
+
+    def train_dataloader(self):
+        if self.train_dataset.sample_weights is not None:
+            sampler = data.WeightedRandomSampler(
+                weights=torch.from_numpy(self.train_dataset.sample_weights),
+                num_samples=len(self.train_dataset),
+                replacement=True,
+            )
+            return data.DataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                sampler=sampler,
+                num_workers=self.num_workers,
+                collate_fn=collate_pcd_fn,
+            )
+        return super().train_dataloader()

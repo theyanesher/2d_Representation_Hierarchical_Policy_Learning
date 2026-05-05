@@ -1,0 +1,26 @@
+defaults:
+  - base_dataset
+
+name: Kitchen
+
+data_dir: /home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/GMM_Based_Training_LOw_Level/Data_MimicGen/HIGH_LEVEL_FINETUNE_DATASET/Kitchen/Kitchen
+
+task_caption: "perform the kitchen task"
+
+# Set to True to use real SigLIP embeddings (requires SigLIP model at init time).
+# False returns zeros — fine for single-task training where text is constant.
+use_text_embed: False
+
+# Path to a pre-computed .npy text embedding (1152-dim, siglip-so400m-patch14-384).
+# Only used when use_text_embed: True. If the file doesn't exist yet, SigLIP runs
+# once and saves here for future runs.
+text_embed_cache: /home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/GMM_Based_Training_LOw_Level/Data_MimicGen/HIGH_LEVEL_FINETUNE_DATASET/Kitchen/kitchen_task_text_embed.npy
+
+val_episode_ratio: 0.1  # fraction of demos held out for validation
+
+# PCD config
+num_points: 4500   # matches the pre-computed point cloud size
+max_depth: 2.0
+
+# Keep normalization off (coordinates are already in a reasonable metric scale)
+normalize: False
