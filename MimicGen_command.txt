@@ -1,0 +1,27 @@
+PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=4
+
+WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=16 wandb.entity=pbhowal-carnegie-mellon-university
+
+WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=16 wandb.entity=pbhowal-carnegie-mellon-university "resources.gpus=[1,2,3,4,5,6]" wandb.name=coffeeTask_6gpu
+
+WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTaskDebugGMM model.use_rgb=False model.in_channels=4 training.batch_size=16 wandb.entity=pbhowal-carnegie-mellon-university "resources.gpus=[7]" wandb.name=coffeeTaskDebugGMM_6gpu resources.num_workers=4
+
+
+KITCHEN
+
+WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=Kitchen model.use_rgb=False model.in_channels=4 training.batch_size=22 wandb.entity=pbhowal-carnegie-mellon-university
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=Kitchen model.use_rgb=False model.in_channels=4 training.batch_size=22 wandb.entity=pbhowal-carnegie-mellon-university
+
+Coffee_Preparation
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=Coffee_Preparation model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon-university
+
+MODIFIED VARIANCE COFFEE TASK 
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon-university "model.fixed_variance=[0.1,0.25,0.5,0.7]" "hydra.run.dir=logs/train_coffeeTask_MODIFIED_VAR_/$(date +%Y-%m-%d/%H-%M-%S)"
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon-university "model.fixed_variance=[0.1,0.25,0.5,0.7]" "hydra.run.dir=logs/train_coffeeTask_MODIFIED_VAR_/$(date +%Y-%m-%d/%H-%M-%S)"
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon-university "model.fixed_variance=[0.25,0.5,0.7, 1.0, 1.5]" "hydra.run.dir=logs/train_coffeeT
+ask_MODIFIED_VAR_MORE_INCREASE/$(date +%Y-%m-%d/%H-%M-%S)"
