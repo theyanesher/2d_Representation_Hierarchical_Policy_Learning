@@ -103,12 +103,12 @@ pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -
 install-pytorch3d = """
 pip install git+https://github.com/facebookresearch/pytorch3d.git@stable
 """
-install-open3d = "pip install open3d==0.19.0"
+install-open3d = "pip install open3d==0.18.0"
 install-rpad-libs = "pip install git+https://github.com/r-pad/pyg_libs.git git+https://github.com/r-pad/visualize_3d.git"
 install-torchdatasets = "pip install git+https://github.com/sriramsk1999/torchdatasets.git"
 install-segment-anything = "pip install git+https://github.com/facebookresearch/segment-anything.git"
 install-mano = "pip install git+https://github.com/hassony2/chumpy.git git+https://github.com/hassony2/manopth.git"
-install-tf = "pip install tensorflow-datasets<5 tensorflow-cpu<3"
+install-tf = "pip install 'tensorflow-datasets<5' 'tensorflow-cpu<3'"
 install-deps = { depends-on = [
     "install-open3d",
     "install-pyg",

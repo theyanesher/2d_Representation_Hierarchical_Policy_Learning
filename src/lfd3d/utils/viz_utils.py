@@ -218,8 +218,13 @@ def get_img_and_track_pcd(
 
         # Check if all_pred_color is list of color sequences or array of single colors
         if isinstance(all_pred_color, list):
-            # List of color sequences
-            pred_color = all_pred_color[i][mask]
+            color_i = np.array(all_pred_color[i])
+            if color_i.ndim == 1 and color_i.shape[0] == 3:
+                # Single RGB color — repeat for all points
+                pred_color = np.repeat(color_i[None, :], pred_pcd_pts.shape[0], axis=0)
+            else:
+                # Per-point color sequence
+                pred_color = color_i[mask]
         else:
             # Array of single colors (backward compatible)
             pred_color = np.repeat(

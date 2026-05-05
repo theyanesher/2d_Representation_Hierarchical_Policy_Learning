@@ -2,6 +2,7 @@ from lfd3d.datasets.droid.droid_dataset import DroidDataModule
 from lfd3d.datasets.genGoalGen_dataset import GenGoalGenDataModule
 from lfd3d.datasets.hoi4d.hoi4d_dataset import HOI4DDataModule
 from lfd3d.datasets.multi_dataset import MultiDatasetDataModule
+from lfd3d.datasets.npy.npy_dataset import NpyDataModule
 from lfd3d.datasets.rpad_foxglove.rpad_foxglove_dataset import RpadFoxgloveDataModule
 from lfd3d.datasets.rt1.rt1_dataset import RT1DataModule
 from lfd3d.datasets.synth_block_dataset import SynthBlockDataModule
@@ -11,6 +12,7 @@ __all__ = [
     "GenGoalGenDataModule",
     "HOI4DDataModule",
     "MultiDatasetDataModule",
+    "NpyDataModule",
     "RT1DataModule",
     "SynthBlockDataModule",
     "RpadFoxgloveDataModule",

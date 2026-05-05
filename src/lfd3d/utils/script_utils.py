@@ -13,6 +13,7 @@ from lfd3d.datasets import (
     GenGoalGenDataModule,
     HOI4DDataModule,
     MultiDatasetDataModule,
+    NpyDataModule,
     RpadFoxgloveDataModule,
     RT1DataModule,
     SynthBlockDataModule,
@@ -103,6 +104,7 @@ def create_datamodule(cfg):
         "rpadFoxglove": RpadFoxgloveDataModule,
         "rpadLerobot": RpadLeRobotDataModule,
         "liberoLerobot": RpadLeRobotDataModule,  # same module, just different default configs
+        "coffeeTask": NpyDataModule,
     }
 
     datamodule_fn = dataset_map.get(cfg.dataset.name)

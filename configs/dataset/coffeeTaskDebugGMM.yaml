@@ -1,0 +1,4 @@
+defaults:
+  - coffeeTask
+
+data_dir: /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_GMM_DEBUG_DATASET/Coffee_Task
