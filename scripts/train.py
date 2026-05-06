@@ -195,6 +195,10 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
+    # Local checkpoint resume: +resume_from=/path/to/file.ckpt
+    # Resumes full training state (epoch, optimizer, scheduler, weights).
+    resume_ckpt = cfg.get("resume_from", None)
+
     # this might be a little too "pythonic"
     if cfg.checkpoint.run_id:
         print(
@@ -208,6 +212,9 @@ def main(cfg):
 
         ckpt = torch.load(ckpt_file)
         model.load_state_dict(ckpt["state_dict"])
+    elif resume_ckpt:
+        print(f"Resuming training from local checkpoint: {resume_ckpt}")
+        ckpt_file = resume_ckpt
     else:
         print("Starting training from scratch.")
         ckpt_file = None
@@ -218,7 +225,7 @@ def main(cfg):
         ), "Doesn't make sense to enable LoRA without initializing from a pretrained model"
         model = apply_lora(model, cfg.lora)
 
-    trainer.fit(model, datamodule=datamodule)
+    trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_file)
     wandb.finish()
 
 

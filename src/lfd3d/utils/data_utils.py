@@ -3,7 +3,6 @@ import os
 import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
-from manopth.manolayer import ManoLayer
 from pytorch3d.structures import Pointclouds
 
 MANO_ROOT = "mano/models"
@@ -11,6 +10,8 @@ MANO_ROOT = "mano/models"
 
 class MANOInterface:
     def __init__(self):
+        from manopth.manolayer import ManoLayer
+
         self.add_back_legacy_types_numpy()
         if HydraConfig.initialized():
             original_cwd = HydraConfig.get().runtime.cwd
