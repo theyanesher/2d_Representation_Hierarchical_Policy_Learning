@@ -128,7 +128,7 @@ def farthest_point_sample(xyz_, npoint, keep_gripper_in_fps=False):
     return centroids
 
 
-def query_ball_point(radius, nsample, xyz, new_xyz):
+def query_ball_point(radius, nsample, xyz, new_xyz, chunk_size: int = 4):
     """
     Input:
         radius: local region radius
@@ -141,16 +141,25 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
-    group_idx = (
-        torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    )
-    sqrdists = square_distance(new_xyz, xyz)
-    group_idx[sqrdists > radius**2] = N
-    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    mask = group_idx == N
-    group_idx[mask] = group_first[mask]
-    return group_idx
+
+    def _process(xyz_b, new_xyz_b):
+        Bc = xyz_b.shape[0]
+        g = torch.arange(N, dtype=torch.long, device=device).view(1, 1, N).repeat([Bc, S, 1])
+        sqrdists = square_distance(new_xyz_b, xyz_b)
+        g[sqrdists > radius ** 2] = N
+        g = g.sort(dim=-1)[0][:, :, :nsample]
+        g_first = g[:, :, 0].view(Bc, S, 1).repeat([1, 1, nsample])
+        g[g == N] = g_first[g == N]
+        return g
+
+    if B <= chunk_size:
+        return _process(xyz, new_xyz)
+
+    chunks = []
+    for start in range(0, B, chunk_size):
+        end = min(start + chunk_size, B)
+        chunks.append(_process(xyz[start:end], new_xyz[start:end]))
+    return torch.cat(chunks, dim=0)
 
 
 def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
