@@ -18,6 +18,7 @@ from lfd3d.utils.script_utils import (
     create_model,
     match_fn,
 )
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
 
@@ -45,6 +46,18 @@ def create_checkpoint_callbacks(cfg, experiment_id):
             save_last=False,
         )
         callbacks.append(callback)
+
+    # Save a checkpoint every 10 epochs (keep all)
+    every_n = cfg.training.get("checkpoint_every_n_epochs", 10)
+    callbacks.append(
+        ModelCheckpoint(
+            dirpath=cfg.lightning.checkpoint_dir,
+            filename="periodic-epoch={epoch}",
+            every_n_epochs=every_n,
+            save_top_k=-1,
+            save_last=False,
+        )
+    )
 
     return callbacks
 
