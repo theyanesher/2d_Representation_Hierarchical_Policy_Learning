@@ -147,7 +147,7 @@ def query_ball_point(radius, nsample, xyz, new_xyz, chunk_size: int = 4):
         g = torch.arange(N, dtype=torch.long, device=device).view(1, 1, N).repeat([Bc, S, 1])
         sqrdists = square_distance(new_xyz_b, xyz_b)
         g[sqrdists > radius ** 2] = N
-        g = g.sort(dim=-1)[0][:, :, :nsample]
+        g = torch.topk(g, k=nsample, dim=-1, largest=False).values
         g_first = g[:, :, 0].view(Bc, S, 1).repeat([1, 1, nsample])
         g[g == N] = g_first[g == N]
         return g
@@ -364,8 +364,7 @@ class PointNetFeaturePropagation(nn.Module):
             interpolated_points = points2.repeat(1, N, 1)
         else:
             dists = square_distance(xyz1, xyz2)
-            dists, idx = dists.sort(dim=-1)
-            dists, idx = dists[:, :, :3], idx[:, :, :3]  # [B, N, 3]
+            dists, idx = torch.topk(dists, k=3, dim=-1, largest=False)  # [B, N, 3]
 
             dist_recip = 1.0 / (dists + 1e-8)
             norm = torch.sum(dist_recip, dim=2, keepdim=True)

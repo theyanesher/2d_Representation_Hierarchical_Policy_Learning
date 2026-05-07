@@ -118,6 +118,31 @@ class NpyDataset(BaseDataset):
                 np.save(cache_file, self.sample_weights)
                 print(f"[NpyDataset] Saved weights to {cache_file}")
 
+        # Label swap augmentation — within +/-transition_radius of a goal change,
+        # replace the GT goal with the goal on the other side of the transition
+        # with a probability that decays linearly with distance from the
+        # transition. Train only.
+        self._swap_neighbor_goals = None
+        self._swap_p = None
+        if split == "train" and dataset_cfg.get("transition_label_swap", False):
+            radius = int(dataset_cfg.get("transition_radius", 10))
+            p_max = float(dataset_cfg.get("transition_swap_p_max", 0.5))
+            cache_file = self.data_dir / f".swap_meta_pmax{p_max}_r{radius}.npz"
+            if cache_file.exists():
+                print(f"[NpyDataset] Loading cached swap metadata from {cache_file}")
+                arr = np.load(cache_file)
+                self._swap_neighbor_goals = arr["neighbor_goals"]
+                self._swap_p = arr["p_swap"]
+            else:
+                print(f"[NpyDataset] Computing swap metadata (p_max={p_max}, radius={radius})...")
+                self._swap_neighbor_goals, self._swap_p = self._compute_swap_meta(
+                    transition_radius=radius, p_max=p_max
+                )
+                np.savez(cache_file, neighbor_goals=self._swap_neighbor_goals, p_swap=self._swap_p)
+                print(f"[NpyDataset] Saved swap metadata to {cache_file}")
+            n_eligible = int((self._swap_p > 0).sum())
+            print(f"[NpyDataset] {n_eligible}/{len(self.frames)} frames eligible for label swap")
+
     def _compute_sample_weights(self, p: float, transition_radius: int) -> np.ndarray:
         """
         Frames within transition_radius of a goal transition get collective
@@ -162,6 +187,69 @@ class NpyDataset(BaseDataset):
 
         return weights
 
+    def _compute_swap_meta(self, transition_radius: int, p_max: float):
+        """
+        For each frame within +/-transition_radius of a goal change, store the
+        "neighbor goal" (the goal on the other side of the nearest transition)
+        and the per-frame Bernoulli swap probability:
+
+            p_swap(d) = p_max * (1 - d / (transition_radius + 1))
+
+        where d = |t - t_trans|. Frames not in any window have p_swap = 0
+        and a zero neighbor goal (never read).
+
+        Returns:
+            neighbor_goals: (N, 4, 3) float32
+            p_swap_arr:     (N,)       float32
+        """
+        n = len(self.frames)
+        neighbor_goals = np.zeros((n, 4, 3), dtype=np.float32)
+        p_swap_arr = np.zeros((n,), dtype=np.float32)
+
+        frame_groups: dict = {}
+        for i, f in enumerate(self.frames):
+            frame_groups.setdefault(str(f.parent), []).append((i, f))
+
+        for indexed_frames in frame_groups.values():
+            indices = [i for i, _ in indexed_frames]
+            paths   = [f for _, f in indexed_frames]
+
+            goals = np.array([
+                np.load(path, allow_pickle=True)["goal_gripper_pcd"][0]
+                for path in paths
+            ])  # (T, 4, 3)
+
+            transitions = [
+                t for t in range(1, len(goals))
+                if not np.allclose(goals[t], goals[t - 1], atol=1e-6)
+            ]
+            if not transitions:
+                continue
+
+            for local_t in range(len(goals)):
+                # Find the closest transition within radius
+                best_d, best_t = None, None
+                for t_trans in transitions:
+                    d = abs(local_t - t_trans)
+                    if d <= transition_radius and (best_d is None or d < best_d):
+                        best_d, best_t = d, t_trans
+                if best_t is None:
+                    continue
+
+                # Neighbor = goal on the other side of the nearest transition.
+                # t_trans is the first frame of the new goal, so frames < t_trans
+                # carry the previous goal and frames >= t_trans carry the new one.
+                if local_t < best_t:
+                    neighbor = goals[best_t]            # upcoming goal
+                else:
+                    neighbor = goals[best_t - 1]        # previous goal
+
+                global_idx = indices[local_t]
+                neighbor_goals[global_idx] = neighbor.astype(np.float32)
+                p_swap_arr[global_idx] = p_max * (1.0 - best_d / (transition_radius + 1))
+
+        return neighbor_goals, p_swap_arr
+
     def __len__(self):
         return len(self.frames)
 
@@ -171,6 +259,14 @@ class NpyDataset(BaseDataset):
         anchor_pcd = d["point_cloud"][0].astype(np.float32)       # (N, 3)
         action_pcd = d["gripper_pcd"][0].astype(np.float32)       # (4, 3)
         goal_pcd   = d["goal_gripper_pcd"][0].astype(np.float32)  # (4, 3)
+
+        # Label swap augmentation: with linearly-decaying probability around
+        # transitions, replace the GT goal with the goal across the nearest
+        # transition. p_swap is precomputed per-frame in __init__ (zero outside
+        # any transition window), so this is a no-op for most frames.
+        if self._swap_p is not None and self._swap_p[idx] > 0.0:
+            if np.random.random() < float(self._swap_p[idx]):
+                goal_pcd = self._swap_neighbor_goals[idx].copy()
 
         # Normalization: follow base_data.get_normalize_mean_std
         # With normalize=False (default) this is identity (mean=0, std=1)

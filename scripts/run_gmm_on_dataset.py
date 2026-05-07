@@ -154,7 +154,12 @@ def downsample(pcd, num_points):
     return pcd[idx]
 
 
-def visualize_with_viser_interactive(all_timestep_data, show_all_gmm_goals=False):
+def visualize_with_viser_interactive(
+    all_timestep_data,
+    show_all_gmm_goals=False,
+    gmm_weight_threshold: float = 0.01,
+    gmm_alpha_gamma: float = 0.5,
+):
     """Interactive viser viewer with a timestep slider — matches the SMITH script."""
     import time
 
@@ -200,12 +205,25 @@ def visualize_with_viser_interactive(all_timestep_data, show_all_gmm_goals=False
             if show_all_gmm_goals:
                 all_goals = data["gmm_all_components"].squeeze(0).cpu().numpy()
                 N = all_goals.shape[0]
-                server.scene.add_point_cloud(
-                    name="all_gmm_goals",
-                    points=all_goals.reshape(N * 4, 3),
-                    colors=np.tile([0, 120, 0], (N * 4, 1)).astype(np.uint8),
-                    point_size=0.010,
-                )
+                # Softmax weights are highly peaked — most anchors carry near-zero
+                # mass. Filter to anchors >= gmm_weight_threshold * peak so the
+                # rendered cloud is actually meaningful, then fade-by-weight
+                # within the kept set using the configured gamma.
+                max_w = weights_np.max() + 1e-12
+                keep = weights_np >= gmm_weight_threshold * max_w  # (N,) bool
+                if keep.any():
+                    kept_goals = all_goals[keep].reshape(-1, 3)
+                    kept_alpha_anchor = np.power(weights_np[keep] / max_w, gmm_alpha_gamma)
+                    kept_alpha = np.repeat(kept_alpha_anchor.astype(np.float32), 4)[:, None]
+                    bright_green = np.array([0, 200, 0], dtype=np.float32)
+                    bg_gray = np.array([180, 180, 180], dtype=np.float32)
+                    goal_colors = (kept_alpha * bright_green + (1.0 - kept_alpha) * bg_gray).astype(np.uint8)
+                    server.scene.add_point_cloud(
+                        name="all_gmm_goals",
+                        points=kept_goals,
+                        colors=goal_colors,
+                        point_size=0.014,
+                    )
 
             server.scene.add_point_cloud(
                 name="predicted_goal",
@@ -318,7 +336,10 @@ def process_demo_dir(demo_dir, network, text_embed, args):
 
     if (args.visualize or args.visualize_all_gmm_goals) and len(all_timestep_data) > 0:
         visualize_with_viser_interactive(
-            all_timestep_data, show_all_gmm_goals=args.visualize_all_gmm_goals
+            all_timestep_data,
+            show_all_gmm_goals=args.visualize_all_gmm_goals,
+            gmm_weight_threshold=args.gmm_weight_threshold,
+            gmm_alpha_gamma=args.gmm_alpha_gamma,
         )
 
     demo_name = os.path.basename(demo_dir)
@@ -385,6 +406,18 @@ if __name__ == "__main__":
         "--visualize_all_gmm_goals",
         action="store_true",
         help="Also render all N GMM component goals colored by weight.",
+    )
+    parser.add_argument(
+        "--gmm_weight_threshold",
+        type=float,
+        default=0.01,
+        help="Min weight (as fraction of peak) for a GMM component goal to be drawn. Lower => more points shown.",
+    )
+    parser.add_argument(
+        "--gmm_alpha_gamma",
+        type=float,
+        default=0.5,
+        help="Gamma exponent on (weight/max_weight) when shading kept goals. Lower => brighter mid-range.",
     )
     parser.add_argument(
         "--max_files",

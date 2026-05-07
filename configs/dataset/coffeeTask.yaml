@@ -3,7 +3,7 @@ defaults:
 
 name: coffeeTask
 
-data_dir: /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_FINETUNE_DATASET/Coffee_Task
+data_dir: /home/pratik_final/Downloads/Bimanual/Articubot_Data_Experiments/Code/GMM_Based_Training_LOw_Level/Data_MimicGen/HIGH_LEVEL_FINETUNE_DATASET/Coffee_Task
 
 task_caption: "pick up the coffee pod and place it in the coffee machine"
 
