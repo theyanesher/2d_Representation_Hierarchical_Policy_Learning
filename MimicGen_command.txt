@@ -36,5 +36,14 @@ KITCHEN TRAINING WITH HIGH VARIANCE
 GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=Kitchen model.use_rgb=False model.in_channels=4 training.batch_size=8 wandb.entity=pbhowal-carnegie-mellon-university "model.fixed_variance=[0.25,0.5,0.7, 1.0, 1.5]" "hydra.run.dir=logs/train_Kitchen_MODIFIED_VAR_MORE_INCREASE/$(date +%Y-%m-%d/%H-%M-%S)"
 
 
+FINAL COFFEE D0 COMMAND FOR TRAINING HIGH LEVEL POLICY
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_f
+inal/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scr
+ipts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon
+-university "hydra.run.dir=logs/train_coffeeTask_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" +dataset.use_weighted_sampler=True +dataset.transition_p=0.5 
++dataset.transition_radius=5 +dataset.transition_label_swap=True +dataset.transition_swap_p_max=0.5 "resources.gpus=[0]" +training.checkpoint_every_
+n_epochs=5 training.check_val_every_n_epochs=5 
+
 
 
