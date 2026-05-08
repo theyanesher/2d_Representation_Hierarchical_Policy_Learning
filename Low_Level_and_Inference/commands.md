@@ -307,11 +307,32 @@ pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=true task.dataset.data_dir=../../../../data/All_Heatmap_Dataset logging.project GMM_Low_Level_Policy  logging.name=groot_GMM_Cross_Attention_Single_object name=groot_GMM_Cross_Attention_Single_object
 _single_object dataloader.batch_size=4 dataloader.num_workers=0
 
+pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=true task.dataset.data_dir=/scratch/pbhowal/GMM_Dataset_But_Also_Heatmaps/ logging.project=GMM_Low_Level_Policy  logging.name=groot_GMM_Cross_Attention_Single_object name=groot_GMM_Cross_Attention_Single_object
+_single_object dataloader.batch_size=32 dataloader.num_workers=16
 
 3. Weighted cross-attention (GMM probabilities as log-bias on attention logits):
 
 
 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=articubot_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=true policy.use_weighted_cross_attention=true task.dataset.data_dir=../../../../data/All_Heatmap_Dataset logging.project GMM_Low_Level_Policy logging.name=groot_GMM_Weighted_Cross_Attention_Single_object name=groot_GMM_Weighted_Cross_Attention_Single_object dataloader.batch_size=4 dataloader.num_workers=0
+
+
+
+MIMICGEN COMMANDS =>
+
+
+3. Weighted cross-attention (GMM probabilities as log-bias on attention logits):
+
+export PATH="$HOME/.pixi/bin:$PATH"
+
+CUDA_VISIBLE_DEVICES=4 pixi run python diffusion_policy/train.py --config-name=train_flow_matching_dit_workspace.yaml task=MimicGen_Tasks/coffee_gmm_goal visual_encoder=dinov2 policy.use_goal_cross_attention=true policy.use_weighted_cross_attention=true policy.gmm_top_k=1024 logging.project=MimicGen_GMM_Low_Level_Policy logging.name=groot_GMM_Weighted_Cross_Attention_Coffee name=groot_GMM_Weighted_Cross_Attention_Coffee dataloader.batch_size=64 dataloader.num_workers=16
+
+
+# policy.gmm_top_k=128
+
+
+
+
+
 
 
 
