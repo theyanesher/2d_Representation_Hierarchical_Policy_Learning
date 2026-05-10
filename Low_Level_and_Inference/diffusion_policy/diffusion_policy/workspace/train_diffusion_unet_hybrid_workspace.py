@@ -64,7 +64,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # resume training
         if cfg.training.resume:
             # if cfg.training.get('resume_ckpt_path', None) is not None:
-            lastest_ckpt_path = "outputs/2026.04.29/08.39.57_coffee_goal_gripper_DIT_coffee_goal_gripper/checkpoints/latest.ckpt" #cfg.training.resume_ckpt_path
+            lastest_ckpt_path = "outputs/2026.05.06/13.47.20_groot_GMM_Weighted_Cross_Attention_Coffee_coffee_gmm_goal/checkpoints/epoch_20.ckpt" #cfg.training.resume_ckpt_path
             # else:
             #     lastest_ckpt_path = self.get_checkpoint_path()
             # if lastest_ckpt_path.is_file():
