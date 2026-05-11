@@ -1,0 +1,63 @@
+# Standalone Hydra config for evaluating ArticuBot high-level + low-level policies.
+# Does not instantiate the training workspace; only builds the env runner and eval params.
+#
+# Usage (from articubot-on-mimicgen repo root, with mimicgen on PYTHONPATH):
+#   python -m mimicgen.scripts.eval_articubot_runner --config-path=equi_diffpo/config --config-name=eval_articubot_standalone \
+#     output_dir=./eval_output \
+#     dataset_path=/path/to/dataset.hdf5 \
+#     low_level_exp_dir=/path/to/low_level_exp \
+#     low_level_checkpoint=latest.ckpt \
+#     high_level_path=/path/to/high_level/model.pth \
+#     high_level=weighted_displacement
+
+defaults:
+  - _self_
+  - task: articubot_pc_abs_eval_512
+
+# Eval-only: no training workspace _target_
+task_name: square_d2
+output_dir: ${oc.env:EVAL_OUTPUT_DIR,./eval_output}
+dataset_path: ${oc.env:DATASET_PATH,data/robomimic/datasets/square_d2/square_d2_pcd_abs.hdf5}
+
+# Low-level policy (loaded via mimicgen.utils.control_robot.load_low_level_policy)
+low_level_exp_dir: null
+low_level_checkpoint: latest.ckpt
+
+# High-level policy (loaded via control_robot: load_multitask_high_level_model, load_high_level_weighted_displacement_policy, or load_high_level_gmm_policy)
+high_level_path: null
+high_level: weighted_displacement  # one of: weighted_displacement, gmm, multitask
+use_pc_color: true
+cat_idx: 13
+
+# Env runner: use control_robot for inference (low_level_policy_infer, infer_multitask_high_level_model / run_high_level_*)
+task:
+  env_runner:
+    _target_: equi_diffpo.env_runner.articubot_pcd_runner.ArticubotPCDRunner
+    dataset_path: ${dataset_path}
+    shape_meta: ${task.env_runner_shape_meta}
+    n_train: 0
+    n_test: ${eval.n_test}
+    n_test_vis: ${eval.n_test_vis}
+    test_start_seed: ${eval.test_start_seed}
+    max_steps: ${eval.max_steps}
+    n_obs_steps: ${eval.n_obs_steps}
+    n_action_steps: ${eval.n_action_steps}
+    render_obs_key: 'agentview_image'
+    fps: 10
+    crf: 22
+    past_action: false
+    abs_action: true
+    tqdm_interval_sec: 1.0
+    n_envs: ${eval.n_envs}
+    high_level: ${high_level}
+    use_control_robot_inference: true
+    cat_idx: ${cat_idx}
+
+eval:
+  n_test: 22
+  n_test_vis: 6
+  test_start_seed: 10000
+  max_steps: 400
+  n_obs_steps: 2
+  n_action_steps: 8
+  n_envs: 25

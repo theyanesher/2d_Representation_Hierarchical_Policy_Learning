@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------
+# BOCPD Hyperparameters for Bayesian Subgoal Decomposition
+# ---------------------------------------------------------------
+# Most impactful knob: lambda_
+#   increase -> fewer subgoals (longer expected segments)
+#   decrease -> more subgoals (shorter expected segments)
+# ---------------------------------------------------------------
+
+# Expected segment length (timesteps). Main tuning parameter.
+lambda_: 5
+
+# Minimum run length before a changepoint can fire.
+# Matches warmup_steps in the curvature-based method.
+tau_min: 50
+
+# NIW prior: precision on the mean (1 = one pseudo-observation worth of confidence).
+kappa_0: 1.0
+
+# NIW prior: degrees of freedom. Must be > d-1 = 3. d+2 = 6 is weakly informative.
+nu_0: 6.0
+
+# Scale factor for the identity prior scale matrix: Psi_0 = psi_0_scale * I_d
+# 1.0 is correct when features are z-scored (unit variance prior).
+psi_0_scale: 1.0
+
+# Max active run length tracked (truncation to keep memory/time bounded).
+# O(T * r_max) instead of O(T^2). 200 is safe for trajectories up to ~300 steps.
+r_max: 200
+
+# Prune run lengths whose log probability falls below this floor (~log(1e-10)).
+log_prob_floor: -23.0
+
+# ---------------------------------------------------------------
+# Keypoint extraction (peak detection on changepoint probability)
+# ---------------------------------------------------------------
+
+# Minimum changepoint probability for a peak to be considered a subgoal.
+peak_min_height: 0.005
+
+# Minimum timesteps between consecutive BOCPD-detected subgoals.
+peak_min_distance: 5
+
+# ---------------------------------------------------------------
+# Feature selection — toggle individual kinematic signals on/off.
+# Disabling a feature removes it from the BOCPD observation vector
+# (d shrinks accordingly; nu_0 must remain > d-1, so keep nu_0 >= 6).
+# ---------------------------------------------------------------
+use_curvature:     true   # |v x a| / |v|^3  — path direction changes
+use_velocity_mag:  true   # ||v||             — speed changes (approach/retreat)
+use_jerk:          true   # ||d²v/dt²||       — onset of new motion primitives
+use_angular_vel:   true   # ||ω||             — end-effector reorientation
