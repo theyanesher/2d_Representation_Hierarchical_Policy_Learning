@@ -48,7 +48,7 @@ def create_checkpoint_callbacks(cfg, experiment_id):
         callbacks.append(callback)
 
     # Save a checkpoint every 10 epochs (keep all)
-    every_n = cfg.training.get("checkpoint_every_n_epochs", 10)
+    every_n = cfg.training.get("checkpoint_every_n_epochs", 5)
     callbacks.append(
         ModelCheckpoint(
             dirpath=cfg.lightning.checkpoint_dir,

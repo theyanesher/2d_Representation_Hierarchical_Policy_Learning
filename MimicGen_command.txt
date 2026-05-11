@@ -38,12 +38,23 @@ GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CAC
 
 FINAL COFFEE D0 COMMAND FOR TRAINING HIGH LEVEL POLICY
 
-GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_f
-inal/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scr
-ipts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon
--university "hydra.run.dir=logs/train_coffeeTask_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" +dataset.use_weighted_sampler=True +dataset.transition_p=0.5 
-+dataset.transition_radius=5 +dataset.transition_label_swap=True +dataset.transition_swap_p_max=0.5 "resources.gpus=[0]" +training.checkpoint_every_
-n_epochs=5 training.check_val_every_n_epochs=5 
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/home/pratik_final/.wandb_cache WANDB_DATA_DIR=/home/pratik_final/.wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/home/pratik_final/.pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTask model.use_rgb=False model.in_channels=4 training.batch_size=48 wandb.entity=pbhowal-carnegie-mellon-university "hydra.run.dir=logs/train_coffeeTask_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" +dataset.use_weighted_sampler=True +dataset.transition_p=0.5 +dataset.transition_radius=5 +dataset.transition_label_swap=True +dataset.transition_swap_p_max=0.5 "resources.gpus=[0]" +training.checkpoint_every_n_epochs=5 training.check_val_every_n_epochs=5 
+
+FINAL COFFEE D2 COMMAND FOR TRAINING HIGH LEVEL POLICY
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTaskD2 model.use_rgb=False model.in_channels=4 training.batch_size=64 wandb.entity=pbhowal-carnegie-mellon-university "hydra.run.dir=logs/train_CoffeeTask_D2_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" +dataset.use_weighted_sampler=True +dataset.transition_p=0.5 +dataset.transition_radius=5 +dataset.transition_label_swap=True +dataset.transition_swap_p_max=0.5 "resources.gpus=[0]" +training.checkpoint_every_n_epochs=5 training.check_val_every_n_epochs=5
+
+pixi run python scripts/run_gmm_on_dataset.py --dataset_dir /scratch/pbhowal/Uncertainty_Dataset/test_COFFEE_output_bocpd_use_only_jerk_and_curve_CHECK/ --ckpt_path /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Coffee_d0/GHOST_High_Level_MULTIMODE_FINAL/periodic-epoch=epoch=84.ckpt --max_files 1 --visualize --visualize_all_gmm_goals --gmm_weight_threshold 0.0001
+
+PYTHONNOUSERSITE=1 pixi run python scripts/run_gmm_on_dataset.py --dataset_dir /scratch/pbhowal/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/Coffee_D2 --ckpt_path logs/train_CoffeeTask_D2_GOAL_SWAP/2026-05-07/17-05-45/checkpoints/epoch\=4-step\=10810-val/rmse_and_std_combi\=0.022.ckpt --max_files 1 --visualize --visualize_all_gmm_goals --gmm_weight_threshold 0.0001
 
 
+
+FINAL D2 COMMAND FOR COFFEE
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=coffeeTaskD2 model.use_rgb=False model.in_channels=4 training.batch_size=64 wandb.entity=pbhowal-carnegie-mellon-university "hydra.run.dir=logs/train_CoffeeTask_D2_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" +dataset.use_weighted_sampler=True +dataset.transition_p=0.5 +dataset.transition_radius=5 +dataset.transition_label_swap=True +dataset.transition_swap_p_max=0.5 "resources.gpus=[0]" +training.checkpoint_every_n_epochs=5 training.check_val_every_n_epochs=5
+
+HAMMER CLEANUP D1 COMMAND
+
+GIT_LFS_SKIP_SMUDGE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_CACHE_DIR=/project_data/held/pratik/wandb_cache WANDB_DATA_DIR=/project_data/held/pratik/wandb_data PYTHONNOUSERSITE=1 PIXI_CACHE_DIR=/project_data/held/pratik/pixi_cache pixi run python scripts/train.py model=articubot dataset=hammerCleanupD1 model.use_rgb=False model.in_channels=4 training.batch_size=64 wandb.entity=pbhowal-carnegie-mellon-university "hydra.run.dir=logs/train_HammerCleanup_D1_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" +dataset.use_weighted_sampler=True +dataset.transition_p=0.5 +dataset.transition_radius=5 +dataset.transition_label_swap=True +dataset.transition_swap_p_max=0.5 "resources.gpus=[0]" +training.checkpoint_every_n_epochs=5 training.check_val_every_n_epochs=15
 

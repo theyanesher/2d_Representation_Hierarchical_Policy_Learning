@@ -363,8 +363,22 @@ class PointNetFeaturePropagation(nn.Module):
         if S == 1:
             interpolated_points = points2.repeat(1, N, 1)
         else:
-            dists = square_distance(xyz1, xyz2)
-            dists, idx = torch.topk(dists, k=3, dim=-1, largest=False)  # [B, N, 3]
+            # Chunk the batch dim to avoid allocating the full [B, N, S] tensor
+            # at once. Same OOM pattern as query_ball_point (commit 1a9de3bf).
+            chunk_size = 4
+            if B <= chunk_size:
+                dists = square_distance(xyz1, xyz2)
+                dists, idx = torch.topk(dists, k=3, dim=-1, largest=False)
+            else:
+                d_chunks, i_chunks = [], []
+                for start in range(0, B, chunk_size):
+                    end = min(start + chunk_size, B)
+                    d = square_distance(xyz1[start:end], xyz2[start:end])
+                    d, i = torch.topk(d, k=3, dim=-1, largest=False)
+                    d_chunks.append(d)
+                    i_chunks.append(i)
+                dists = torch.cat(d_chunks, dim=0)
+                idx = torch.cat(i_chunks, dim=0)
 
             dist_recip = 1.0 / (dists + 1e-8)
             norm = torch.sum(dist_recip, dim=2, keepdim=True)
