@@ -131,7 +131,7 @@ class PointNetDatasetFromDisk(torch.utils.data.Dataset):
         self.obj_id_to_all_episodes_indices = {}
         episode_idx = 0
         for obj_path in all_obj_paths:
-            all_subfolder = os.listdir(obj_path)
+            all_subfolder = [s for s in os.listdir(obj_path) if os.path.isdir(os.path.join(obj_path, s))]
             cat_idx = 0
             for i, cat in enumerate(categories):
                 if cat in obj_path:
@@ -1005,6 +1005,26 @@ def get_dataset_from_pickle(all_obj_paths=None, beg_ratio=0, end_ratio=0.9, eval
             all_obj_paths = [os.path.join(dataset_prefix, x) for x in all_obj_paths if 'mug_cleanup_d1' in x]
             print(all_obj_paths)
                         
+        elif num_train_objects == "mug_cleanup":
+            all_obj_paths = ["/scratch/pbhowal/Uncertainty_Dataset/HIGH_LEVEL_FINETUNE/Mug_Cleanup/"]
+            print(all_obj_paths)
+
+        elif num_train_objects == "coffee_task":
+            all_obj_paths = ["/scratch/pbhowal/Uncertainty_Dataset/HIGH_LEVEL_FINETUNE/Coffee_Task/"]
+            print(all_obj_paths)
+
+        elif num_train_objects == "coffeetaskD2":
+            all_obj_paths = ["/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/Coffee_D2/"]
+            print(all_obj_paths)
+
+        elif num_train_objects == "gmm_debug_coffee":
+            all_obj_paths = ["/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_GMM_DEBUG_DATASET/Coffee_Task/"]
+            print(all_obj_paths)
+
+        elif num_train_objects == "kitchen":
+            all_obj_paths = ["/scratch/pbhowal/Uncertainty_Dataset/HIGH_LEVEL_FINETUNE/Kitchen/"]
+            print(all_obj_paths)
+
         else:
             raise ValueError('num_train_objects not supported')
     dataset = PointNetDatasetFromDisk(all_obj_paths, beg_ratio, end_ratio, eval_episode, only_first_stage, 

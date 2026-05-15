@@ -2,9 +2,9 @@ import os
 import yaml
 import numpy as np
 from PIL import Image
-from moviepy.editor import ImageSequenceClip
+# from moviepy.editor import ImageSequenceClip
 import os.path as osp
-import pybullet as p
+# import pybullet as p
 import os
 import json
 import multiprocessing

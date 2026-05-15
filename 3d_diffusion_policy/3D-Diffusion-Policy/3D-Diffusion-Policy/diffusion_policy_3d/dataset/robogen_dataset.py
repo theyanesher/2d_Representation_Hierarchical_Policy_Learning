@@ -316,6 +316,10 @@ def get_zarry_paths(zarr_path):
         print(all_obj_paths)
         all_zarr_paths = all_obj_paths
 
+    if zarr_path == "CoffeeTaskD2":
+        all_zarr_paths = ["/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/Coffee_D2/"]
+        print(all_zarr_paths)
+
     if zarr_path == "pick_and_place_1204":
         top_prefix = '/scratch/chenyuah/dp3_demo_combined_2_step_0/inside_link_cgn'
         top_names = os.listdir(top_prefix)

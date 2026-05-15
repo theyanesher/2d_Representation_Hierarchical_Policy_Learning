@@ -410,8 +410,9 @@ def train(args):
     }
     
     num_iterations = args.general.num_iterations
-    for global_step in range(num_iterations):  
-        
+    pbar = tqdm(range(num_iterations), dynamic_ncols=True)
+    for global_step in pbar:
+
         samples = [next(it) for it in dataloader_iters]
         all_logs = {}
         for task_idx in range(len(all_tasks)):
@@ -426,17 +427,18 @@ def train(args):
                     assert not torch.is_tensor(log[key])
                     all_logs[f"{task}_{key}"] = log[key]
                 all_logs[f"{task}_time"] = time_cost
-        
+
         if is_main_process():
             ### TODO: log the losses here
             for task in all_tasks:
                 dataloader_length = len(all_task_dataloaders[task])
                 epoch = global_step / dataloader_length
                 all_logs[f"{task}_epoch"] = epoch
-                
+
             wandb_run.log(all_logs, step=global_step)
-            
-            # print(f"{global_step} {all_logs}")
+
+            loss_display = {k: f"{v:.4f}" for k, v in all_logs.items() if "loss" in k}
+            pbar.set_postfix(loss_display)
             
             ### TODO: save the model here
             # if (global_step + 1) % args.general.save_freq == 0:
