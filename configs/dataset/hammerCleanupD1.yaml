@@ -3,7 +3,7 @@ defaults:
 
 name: hammerCleanupD1
 
-data_dir: /scratch/pbhowal/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/HAMMER_CLEANUP_D1/
+data_dir: /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/HAMMER_CLEANUP_D1
 
 task_caption: "pick up the hammer and place it in the drawer"
 

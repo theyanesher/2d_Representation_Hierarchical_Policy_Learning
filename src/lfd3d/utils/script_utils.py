@@ -106,8 +106,9 @@ def create_datamodule(cfg):
         "liberoLerobot": RpadLeRobotDataModule,  # same module, just different default configs
         "coffeeTask": NpyDataModule,
         "coffeeTaskD2": NpyDataModule,
-        "Kitchen": NpyDataModule,
         "hammerCleanupD1": NpyDataModule,
+        "mugCleanupD1": NpyDataModule,
+        "Kitchen": NpyDataModule,
     }
 
     datamodule_fn = dataset_map.get(cfg.dataset.name)

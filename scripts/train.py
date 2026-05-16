@@ -47,8 +47,12 @@ def create_checkpoint_callbacks(cfg, experiment_id):
         )
         callbacks.append(callback)
 
-    # Save a checkpoint every 10 epochs (keep all)
-    every_n = cfg.training.get("checkpoint_every_n_epochs", 5)
+    # Save a checkpoint every 10 epochs (keep all).
+    # save_on_train_epoch_end=True is required: otherwise Lightning auto-routes
+    # the save hook to on_validation_end whenever check_val_every_n_epoch != 1,
+    # which gates periodic saves on validation epochs and breaks every_n_epochs
+    # when it doesn't divide check_val_every_n_epoch.
+    every_n = cfg.training.get("checkpoint_every_n_epochs", 10)
     callbacks.append(
         ModelCheckpoint(
             dirpath=cfg.lightning.checkpoint_dir,
@@ -56,6 +60,7 @@ def create_checkpoint_callbacks(cfg, experiment_id):
             every_n_epochs=every_n,
             save_top_k=-1,
             save_last=False,
+            save_on_train_epoch_end=True,
         )
     )
 
