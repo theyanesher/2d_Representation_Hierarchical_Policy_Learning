@@ -931,14 +931,33 @@ class GoalRegressionModule(pl.LightningModule):
         # Select specific idxs to compute the loss over
         # TODO: Find a cleaner way to pass the idxs
         gt_primary_points = ground_truth_gripper[batch_indices, batch["gripper_idx"], :]
-        # Assumes 0/1 are tips to be averaged
-        gt_extra_point = (gt_primary_points[:, 0, :] + gt_primary_points[:, 1, :]) / 2
+
+        # ---- Previous (degenerate) supervision: midpoint(point_0, point_1) ----
+        # The 4th supervised keypoint was hand-built as the midpoint of the
+        # first two predicted keypoints. This collapsed the 4-tuple onto a
+        # plane and threw away the NPZ's canonical grasp_center, leaving the
+        # model's 4th-keypoint output unsupervised against the real geometry.
+        #
+        # gt_extra_point = (gt_primary_points[:, 0, :] + gt_primary_points[:, 1, :]) / 2
+        # ---- /Previous ----
+
+        # New supervision: use the canonical grasp_center stored in the NPZ at
+        # index 3 (see datasets/npy/npy_dataset.py docstring for the convention).
+        gt_extra_point = ground_truth_gripper[:, 3, :]
+
         gt = torch.cat([gt_primary_points, gt_extra_point[:, None, :]], dim=1)
 
         init_primary_points = initial_gripper[batch_indices, batch["gripper_idx"], :]
-        init_extra_point = (
-            init_primary_points[:, 0, :] + init_primary_points[:, 1, :]
-        ) / 2
+
+        # ---- Previous (degenerate) anchor: midpoint(init_point_0, init_point_1) ----
+        # init_extra_point = (
+        #     init_primary_points[:, 0, :] + init_primary_points[:, 1, :]
+        # ) / 2
+        # ---- /Previous ----
+
+        # New anchor: canonical grasp_center from the NPZ at index 3.
+        init_extra_point = initial_gripper[:, 3, :]
+
         init = torch.cat([init_primary_points, init_extra_point[:, None, :]], dim=1)
         return init, gt
 
