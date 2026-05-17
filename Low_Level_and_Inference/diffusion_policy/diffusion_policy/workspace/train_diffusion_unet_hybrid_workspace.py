@@ -63,11 +63,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
         # resume training
         if cfg.training.resume:
-            # if cfg.training.get('resume_ckpt_path', None) is not None:
-            lastest_ckpt_path = "outputs/2026.05.06/13.47.20_groot_GMM_Weighted_Cross_Attention_Coffee_coffee_gmm_goal/checkpoints/epoch_20.ckpt" #cfg.training.resume_ckpt_path
-            # else:
-            #     lastest_ckpt_path = self.get_checkpoint_path()
-            # if lastest_ckpt_path.is_file():
+            lastest_ckpt_path = cfg.training.get('resume_ckpt_path', None)
+            if lastest_ckpt_path is None:
+                raise ValueError(
+                    "training.resume=true but training.resume_ckpt_path is not set. "
+                    "Pass +training.resume_ckpt_path=/path/to/ckpt on the CLI."
+                )
             print(f"Resuming from checkpoint {lastest_ckpt_path}")
             self.load_checkpoint(path=lastest_ckpt_path)
 

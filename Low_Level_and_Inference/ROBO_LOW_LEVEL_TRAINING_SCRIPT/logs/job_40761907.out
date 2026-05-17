@@ -1,0 +1,12 @@
+[stage] source : /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/HAMMER_CLEANUP_D1
+[stage] dest   : /local/slurm-40761907/local/HAMMER_CLEANUP_D1_Low_Level
+[stage] threads: 32
+[stage] done in 194s. 230G staged.
+[FlowMatchingDiTImagePolicy] visual_encoder_type='dinov2', use_separate_wrist_encoder=False, use_wrist=False, main_cam_keys=['cam0_image', 'cam1_image']
+[FlowMatchingDiTImagePolicy] goal_gripper_encoder_type='base', use_goal_cross_attention=False, keys=['goal_gripper_pts']
+Total number of DiT parameters:  180757504
+Diffusion params: 1.807575e+08
+Vision params: 8.737203e+07
+Indexing 909 trajectories from /local/slurm-40761907/local/HAMMER_CLEANUP_D1_Low_Level (lazy)...
+Dataset initialized with 249822 training sequences.
+TOTAL EPOCHSSSSSSSSSSSS 100

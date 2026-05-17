@@ -1,0 +1,12 @@
+[stage] source : /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Coffee_D2
+[stage] dest   : /local/slurm-40726275/local/Coffee_D2_Low_Level
+[stage] threads: 32
+[stage] done in 156s. 198G staged.
+[FlowMatchingDiTImagePolicy] visual_encoder_type='dinov2', use_separate_wrist_encoder=False, use_wrist=False, main_cam_keys=['cam0_image', 'cam1_image']
+[FlowMatchingDiTImagePolicy] GMM goal encoder: goals_key='gmm_all_goals', weights_key='gmm_all_weights', use_goal_cross_attention=True, use_weighted_cross_attention=True
+Total number of DiT parameters:  218543104
+Diffusion params: 2.185431e+08
+Vision params: 8.737203e+07
+Indexing 1000 trajectories from /local/slurm-40726275/local/Coffee_D2_Low_Level (lazy)...
+Dataset initialized with 212776 training sequences.
+TOTAL EPOCHSSSSSSSSSSSS 100
