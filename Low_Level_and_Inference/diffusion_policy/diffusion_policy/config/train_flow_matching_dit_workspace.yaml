@@ -62,6 +62,38 @@ policy:
   #   logits += log(w_j)  — requires use_goal_cross_attention=true and GMM obs keys.
   use_weighted_cross_attention: false
 
+  # Set to true to run goal-CA and visual-CA in parallel inside each cross-attn block
+  # (both read the pre-block hidden_states, outputs are concat'd along feature dim and
+  # projected back to D before the residual add). Requires use_goal_cross_attention=true.
+  # Composable with use_weighted_cross_attention.
+  use_parallel_cross_attentions: false
+
+  # Set to true to multiply the goal-CA output by a learnable scalar α_goal init=0 before
+  # adding to the residual (serial) or concat-fusing (parallel). Vision residual is never
+  # gated. ReZero-style asymmetric gate that hands vision the head start in optimization.
+  # Requires use_goal_cross_attention=true. Composable with the flags above.
+  use_gated_goal_residual: false
+
+  # Idea 1: route the WCA output to GoalAdaLN as per-token (γ_goal, β_goal) conditioning
+  # for the visual-CA's norm, instead of adding it to the residual stream. Only visual CA
+  # writes to the residual — hard architectural ceiling on goal influence. Requires
+  # use_goal_cross_attention=true. Mutually exclusive with use_parallel_cross_attentions
+  # and use_gated_goal_residual.
+  use_goal_adaln_modulation: false
+
+  # Dual-stream architecture (GoalAuxiliaryStream): replaces the DiT block chain with
+  # GoalAuxiliaryStreamBlocks — two parallel hidden_states streams with per-block
+  # CA-to-vision (stream 1), WCA-to-goal (stream 2), joint self-attention with
+  # per-stream Q/K/V/out, and per-stream FFN. Only stream 1 is decoded at the end.
+  # Requires use_goal_cross_attention=true. Mutually exclusive with the other three
+  # goal-routing flags above.
+  use_goal_auxiliary_stream: false
+
+  # Diagnostic: register backward hooks on every cross-attn block to record
+  # ‖∂L/∂WCA_out‖ and ‖∂L/∂CA_out‖. The workspace logs per-block means each epoch.
+  # Safe to combine with any of the flags above.
+  log_attention_grad_norms: false
+
   # Keep only the top-K GMM candidates by weight before encoding.
   # Useful with use_goal_cross_attention=false (self-attention) to bound sequence length.
   # null = use all candidates.
@@ -85,6 +117,11 @@ policy:
     interleave_self_attention: true
     use_goal_cross_attention: ${policy.use_goal_cross_attention}
     use_weighted_cross_attention: ${policy.use_weighted_cross_attention}
+    use_parallel_cross_attentions: ${policy.use_parallel_cross_attentions}
+    use_gated_goal_residual: ${policy.use_gated_goal_residual}
+    use_goal_adaln_modulation: ${policy.use_goal_adaln_modulation}
+    use_goal_auxiliary_stream: ${policy.use_goal_auxiliary_stream}
+    log_attention_grad_norms: ${policy.log_attention_grad_norms}
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
@@ -141,7 +178,10 @@ logging:
   resume: False # False
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
-  tags: ["${name}", "${task_name}", "${exp_name}"]
+  # ${name} intentionally omitted — it's already the WandB run name, and long
+  # experiment names (>64 chars) blow past WandB's tag length cap. Keep tags
+  # short and categorical; filter by name in the WandB UI.
+  tags: ["${task_name}", "${exp_name}"]
   id: null
   group: null
 

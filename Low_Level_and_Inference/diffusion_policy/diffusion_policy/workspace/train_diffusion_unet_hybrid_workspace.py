@@ -58,6 +58,49 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.global_step = 0
         self.epoch = 0
 
+    # --- attention diagnostics (no-op if model has no DiT transformer_blocks) -----
+    def _get_dit_blocks(self):
+        return getattr(getattr(self.model, 'model', None), 'transformer_blocks', None)
+
+    def _collect_attn_grad_norms(self, accumulator):
+        """Push the latest per-block goal/vis grad norms into the accumulator.
+        Called once per backward; reads buffers set by hooks in BasicTransformerBlock."""
+        blocks = self._get_dit_blocks()
+        if blocks is None:
+            return
+        for i, blk in enumerate(blocks):
+            g = getattr(blk, '_last_goal_grad_norm', None)
+            v = getattr(blk, '_last_vis_grad_norm',  None)
+            if g is not None:
+                accumulator.setdefault(f'grad_norm_wca/block_{i}',    []).append(g)
+            if v is not None:
+                accumulator.setdefault(f'grad_norm_vis_ca/block_{i}', []).append(v)
+
+    def _log_attn_diagnostics(self, step_log, accumulator):
+        """Add per-block α_goal + per-block grad norm means + cross-block aggregates."""
+        blocks = self._get_dit_blocks()
+        if blocks is None:
+            return
+        # Per-block α_goal — current value (gates change slowly; no need to average)
+        for i, blk in enumerate(blocks):
+            if hasattr(blk, 'goal_residual_gate'):
+                step_log[f'alpha_goal/block_{i}'] = blk.goal_residual_gate.detach().item()
+        # Per-block grad norm — mean across the epoch's steps
+        for key, vals in accumulator.items():
+            if vals:
+                step_log[key] = float(np.mean(vals))
+        # Aggregates: mean across blocks, and the WCA/CA ratio
+        wca = [v for k, v in step_log.items() if k.startswith('grad_norm_wca/block_')]
+        vca = [v for k, v in step_log.items() if k.startswith('grad_norm_vis_ca/block_')]
+        if wca:
+            step_log['grad_norm_wca/mean']    = float(np.mean(wca))
+        if vca:
+            step_log['grad_norm_vis_ca/mean'] = float(np.mean(vca))
+        if wca and vca:
+            step_log['grad_norm_ratio_wca_over_vis_ca'] = (
+                step_log['grad_norm_wca/mean'] / (step_log['grad_norm_vis_ca/mean'] + 1e-12)
+            )
+
     def run(self):
         cfg = copy.deepcopy(self.cfg)
 
@@ -157,6 +200,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             print("TOTAL EPOCHSSSSSSSSSSSS", cfg.training.num_epochs)
             for local_epoch_idx in range(cfg.training.num_epochs):
                 step_log = dict()
+                # Per-epoch accumulator for attention-block grad norms.
+                # Populated by _collect_attn_grad_norms() after each loss.backward().
+                attn_grad_norm_accum = dict()
                 # ========= train for this epoch ==========
                 train_losses = list()
                 with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
@@ -180,6 +226,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         raw_loss = self.model.compute_loss(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
+
+                        # Read backward-hook buffers (populated during loss.backward()
+                        # if log_attention_grad_norms=true). No-op otherwise.
+                        self._collect_attn_grad_norms(attn_grad_norm_accum)
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
@@ -293,6 +343,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 policy.train()
 
                 # end of epoch
+                # Attention diagnostics: per-block α_goal current values +
+                # per-block grad norm means over this epoch + cross-block aggregates.
+                # No-op when the model has no DiT transformer_blocks / gates / hooks.
+                self._log_attn_diagnostics(step_log, attn_grad_norm_accum)
                 # log of last step is combined with validation and rollout
                 wandb_run.log(step_log, step=self.global_step)
                 json_logger.log(step_log)

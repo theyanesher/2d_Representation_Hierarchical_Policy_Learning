@@ -101,6 +101,36 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # cross-attention uses the GMM probability weights as a log-prior bias on attention
         # logits: logits += log(w_j). The encoder does NOT append weight as an input feature.
         use_weighted_cross_attention: bool = False,
+        # When True (requires use_goal_cross_attention=True), each cross-attn block runs
+        # the goal-CA and visual-CA in parallel from the *pre-block* hidden_states,
+        # concatenates their outputs and projects back to D via fuse_proj, then adds as
+        # a single residual. Composable with use_weighted_cross_attention.
+        use_parallel_cross_attentions: bool = False,
+        # When True (requires use_goal_cross_attention=True), each cross-attn block
+        # multiplies its goal-CA output by a learnable scalar α_goal (init=0) before
+        # adding to the residual / concat-fusing. ReZero-style asymmetric gate that
+        # hands vision the head start in optimization. Composable with the flags above.
+        use_gated_goal_residual: bool = False,
+        # Idea 1. When True (requires use_goal_cross_attention=True), each cross-attn
+        # block routes its WCA output through GoalAdaLN as per-token (γ_goal, β_goal)
+        # conditioning for the visual-CA's norm instead of adding it to the residual.
+        # Hard architectural constraint: goals can no longer write to the residual
+        # stream — they can only modulate vision. Mutually exclusive with
+        # use_parallel_cross_attentions and use_gated_goal_residual.
+        use_goal_adaln_modulation: bool = False,
+        # Dual-stream architecture (GoalAuxiliaryStream). When True, replaces the
+        # standard DiT block chain with GoalAuxiliaryStreamBlocks: two parallel
+        # streams (main = action, auxiliary = goal) with per-block CA / WCA,
+        # joint self-attention (per-stream Q/K/V/out), and per-stream FFN. Only the
+        # main stream is decoded at the end. Mutually exclusive with the other
+        # goal-routing flags (parallel_cross_attentions / gated_goal_residual /
+        # goal_adaln_modulation). Requires use_goal_cross_attention=True.
+        use_goal_auxiliary_stream: bool = False,
+        # Diagnostic: register PyTorch backward hooks on the goal-CA and visual-CA
+        # outputs of every cross-attn block to record ‖∂L/∂out‖. The workspace logs
+        # per-block means each epoch. Small per-step overhead; safe to leave off
+        # for production runs.
+        log_attention_grad_norms: bool = False,
         # When set, keep only the top-K GMM candidates by weight before encoding.
         # Useful with use_goal_cross_attention=False (self-attention) to bound sequence length.
         # None = use all candidates.
@@ -218,6 +248,11 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.has_gmm = gmm_goals_key is not None and gmm_weights_key is not None
         self.use_goal_cross_attention = use_goal_cross_attention
         self.use_weighted_cross_attention = use_weighted_cross_attention
+        self.use_parallel_cross_attentions = use_parallel_cross_attentions
+        self.use_gated_goal_residual = use_gated_goal_residual
+        self.use_goal_adaln_modulation = use_goal_adaln_modulation
+        self.use_goal_auxiliary_stream = use_goal_auxiliary_stream
+        self.log_attention_grad_norms = log_attention_grad_norms
         self.gmm_top_k = gmm_top_k
 
         if self.has_gmm:
@@ -230,7 +265,11 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
             print(f"[FlowMatchingDiTImagePolicy] GMM goal encoder: "
                   f"goals_key={gmm_goals_key!r}, weights_key={gmm_weights_key!r}, "
                   f"use_goal_cross_attention={use_goal_cross_attention}, "
-                  f"use_weighted_cross_attention={use_weighted_cross_attention}")
+                  f"use_weighted_cross_attention={use_weighted_cross_attention}, "
+                  f"use_parallel_cross_attentions={use_parallel_cross_attentions}, "
+                  f"use_gated_goal_residual={use_gated_goal_residual}, "
+                  f"use_goal_adaln_modulation={use_goal_adaln_modulation}, "
+                  f"use_goal_auxiliary_stream={use_goal_auxiliary_stream}")
         elif self.has_goal_gripper:
             if goal_gripper_encoder_type == "keypoint_aware":
                 self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
