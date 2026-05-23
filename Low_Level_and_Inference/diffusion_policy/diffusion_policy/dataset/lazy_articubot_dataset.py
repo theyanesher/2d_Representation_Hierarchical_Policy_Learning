@@ -26,6 +26,10 @@ from diffusion_policy.common.action_util import (
     hybrid_relative_to_hybrid_delta_actions,
     hybrid_delta_to_hybrid_relative_actions,
 )
+from manipulation.utils import (
+    rotation_transfer_6D_to_matrix_batch_mino,
+    rotation_transfer_matrix_to_6D_batch,
+)
 from common.data_utils import process_pointmap, process_plucker, process_depth
 from diffusion_policy.common.heatmap_augmentation import HeatmapRotationAugmentation
 
@@ -67,8 +71,13 @@ class LazyArticuBotDataset(BaseImageDataset):
         self.action_mode = action_mode
         self.pointmap_frame = pointmap_frame
 
-        if self.action_mode not in ['hybrid_delta', 'hybrid_relative', 'delta', 'relative']:
+        if self.action_mode not in ['hybrid_delta', 'hybrid_relative', 'delta', 'relative', 'absolute']:
             raise ValueError(f"Unsupported action_mode: {action_mode}")
+        if self.action_mode == 'absolute' and 'state' not in shape_meta.get('obs', {}):
+            raise ValueError(
+                "action_mode='absolute' requires 'state' in shape_meta.obs "
+                "(used as absolute pose target via state[t+1])."
+            )
         if self.pointmap_frame not in ['robot_frame', 'gripper_frame']:
             raise ValueError(f"Unsupported pointmap_frame: {pointmap_frame}")
 
@@ -135,7 +144,14 @@ class LazyArticuBotDataset(BaseImageDataset):
         # 2. Build LazyH5Buffer — reads only metadata (shapes/dtypes/lengths),
         #    no array data loaded into memory.
         # -----------------------------------------------------------------------
-        self.action_key = 'action/hybrid' if self.action_mode.startswith('hybrid') else 'action/delta' 
+        # In 'absolute' mode the target is state[t+1] (computed at __getitem__ time),
+        # but we still register an action key so the LazyH5Buffer/sampler keep their
+        # ReplayBuffer contract. We arbitrarily pick action/hybrid; its values are
+        # discarded in the absolute branch of __getitem__.
+        if self.action_mode == 'absolute':
+            self.action_key = 'action/hybrid'
+        else:
+            self.action_key = 'action/hybrid' if self.action_mode.startswith('hybrid') else 'action/delta'
         
         key_to_h5path = {'action': self.action_key}
         for key in all_obs_keys:
@@ -217,6 +233,14 @@ class LazyArticuBotDataset(BaseImageDataset):
                 state_dim=action_dim,
                 max_samples=len(self.sampler) * self.n_obs_steps,
             )
+        elif self.action_mode == 'absolute':
+            # Absolute target lives in the same space as obs/state — reuse the
+            # robot-state range normalizer.
+            action_dim = self.shape_meta['action']['shape'][0]
+            normalizer['action'] = get_online_range_robot_state_normalizer(
+                state_dim=action_dim,
+                max_samples=len(self.sampler) * self.n_obs_steps,
+            )
 
         # Low dim
         for key in self.lowdim_keys:
@@ -264,6 +288,93 @@ class LazyArticuBotDataset(BaseImageDataset):
 
     def __len__(self):
         return len(self.sampler)
+
+    def _load_state_window(self, idx: int) -> np.ndarray:
+        """Load obs/state across the full sampler window, clamping at the episode
+        end and applying the same pad_before/pad_after rules the SequenceSampler
+        uses for the action chunk. Returns (horizon, state_dim) float32.
+
+        The sampler is configured with `key_first_k['state'] = n_obs_steps`, so
+        sample_sequence(...) only returns the first n_obs_steps frames of state
+        (the rest NaN). We bypass that here because absolute targets need state
+        for the full horizon.
+        """
+        buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx = (
+            self.sampler.indices[idx]
+        )
+        state_arr = self.replay_buffer['state']
+
+        ep_idx = int(np.searchsorted(
+            self.replay_buffer.episode_ends, buffer_start_idx, side='right'
+        ))
+        ep_end = int(self.replay_buffer.episode_ends[ep_idx])
+
+        stop = min(buffer_end_idx, ep_end)
+        states = state_arr[buffer_start_idx:stop].astype(np.float32)
+
+        # Pad trajectory tail (sampler does this for the action chunk by repeating
+        # the last frame; mirror it so xyz/rot composition aligns).
+        valid_n = buffer_end_idx - buffer_start_idx
+        if states.shape[0] < valid_n:
+            pad_count = valid_n - states.shape[0]
+            states = np.concatenate(
+                [states, np.repeat(states[-1:], pad_count, axis=0)],
+                axis=0,
+            )
+
+        # Mirror sampler pad_before / pad_after (repeat first/last frame).
+        seq_len = self.horizon
+        if (sample_start_idx > 0) or (sample_end_idx < seq_len):
+            out = np.zeros((seq_len,) + states.shape[1:], dtype=states.dtype)
+            if sample_start_idx > 0:
+                out[:sample_start_idx] = states[0]
+            if sample_end_idx < seq_len:
+                out[sample_end_idx:] = states[-1]
+            out[sample_start_idx:sample_end_idx] = states
+            states = out
+
+        return states
+
+    def _build_absolute_action_target(self, idx: int, hybrid_action: np.ndarray) -> np.ndarray:
+        """Absolute action target: absolute[t] = state[t] ⊕ action/hybrid[t].
+
+        This is the *commanded target pose* sent to the OSC controller at each
+        step (world-frame xyz, body-frame rot composed onto current orientation,
+        additive gripper). It is the standard absolute-control target derived
+        from delta-recorded data — what the same controller would track at
+        deployment to reproduce the demonstration.
+
+        Note: this is NOT state[t+1] (the observed next pose). On Coffee_D2 the
+        OSC controller under-tracks each commanded delta, so state[t+1] is only
+        ~1/4 of the way toward state[t] + action/hybrid[t].
+        """
+        states = self._load_state_window(idx)               # (H, 10)
+        actions = hybrid_action.astype(np.float32)          # (H, 10)
+        H = states.shape[0]
+        assert actions.shape == states.shape, (
+            f"action/state horizon mismatch: {actions.shape} vs {states.shape}"
+        )
+
+        # World-frame xyz: just add.
+        abs_xyz = states[:, :3] + actions[:, :3]
+
+        # Body-frame rotation composition: R_abs = R_state @ R_delta.
+        state_R = rotation_transfer_6D_to_matrix_batch_mino(
+            states[:, 3:9].reshape(-1, 6)
+        ).reshape(H, 3, 3)
+        delta_R = rotation_transfer_6D_to_matrix_batch_mino(
+            actions[:, 3:9].reshape(-1, 6)
+        ).reshape(H, 3, 3)
+        abs_R = state_R @ delta_R                            # (H, 3, 3)
+        # Match action_util.py convention: transpose before encoding to 6D.
+        abs_6d = rotation_transfer_matrix_to_6D_batch(
+            abs_R.reshape(-1, 3, 3).transpose(0, 2, 1)
+        ).reshape(H, 6)
+
+        # Gripper: additive (matches action_util.py:308 verification).
+        abs_grip = states[:, 9:10] + actions[:, 9:10]
+
+        return np.concatenate([abs_xyz, abs_6d, abs_grip], axis=-1).astype(np.float32)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         data = self.sampler.sample_sequence(idx)
@@ -378,6 +489,14 @@ class LazyArticuBotDataset(BaseImageDataset):
             action = torch.from_numpy(relative_action)
         elif 'delta' in self.action_mode:
             action = torch.from_numpy(data['action'].astype(np.float32))
+        elif self.action_mode == 'absolute':
+            # Target is state[t] ⊕ action/hybrid[t] across the horizon — the
+            # commanded target pose for the OSC controller (world xyz + body rot
+            # + additive gripper). action_key is 'action/hybrid' in this mode,
+            # so data['action'] is the hybrid delta we compose with state[t].
+            action = torch.from_numpy(self._build_absolute_action_target(
+                idx, data['action']
+            ))
 
         # import pdb; pdb.set_trace()
         return {
