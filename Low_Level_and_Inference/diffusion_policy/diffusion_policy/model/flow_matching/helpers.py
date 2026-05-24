@@ -93,3 +93,107 @@ class SimpleMLP(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layer2(F.relu(self.layer1(x)))
+
+
+class PerComponentStateEncoder(nn.Module):
+    """
+    Encode the 10-D MimicGen Panda state as THREE sub-tokens per obs step:
+        - position  (3,)   → token + learned [POS]  identity embedding
+        - rotation  (6,)   → token + learned [ROT]  identity embedding   (6D rep: cols 1+2 of R)
+        - gripper   (1,)   → token + learned [GRIP] identity embedding
+    Each component also receives a learned temporal embedding (which obs step).
+
+    Input:  state (B, To, 10)   layout = [pos(3), rot_col1(3), rot_col2(3), gripper(1)]
+    Output: tokens (B, To*3, D)
+
+    Compared to a single SimpleMLP(10→D→D) that produces (B, To, D):
+      - 3× more state tokens (To*3 instead of To) → better attention bandwidth
+      - explicit per-component structure (learned identity embeddings) → the network
+        doesn't have to discover from flat dims that "indices 0-2 are position"
+
+    Assumes the standard 10-D Panda EE-space layout (3 + 6 + 1). Asserts the input
+    has the expected shape; raises if mismatched.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        n_obs_steps: int,
+        hidden_dim: int = None,
+        pos_dim: int = 3,
+        rot_dim: int = 6,
+        gripper_dim: int = 1,
+    ):
+        super().__init__()
+        hidden_dim = hidden_dim or embed_dim
+        self.pos_dim = pos_dim
+        self.rot_dim = rot_dim
+        self.gripper_dim = gripper_dim
+        self.state_dim = pos_dim + rot_dim + gripper_dim
+        self.n_obs_steps = n_obs_steps
+
+        # Per-component encoders. Each is a small 2-layer MLP raw-dim → D.
+        self.pos_encoder = nn.Sequential(
+            nn.Linear(pos_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+        self.rot_encoder = nn.Sequential(
+            nn.Linear(rot_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+        self.gripper_encoder = nn.Sequential(
+            nn.Linear(gripper_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+
+        # Learned identity embedding: which component (0=pos, 1=rot, 2=gripper).
+        # Lets the network distinguish sub-tokens by their semantic role.
+        self.component_embed = nn.Embedding(3, embed_dim)
+        nn.init.normal_(self.component_embed.weight, std=0.02)
+
+        # Learned temporal embedding: which obs step (0..n_obs_steps-1).
+        self.temporal_embed = nn.Embedding(n_obs_steps, embed_dim)
+        nn.init.normal_(self.temporal_embed.weight, std=0.02)
+
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        state : (B, To, 10)
+
+        Returns
+        -------
+        tokens : (B, To*3, D)  — order = [pos_t0, rot_t0, grip_t0, pos_t1, rot_t1, grip_t1, ...]
+        """
+        B, To, D = state.shape
+        assert D == self.state_dim, (
+            f"PerComponentStateEncoder expects state_dim={self.state_dim}, got {D}. "
+            f"Reconfigure pos_dim/rot_dim/gripper_dim if your state layout differs."
+        )
+        assert To == self.n_obs_steps, (
+            f"Expected n_obs_steps={self.n_obs_steps}, got To={To}."
+        )
+
+        pos     = state[..., 0 : self.pos_dim]                                    # (B, To, 3)
+        rot     = state[..., self.pos_dim : self.pos_dim + self.rot_dim]          # (B, To, 6)
+        gripper = state[..., self.pos_dim + self.rot_dim :]                       # (B, To, 1)
+
+        pos_tok     = self.pos_encoder(pos)         # (B, To, D)
+        rot_tok     = self.rot_encoder(rot)         # (B, To, D)
+        gripper_tok = self.gripper_encoder(gripper) # (B, To, D)
+
+        # (B, To, 3, D)
+        tokens = torch.stack([pos_tok, rot_tok, gripper_tok], dim=2)
+
+        # Identity embedding (which component)
+        component_ids = torch.arange(3, device=state.device)
+        tokens = tokens + self.component_embed(component_ids)[None, None, :, :]
+
+        # Temporal embedding (which obs step)
+        t_ids = torch.arange(To, device=state.device)
+        tokens = tokens + self.temporal_embed(t_ids)[None, :, None, :]
+
+        return tokens.reshape(B, To * 3, -1)        # (B, To*3, D)

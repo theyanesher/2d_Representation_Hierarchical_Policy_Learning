@@ -120,6 +120,60 @@ class GoalAdaLN(nn.Module):
         return x
 
 
+class StateAdaLN(nn.Module):
+    """
+    AdaLN with two conditioning branches:
+      - temb      (B, D)  → per-channel (γ_t, β_t)         — standard AdaLN
+      - state_ctx (B, D)  → per-channel (γ_state, β_state) — zero-init at start
+
+    Final modulation (additive composition, like DiT's class+time conditioning):
+        x_mod = LN(x) · (1 + γ_t + γ_state) + (β_t + β_state)
+
+    Used as `norm1` inside BasicTransformerBlock when use_state_adaln=True.
+    At init the state branch's Linear is zero-init'd, so γ_state = β_state = 0
+    and behavior reduces to standard temb-only AdaLN. The optimizer grows state
+    modulation only if it reduces loss.
+
+    Goal: give state a "global modulation" channel that affects every block's
+    norm, on top of being a token in hidden_states. Solves the "state has 2 of
+    18 self-attn slots" attention-bandwidth bottleneck by routing state through
+    a dedicated, attention-free pathway.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        norm_elementwise_affine: bool = False,
+        norm_eps: float = 1e-5,
+    ):
+        super().__init__()
+        self.silu = nn.SiLU()
+        # temb branch — same shape as standard AdaLayerNorm's linear so at step 0,
+        # combined with zero-init state branch, behaves identically.
+        self.linear_t = nn.Linear(embedding_dim, embedding_dim * 2)
+        # state branch — zero-init so γ_state = β_state = 0 at step 0.
+        self.linear_state = nn.Linear(embedding_dim, embedding_dim * 2)
+        nn.init.zeros_(self.linear_state.weight)
+        nn.init.zeros_(self.linear_state.bias)
+        self.norm = nn.LayerNorm(embedding_dim, norm_eps, norm_elementwise_affine)
+
+    def forward(
+        self,
+        x: torch.Tensor,                          # (B, T, D)
+        temb: torch.Tensor,                       # (B, D)
+        state_ctx: Optional[torch.Tensor] = None, # (B, D) — pre-pooled state summary
+    ) -> torch.Tensor:
+        scale_t, shift_t = self.linear_t(self.silu(temb)).chunk(2, dim=-1)        # (B, D), (B, D)
+        if state_ctx is None:
+            # No state context available — behave as standard temb-AdaLN.
+            x = self.norm(x) * (1 + scale_t[:, None, :]) + shift_t[:, None, :]
+        else:
+            scale_s, shift_s = self.linear_state(self.silu(state_ctx)).chunk(2, dim=-1)
+            x = self.norm(x) * (1 + scale_t[:, None, :] + scale_s[:, None, :]) \
+                            + (shift_t[:, None, :] + shift_s[:, None, :])
+        return x
+
+
 class WeightedCrossAttention(nn.Module):
     """
     Multi-head cross-attention with per-key log-prior from GMM weights.
@@ -309,6 +363,14 @@ class BasicTransformerBlock(nn.Module):
         # to the residual → hard architectural ceiling on the goal stream's influence.
         # Mutually exclusive with use_parallel_cross_attentions / use_gated_goal_residual.
         use_goal_adaln_modulation: bool = False,
+        # When True, the block's `norm1` becomes a StateAdaLN that adds a per-channel
+        # state-derived modulation on top of the standard temb modulation. The state
+        # branch is zero-init so at step 0 behavior matches standard AdaLN; the
+        # optimizer grows state modulation only if it reduces loss. Gives state a
+        # global modulation pathway (every block, every norm) on top of being a token
+        # in hidden_states. Mutually exclusive with use_goal_adaln_modulation (both
+        # would want to replace norm1).
+        use_state_adaln: bool = False,
         # When True, register PyTorch backward hooks on the goal-CA output and visual-CA
         # output, recording ‖∂L/∂out‖ per block per backward pass into
         # `self._last_goal_grad_norm` and `self._last_vis_grad_norm`. Read by the
@@ -333,6 +395,7 @@ class BasicTransformerBlock(nn.Module):
         self.use_parallel_cross_attentions = use_parallel_cross_attentions
         self.use_gated_goal_residual = use_gated_goal_residual
         self.use_goal_adaln_modulation = use_goal_adaln_modulation
+        self.use_state_adaln = use_state_adaln
         self.log_attention_grad_norms = log_attention_grad_norms
 
         # Local sanity: Idea 1 is mutually exclusive with the residual-write modes.
@@ -345,6 +408,13 @@ class BasicTransformerBlock(nn.Module):
             )
             assert not use_gated_goal_residual, (
                 "use_goal_adaln_modulation is incompatible with use_gated_goal_residual"
+            )
+        # State-AdaLN and goal-AdaLN both want to replace `norm1`. Forbid combining
+        # (a unified MultiCondAdaLN could be added later if both are desired).
+        if use_state_adaln:
+            assert not use_goal_adaln_modulation, (
+                "use_state_adaln is incompatible with use_goal_adaln_modulation "
+                "(both want to replace norm1)"
             )
         # Backward-hook buffers. Set by hooks during loss.backward(); read by the
         # workspace training loop after backward() and before optimizer.step().
@@ -369,6 +439,10 @@ class BasicTransformerBlock(nn.Module):
             # GoalAdaLN reduces to standard temb-AdaLN at init (goal branch zero-init'd),
             # then learns per-token (γ_goal, β_goal) modulation on top.
             self.norm1 = GoalAdaLN(dim, norm_elementwise_affine=norm_elementwise_affine, norm_eps=norm_eps)
+        elif use_state_adaln and norm_type == "ada_norm":
+            # StateAdaLN reduces to standard temb-AdaLN at init (state branch zero-init'd),
+            # then learns per-channel (γ_state, β_state) modulation on top.
+            self.norm1 = StateAdaLN(dim, norm_elementwise_affine=norm_elementwise_affine, norm_eps=norm_eps)
         elif norm_type == "ada_norm":
             self.norm1 = AdaLayerNorm(dim)
         else:
@@ -467,6 +541,7 @@ class BasicTransformerBlock(nn.Module):
         temb: Optional[torch.LongTensor] = None,
         goal_hidden_states: Optional[torch.Tensor] = None,
         goal_weights: Optional[torch.Tensor] = None,  # (B, N_goals) — required when use_weighted_cross_attention
+        state_ctx: Optional[torch.Tensor] = None,     # (B, D) — pooled state summary for StateAdaLN
     ) -> torch.Tensor:
         # Reset hook buffers each forward so the workspace doesn't read stale
         # values when this block was skipped (e.g. self-attn block has no goal).
@@ -565,7 +640,11 @@ class BasicTransformerBlock(nn.Module):
 
             # ---- Visual branch (standard CA, reads same pre-block x) ----
             if self.norm_type == "ada_norm":
-                norm_vis_in = self.norm1(hidden_states, temb)
+                # StateAdaLN accepts an extra state_ctx kwarg; standard AdaLayerNorm/GoalAdaLN do not.
+                if self.use_state_adaln:
+                    norm_vis_in = self.norm1(hidden_states, temb, state_ctx)
+                else:
+                    norm_vis_in = self.norm1(hidden_states, temb)
             else:
                 norm_vis_in = self.norm1(hidden_states)
             if self.pos_embed is not None:
@@ -624,7 +703,11 @@ class BasicTransformerBlock(nn.Module):
 
             # 2. Visual cross-attention (or self-attention when encoder_hidden_states is None)
             if self.norm_type == "ada_norm":
-                norm_hidden_states = self.norm1(hidden_states, temb)
+                # StateAdaLN accepts an extra state_ctx kwarg; AdaLayerNorm/GoalAdaLN do not.
+                if self.use_state_adaln:
+                    norm_hidden_states = self.norm1(hidden_states, temb, state_ctx)
+                else:
+                    norm_hidden_states = self.norm1(hidden_states, temb)
             else:
                 norm_hidden_states = self.norm1(hidden_states)
 
@@ -902,6 +985,13 @@ class DiT(ModelMixin, ConfigMixin):
         # `interleave_self_attention` flag is ignored under this mode (the joint SA
         # already provides self-attn inside every block).
         use_goal_auxiliary_stream: bool = False,
+        # When True, every BasicTransformerBlock's `norm1` becomes a StateAdaLN that
+        # adds per-channel state-derived modulation on top of temb. State context
+        # (a pooled (B, D) summary) is passed in DiT.forward via the `state_ctx` kwarg.
+        # Mutually exclusive with use_goal_adaln_modulation. Only wired into
+        # BasicTransformerBlock currently; not yet supported under
+        # use_goal_auxiliary_stream (dual-stream block).
+        use_state_adaln: bool = False,
         # When True, every block registers backward hooks on its goal-CA / visual-CA
         # outputs and records ‖∂L/∂out‖ each backward pass. Read by the workspace
         # training loop to log per-block grad norm means per epoch.
@@ -931,6 +1021,14 @@ class DiT(ModelMixin, ConfigMixin):
             )
             assert not use_goal_adaln_modulation, (
                 "use_goal_auxiliary_stream is mutually exclusive with use_goal_adaln_modulation"
+            )
+            assert not use_state_adaln, (
+                "use_state_adaln is not yet supported with use_goal_auxiliary_stream "
+                "(StateAdaLN currently wired only into BasicTransformerBlock)"
+            )
+        if use_state_adaln:
+            assert not use_goal_adaln_modulation, (
+                "use_state_adaln is mutually exclusive with use_goal_adaln_modulation"
             )
 
         self.attention_head_dim = attention_head_dim
@@ -1012,6 +1110,9 @@ class DiT(ModelMixin, ConfigMixin):
                             and use_goal_cross_attention
                             and (not interleave_self_attention or idx % 2 == 0)
                         ),
+                        # StateAdaLN applies to every block's norm1 (no idx gating);
+                        # the modulation is timestep-conditioning-like.
+                        use_state_adaln=use_state_adaln,
                         log_attention_grad_norms=log_attention_grad_norms,
                     )
                     for idx in range(num_layers)
@@ -1035,6 +1136,7 @@ class DiT(ModelMixin, ConfigMixin):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         goal_hidden_states: Optional[torch.Tensor] = None,  # (B, G, D)
         goal_weights: Optional[torch.Tensor] = None,        # (B, G) — GMM probs for weighted cross-attn
+        state_ctx: Optional[torch.Tensor] = None,           # (B, D) — pooled state summary for StateAdaLN
         return_all_hidden_states: bool = False,
     ):
         # Encode timesteps
@@ -1050,6 +1152,8 @@ class DiT(ModelMixin, ConfigMixin):
             # Dual-stream loop: maintain two parallel hidden_states streams.
             # Both start from the same input. Only stream 1 is decoded at the end.
             # all_hidden_states tracks stream-1 only (for downstream consumers).
+            # NOTE: state_ctx is currently NOT forwarded into GoalAuxiliaryStreamBlock
+            # (the assertion in __init__ forbids that combination).
             x1 = hidden_states
             x2 = hidden_states.clone()
             for block in self.transformer_blocks:
@@ -1076,6 +1180,7 @@ class DiT(ModelMixin, ConfigMixin):
                         temb=temb,
                         goal_hidden_states=None,
                         goal_weights=None,
+                        state_ctx=state_ctx,
                     )
                 else:
                     # Visual cross-attention block: optionally also cross-attend to goals
@@ -1087,6 +1192,7 @@ class DiT(ModelMixin, ConfigMixin):
                         temb=temb,
                         goal_hidden_states=goal_hidden_states,
                         goal_weights=goal_weights,
+                        state_ctx=state_ctx,
                     )
                 all_hidden_states.append(hidden_states)
 

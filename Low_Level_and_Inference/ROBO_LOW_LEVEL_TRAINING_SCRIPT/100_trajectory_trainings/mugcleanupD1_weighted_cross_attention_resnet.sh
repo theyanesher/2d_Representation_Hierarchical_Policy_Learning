@@ -107,5 +107,6 @@ pixi run python diffusion_policy/train.py \
     logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_resnet_MugCleanup_D1 \
     name=groot_GMM_WCA_${NUM_DEMOS}demo_resnet_MugCleanup_D1 \
     training.checkpoint_every=5 \
-    dataloader.batch_size=128 \
+    training.num_epochs=300 \
+    dataloader.batch_size=64 \
     dataloader.num_workers=16

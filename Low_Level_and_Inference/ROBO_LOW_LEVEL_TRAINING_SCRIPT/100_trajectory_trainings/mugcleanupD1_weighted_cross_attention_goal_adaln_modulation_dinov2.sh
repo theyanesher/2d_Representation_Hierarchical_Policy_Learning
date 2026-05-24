@@ -5,40 +5,29 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 12:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name mug-d1-wca-100demo-dinov2
+#SBATCH --job-name mug-d1-wca-adaln-mod-100demo-dinov2
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# 100-demo baseline: flow-matching DiT low-level policy on MUG_CLEANUP_D1 with
-# GMM weighted cross-attention (serial WCA → visual CA pattern) and DINOv2
-# visual encoder. Uses the FIRST NUM_DEMOS demos (demo_0.h5 through
-# demo_(NUM_DEMOS-1).h5) from the full 1000-trajectory dataset on /ocean.
-#
-# NUM_DEMOS defaults to 100. Override at submission time:
-#   NUM_DEMOS=200 sbatch this_script.sh
-#
-# Only the requested demos are rsynced to node-local scratch — the rest stay
-# on /ocean and are never read. This keeps staging fast (~30s for 100 demos
-# vs ~5min for the full 1000).
+# 100-demo Idea 1: weighted cross-attention + goal-AdaLN modulation (WCA output
+# becomes per-token (γ_goal, β_goal) for the visual CA's norm; never added to
+# residual) + dinov2-18 visual encoder. Uses the first NUM_DEMOS demos
+# (demo_0.h5 through demo_(NUM_DEMOS-1).h5) from the full dataset.
+# NUM_DEMOS defaults to 100 — override with `NUM_DEMOS=200 sbatch …`.
 
 set -euo pipefail
 set -x
 
 export PATH="$HOME/.pixi/bin:$PATH"
 
-# --- demo selection ------------------------------------------------------
 NUM_DEMOS="${NUM_DEMOS:-100}"
-echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
+echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos"
 
-# --- paths ---------------------------------------------------------------
 SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
-# Pick a node-local scratch dir. Always prefer the per-job isolated subdir
-# (/local/slurm-<jobid>/local/) so SLURM auto-cleans on job end and concurrent
-# jobs on the same node never collide.
 if [ -n "${SLURM_JOB_ID:-}" ]; then
     SCRATCH_ROOT="/local/slurm-${SLURM_JOB_ID}/local"
     mkdir -p "${SCRATCH_ROOT}"
@@ -49,7 +38,6 @@ else
 fi
 DEST_DATA_DIR="${SCRATCH_ROOT}/MUG_CLEANUP_D1_Low_Level_${NUM_DEMOS}demo"
 
-# --- stage dataset (only NUM_DEMOS files) --------------------------------
 THREADS="${RSYNC_THREADS:-32}"
 
 echo "[stage] source : ${SRC_DATA_DIR}"
@@ -60,7 +48,6 @@ mkdir -p "${DEST_DATA_DIR}"
 
 stage_start=$(date +%s)
 
-# Per-entry rsync wrapper. Exit code 24 (vanished files) is benign.
 copy_one() {
     rsync -a --exclude='.*.??????' "$1" "$2"
     local rc=$?
@@ -70,8 +57,6 @@ copy_one() {
 export -f copy_one
 export SRC_DATA_DIR DEST_DATA_DIR
 
-# Generate exactly the demo filenames we want and feed to xargs.
-# Each rsync stays resumable per-file, so re-runs skip already-copied demos.
 seq 0 $((NUM_DEMOS - 1)) \
     | awk '{print "demo_" $1 ".h5"}' \
     | xargs -P "${THREADS}" -I {} \
@@ -85,7 +70,6 @@ if [ "${staged_count}" -ne "${NUM_DEMOS}" ]; then
     exit 1
 fi
 
-# --- train ---------------------------------------------------------------
 cd "${REPO_DIR}"
 
 USE_TF=0 \
@@ -102,10 +86,13 @@ pixi run python diffusion_policy/train.py \
     visual_encoder=dinov2 \
     policy.use_goal_cross_attention=true \
     policy.use_weighted_cross_attention=true \
-    policy.gmm_top_k=64 \
+    policy.use_goal_adaln_modulation=true \
+    policy.log_attention_grad_norms=true \
+    policy.gmm_top_k=1024 \
     logging.project=MimicGen_GMM_Low_Level_Policy \
-    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1 \
-    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1 \
+    logging.name=groot_GMM_WCA_GoalAdaLNMod_${NUM_DEMOS}demo_dinov2_MugCleanup_D1 \
+    name=groot_GMM_WCA_GoalAdaLNMod_${NUM_DEMOS}demo_dinov2_MugCleanup_D1 \
     training.checkpoint_every=5 \
-    dataloader.batch_size=128 \
+    training.num_epochs=150 \
+    dataloader.batch_size=64 \
     dataloader.num_workers=16

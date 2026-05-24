@@ -89,6 +89,18 @@ policy:
   # goal-routing flags above.
   use_goal_auxiliary_stream: false
 
+  # When true, encode 10-D state as 3 sub-tokens per obs step (pos/rot/gripper) with
+  # learned per-component identity + temporal embeddings, instead of one SimpleMLP
+  # token per obs step. Assumes the standard MimicGen Panda 10-D state layout.
+  use_per_component_state: false
+
+  # When true, every BasicTransformerBlock's norm1 becomes a StateAdaLN that adds
+  # per-channel state-derived (γ, β) modulation on top of temb-derived (γ, β).
+  # The state branch is zero-init so behavior matches standard AdaLN at step 0.
+  # Mutually exclusive with use_goal_adaln_modulation. Currently not supported
+  # alongside use_goal_auxiliary_stream.
+  use_state_adaln: false
+
   # Diagnostic: register backward hooks on every cross-attn block to record
   # ‖∂L/∂WCA_out‖ and ‖∂L/∂CA_out‖. The workspace logs per-block means each epoch.
   # Safe to combine with any of the flags above.
@@ -121,6 +133,7 @@ policy:
     use_gated_goal_residual: ${policy.use_gated_goal_residual}
     use_goal_adaln_modulation: ${policy.use_goal_adaln_modulation}
     use_goal_auxiliary_stream: ${policy.use_goal_auxiliary_stream}
+    use_state_adaln: ${policy.use_state_adaln}
     log_attention_grad_norms: ${policy.log_attention_grad_norms}
 
 ema:

@@ -56,7 +56,7 @@ from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.obs_util import process_observations, process_obs_shape_meta
 
 from diffusion_policy.model.flow_matching.cross_attention_dit import DiT
-from diffusion_policy.model.flow_matching.helpers import ActionEncoder, SimpleMLP
+from diffusion_policy.model.flow_matching.helpers import ActionEncoder, SimpleMLP, PerComponentStateEncoder
 from diffusion_policy.model.flow_matching.visual_encoders import build_visual_encoder
 from diffusion_policy.model.goal_gripper_encoder.base_goal_gripper_encoder import BaseGoalGripperEncoder
 from diffusion_policy.model.goal_gripper_encoder.keypoint_aware_goal_gripper_encoder import KeypointAwareGoalGripperEncoder
@@ -126,6 +126,19 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # goal-routing flags (parallel_cross_attentions / gated_goal_residual /
         # goal_adaln_modulation). Requires use_goal_cross_attention=True.
         use_goal_auxiliary_stream: bool = False,
+        # When True, encode the 10-D state as 3 sub-tokens per obs step (pos, rot,
+        # gripper) instead of a single token. Adds learned per-component identity
+        # embeddings + temporal embeddings. Output is (B, To*3, D) instead of
+        # (B, To, D). Assumes the standard MimicGen Panda EE-space layout
+        # [pos(3), rot_6D(6), gripper(1)] = 10.
+        use_per_component_state: bool = False,
+        # When True, the DiT's BasicTransformerBlock norm1 becomes a StateAdaLN that
+        # adds per-channel state-derived modulation on top of temb. Provides state
+        # with a global modulation pathway across every block. The state branch is
+        # zero-init so behavior matches standard AdaLN at step 0. Mutually exclusive
+        # with use_goal_adaln_modulation. Currently not supported alongside
+        # use_goal_auxiliary_stream.
+        use_state_adaln: bool = False,
         # Diagnostic: register PyTorch backward hooks on the goal-CA and visual-CA
         # outputs of every cross-attn block to record ‖∂L/∂out‖. The workspace logs
         # per-block means each epoch. Small per-step overhead; safe to leave off
@@ -235,11 +248,25 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         state_dim = int(sum(int(np.prod(v)) for v in state_obs_key_shapes.values()))
         self.has_state = state_dim > 0
         if self.has_state:
-            self.state_encoder = SimpleMLP(
-                input_dim=state_dim,
-                hidden_dim=hidden_size,
-                output_dim=input_embedding_dim,
-            )
+            if use_per_component_state:
+                # Per-component (pos/rot/gripper) encoder → 3 sub-tokens per obs step.
+                # Assumes standard MimicGen Panda 10-D layout: [pos(3), rot_6D(6), gripper(1)].
+                assert state_dim == 10, (
+                    f"use_per_component_state=True expects total state_dim=10 "
+                    f"(layout: pos(3)+rot_6D(6)+gripper(1)); got state_dim={state_dim}"
+                )
+                self.state_encoder = PerComponentStateEncoder(
+                    embed_dim=input_embedding_dim,
+                    n_obs_steps=n_obs_steps,
+                    hidden_dim=hidden_size,
+                    pos_dim=3, rot_dim=6, gripper_dim=1,
+                )
+            else:
+                self.state_encoder = SimpleMLP(
+                    input_dim=state_dim,
+                    hidden_dim=hidden_size,
+                    output_dim=input_embedding_dim,
+                )
 
         # ------------------------------------------------------------------ #
         # 3b. Goal gripper encoder                                             #
@@ -252,6 +279,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.use_gated_goal_residual = use_gated_goal_residual
         self.use_goal_adaln_modulation = use_goal_adaln_modulation
         self.use_goal_auxiliary_stream = use_goal_auxiliary_stream
+        self.use_per_component_state = use_per_component_state
+        self.use_state_adaln = use_state_adaln
         self.log_attention_grad_norms = log_attention_grad_norms
         self.gmm_top_k = gmm_top_k
 
@@ -269,7 +298,9 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                   f"use_parallel_cross_attentions={use_parallel_cross_attentions}, "
                   f"use_gated_goal_residual={use_gated_goal_residual}, "
                   f"use_goal_adaln_modulation={use_goal_adaln_modulation}, "
-                  f"use_goal_auxiliary_stream={use_goal_auxiliary_stream}")
+                  f"use_goal_auxiliary_stream={use_goal_auxiliary_stream}, "
+                  f"use_per_component_state={use_per_component_state}, "
+                  f"use_state_adaln={use_state_adaln}")
         elif self.has_goal_gripper:
             if goal_gripper_encoder_type == "keypoint_aware":
                 self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(
@@ -459,12 +490,19 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         parts.append(action_features)
         hidden_states = torch.cat(parts, dim=1) if len(parts) > 1 else parts[0]
 
+        # State summary for StateAdaLN: mean-pool the state tokens to (B, D).
+        # Only computed if the flag is on AND state tokens are available.
+        state_ctx = None
+        if self.use_state_adaln and self.has_state and state_tokens is not None:
+            state_ctx = state_tokens.mean(dim=1)   # (B, T_state, D) → (B, D)
+
         model_output = self.model(
             hidden_states=hidden_states,
             encoder_hidden_states=visual_tokens,
             timestep=t_discretized,
             goal_hidden_states=dit_goal_hidden_states,
             goal_weights=dit_goal_weights,
+            state_ctx=state_ctx,
         )
         return model_output[:, -self.action_horizon :]
 
