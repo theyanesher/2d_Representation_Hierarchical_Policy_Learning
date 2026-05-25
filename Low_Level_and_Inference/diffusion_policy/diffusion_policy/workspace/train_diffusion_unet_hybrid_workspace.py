@@ -77,7 +77,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 accumulator.setdefault(f'grad_norm_vis_ca/block_{i}', []).append(v)
 
     def _log_attn_diagnostics(self, step_log, accumulator):
-        """Add per-block α_goal + per-block grad norm means + cross-block aggregates."""
+        """Add per-block α_goal + α_state + per-block grad norm means + cross-block aggregates."""
         blocks = self._get_dit_blocks()
         if blocks is None:
             return
@@ -85,6 +85,17 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         for i, blk in enumerate(blocks):
             if hasattr(blk, 'goal_residual_gate'):
                 step_log[f'alpha_goal/block_{i}'] = blk.goal_residual_gate.detach().item()
+        # Per-block α_state — ReZero gate on StateAdaLN (lives on blk.norm1 when present).
+        # Auto-discovers: only emitted if the gate exists on the module.
+        for i, blk in enumerate(blocks):
+            norm1 = getattr(blk, 'norm1', None)
+            if norm1 is not None and hasattr(norm1, 'state_gate'):
+                step_log[f'alpha_state/block_{i}'] = norm1.state_gate.detach().item()
+        # Aggregate α_state stats across blocks (useful for "is the model using state at all?")
+        alpha_states = [v for k, v in step_log.items() if k.startswith('alpha_state/block_')]
+        if alpha_states:
+            step_log['alpha_state/mean'] = float(np.mean(alpha_states))
+            step_log['alpha_state/abs_mean'] = float(np.mean(np.abs(alpha_states)))
         # Per-block grad norm — mean across the epoch's steps
         for key, vals in accumulator.items():
             if vals:

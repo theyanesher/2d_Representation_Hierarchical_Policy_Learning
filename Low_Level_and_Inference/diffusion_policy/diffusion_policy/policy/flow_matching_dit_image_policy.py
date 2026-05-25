@@ -139,6 +139,13 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # with use_goal_adaln_modulation. Currently not supported alongside
         # use_goal_auxiliary_stream.
         use_state_adaln: bool = False,
+        # When True (requires use_state_adaln=True), use ReZero parameterization for
+        # StateAdaLN: random-init linear_state + per-block scalar gate α_state init=0.
+        # 12 gates total (one per block) — each can independently train to 0 (block
+        # doesn't want state modulation) or positive (block wants it). Implicit
+        # per-block sparsity for state modulation; useful diagnostic via the workspace
+        # WandB logging (alpha_state/block_{i}).
+        use_gate_on_state_adaln: bool = False,
         # Diagnostic: register PyTorch backward hooks on the goal-CA and visual-CA
         # outputs of every cross-attn block to record ‖∂L/∂out‖. The workspace logs
         # per-block means each epoch. Small per-step overhead; safe to leave off
@@ -281,6 +288,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.use_goal_auxiliary_stream = use_goal_auxiliary_stream
         self.use_per_component_state = use_per_component_state
         self.use_state_adaln = use_state_adaln
+        self.use_gate_on_state_adaln = use_gate_on_state_adaln
         self.log_attention_grad_norms = log_attention_grad_norms
         self.gmm_top_k = gmm_top_k
 
@@ -300,7 +308,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                   f"use_goal_adaln_modulation={use_goal_adaln_modulation}, "
                   f"use_goal_auxiliary_stream={use_goal_auxiliary_stream}, "
                   f"use_per_component_state={use_per_component_state}, "
-                  f"use_state_adaln={use_state_adaln}")
+                  f"use_state_adaln={use_state_adaln}, "
+                  f"use_gate_on_state_adaln={use_gate_on_state_adaln}")
         elif self.has_goal_gripper:
             if goal_gripper_encoder_type == "keypoint_aware":
                 self.goal_gripper_encoder = KeypointAwareGoalGripperEncoder(

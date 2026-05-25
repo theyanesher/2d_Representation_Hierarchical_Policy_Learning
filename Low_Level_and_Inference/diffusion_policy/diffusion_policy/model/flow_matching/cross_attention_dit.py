@@ -124,20 +124,34 @@ class StateAdaLN(nn.Module):
     """
     AdaLN with two conditioning branches:
       - temb      (B, D)  → per-channel (γ_t, β_t)         — standard AdaLN
-      - state_ctx (B, D)  → per-channel (γ_state, β_state) — zero-init at start
+      - state_ctx (B, D)  → per-channel (γ_state, β_state) — zero contribution at init
 
     Final modulation (additive composition, like DiT's class+time conditioning):
-        x_mod = LN(x) · (1 + γ_t + γ_state) + (β_t + β_state)
+        x_mod = LN(x) · (1 + γ_t + α_state · γ_state) + (β_t + α_state · β_state)
 
     Used as `norm1` inside BasicTransformerBlock when use_state_adaln=True.
-    At init the state branch's Linear is zero-init'd, so γ_state = β_state = 0
-    and behavior reduces to standard temb-only AdaLN. The optimizer grows state
-    modulation only if it reduces loss.
 
-    Goal: give state a "global modulation" channel that affects every block's
-    norm, on top of being a token in hidden_states. Solves the "state has 2 of
-    18 self-attn slots" attention-bandwidth bottleneck by routing state through
-    a dedicated, attention-free pathway.
+    Two parameterizations control how the state branch starts at "no contribution":
+
+    use_gate=False (default — Linear-zero-init parameterization):
+        - `linear_state.weight` and `.bias` are zero-init'd.
+        - `α_state` is implicit = 1 (no parameter allocated).
+        - At step 0: state branch outputs 0 → behavior = standard temb-AdaLN.
+        - During training: `linear_state` grows from zero (both magnitude and direction
+          come from the same projection's gradients).
+
+    use_gate=True (ReZero parameterization):
+        - `linear_state` uses default random init (direction is "ready" from step 0).
+        - `α_state = nn.Parameter(zeros(1))` is the gate; init = 0.
+        - At step 0: state branch outputs 0 because α=0 → behavior = standard temb-AdaLN.
+        - During training: `α_state` grows from zero (controls magnitude); the linear's
+          random direction explores freely.
+        - Pros: decoupled magnitude/direction; single-scalar diagnostic per block
+          ("how strongly does this block want state modulation"); implicit per-block
+          sparsity (blocks that don't want state can train α → 0).
+
+    The two parameterizations are NOT used together — zero-init linear with also
+    zero-init gate would freeze the entire state branch forever (dead path).
     """
 
     def __init__(
@@ -145,16 +159,23 @@ class StateAdaLN(nn.Module):
         embedding_dim: int,
         norm_elementwise_affine: bool = False,
         norm_eps: float = 1e-5,
+        use_gate: bool = False,
     ):
         super().__init__()
+        self.use_gate = use_gate
         self.silu = nn.SiLU()
         # temb branch — same shape as standard AdaLayerNorm's linear so at step 0,
-        # combined with zero-init state branch, behaves identically.
+        # combined with zero state contribution, behaves identically.
         self.linear_t = nn.Linear(embedding_dim, embedding_dim * 2)
-        # state branch — zero-init so γ_state = β_state = 0 at step 0.
         self.linear_state = nn.Linear(embedding_dim, embedding_dim * 2)
-        nn.init.zeros_(self.linear_state.weight)
-        nn.init.zeros_(self.linear_state.bias)
+        if use_gate:
+            # ReZero: keep default random init on linear_state (direction is "ready"),
+            # and let the scalar gate (init=0) control magnitude.
+            self.state_gate = nn.Parameter(torch.zeros(1))
+        else:
+            # Zero-init the linear; no explicit gate parameter.
+            nn.init.zeros_(self.linear_state.weight)
+            nn.init.zeros_(self.linear_state.bias)
         self.norm = nn.LayerNorm(embedding_dim, norm_eps, norm_elementwise_affine)
 
     def forward(
@@ -169,6 +190,10 @@ class StateAdaLN(nn.Module):
             x = self.norm(x) * (1 + scale_t[:, None, :]) + shift_t[:, None, :]
         else:
             scale_s, shift_s = self.linear_state(self.silu(state_ctx)).chunk(2, dim=-1)
+            if self.use_gate:
+                # ReZero gate (per-block scalar) scales the state branch's contribution.
+                scale_s = self.state_gate * scale_s
+                shift_s = self.state_gate * shift_s
             x = self.norm(x) * (1 + scale_t[:, None, :] + scale_s[:, None, :]) \
                             + (shift_t[:, None, :] + shift_s[:, None, :])
         return x
@@ -371,6 +396,12 @@ class BasicTransformerBlock(nn.Module):
         # in hidden_states. Mutually exclusive with use_goal_adaln_modulation (both
         # would want to replace norm1).
         use_state_adaln: bool = False,
+        # When True (requires use_state_adaln=True), switch StateAdaLN's parameterization
+        # to ReZero-style: random-init linear_state + per-block learnable scalar gate
+        # α_state init=0. Gate controls magnitude, linear controls direction. Each block
+        # gets its own gate (so all 12 blocks have independent gates — blocks that don't
+        # want state modulation can train α → 0, giving implicit per-block sparsity).
+        use_gate_on_state_adaln: bool = False,
         # When True, register PyTorch backward hooks on the goal-CA output and visual-CA
         # output, recording ‖∂L/∂out‖ per block per backward pass into
         # `self._last_goal_grad_norm` and `self._last_vis_grad_norm`. Read by the
@@ -396,6 +427,7 @@ class BasicTransformerBlock(nn.Module):
         self.use_gated_goal_residual = use_gated_goal_residual
         self.use_goal_adaln_modulation = use_goal_adaln_modulation
         self.use_state_adaln = use_state_adaln
+        self.use_gate_on_state_adaln = use_gate_on_state_adaln
         self.log_attention_grad_norms = log_attention_grad_norms
 
         # Local sanity: Idea 1 is mutually exclusive with the residual-write modes.
@@ -415,6 +447,12 @@ class BasicTransformerBlock(nn.Module):
             assert not use_goal_adaln_modulation, (
                 "use_state_adaln is incompatible with use_goal_adaln_modulation "
                 "(both want to replace norm1)"
+            )
+        # ReZero gate only makes sense as a flavor of StateAdaLN.
+        if use_gate_on_state_adaln:
+            assert use_state_adaln, (
+                "use_gate_on_state_adaln=True requires use_state_adaln=True "
+                "(the gate is part of StateAdaLN's ReZero parameterization)"
             )
         # Backward-hook buffers. Set by hooks during loss.backward(); read by the
         # workspace training loop after backward() and before optimizer.step().
@@ -440,9 +478,16 @@ class BasicTransformerBlock(nn.Module):
             # then learns per-token (γ_goal, β_goal) modulation on top.
             self.norm1 = GoalAdaLN(dim, norm_elementwise_affine=norm_elementwise_affine, norm_eps=norm_eps)
         elif use_state_adaln and norm_type == "ada_norm":
-            # StateAdaLN reduces to standard temb-AdaLN at init (state branch zero-init'd),
+            # StateAdaLN reduces to standard temb-AdaLN at init (state branch zero-contribution),
             # then learns per-channel (γ_state, β_state) modulation on top.
-            self.norm1 = StateAdaLN(dim, norm_elementwise_affine=norm_elementwise_affine, norm_eps=norm_eps)
+            # use_gate=True switches to the ReZero parameterization (random-init linear +
+            # per-block scalar gate init=0). use_gate=False keeps zero-init linear.
+            self.norm1 = StateAdaLN(
+                dim,
+                norm_elementwise_affine=norm_elementwise_affine,
+                norm_eps=norm_eps,
+                use_gate=use_gate_on_state_adaln,
+            )
         elif norm_type == "ada_norm":
             self.norm1 = AdaLayerNorm(dim)
         else:
@@ -992,6 +1037,11 @@ class DiT(ModelMixin, ConfigMixin):
         # BasicTransformerBlock currently; not yet supported under
         # use_goal_auxiliary_stream (dual-stream block).
         use_state_adaln: bool = False,
+        # When True (requires use_state_adaln=True), switch StateAdaLN to the ReZero
+        # parameterization: random-init linear_state + per-block scalar gate α_state
+        # init=0. With 12 blocks, you get 12 independent gates that the optimizer can
+        # train to different values — implicit per-block sparsity for state modulation.
+        use_gate_on_state_adaln: bool = False,
         # When True, every block registers backward hooks on its goal-CA / visual-CA
         # outputs and records ‖∂L/∂out‖ each backward pass. Read by the workspace
         # training loop to log per-block grad norm means per epoch.
@@ -1029,6 +1079,10 @@ class DiT(ModelMixin, ConfigMixin):
         if use_state_adaln:
             assert not use_goal_adaln_modulation, (
                 "use_state_adaln is mutually exclusive with use_goal_adaln_modulation"
+            )
+        if use_gate_on_state_adaln:
+            assert use_state_adaln, (
+                "use_gate_on_state_adaln=True requires use_state_adaln=True"
             )
 
         self.attention_head_dim = attention_head_dim
@@ -1113,6 +1167,9 @@ class DiT(ModelMixin, ConfigMixin):
                         # StateAdaLN applies to every block's norm1 (no idx gating);
                         # the modulation is timestep-conditioning-like.
                         use_state_adaln=use_state_adaln,
+                        # ReZero gate flavor of StateAdaLN. Each block allocates its
+                        # own scalar gate (12 total in the default 12-layer DiT).
+                        use_gate_on_state_adaln=use_gate_on_state_adaln,
                         log_attention_grad_norms=log_attention_grad_norms,
                     )
                     for idx in range(num_layers)

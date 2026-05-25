@@ -101,6 +101,13 @@ policy:
   # alongside use_goal_auxiliary_stream.
   use_state_adaln: false
 
+  # When true (requires use_state_adaln=true), switch StateAdaLN to ReZero
+  # parameterization: random-init linear_state + per-block scalar gate α_state init=0.
+  # 12 independent gates (one per block) — optimizer can train them to different
+  # values, giving implicit per-block sparsity for state modulation. Logged each
+  # epoch as alpha_state/block_{i} in the workspace WandB.
+  use_gate_on_state_adaln: false
+
   # Diagnostic: register backward hooks on every cross-attn block to record
   # ‖∂L/∂WCA_out‖ and ‖∂L/∂CA_out‖. The workspace logs per-block means each epoch.
   # Safe to combine with any of the flags above.
@@ -134,6 +141,7 @@ policy:
     use_goal_adaln_modulation: ${policy.use_goal_adaln_modulation}
     use_goal_auxiliary_stream: ${policy.use_goal_auxiliary_stream}
     use_state_adaln: ${policy.use_state_adaln}
+    use_gate_on_state_adaln: ${policy.use_gate_on_state_adaln}
     log_attention_grad_norms: ${policy.log_attention_grad_norms}
 
 ema:
