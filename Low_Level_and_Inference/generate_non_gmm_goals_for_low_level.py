@@ -438,6 +438,112 @@ def process_demo_dir(demo_dir, goal_policy, cat_embedding, args):
     return gmm_pred_goals, gmm_all_goals, gmm_all_weights
 
 
+# RL Bench camera -> h5 cam index mapping. 4 cameras (vs MimicGen's agentview +
+# wrist). Order defines cam0..cam3 in the output h5 and must match the task
+# shape_meta (config/task/RL_Bench_Tasks/sweep_to_dustpan_goal_gripper.yaml).
+RL_BENCH_CAM_MAP = [
+    ("cam0", "front"),
+    ("cam1", "left_shoulder"),
+    ("cam2", "right_shoulder"),
+    ("cam3", "wrist"),
+]
+
+
+def process_demo_dir_rl_bench(demo_dir, args):
+    """RL Bench analog of process_demo_dir's --no_gmm path.
+
+    Same consolidation and output h5 schema as process_demo_dir, but reads RL
+    Bench per-frame npz instead of MimicGen npz:
+      - cameras: front/left_shoulder/right_shoulder/wrist -> cam0/cam1/cam2/cam3
+        (RGB stored channel-first float32 [0,255] -> HWC uint8;
+         depth float32 meters -> uint16 mm, matching MimicGen)
+      - state/action: native 8-D [pos(3), quat(4), gripper(1)] / absolute 8-D,
+        written verbatim (no MimicGen 10-D / 6D-rotation conversion)
+      - goal_gripper_pcd -> goal_gripper_pts; gripper_pcd -> present_gripper_pts;
+        point_cloud passed through.
+
+    Output h5 (per demo):
+      action/delta            (T, 8)            float64  (= native action)
+      action/hybrid           (T, 8)            float32  (= native action)
+      obs/cam{0..3}_image     (T, 128, 128, 3)  uint8
+      obs/cam{0..3}_depth     (T, 128, 128)     uint16  (mm)
+      obs/cam{0..3}_intrinsic (T, 3, 3)         float32
+      obs/cam{0..3}_extrinsic (T, 4, 4)         float32
+      obs/goal_gripper_pts    (T, 4, 3)         float32
+      obs/point_cloud         (T, N, 3)         float32
+      obs/present_gripper_pts (T, 4, 3)         float32
+      obs/state               (T, 8)            float32
+      _physical/cam{0..3}_extrinsic (4, 4)      float32  (from t=0)
+      _physical/cam{0..3}_intrinsic (3, 3)      float32
+    """
+    demo_name = os.path.basename(demo_dir)
+    out_h5 = os.path.join(args.no_gmm_output_dir, demo_name + '.h5')
+    if os.path.exists(out_h5):
+        print(f"  {demo_name}: skipping (already exists at {out_h5})")
+        return
+
+    npz_files = sorted(
+        [f for f in os.listdir(demo_dir) if f.endswith('.npz')],
+        key=lambda x: int(os.path.splitext(x)[0]),
+    )
+    T_total = len(npz_files)
+    T = T_total if args.max_timesteps is None else min(T_total, args.max_timesteps)
+    npz_files = npz_files[:T]
+
+    obs_bufs = {}
+    for cam_idx, _ in RL_BENCH_CAM_MAP:
+        obs_bufs[f'{cam_idx}_image']     = []
+        obs_bufs[f'{cam_idx}_depth']     = []
+        obs_bufs[f'{cam_idx}_intrinsic'] = []
+        obs_bufs[f'{cam_idx}_extrinsic'] = []
+    obs_bufs['goal_gripper_pts']    = []
+    obs_bufs['point_cloud']         = []
+    obs_bufs['present_gripper_pts'] = []
+    obs_bufs['state']               = []
+    act_buf = []
+
+    def _depth_to_mm(d):
+        d = np.squeeze(d).astype(np.float32)
+        return np.clip(d * 1000.0, 0, 65535).astype(np.uint16)
+
+    for fname in npz_files:
+        # allow_pickle so np.load opens the file; we only read numeric keys
+        # (never the object-array lang_goal), so no unpickling happens.
+        data = np.load(os.path.join(demo_dir, fname), allow_pickle=True)
+
+        for cam_idx, cam_name in RL_BENCH_CAM_MAP:
+            rgb = data[f'{cam_name}_rgb'][0]                       # (3, H, W) float32 [0,255]
+            rgb = np.transpose(rgb, (1, 2, 0)).astype(np.uint8)   # (H, W, 3) uint8
+            depth = _depth_to_mm(data[f'{cam_name}_depth'][0])    # (H, W) uint16 mm
+            K = data[f'{cam_name}_camera_intrinsics'][0].astype(np.float32)  # (3, 3)
+            E = data[f'{cam_name}_camera_extrinsics'][0].astype(np.float32)  # (4, 4)
+            obs_bufs[f'{cam_idx}_image'].append(rgb)
+            obs_bufs[f'{cam_idx}_depth'].append(depth)
+            obs_bufs[f'{cam_idx}_intrinsic'].append(K)
+            obs_bufs[f'{cam_idx}_extrinsic'].append(E)
+
+        obs_bufs['goal_gripper_pts'].append(data['goal_gripper_pcd'][0].astype(np.float32))
+        obs_bufs['point_cloud'].append(data['point_cloud'][0].astype(np.float32))
+        obs_bufs['present_gripper_pts'].append(data['gripper_pcd'][0].astype(np.float32))
+        obs_bufs['state'].append(data['state'][0].astype(np.float32))   # (8,)
+        act_buf.append(data['action'][0].astype(np.float32))            # (8,)
+
+    act_arr = np.stack(act_buf, axis=0)   # (T, 8) float32
+
+    with h5py.File(out_h5, 'w') as f:
+        # Native 8-D action written verbatim. delta/hybrid are the same array
+        # (no MimicGen hybrid-delta form); the trainer reads action/hybrid.
+        f.create_dataset('action/delta',  data=act_arr.astype(np.float64))
+        f.create_dataset('action/hybrid', data=act_arr.astype(np.float32))
+
+        for key, buf in sorted(obs_bufs.items()):
+            f.create_dataset(f'obs/{key}', data=np.stack(buf, axis=0))
+
+        for cam_idx, _ in RL_BENCH_CAM_MAP:
+            f.create_dataset(f'_physical/{cam_idx}_extrinsic', data=obs_bufs[f'{cam_idx}_extrinsic'][0])
+            f.create_dataset(f'_physical/{cam_idx}_intrinsic', data=obs_bufs[f'{cam_idx}_intrinsic'][0])
+
+
 def process_file(h5_path, goal_policy, cat_embedding, args):
     with h5py.File(h5_path, 'r') as f:
         T = f['obs/cam0_depth'].shape[0]
@@ -538,6 +644,7 @@ if __name__ == '__main__':
     parser.add_argument('--siglip_path',           type=str, default=None, help='Path to siglip_text_features .pt file')
     parser.add_argument('--no_gmm',                action='store_true',    help='Skip GMM inference; consolidate npz files into h5 only (npz format only)')
     parser.add_argument('--no_gmm_output_dir',     type=str, default=None, help='Output directory for h5 files when --no_gmm is used (required with --no_gmm)')
+    parser.add_argument('--rl_bench',              action='store_true',    help='RL Bench npz variant: 4 cameras (front/left_shoulder/right_shoulder/wrist) + native 8-D state/action. Requires --no_gmm.')
     args = parser.parse_args()
 
     # Validate --no_gmm / --no_gmm_output_dir pairing
@@ -545,6 +652,8 @@ if __name__ == '__main__':
         parser.error("--no_gmm_output_dir can only be used together with --no_gmm")
     if args.no_gmm and not args.no_gmm_output_dir:
         parser.error("--no_gmm requires --no_gmm_output_dir")
+    if args.rl_bench and not args.no_gmm:
+        parser.error("--rl_bench is an RL Bench variant of the --no_gmm consolidation; pass --no_gmm too")
 
     if not args.no_gmm:
         if args.high_level_ckpt_path is None:
@@ -585,6 +694,10 @@ if __name__ == '__main__':
             demo_dirs = demo_dirs[:args.max_files]
         for demo_name in tqdm(demo_dirs):
             demo_path = os.path.join(args.dataset_dir, demo_name)
+            if args.rl_bench:
+                process_demo_dir_rl_bench(demo_path, args)
+                print(f"  {demo_name}: consolidated to h5 (rl_bench, no GMM)")
+                continue
             goals, all_goals, all_weights = process_demo_dir(demo_path, goal_policy, cat_embedding, args)
             if not args.no_gmm:
                 print(f"  {demo_name}: gmm_pred_goal {goals.shape}, "
