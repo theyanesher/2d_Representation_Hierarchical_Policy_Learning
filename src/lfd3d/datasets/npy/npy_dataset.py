@@ -82,6 +82,11 @@ class NpyDataset(BaseDataset):
         self.data_dir = Path(dataset_cfg.data_dir)
         self.task_caption = dataset_cfg.task_caption
 
+        # RL Bench datasets use a different camera schema (front_* keys, stored
+        # channel-first) than MimicGen (agentview_*, channel-last). When set,
+        # _read_primary_camera reads/normalizes the RL Bench `front` camera.
+        self.is_rl_bench = dataset_cfg.get("is_rl_bench", False)
+
         # Collect all frame paths, sorted deterministically
         all_frames = []
         for demo_dir in sorted(self.data_dir.iterdir()):
@@ -250,6 +255,34 @@ class NpyDataset(BaseDataset):
 
         return neighbor_goals, p_swap_arr
 
+    def _read_primary_camera(self, d):
+        """Read the primary camera and normalize to the schema the model expects.
+
+        Returns:
+            rgb:   (H, W, 3) uint8
+            depth: (H, W)    float32
+            K:     (3, 3)    float32  intrinsics
+            T:     (4, 4)    float32  extrinsics (world_from_cam)
+
+        Handles two on-disk layouts:
+          - MimicGen: `agentview_*` keys, images channel-last  (1, H, W, C)
+          - RL Bench: `front_*`    keys, images channel-first (1, C, H, W).
+            RL Bench has 4 cameras; we use `front` as the primary view and
+            ignore left_shoulder / right_shoulder / wrist (the scene point_cloud
+            is already the front+left+right fusion).
+        """
+        if self.is_rl_bench:
+            rgb = d["front_rgb"][0].transpose(1, 2, 0).astype(np.uint8)  # (H,W,3)
+            depth = d["front_depth"][0, 0].astype(np.float32)            # (H,W)
+            K = d["front_camera_intrinsics"][0].astype(np.float32)       # (3,3)
+            T = d["front_camera_extrinsics"][0].astype(np.float32)       # (4,4)
+        else:
+            rgb = d["rgb_agentview"][0].astype(np.uint8)                 # (H,W,3)
+            depth = d["depth_agentview"][0, :, :, 0].astype(np.float32)  # (H,W)
+            K = d["agentview_intrinsics"][0].astype(np.float32)          # (3,3)
+            T = d["agentview_extrinsics"][0].astype(np.float32)          # (4,4)
+        return rgb, depth, K, T
+
     def __len__(self):
         return len(self.frames)
 
@@ -287,11 +320,9 @@ class NpyDataset(BaseDataset):
             (anchor_pcd_norm.shape[0], 3), dtype=np.float32
         )
 
-        # Camera data (primary: agentview)
-        rgb   = d["rgb_agentview"][0].astype(np.uint8)            # (H, W, 3)
-        depth = d["depth_agentview"][0, :, :, 0].astype(np.float32)  # (H, W)
-        K     = d["agentview_intrinsics"][0].astype(np.float32)   # (3, 3)
-        T     = d["agentview_extrinsics"][0].astype(np.float32)   # (4, 4)
+        # Camera data (primary view). Schema-normalized across MimicGen
+        # (agentview_*, channel-last) and RL Bench (front_*, channel-first).
+        rgb, depth, K, T = self._read_primary_camera(d)
 
         # Stack start/end frames; data is already a single frame so duplicate
         rgbs   = np.stack([rgb, rgb], axis=0)    # (2, H, W, 3)

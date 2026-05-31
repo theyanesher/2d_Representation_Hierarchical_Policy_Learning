@@ -109,6 +109,9 @@ def create_datamodule(cfg):
         "hammerCleanupD1": NpyDataModule,
         "mugCleanupD1": NpyDataModule,
         "Kitchen": NpyDataModule,
+        # All RL Bench tasks share one schema, so they all dispatch here via the
+        # shared dataset name `rl_bench` (set in rl_bench_datasets/_rl_bench_base).
+        "rl_bench": NpyDataModule,
     }
 
     datamodule_fn = dataset_map.get(cfg.dataset.name)

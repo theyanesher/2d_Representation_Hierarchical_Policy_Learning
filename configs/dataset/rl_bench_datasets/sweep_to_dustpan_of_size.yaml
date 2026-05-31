@@ -1,0 +1,13 @@
+# @package dataset
+# Subfolder config: the @package header keeps our keys at cfg.dataset.* (see
+# _rl_bench_base.yaml). Relative defaults resolve against the `dataset` group
+# root, so the subfolder must be spelled out below.
+defaults:
+  - rl_bench_datasets/_rl_bench_base
+
+# data_dir points at the directory that directly contains the demo_* dirs.
+# The launch script overrides this with the node-local staged copy.
+data_dir: /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/RL_BENCH_DATASETS/sweep_to_dustpan_of_size/sweep_to_dustpan_of_size
+
+# From the dataset's `lang_goal` field.
+task_caption: "sweep dirt to the tall dustpan"

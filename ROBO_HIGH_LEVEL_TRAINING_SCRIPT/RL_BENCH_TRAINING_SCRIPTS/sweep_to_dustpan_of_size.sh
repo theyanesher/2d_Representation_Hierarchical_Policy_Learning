@@ -5,16 +5,19 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name mug-cleanup-d1-high-level
-#SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
-#SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
+#SBATCH --job-name sweep-to-dustpan-high-level
+#SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RL_BENCH_TRAINING_SCRIPTS/logs/job_%j.out
+#SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RL_BENCH_TRAINING_SCRIPTS/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# Train articubot on Mug_Cleanup_D1 — STANDARD GMM baseline (NO goal swap, NO
-# weighted sampler). Stages the dataset onto the compute node's local scratch
-# ($LOCAL on PSC Bridges-2) before training, since reading ~1000 demos from
-# /ocean is slow.
+# Train articubot (GMM cross-displacement high-level policy) on the RL Bench
+# sweep_to_dustpan_of_size task. RL Bench is handled via the rl_bench dataset
+# group (is_rl_bench=True): `front` is the primary "agentview" camera and the
+# scene point_cloud is the front+left+right fusion (wrist ignored).
+#
+# Stages the dataset onto the compute node's local scratch ($LOCAL on PSC
+# Bridges-2) before training, since reading many demos from /ocean is slow.
 
 set -euo pipefail
 set -x
@@ -22,7 +25,8 @@ set -x
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/Mug_Cleanup_D1_Ellina_Machine"
+# Source points at the directory that directly contains the demo_* dirs.
+SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/RL_BENCH_DATASETS/sweep_to_dustpan_of_size/sweep_to_dustpan_of_size"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
 
 # Pick a node-local scratch dir. We want the per-job isolated subdir
@@ -37,10 +41,30 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/Mug_Cleanup_D1"
+DEST_DATA_DIR="${SCRATCH_ROOT}/sweep_to_dustpan_of_size"
+
+# --- one-time: add gripper_pcd to the source dataset (Option 2) ----------
+# RL Bench .npz frames lack `gripper_pcd` (the 4 current-gripper keypoints the
+# training loop reads as action_pcd). We add it once, permanently, into the
+# canonical /ocean source (atomic per-file) BEFORE staging, so the staged copy
+# and all future runs already have it and the dataloader has zero extra cost.
+# Guarded by a marker file so this runs only on the very first launch.
+GRIPPER_MARKER="${SRC_DATA_DIR}/.gripper_pcd_added"
+if [ ! -f "${GRIPPER_MARKER}" ]; then
+    echo "[gripper_pcd] marker absent -> generating once into source (permanent)..."
+    ( cd "${REPO_DIR}" && \
+      PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
+      PYTHONNOUSERSITE=1 \
+      USE_TF=0 \
+      pixi run python \
+        "${REPO_DIR}/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RL_BENCH_TRAINING_SCRIPTS/add_gripper_pcd.py" \
+        --data_dir "${SRC_DATA_DIR}" )
+else
+    echo "[gripper_pcd] already present (marker found) -> skipping generation."
+fi
 
 # --- stage dataset -------------------------------------------------------
-# Parallel copy: split the ~1000 top-level demo dirs across N rsync workers via
+# Parallel copy: split the top-level demo dirs across N rsync workers via
 # xargs -P. Override with RSYNC_THREADS=N env var.
 THREADS="${RSYNC_THREADS:-32}"
 
@@ -75,6 +99,10 @@ echo "[stage] done in ${stage_elapsed}s. $(du -sh "${DEST_DATA_DIR}" | cut -f1) 
 # --- train ---------------------------------------------------------------
 cd "${REPO_DIR}"
 
+# NOTE: the dataset config lives in a subfolder (rl_bench_datasets/), so the
+# `training: ${dataset}_${model}` interpolation in configs/train.yaml would
+# resolve to training/rl_bench_datasets/... — which doesn't exist. We pass
+# `training=` explicitly to bypass that interpolation.
 USE_TF=0 \
 GIT_LFS_SKIP_SMUDGE=1 \
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
@@ -84,15 +112,19 @@ PYTHONNOUSERSITE=1 \
 PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
 pixi run python scripts/train.py \
     model=articubot \
-    dataset=mugCleanupD1 \
+    dataset=rl_bench_datasets/sweep_to_dustpan_of_size \
+    training=sweep_to_dustpan_of_size_articubot \
     dataset.data_dir="${DEST_DATA_DIR}" \
     model.use_rgb=False \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=pbhowal-carnegie-mellon-university \
-    "hydra.run.dir=logs/train_Mug_Cleanup_D1_STANDARD_NO_GOAL_SWAP_FULL_1000/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_Sweep_To_Dustpan_Of_Size_GOAL_SWAP_FULL/$(date +%Y-%m-%d/%H-%M-%S)" \
+    +dataset.use_weighted_sampler=True \
+    +dataset.transition_p=0.5 \
+    +dataset.transition_radius=5 \
+    +dataset.transition_label_swap=True \
+    +dataset.transition_swap_p_max=0.5 \
     "resources.gpus=[0]" \
-    resources.num_workers=8 \
     +training.checkpoint_every_n_epochs=5 \
-    training.check_val_every_n_epochs=15 \
-    "+resume_from='/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/logs/train_Mug_Cleanup_D1_STANDARD_NO_GOAL_SWAP_FULL_1000/2026-05-18/13-48-11/checkpoints/periodic-epoch=epoch=24.ckpt'"
+    training.check_val_every_n_epochs=15

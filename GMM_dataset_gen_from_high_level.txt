@@ -7,6 +7,10 @@ FINAL COFFEE D2 FINAL GMM DATASET GENERATION COMMAND =>
 PYTHONNOUSERSITE=1 pixi run python scripts/run_gmm_on_dataset_batch_optimized.py --dataset_dir /scratch/pbhowal/Uncertainty_Dataset/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/Coffee_D2/ --ckpt_path /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Coffee_d2/GHOST_High_Level/periodic-epoch\=epoch\=19.ckpt --start_demo 84 --max_files 1000 --batch_size 32
 
 
-FINAL HAMMER H1 FINAL GMM DATASET GENERATION COMMAND =>
+FINAL HAMMER D1 FINAL GMM DATASET GENERATION COMMAND =>
 
 PYTHONNOUSERSITE=1 pixi run python scripts/run_gmm_on_dataset_batch_optimized.py --dataset_dir /scratch/pbhowal/Uncertainty_Dataset/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/HAMMER_CLEANUP_D1/ --ckpt_path /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Hammer_Cleanup_d2/GHOST_High_Level/periodic-epoch=epoch=59.ckpt --start_demo 0 --max_files 1 --batch_size 32
+
+FINAL MUG CLEANUP D1 FINAL GMM DATASET GENERATION COMMAND =>
+
+PYTHONNOUSERSITE=1 pixi run python scripts/run_gmm_on_dataset_batch_optimized.py --dataset_dir /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1/ --ckpt_path /project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Mug_Cleanup_d2/GHOST_High_Level_MULTIMODAL/periodic-epoch=epoch=44.ckpt --start_demo 0 --max_files 1000 --batch_size 32

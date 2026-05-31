@@ -5,16 +5,15 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name mug-cleanup-d1-high-level
+#SBATCH --job-name coffee-d2-high-level
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# Train articubot on Mug_Cleanup_D1 — STANDARD GMM baseline (NO goal swap, NO
-# weighted sampler). Stages the dataset onto the compute node's local scratch
-# ($LOCAL on PSC Bridges-2) before training, since reading ~1000 demos from
-# /ocean is slow.
+# Train articubot (GMM cross-displacement high-level policy) on Coffee_D2.
+# Stages the dataset onto the compute node's local scratch ($LOCAL on PSC
+# Bridges-2) before training, since reading ~1000 demos from /ocean is slow.
 
 set -euo pipefail
 set -x
@@ -22,7 +21,7 @@ set -x
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/Mug_Cleanup_D1_Ellina_Machine"
+SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/Coffee_D2"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
 
 # Pick a node-local scratch dir. We want the per-job isolated subdir
@@ -37,7 +36,7 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/Mug_Cleanup_D1"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Coffee_D2"
 
 # --- stage dataset -------------------------------------------------------
 # Parallel copy: split the ~1000 top-level demo dirs across N rsync workers via
@@ -84,15 +83,14 @@ PYTHONNOUSERSITE=1 \
 PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
 pixi run python scripts/train.py \
     model=articubot \
-    dataset=mugCleanupD1 \
+    dataset=coffeeTaskD2 \
     dataset.data_dir="${DEST_DATA_DIR}" \
     model.use_rgb=False \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=pbhowal-carnegie-mellon-university \
-    "hydra.run.dir=logs/train_Mug_Cleanup_D1_STANDARD_NO_GOAL_SWAP_FULL_1000/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_Coffee_D2_STANDARD_NO_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" \
     "resources.gpus=[0]" \
-    resources.num_workers=8 \
+    resources.num_workers=12 \
     +training.checkpoint_every_n_epochs=5 \
-    training.check_val_every_n_epochs=15 \
-    "+resume_from='/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/logs/train_Mug_Cleanup_D1_STANDARD_NO_GOAL_SWAP_FULL_1000/2026-05-18/13-48-11/checkpoints/periodic-epoch=epoch=24.ckpt'"
+    training.check_val_every_n_epochs=30

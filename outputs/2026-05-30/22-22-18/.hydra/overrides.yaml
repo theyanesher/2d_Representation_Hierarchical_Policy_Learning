@@ -1,0 +1,3 @@
+- dataset=rl_bench_datasets/sweep
+- model=articubot
+- training=sweep_articubot

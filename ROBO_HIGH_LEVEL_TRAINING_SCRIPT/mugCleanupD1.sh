@@ -21,7 +21,7 @@ set -x
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/Mug_Cleanup_D1"
+SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/Mug_Cleanup_D1_Ellina_Machine"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
 
 # Pick a node-local scratch dir. We want the per-job isolated subdir
@@ -87,9 +87,9 @@ pixi run python scripts/train.py \
     dataset.data_dir="${DEST_DATA_DIR}" \
     model.use_rgb=False \
     model.in_channels=4 \
-    training.batch_size=128 \
+    training.batch_size=164 \
     wandb.entity=pbhowal-carnegie-mellon-university \
-    "hydra.run.dir=logs/train_Mug_Cleanup_D1_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_Mug_Cleanup_D1_GOAL_SWAP_FULL_1000/$(date +%Y-%m-%d/%H-%M-%S)" \
     +dataset.use_weighted_sampler=True \
     +dataset.transition_p=0.5 \
     +dataset.transition_radius=5 \

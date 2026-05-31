@@ -1,0 +1,41 @@
+# @package dataset
+# This config lives in a subfolder; the @package header keeps its keys at
+# cfg.dataset.* (without it they'd land at cfg.dataset.rl_bench_datasets.*).
+#
+# Shared defaults for every RL Bench high-level (Articubot) task. Per-task
+# configs in this folder inherit from this and only set data_dir + task_caption.
+#
+# Self-contained (does NOT `- /dataset/base_dataset`): a headerless include
+# compounds one level deep under the @package parent (cfg.dataset.dataset.*),
+# so we just mirror base_dataset's fields here directly.
+
+# --- base_dataset fields (mirrored) -------------------------------------
+name: rl_bench           # datamodule dispatch key shared by all RL Bench tasks
+data_dir: ""             # overridden per task / by the launch script
+cache_dir: null
+cache_invalidation_rate: 0.1
+train_size: null
+val_size: null
+
+# --- RL Bench specifics --------------------------------------------------
+# Marks this as an RL Bench dataset (vs MimicGen). Read by:
+#   - NpyDataset._read_primary_camera: remap front_* -> agentview_* (CHW->HWC)
+#   - the model/viz code, available as cfg.dataset.is_rl_bench
+# RL Bench stores 4 cameras (front / left_shoulder / right_shoulder / wrist);
+# we use `front` as the primary "agentview" view and ignore the rest. The scene
+# `point_cloud` is already the front+left+right fusion (wrist excluded).
+is_rl_bench: True
+
+# Single-task training: text embedding is unused (returns zeros), so no SigLIP
+# and no cache file is needed.
+use_text_embed: False
+
+val_episode_ratio: 0.1   # fraction of demos held out for validation
+
+# PCD config — matches the pre-computed RL Bench point cloud size (same 4500
+# points as the MimicGen datasets).
+num_points: 4500
+max_depth: 4.5           # RL Bench depth is metric (~0.9-4.1 m in workspace)
+
+# Coordinates are already in a reasonable metric (world) scale; leave as-is.
+normalize: False

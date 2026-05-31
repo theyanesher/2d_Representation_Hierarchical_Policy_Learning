@@ -373,7 +373,10 @@ def process_demo_dir(demo_dir, network, text_embed, args):
 
     # ---- Phase 4: write the consolidated h5 ----
     demo_name = os.path.basename(demo_dir)
-    out_h5 = os.path.join(os.path.dirname(demo_dir), demo_name + ".h5")
+    if getattr(args, "gmm_output_dir", None):
+        out_h5 = os.path.join(args.gmm_output_dir, demo_name + ".h5")
+    else:
+        out_h5 = os.path.join(os.path.dirname(demo_dir), demo_name + ".h5")
     act_delta_arr = np.stack(act_delta, axis=0)
 
     with h5py.File(out_h5, "w") as f:
@@ -474,6 +477,14 @@ if __name__ == "__main__":
         help="Skip demo_* directories with index < start_demo (0-based). "
         "Use this to resume after the original B=1 job has produced some outputs.",
     )
+    parser.add_argument(
+        "--gmm_output_dir",
+        type=str,
+        default=None,
+        help="Optional directory for the consolidated h5 outputs. If not set, "
+        "h5 files are written next to the source demo_N/ directories (in-place). "
+        "When set, the directory is created if missing and h5s land there instead.",
+    )
     args = parser.parse_args()
 
     model_cfg = build_model_cfg(in_channels=args.in_channels, use_rgb=args.use_rgb)
@@ -502,12 +513,22 @@ if __name__ == "__main__":
     if args.max_files is not None:
         demo_dirs = demo_dirs[: args.max_files]
 
+    if args.gmm_output_dir:
+        os.makedirs(args.gmm_output_dir, exist_ok=True)
+
     print(
         f"Processing {len(demo_dirs)} demo directories from {args.dataset_dir} "
         f"(start_demo={args.start_demo}, batch_size={args.batch_size})"
     )
     for demo_name in tqdm(demo_dirs):
         demo_path = os.path.join(args.dataset_dir, demo_name)
+        if args.gmm_output_dir:
+            out_h5_check = os.path.join(args.gmm_output_dir, demo_name + ".h5")
+        else:
+            out_h5_check = os.path.join(args.dataset_dir, demo_name + ".h5")
+        if os.path.exists(out_h5_check):
+            print(f"  {demo_name}: skipping (already exists at {out_h5_check})")
+            continue
         goals, all_goals, all_weights = process_demo_dir(
             demo_path, network, text_embed, args
         )

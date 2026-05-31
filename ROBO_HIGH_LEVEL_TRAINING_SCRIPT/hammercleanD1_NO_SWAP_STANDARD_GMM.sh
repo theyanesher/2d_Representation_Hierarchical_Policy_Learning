@@ -89,7 +89,7 @@ pixi run python scripts/train.py \
     model.in_channels=4 \
     training.batch_size=128 \
     wandb.entity=pbhowal-carnegie-mellon-university \
-    "hydra.run.dir=logs/train_HammerCleanup_D1_STANDARD_NO_GOAL_SWAP/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_HammerCleanup_D1_STANDARD_NO_GOAL_SWAP_CORRECT_FOUR_POINT/$(date +%Y-%m-%d/%H-%M-%S)" \
     "resources.gpus=[0]" \
     resources.num_workers=8 \
     +training.checkpoint_every_n_epochs=5 \
