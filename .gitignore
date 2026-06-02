@@ -1,0 +1,25 @@
+# Large archives
+*.tar.gz
+
+# Dataset folders
+data/
+replay/
+
+# Experiment outputs
+runs/
+runs_archive/
+runs_hierarchical/
+
+# Cache
+__pycache__/
+*.pyc
+
+# Model checkpoints (in case they exist anywhere)
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.pkl
+
+# Large build folders
+cub-1.10.0/
