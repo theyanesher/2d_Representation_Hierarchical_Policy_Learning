@@ -159,3 +159,23 @@ third_party/RoboGen_sim2real
 models/
 third_party/robogen/test_PointNet2/exps/
 equi_diffpo/scripts/convert.sh
+
+# Eval output directories (args.json / results.jsonl / summary.json / media/)
+GHOST_HIGH_LEVEL_*/
+GHOST_HL_*/
+GMM_HIGH_LEVEL_*/
+
+# Eval output directories (args.json / results.jsonl / summary.json / media/)
+GHOST_HIGH_LEVEL_*/
+GHOST_HL_*/
+GMM_HIGH_LEVEL_*/
+
+# BOCPD / segmentation test output directories
+test_*output*/
+
+# SMITH finetuned eval output directories
+SMITH_COFEE_FINATUNED_HIGH_LEVEL_*/
+SMITH_HIGH_LEVEL_SMITH_LOW_LEVEL_*/
+
+# Low-level training output
+MUG_CLEANUP_d1_100_demo_Resnet_Weighted_Cross_Attention/

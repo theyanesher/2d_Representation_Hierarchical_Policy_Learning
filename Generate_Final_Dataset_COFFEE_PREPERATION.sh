@@ -7,8 +7,8 @@ export MUJOCO_GL=egl
 export DISPLAY=:99
 
 SCRIPT=external/mimicgen/mimicgen/scripts/convert_dataset.py
-SRC=/scratch/pbhowal/Uncertainty_Dataset/Original_Dataset
-DST=/scratch/pbhowal/Uncertainty_Dataset/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2    #Mug_Cleanup_D1/
+SRC=/scratch/pbhowal/Uncertainty_Dataset/Original_Dataset/ #/scratch/pbhowal/Uncertainty_Dataset/Original_Dataset
+DST=/scratch/pbhowal/Uncertainty_Dataset/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/ #/scratch/pbhowal/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2/COFFEE_PREPERATION_D1/ #/scratch/pbhowal/Uncertainty_Dataset/LOW_LEVEL_NO_GMM_DATASET_GROOT_STYLE_DATASET/D2    #Mug_Cleanup_D1/
 
 # Throughput knob: parallel worker processes per job (i.e. per GPU).
 # 2 is a safe default for both 3080 (10-12GB) and 3090 (24GB).
@@ -28,7 +28,7 @@ run_job() {
         --pool_size $POOL_SIZE \
         --use_bayesian_decomp \
         --bocpd_config "$cfg" \
-        > "logs/${name}.log" 2>&1 &
+        > "logs/${name}_autobot8.log" 2>&1 &
     echo "[GPU $gpu] $name pid=$!"
 }
 

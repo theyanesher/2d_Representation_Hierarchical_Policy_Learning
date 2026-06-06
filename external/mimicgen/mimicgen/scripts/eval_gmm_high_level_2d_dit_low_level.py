@@ -449,6 +449,101 @@ def _agentview_to_uint8_rgb(obs):
 
 
 # -----------------------------------------------------------------------------
+# Goal-overlay helpers (NEW). Purely additive — used only when
+# --save_goal_overlay_videos is on. Never touched by the existing inference path.
+# Duplicated from the ghost eval script (intentional, to keep these two scripts
+# fully independent — refactor into a shared module later if desired).
+# -----------------------------------------------------------------------------
+def _get_agentview_world_to_pixel(env, camera_h: int, camera_w: int):
+    """4x4 world->pixel transform for the 'agentview' camera. None on any failure."""
+    try:
+        from robosuite.utils.camera_utils import get_camera_transform_matrix
+        inner = env.env if hasattr(env, "env") else env
+        if not hasattr(inner, "sim"):
+            return None
+        return get_camera_transform_matrix(inner.sim, "agentview", camera_h, camera_w)
+    except Exception as e:
+        print(f"[overlay] disabled — camera transform unavailable: {e}")
+        return None
+
+
+def _get_robot_base_world_pos(env, body_name_substring: str = "robot0_base"):
+    """
+    Return the world-frame xyz of the mujoco body whose name contains
+    `body_name_substring`. The HL/LL obs frames are robot-base relative, so this
+    offset must be added to each keypoint before projecting through the camera matrix.
+    """
+    try:
+        inner = env.env if hasattr(env, "env") else env
+        if not hasattr(inner, "sim"):
+            return None
+        sim = inner.sim
+        for i in range(sim.model.nbody):
+            name = sim.model.body_id2name(i)
+            if name is not None and body_name_substring in name:
+                return np.array(sim.data.body_xpos[sim.model.body_name2id(name)], dtype=np.float64)
+        return None
+    except Exception as e:
+        print(f"[overlay] robot-base lookup failed: {e}")
+        return None
+
+
+def _project_world_points_to_uv(points_world: np.ndarray, w2p: np.ndarray, H: int, W: int):
+    """
+    points_world : (N, 3) world-frame xyz
+    w2p          : (4, 4) world->pixel transform
+    Returns:
+        uv         : (N, 2) int  — [u_col, v_row] in standard CV convention
+        visibility : (N,) bool   — True iff z_cam>0 AND inside the image
+    """
+    pts = np.asarray(points_world, dtype=np.float64).reshape(-1, 3)
+    n = pts.shape[0]
+    homo = np.concatenate([pts, np.ones((n, 1))], axis=1)
+    proj = (w2p @ homo.T).T
+    z = proj[:, 2]
+    safe_z = np.where(np.abs(z) > 1e-6, z, 1e-6)
+    u = np.round(proj[:, 0] / safe_z).astype(int)
+    v = np.round(proj[:, 1] / safe_z).astype(int)
+    visible = (z > 0.0) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+    return np.stack([u, v], axis=1), visible
+
+
+def _draw_gmm_goal_overlay(frame: np.ndarray, uv: np.ndarray, visible: np.ndarray,
+                            weights: np.ndarray, radius: int = 2) -> None:
+    """
+    GMM overlay: ONE filled circle per candidate (not 4), colored blue with
+    brightness proportional to weight / max(weight) over the kept candidates.
+
+    - Skips candidates where visible=False (off-screen / behind camera).
+    - Sorts ascending by weight so high-weight candidates are drawn last (on top).
+    - Caller is expected to have already filtered out below-threshold candidates.
+
+    `frame` is modified IN-PLACE (RGB uint8).
+    """
+    try:
+        import cv2
+    except Exception as e:
+        print(f"[overlay] disabled mid-episode — cv2 unavailable: {e}")
+        return
+    if uv.size == 0:
+        return
+    visible = np.asarray(visible, dtype=bool)
+    if not visible.any():
+        return
+    uvs = uv[visible]
+    ws = np.asarray(weights, dtype=np.float64)[visible]
+    max_w = float(ws.max()) + 1e-12
+    # High-weight on top
+    order = np.argsort(ws)
+    for idx in order:
+        u, v = int(uvs[idx, 0]), int(uvs[idx, 1])
+        w_norm = float(ws[idx]) / max_w        # in (0, 1]
+        b = int(100 + 155 * w_norm)            # 100..255
+        # RGB tuple — frame is RGB. Use a deep blue with brightness scaled.
+        cv2.circle(frame, (u, v), radius, (40, 40, b), thickness=-1)
+
+
+# -----------------------------------------------------------------------------
 # Single episode rollout.
 # CHANGED vs ghost eval:
 #   - HL returns (gaussian_means, probabilities) instead of a single (1,4,3) subgoal.
@@ -466,6 +561,8 @@ def run_episode(
     n_action_steps: int,
     max_steps: int,
     device: str,
+    save_goal_overlay: bool = False,
+    gmm_overlay_weight_threshold: float = 0.001,
 ):
     import torch
     from eval_smith_utils import policy_action_batch_to_env_action
@@ -480,6 +577,35 @@ def run_episode(
     step = 0
     frames = [_agentview_to_uint8_rgb(obs)]
 
+    # ---- Goal-overlay setup (NEW, additive) ----
+    frames_overlay = None
+    w2p = None
+    base_offset_world = None
+    # Latest GMM cached for drawing: centroids (N, 3) base-frame, weights (N,) probs.
+    current_gmm_centroids_base = None
+    current_gmm_weights = None
+    if save_goal_overlay:
+        H, W = frames[0].shape[:2]
+        w2p = _get_agentview_world_to_pixel(env, H, W)
+        base_offset_world = _get_robot_base_world_pos(env, "robot0_base")
+        if w2p is not None:
+            frames_overlay = [frames[0].copy()]
+            try:
+                gp = np.asarray(obs.get("gripper_pcd", []), dtype=np.float64)
+                if gp.ndim == 2 and gp.shape[1] >= 3:
+                    gp = gp[:, :3]
+                if base_offset_world is not None and gp.size > 0:
+                    gp_world = gp + base_offset_world
+                    _uv_g, vis_g = _project_world_points_to_uv(gp_world, w2p, H, W)
+                    print(f"[overlay] base_offset_world={tuple(base_offset_world.tolist())}  "
+                          f"sanity-check gripper_pcd: {int(vis_g.sum())}/{gp.shape[0]} keypoints visible  "
+                          f"(weight_threshold={gmm_overlay_weight_threshold})")
+                elif base_offset_world is None:
+                    print("[overlay] WARNING: no robot0_base body found — projecting as if obs were "
+                          "world-frame, which may be wrong.")
+            except Exception as _e:
+                print(f"[overlay] sanity-check failed (non-fatal): {_e}")
+
     while step < max_steps:
         # ------------------- HL: PCD -> full GMM distribution ----------------
         scene_pcd_t, gripper_pcd_t = build_hl_inputs_lfd3d(obs, device)
@@ -492,6 +618,14 @@ def run_episode(
         # and applies it internally inside _encode_obs. We pass all candidates.
         gmm_means_t = gmm_means.unsqueeze(1).repeat(1, n_obs_steps, 1, 1, 1)   # (1, T, N, 4, 3)
         gmm_probs_t = gmm_probs.unsqueeze(1).repeat(1, n_obs_steps, 1)         # (1, T, N)
+
+        # Cache GMM centroids+weights for overlay drawing during the next env-step batch.
+        if frames_overlay is not None:
+            # centroid = mean over the 4 keypoints  → (N, 3)
+            means_np = gmm_means[0].detach().cpu().numpy()   # (N, 4, 3) base frame
+            probs_np = gmm_probs[0].detach().cpu().numpy()   # (N,) probabilities
+            current_gmm_centroids_base = means_np.mean(axis=1)  # (N, 3)
+            current_gmm_weights = probs_np
 
         # ------------------- LL: image obs + GMM dist -> action --------------
         ll_obs = build_ll_obs_dict(obs, n_obs_steps, device)
@@ -514,7 +648,30 @@ def run_episode(
         for t_idx in range(env_action_seq.shape[0]):
             obs, reward, done, _info = env.step(env_action_seq[t_idx])
             obs = _maybe_unwrap(obs)
-            frames.append(_agentview_to_uint8_rgb(obs))
+            frame = _agentview_to_uint8_rgb(obs)
+            frames.append(frame)
+
+            # Build the overlay frame.
+            if frames_overlay is not None:
+                overlay = frame.copy()
+                if current_gmm_centroids_base is not None and current_gmm_weights is not None:
+                    H, W = overlay.shape[:2]
+                    # 1. Filter by absolute weight threshold (probabilities, sum to 1).
+                    keep_mask = current_gmm_weights >= gmm_overlay_weight_threshold
+                    if keep_mask.any():
+                        kept_centroids_base = current_gmm_centroids_base[keep_mask]  # (M, 3)
+                        kept_weights        = current_gmm_weights[keep_mask]         # (M,)
+                        # 2. Base-frame → world-frame.
+                        if base_offset_world is not None:
+                            kept_centroids_world = kept_centroids_base + base_offset_world
+                        else:
+                            kept_centroids_world = kept_centroids_base
+                        # 3. Project.
+                        uv, vis = _project_world_points_to_uv(kept_centroids_world, w2p, H, W)
+                        # 4. Draw.
+                        _draw_gmm_goal_overlay(overlay, uv, vis, kept_weights)
+                frames_overlay.append(overlay)
+
             total_reward += float(reward)
             step += 1
             if env.is_success().get("task", False):
@@ -526,7 +683,7 @@ def run_episode(
         if success or step >= max_steps:
             break
 
-    return total_reward, success, frames
+    return total_reward, success, frames, frames_overlay
 
 
 # -----------------------------------------------------------------------------
@@ -569,6 +726,15 @@ def main():
     parser.add_argument("--save_videos", action=argparse.BooleanOptionalAction, default=True,
         help="Write an mp4 of every episode to <output_dir>/media/. "
              "Filenames carry the outcome (..._success.mp4 / ..._failure.mp4). Pass --no-save-videos to disable.")
+    parser.add_argument("--save_goal_overlay_videos", action=argparse.BooleanOptionalAction, default=True,
+        help="In addition to the regular video, write a sister mp4 to "
+             "<output_dir>/media_with_goal_overlay/ with the GMM goal centroids "
+             "projected onto each frame (one point per kept candidate). "
+             "Requires --save_videos; pass --no-save_goal_overlay_videos to disable.")
+    parser.add_argument("--gmm_overlay_weight_threshold", type=float, default=0.001,
+        help="Absolute probability threshold for plotting a GMM candidate in the overlay. "
+             "Keeps candidates with weight >= threshold (weights are softmax probs over N anchors). "
+             "Lower => more points shown.")
     parser.add_argument("--video_fps", type=int, default=10,
         help="Frame rate for saved mp4s.")
     args = parser.parse_args()
@@ -638,11 +804,18 @@ def main():
     # Video setup.
     video_recorder_cls = None
     videos_dir = None
+    videos_dir_overlay = None
+    save_overlay = bool(args.save_videos and args.save_goal_overlay_videos)
     if args.save_videos:
         from equi_diffpo.gym_util.video_recording_wrapper import VideoRecorder as video_recorder_cls
         videos_dir = output_dir / "media"
         videos_dir.mkdir(parents=True, exist_ok=True)
         print(f"[video] all rollouts -> {videos_dir.resolve()} (fps={args.video_fps}, h264 crf=22)")
+        if save_overlay:
+            videos_dir_overlay = output_dir / "media_with_goal_overlay"
+            videos_dir_overlay.mkdir(parents=True, exist_ok=True)
+            print(f"[overlay] goal-overlay rollouts -> {videos_dir_overlay.resolve()} "
+                  f"(weight_threshold={args.gmm_overlay_weight_threshold})")
 
     # Roll out — stream per-episode results to results.jsonl.
     rewards, successes = [], []
@@ -652,14 +825,17 @@ def main():
             seed = args.seed + ep
             np.random.seed(seed)
             torch.manual_seed(seed)
-            r, succ, frames = run_episode(
+            r, succ, frames, frames_overlay = run_episode(
                 env, hl_network, ll_model, text_embed_t,
                 controller,
                 args.n_obs_steps, args.n_action_steps, args.max_steps,
                 device=device,
+                save_goal_overlay=save_overlay,
+                gmm_overlay_weight_threshold=args.gmm_overlay_weight_threshold,
             )
 
             video_path = None
+            overlay_video_path = None
             if args.save_videos:
                 outcome_tag = "success" if succ else "failure"
                 video_path = videos_dir / f"episode_{ep + 1:03d}_seed_{seed}_{outcome_tag}.mp4"
@@ -669,14 +845,24 @@ def main():
                     recorder.write_frame(frame)
                 recorder.stop()
 
+                if save_overlay and videos_dir_overlay is not None and frames_overlay is not None:
+                    overlay_video_path = videos_dir_overlay / f"episode_{ep + 1:03d}_seed_{seed}_{outcome_tag}.mp4"
+                    rec_ov = video_recorder_cls.create_h264(fps=args.video_fps, crf=22)
+                    rec_ov.start(str(overlay_video_path))
+                    for frame in frames_overlay:
+                        rec_ov.write_frame(frame)
+                    rec_ov.stop()
+
             rewards.append(r)
             successes.append(succ)
             video_tag = f"  video={video_path.name}" if video_path is not None else ""
-            print(f"Episode {ep + 1}/{args.n_episodes}  seed={seed}  reward={r:.2f}  success={succ}{video_tag}")
+            overlay_tag = f"  overlay={overlay_video_path.name}" if overlay_video_path is not None else ""
+            print(f"Episode {ep + 1}/{args.n_episodes}  seed={seed}  reward={r:.2f}  success={succ}{video_tag}{overlay_tag}")
             results_f.write(json.dumps({
                 "episode": ep + 1, "seed": seed,
                 "reward": float(r), "success": bool(succ),
                 "video": str(video_path) if video_path is not None else None,
+                "video_with_goal_overlay": str(overlay_video_path) if overlay_video_path is not None else None,
             }) + "\n")
             results_f.flush()
 

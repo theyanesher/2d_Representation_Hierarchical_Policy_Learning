@@ -25,7 +25,7 @@ DIT_2D_REPO="${PROJ_ROOT}/2D_Hierarchical_Policy_Learning_Github/2d_Representati
 ENV_PY="${PROJ_ROOT}/Yufei_Data_Generation_Code_FINAL/cleaned_smith_real_world_inference/.pixi/envs/default/bin/python"
 
 DATASET_PATH="${PROJ_ROOT}/SMITH_High_Level_FineTune/ORIGINAL_DATASET/coffee_d2.hdf5"
-HL_CKPT="${PROJ_ROOT}/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Coffee_d2/GHOST_High_Level/periodic-epoch=epoch=19.ckpt"
+HL_CKPT="${PROJ_ROOT}/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Coffee_d2/GHOST_High_Level_NO_MULTIMODAL/periodic-epoch=epoch=19.ckpt" #"/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Coffee_d2/GHOST_High_Level/periodic-epoch=epoch=19.ckpt"
 LL_EXP_DIR="${PROJ_ROOT}/SMITH_High_Level_FineTune/LOW_LEVEL_POLICIES/Coffee_d2/DiT_Goal_Gripper_Cond"
 LL_CKPT="latest.ckpt"
 
@@ -56,7 +56,7 @@ VIDEO_FPS=10
 
 # Where to dump args.json / results.jsonl / summary.json.
 # Absolute path so the script can be launched from anywhere.
-OUTPUT_DIR="${SMITH_MIMICGEN}/GHOST_HIGH_LEVEL_2D_DIT_LOW_LEVEL_COFFEE_50_SAMPLES_D2_100_EPOCH"
+OUTPUT_DIR="${SMITH_MIMICGEN}/GHOST_HIGH_LEVEL_2D_DIT_LOW_LEVEL_COFFEE_50_SAMPLES_D2_100_EPOCH_NO_MULTIMODAL_HIGHLEVEL_PLOT_INC"
 
 # --------------------------------------------------------------------------- #
 # Sanity checks before launching
