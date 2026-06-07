@@ -392,6 +392,50 @@ def infer_articubot_gmm(
 
 
 # -----------------------------------------------------------------------------
+# Halo-collapse the per-anchor GMM into a few discrete modes.
+#
+# LOGIC-IDENTICAL copy of reduce_gmm_to_modes in the HL dataset generator
+# (lfd3d/scripts/run_gmm_on_dataset_batch_optimized.py). Keep the two IN SYNC so
+# the modes the LL sees at inference match exactly what it was trained on
+# (same radius / max_modes / weighting). Inlined (not imported) because the
+# inference env stubs out the HL repo's heavy training deps.
+#
+#   weight-ordered greedy NMS in goal-centroid space:
+#     mode weight = SUM of member anchor weights (total probability mass)
+#     mode goal   = weight-weighted average of member goals (4, 3)
+# -----------------------------------------------------------------------------
+def reduce_gmm_to_modes(all_goals, all_weights, radius=0.03, max_modes=3, w_thresh=1e-4):
+    """(T,N,4,3)+(T,N) -> (T,max_modes,4,3)+(T,max_modes), zero-padded/sorted by weight."""
+    T, N = all_weights.shape
+    modes = np.zeros((T, max_modes, 4, 3), dtype=np.float32)
+    mode_weights = np.zeros((T, max_modes), dtype=np.float32)
+    for t in range(T):
+        w = all_weights[t]
+        keep = np.where(w > w_thresh)[0]
+        if keep.size == 0:
+            continue
+        g = all_goals[t, keep]                 # (n, 4, 3)
+        wk = w[keep].astype(np.float64)        # (n,)
+        cent = g.mean(axis=1)                  # (n, 3) goal centroids
+        used = np.zeros(keep.size, dtype=bool)
+        collected = []                         # list of (mode_weight, mode_goal(4,3))
+        for idx in np.argsort(wk)[::-1]:       # seeds in descending weight
+            if used[idx]:
+                continue
+            d = np.linalg.norm(cent - cent[idx], axis=1)
+            members = np.where((d <= radius) & (~used))[0]
+            used[members] = True
+            mw = wk[members].sum()
+            mg = (g[members] * wk[members][:, None, None]).sum(axis=0) / mw
+            collected.append((mw, mg.astype(np.float32)))
+        collected.sort(key=lambda x: x[0], reverse=True)
+        for k, (mw, mg) in enumerate(collected[:max_modes]):
+            modes[t, k] = mg
+            mode_weights[t, k] = mw
+    return modes, mode_weights
+
+
+# -----------------------------------------------------------------------------
 # Obs-dict builders.
 # -----------------------------------------------------------------------------
 def _maybe_unwrap(obs):
@@ -561,6 +605,9 @@ def run_episode(
     n_action_steps: int,
     max_steps: int,
     device: str,
+    use_gmm_modes: bool = False,
+    mode_radius: float = 0.03,
+    max_modes: int = 3,
     save_goal_overlay: bool = False,
     gmm_overlay_weight_threshold: float = 0.001,
 ):
@@ -613,11 +660,9 @@ def run_episode(
             hl_network, scene_pcd_t, gripper_pcd_t, text_embed_t,
         )                                                            # (1, N, 4, 3), (1, N)
 
-        # Tile over n_obs_steps so the LL sees one entry per obs step.
-        # No top-K truncation here — the LL policy has gmm_top_k=1024 baked in
-        # and applies it internally inside _encode_obs. We pass all candidates.
-        gmm_means_t = gmm_means.unsqueeze(1).repeat(1, n_obs_steps, 1, 1, 1)   # (1, T, N, 4, 3)
-        gmm_probs_t = gmm_probs.unsqueeze(1).repeat(1, n_obs_steps, 1)         # (1, T, N)
+        # (GMM goals/weights are reduced-or-not and tiled below, right before
+        # injection into the LL obs — see the use_gmm_modes branch. The overlay
+        # below still uses the full untiled GMM gmm_means/gmm_probs.)
 
         # Cache GMM centroids+weights for overlay drawing during the next env-step batch.
         if frames_overlay is not None:
@@ -629,8 +674,26 @@ def run_episode(
 
         # ------------------- LL: image obs + GMM dist -> action --------------
         ll_obs = build_ll_obs_dict(obs, n_obs_steps, device)
-        ll_obs["gmm_all_goals"]   = gmm_means_t
-        ll_obs["gmm_all_weights"] = gmm_probs_t
+        if use_gmm_modes:
+            # Halo-collapse the full GMM into discrete modes with the SAME params
+            # the dataset generator used, then feed under the keys a modes-trained
+            # LL expects. Zero-weight padded modes are auto-masked by the LL's
+            # WeightedCrossAttention log(w) bias, so 1/2/3 modes all just work.
+            modes_np, mode_w_np = reduce_gmm_to_modes(
+                gmm_means.detach().cpu().numpy(),   # (1, N, 4, 3)
+                gmm_probs.detach().cpu().numpy(),   # (1, N)
+                radius=mode_radius, max_modes=max_modes,
+            )                                                        # (1, K, 4, 3), (1, K)
+            goals   = torch.from_numpy(modes_np).float().to(device)
+            weights = torch.from_numpy(mode_w_np).float().to(device)
+            goals_key, weights_key = "gmm_modes", "gmm_mode_weights"
+        else:
+            goals, weights = gmm_means, gmm_probs                   # (1, N, 4, 3), (1, N)
+            goals_key, weights_key = "gmm_all_goals", "gmm_all_weights"
+
+        # Tile over n_obs_steps so the LL sees one entry per obs step.
+        ll_obs[goals_key]   = goals.unsqueeze(1).repeat(1, n_obs_steps, 1, 1, 1)
+        ll_obs[weights_key] = weights.unsqueeze(1).repeat(1, n_obs_steps, 1)
 
         with torch.no_grad():
             action_dict = ll_model.predict_action(ll_obs)
@@ -737,6 +800,18 @@ def main():
              "Lower => more points shown.")
     parser.add_argument("--video_fps", type=int, default=10,
         help="Frame rate for saved mp4s.")
+    parser.add_argument("--use_gmm_modes", action="store_true", default=False,
+        help="Halo-collapse the HL's full per-anchor GMM to discrete modes "
+             "(reduce_gmm_to_modes) and feed the LL gmm_modes/gmm_mode_weights "
+             "instead of gmm_all_goals/gmm_all_weights. Use when the LL was "
+             "trained on the mode-based task (mugcleanup_D1_modes_goal).")
+    parser.add_argument("--mode_radius", type=float, default=0.03,
+        help="Merge radius (m) for GMM mode reduction. MUST match the value the "
+             "LL's training dataset was generated with (default 0.03). "
+             "Only used with --use_gmm_modes.")
+    parser.add_argument("--max_modes", type=int, default=3,
+        help="Max modes kept per step (must match the LL's gmm_modes shape). "
+             "Only used with --use_gmm_modes.")
     args = parser.parse_args()
 
     import json
@@ -801,6 +876,17 @@ def main():
         print("[LL][WARN] this LL run was NOT trained with weighted GMM cross-attention. "
               "The GMM tensors will be ignored unless the LL's shape_meta has gmm_goals/gmm_weights typed obs.")
 
+    # GMM-modes cross-check: when --use_gmm_modes, the LL must read gmm_modes.
+    if args.use_gmm_modes:
+        ll_goals_key = getattr(ll_model, "gmm_goals_key", None)
+        print(f"[LL] use_gmm_modes=True -> feeding gmm_modes/gmm_mode_weights "
+              f"(mode_radius={args.mode_radius}, max_modes={args.max_modes}); "
+              f"LL gmm_goals_key={ll_goals_key}")
+        if ll_goals_key not in (None, "gmm_modes"):
+            print(f"[LL][WARN] LL expects goals key '{ll_goals_key}', not 'gmm_modes'. "
+                  "Modes will be injected under 'gmm_modes' and the LL likely won't read "
+                  "them — was this LL trained on the modes task (mugcleanup_D1_modes_goal)?")
+
     # Video setup.
     video_recorder_cls = None
     videos_dir = None
@@ -830,6 +916,9 @@ def main():
                 controller,
                 args.n_obs_steps, args.n_action_steps, args.max_steps,
                 device=device,
+                use_gmm_modes=args.use_gmm_modes,
+                mode_radius=args.mode_radius,
+                max_modes=args.max_modes,
                 save_goal_overlay=save_overlay,
                 gmm_overlay_weight_threshold=args.gmm_overlay_weight_threshold,
             )
