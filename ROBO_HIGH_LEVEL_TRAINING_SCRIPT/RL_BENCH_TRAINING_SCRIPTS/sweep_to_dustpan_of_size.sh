@@ -115,11 +115,12 @@ pixi run python scripts/train.py \
     dataset=rl_bench_datasets/sweep_to_dustpan_of_size \
     training=sweep_to_dustpan_of_size_articubot \
     dataset.data_dir="${DEST_DATA_DIR}" \
+    dataset.add_language_cond=True \
     model.use_rgb=False \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=pbhowal-carnegie-mellon-university \
-    "hydra.run.dir=logs/train_Sweep_To_Dustpan_Of_Size_GOAL_SWAP_FULL/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_Sweep_To_Dustpan_Of_Size_GOAL_SWAP_FULL_LANGCOND/$(date +%Y-%m-%d/%H-%M-%S)" \
     +dataset.use_weighted_sampler=True \
     +dataset.transition_p=0.5 \
     +dataset.transition_radius=5 \

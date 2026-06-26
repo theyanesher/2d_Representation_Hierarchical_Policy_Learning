@@ -5,23 +5,23 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100 (needed by the high-level GMM forward pass)
 #SBATCH -t 12:00:00
-#SBATCH --job-name mug-cleanup-d1-gmm-gen
+#SBATCH --job-name kitchen-d1-gmm-gen
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_GMM_DATASET_GEN_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_GMM_DATASET_GEN_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# Generate the GMM-annotated h5 dataset for Mug_Cleanup_D1 by running the
+# Generate the GMM-annotated h5 dataset for KITCHEN_D1 by running the
 # high-level (multimodal) GMM model on every demo's per-step npz, then ship
 # the result back to /ocean for the low-level trainer to consume.
 #
 # Pipeline:
-#   1. Stage the source npz tree (D2/Mug_Cleanup_D1_Ellina_Machine) onto the
-#      node's /local SSD — many small npz reads from /ocean are slow.
+#   1. Stage the source npz tree (D2/KITCHEN_D1) onto the node's /local SSD —
+#      many small npz reads from /ocean are slow.
 #   2. Run scripts/run_gmm_on_dataset_batch_optimized.py with --gmm_output_dir
 #      pointing at a /local h5 dir — h5 writes stay on the fast SSD.
 #   3. rsync the generated demo_*.h5 from /local back to the durable /ocean
-#      location LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1/.
+#      location LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/KITCHEN_D1/.
 
 set -euo pipefail
 set -x
@@ -29,10 +29,10 @@ set -x
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # --- paths ---------------------------------------------------------------
-SRC_NPZ_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/Mug_Cleanup_D1_Ellina_Machine"
+SRC_NPZ_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/KITCHEN_D1"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
-CKPT_PATH="${REPO_DIR}/logs/train_Mug_Cleanup_D1_GOAL_SWAP_FULL_1000/2026-05-18/13-48-11/checkpoints/periodic-epoch=epoch=44.ckpt"
-FINAL_OCEAN_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1"
+CKPT_PATH="${REPO_DIR}/logs/train_KITCHEN_D1_GOAL_SWAP_100demo/2026-06-04/05-12-39/checkpoints/periodic-epoch=epoch=84.ckpt"
+FINAL_OCEAN_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/KITCHEN_D1"
 
 # --- node-local scratch --------------------------------------------------
 # Per-job isolated subdir so concurrent jobs on the same node never collide.
@@ -46,8 +46,8 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_NPZ_DIR="${SCRATCH_ROOT}/Mug_Cleanup_D1_npz"      # staged inputs
-DEST_H5_DIR="${SCRATCH_ROOT}/Mug_Cleanup_D1_gmm_h5"    # converter outputs
+DEST_NPZ_DIR="${SCRATCH_ROOT}/KITCHEN_D1_npz"      # staged inputs
+DEST_H5_DIR="${SCRATCH_ROOT}/KITCHEN_D1_gmm_h5"    # converter outputs
 
 # --- (1) stage npz source to /local --------------------------------------
 # Parallel copy: split the ~1000 top-level demo dirs across N rsync workers
@@ -98,10 +98,7 @@ pixi run python scripts/run_gmm_on_dataset_batch_optimized.py \
     --gmm_output_dir "${DEST_H5_DIR}" \
     --start_demo 0 \
     --max_files 1000 \
-    --batch_size 164 \
-    --save_modes_separately \
-    --mode_radius 0.03 \
-    --max_modes 3
+    --batch_size 164
 
 gen_elapsed=$(( $(date +%s) - gen_start ))
 echo "[gen] done in ${gen_elapsed}s. $(find "${DEST_H5_DIR}" -maxdepth 1 -name "*.h5" | wc -l) h5 files written ($(du -sh "${DEST_H5_DIR}" | cut -f1))."

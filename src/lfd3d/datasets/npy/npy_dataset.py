@@ -148,6 +148,77 @@ class NpyDataset(BaseDataset):
             n_eligible = int((self._swap_p > 0).sum())
             print(f"[NpyDataset] {n_eligible}/{len(self.frames)} frames eligible for label swap")
 
+        # Per-frame language conditioning. When enabled, each frame is
+        # conditioned on its own `lang_goal` instruction (e.g. RL Bench
+        # "...tall dustpan" vs "...short dustpan") instead of the single
+        # constant task_caption. Runs for BOTH train and val splits — the model
+        # needs the matching instruction at eval time too.
+        self._lang_embeds = None     # (n_distinct, 1152) float32
+        self._lang_row = None        # (N,) int64 -> row in _lang_embeds
+        self._frame_captions = None  # (N,) list[str], used for the returned caption
+        if dataset_cfg.get("add_language_cond", False):
+            self._setup_language_conditioning()
+
+    def _setup_language_conditioning(self):
+        """
+        Build per-frame SigLIP text embeddings from each frame's `lang_goal`.
+
+        `lang_goal` is stored per frame in the .npz but is constant within a
+        demo (one variation per episode), so we read it once per demo (one
+        np.load per demo, not per frame). The distinct caption strings are
+        embedded once with SigLIP (canonical max_length=64 padding) and cached
+        to `.lang_goal_embeds.npz` in data_dir so re-runs / the other split
+        skip the SigLIP load. Workers inherit the finished arrays via pickle —
+        SigLIP never runs in a dataloader worker.
+        """
+        # 1) Per-demo caption (one read per demo; lang_goal is per-episode).
+        frame_groups: dict = {}
+        for i, f in enumerate(self.frames):
+            frame_groups.setdefault(str(f.parent), []).append(i)
+
+        captions: list = [None] * len(self.frames)
+        for idxs in frame_groups.values():
+            lg = np.load(self.frames[idxs[0]], allow_pickle=True)["lang_goal"]
+            caption = str(np.asarray(lg).reshape(-1)[0])
+            for i in idxs:
+                captions[i] = caption
+
+        distinct = sorted(set(captions))
+
+        # 2) Embed distinct captions, loading/extending an on-disk cache.
+        cache_file = self.data_dir / ".lang_goal_embeds.npz"
+        embeds_by_caption: dict = {}
+        if cache_file.exists():
+            arr = np.load(cache_file, allow_pickle=True)
+            for c, e in zip(list(arr["captions"]), arr["embeds"]):
+                embeds_by_caption[str(c)] = e.astype(np.float32)
+
+        missing = [c for c in distinct if c not in embeds_by_caption]
+        if missing:
+            print(f"[NpyDataset] Embedding {len(missing)} lang_goal caption(s) with SigLIP...")
+            siglip = AutoModel.from_pretrained("google/siglip-so400m-patch14-384")
+            processor = AutoProcessor.from_pretrained("google/siglip-so400m-patch14-384")
+            for c in missing:
+                embeds_by_caption[c] = get_siglip_text_embedding(
+                    c, siglip=siglip, siglip_processor=processor, device="cpu"
+                ).astype(np.float32)
+            all_caps = list(embeds_by_caption.keys())
+            all_emb = np.stack([embeds_by_caption[c] for c in all_caps]).astype(np.float32)
+            np.savez(cache_file, captions=np.array(all_caps, dtype=object), embeds=all_emb)
+            print(f"[NpyDataset] Saved lang_goal embeddings to {cache_file}")
+
+        # 3) Per-frame lookup tables.
+        cap_to_row = {c: j for j, c in enumerate(distinct)}
+        self._lang_embeds = np.stack(
+            [embeds_by_caption[c] for c in distinct]
+        ).astype(np.float32)
+        self._lang_row = np.array([cap_to_row[c] for c in captions], dtype=np.int64)
+        self._frame_captions = captions
+        print(
+            f"[NpyDataset] Language conditioning ON ({self.split}): "
+            f"{len(distinct)} distinct lang_goal(s) over {len(self.frames)} frames: {distinct}"
+        )
+
     def _compute_sample_weights(self, p: float, transition_radius: int) -> np.ndarray:
         """
         Frames within transition_radius of a goal transition get collective
@@ -331,6 +402,16 @@ class NpyDataset(BaseDataset):
         # Dummy gripper trajectory (10 future steps)
         gripper_trajectory = np.tile(action_pcd_norm[[0]], (10, 1)).astype(np.float32)
 
+        # Per-frame language conditioning: serve this frame's lang_goal caption
+        # and embedding when enabled, else fall back to the constant task_caption
+        # / self.text_embed (zeros when use_text_embed is False).
+        if self._lang_row is not None:
+            caption = self._frame_captions[idx]
+            text_embed = self._lang_embeds[self._lang_row[idx]]
+        else:
+            caption = self.task_caption
+            text_embed = self.text_embed
+
         return {
             # Primary camera
             "rgbs":       rgbs,
@@ -350,9 +431,9 @@ class NpyDataset(BaseDataset):
             # Labels
             "cross_displacement": cross_displacement,  # (4, 3) → Pointclouds
             # Text
-            "caption":        self.task_caption,
-            "text_embed":     self.text_embed,
-            "actual_caption": self.task_caption,
+            "caption":        caption,
+            "text_embed":     text_embed,
+            "actual_caption": caption,
             # Transforms / normalization
             "start2end":  np.eye(4, dtype=np.float32),
             "pcd_mean":   pcd_mean,

@@ -116,7 +116,12 @@ def get_dinov2_image_embedding_from_file(image_path, dinov2=None):
 
 
 def get_siglip_text_embedding(
-    caption, siglip=None, siglip_processor=None, device="cuda"
+    caption,
+    siglip=None,
+    siglip_processor=None,
+    device="cuda",
+    padding="max_length",
+    max_length=64,
 ):
     if siglip is None or siglip_processor is None:
         siglip = AutoModel.from_pretrained("google/siglip-so400m-patch14-384").to(
@@ -126,13 +131,16 @@ def get_siglip_text_embedding(
             "google/siglip-so400m-patch14-384"
         )
 
-    # Process text input
+    # Process text input. SigLIP was trained with padding="max_length" to a
+    # fixed 64 tokens and pools the last token position, so that is the
+    # canonical setting (and the default here). Pass padding="longest"/True
+    # only if you intentionally want the old, non-canonical behavior.
     inputs = siglip_processor(
         text=[caption],
         return_tensors="pt",
-        padding=True,
+        padding=padding,
         truncation=True,
-        max_length=64,
+        max_length=max_length,
     )
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
