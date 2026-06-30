@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Hierarchical eval: lfd3d ArticubotNetwork HL + 2D DiT GMM-LL on a MimicGen task.
 #
-# MugCleanup_D1 variant. Sister of eval_gmm_high_level_2d_dit_low_level_hammer_cleanup_d1.sh.
-# Same env / same action-conversion path. The LL is the GMM-conditioned variant
-# trained with:
-#   task=MimicGen_Tasks/mug_cleanup_gmm_goal
+# MugCleanup_D1 MODE-BASED variant. Sister of the DINOV2 eval, but for an LL
+# trained on the discrete-modes task (task=MimicGen_Tasks/mugcleanup_D1_modes_goal):
 #   policy.use_goal_cross_attention=true
 #   policy.use_weighted_cross_attention=true
-#   policy.gmm_top_k=1024
+#   (no policy.gmm_top_k — the LL reads gmm_modes/gmm_mode_weights directly)
 #
-# At inference we feed the FULL N=4500 anchor distribution from the HL into the
-# LL; the LL's gmm_top_k is applied internally inside FlowMatchingDiTImagePolicy.
+# At inference we pass --use_gmm_modes, so the script halo-collapses the HL's full
+# N=4500 GMM into discrete modes via reduce_gmm_to_modes (SAME --mode_radius /
+# --max_modes the LL's training dataset was generated with) and feeds the LL
+# gmm_modes/gmm_mode_weights instead of gmm_all_goals/gmm_all_weights.
 #
 # Heavy training-time deps in the lfd3d package (pytorch_lightning, pytorch3d,
 # diffusers, wandb, trimesh, transformers) are stubbed in sys.modules by the
@@ -36,9 +36,16 @@ DATASET_PATH="${PROJ_ROOT}/SMITH_High_Level_FineTune/ORIGINAL_DATASET/mug_cleanu
 # HL: MULTIMODAL Articubot ckpt trained on Mug_Cleanup_d2.
 HL_CKPT="${PROJ_ROOT}/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Mug_Cleanup_d2/GHOST_High_Level_MULTIMODAL/periodic-epoch=epoch=44.ckpt"
 
-# LL: the MugCleanup_D1 100-demo Resnet run. Hydra exp dir + checkpoint name.
-LL_EXP_DIR="${PROJ_ROOT}/SMITH_High_Level_FineTune/LOW_LEVEL_POLICIES/MugCleanup_D1/100_Demos_Model/DinoV2_model_GMM_WCA/"
-LL_CKPT="epoch_95.ckpt"
+# LL: the MugCleanup_D1 100-demo MODE-BASED DINOv2 run (trained on
+# mugcleanup_D1_modes_goal). Hydra exp dir + checkpoint name.
+# NOTE: update this to YOUR modes-trained LL run's Hydra output dir + ckpt.
+LL_EXP_DIR="${PROJ_ROOT}/SMITH_High_Level_FineTune/LOW_LEVEL_POLICIES/MugCleanup_D1/100_Demos_Model/DinoV2_model_GMM_WCA_40_percent_ratio"
+LL_CKPT="epoch_90.ckpt"
+
+# GMM-mode reduction params — MUST match what the LL's training dataset was
+# generated with (mugCleanupD1.sh used the defaults 0.03 / 3).
+MODE_RADIUS=0.03
+MAX_MODES=3
 
 # Optional .npy with a (1152,) text embedding for the HL FiLM block.
 # Leave empty to use zeros (matches the HL ckpt's training).
@@ -67,7 +74,7 @@ VIDEO_FPS=10
 # Where to dump args.json / results.jsonl / summary.json.
 # Leave empty ("") to let the Python script auto-generate
 #   outputs_eval_gmm/<HL_ckpt_stem>__<LL_dir>_<ckpt>/<timestamp>/
-OUTPUT_DIR="GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_MUG_CLEANUP_50_SAMPLES_D1_DINOV2_FINAL_FOR_PAPER_TABLE"
+OUTPUT_DIR="GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_MUG_CLEANUP_50_SAMPLES_D1_DINOV2_MODE_BASED_40_PERCENT_FINAL"
 
 # --------------------------------------------------------------------------- #
 # Auto-resume + auto-merge.
@@ -247,6 +254,9 @@ fi
     --n_action_steps       "${N_ACTION_STEPS}" \
     --camera_h             "${CAMERA_H}"      \
     --camera_w             "${CAMERA_W}"      \
+    --use_gmm_modes                          \
+    --mode_radius          "${MODE_RADIUS}"  \
+    --max_modes            "${MAX_MODES}"    \
     "${TEXT_EMBED_FLAG[@]}"                   \
     "${VIDEO_FLAG[@]}"                        \
     "${OUTPUT_DIR_FLAG[@]}"

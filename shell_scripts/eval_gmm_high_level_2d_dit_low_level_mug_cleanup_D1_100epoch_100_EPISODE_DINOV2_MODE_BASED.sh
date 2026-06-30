@@ -40,7 +40,7 @@ HL_CKPT="${PROJ_ROOT}/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Mug_Cleanup_
 # mugcleanup_D1_modes_goal). Hydra exp dir + checkpoint name.
 # NOTE: update this to YOUR modes-trained LL run's Hydra output dir + ckpt.
 LL_EXP_DIR="${PROJ_ROOT}/SMITH_High_Level_FineTune/LOW_LEVEL_POLICIES/MugCleanup_D1/100_Demos_Model/DinoV2_model_GMM_WCA_MODE_BASED/"
-LL_CKPT="epoch_95.ckpt"
+LL_CKPT="epoch_90.ckpt"
 
 # GMM-mode reduction params — MUST match what the LL's training dataset was
 # generated with (mugCleanupD1.sh used the defaults 0.03 / 3).
@@ -60,7 +60,7 @@ ROBOSUITE_ROOT="${PROJ_ROOT}/MimicGen/robosuite"
 # --------------------------------------------------------------------------- #
 N_EPISODES=50
 MAX_STEPS=800
-SEED=250000
+SEED=150000
 N_OBS_STEPS=2
 N_ACTION_STEPS=8
 CAMERA_H=256
@@ -74,7 +74,7 @@ VIDEO_FPS=10
 # Where to dump args.json / results.jsonl / summary.json.
 # Leave empty ("") to let the Python script auto-generate
 #   outputs_eval_gmm/<HL_ckpt_stem>__<LL_dir>_<ckpt>/<timestamp>/
-OUTPUT_DIR="GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_MUG_CLEANUP_50_SAMPLES_D1_DINOV2_MODE_BASED_3RD_SEED_FINAL"
+OUTPUT_DIR="GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_MUG_CLEANUP_50_SAMPLES_D1_DINOV2_MODE_BASED__2ND_SEED_FINAL"
 
 # --------------------------------------------------------------------------- #
 # Auto-resume + auto-merge.

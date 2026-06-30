@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Hierarchical eval: lfd3d ArticubotNetwork HL + 2D DiT GMM-LL on a MimicGen task.
 #
-# MugCleanup_D1 variant. Sister of eval_gmm_high_level_2d_dit_low_level_hammer_cleanup_d1.sh.
+# Coffee_D2 variant. Sister of eval_gmm_high_level_2d_dit_low_level_coffee_d2.sh.
 # Same env / same action-conversion path. The LL is the GMM-conditioned variant
 # trained with:
-#   task=MimicGen_Tasks/mug_cleanup_gmm_goal
+#   task=MimicGen_Tasks/coffee_gmm_goal_gt_mix
 #   policy.use_goal_cross_attention=true
 #   policy.use_weighted_cross_attention=true
-#   policy.gmm_top_k=1024
+#   policy.gmm_top_k=6 (task.dataset.gt_mix_p=0.5 at train time)
 #
 # At inference we feed the FULL N=4500 anchor distribution from the HL into the
 # LL; the LL's gmm_top_k is applied internally inside FlowMatchingDiTImagePolicy.
@@ -24,6 +24,7 @@ set -euo pipefail
 PROJ_ROOT="/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT"
 
 SMITH_MIMICGEN="${PROJ_ROOT}/SMITH_MimicGen/SMITH_on_mimicgen"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LFD3D_REPO="${PROJ_ROOT}/lfd3d/lfd3d"
 DIT_2D_REPO="${PROJ_ROOT}/2D_Hierarchical_Policy_Learning_Github/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/diffusion_policy"
 
@@ -31,13 +32,13 @@ DIT_2D_REPO="${PROJ_ROOT}/2D_Hierarchical_Policy_Learning_Github/2d_Representati
 # mujoco's EGLDeviceEXT; SMITH's own .pixi env has 3.1.0 which is too old).
 ENV_PY="${PROJ_ROOT}/Yufei_Data_Generation_Code_FINAL/cleaned_smith_real_world_inference/.pixi/envs/default/bin/python"
 
-DATASET_PATH="${PROJ_ROOT}/SMITH_High_Level_FineTune/ORIGINAL_DATASET/mug_cleanup_d1.hdf5"
+DATASET_PATH="${PROJ_ROOT}/SMITH_High_Level_FineTune/ORIGINAL_DATASET/coffee_d2.hdf5"
 
-# HL: MULTIMODAL Articubot ckpt trained on Mug_Cleanup_d2.
-HL_CKPT="${PROJ_ROOT}/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Mug_Cleanup_d2/GHOST_High_Level_MULTIMODAL/periodic-epoch=epoch=44.ckpt"
+# HL: multimodal Articubot ckpt trained on Coffee_d2.
+HL_CKPT="${PROJ_ROOT}/SMITH_High_Level_FineTune/HIGH_LEVEL_POLICIES/Coffee_d2/GHOST_High_Level/periodic-epoch=epoch=19.ckpt"
 
-# LL: the MugCleanup_D1 100-demo Resnet run. Hydra exp dir + checkpoint name.
-LL_EXP_DIR="${PROJ_ROOT}/SMITH_High_Level_FineTune/LOW_LEVEL_POLICIES/MugCleanup_D1/100_Demos_Model/DinoV2_model_GMM_WCA/"
+# LL: the Coffee_D2 100-demo run. Hydra exp dir + checkpoint name.
+LL_EXP_DIR="${PROJ_ROOT}/SMITH_High_Level_FineTune/LOW_LEVEL_POLICIES/Coffee_d2/100_Demos/DinoV2_model_Coffee_D2_GTMIX_p0.5_coffee_D2_gmm_goal_gt_mix/"
 LL_CKPT="epoch_95.ckpt"
 
 # Optional .npy with a (1152,) text embedding for the HL FiLM block.
@@ -52,8 +53,8 @@ ROBOSUITE_ROOT="${PROJ_ROOT}/MimicGen/robosuite"
 # Eval knobs
 # --------------------------------------------------------------------------- #
 N_EPISODES=50
-MAX_STEPS=800
-SEED=100000
+MAX_STEPS=400
+SEED=250000
 N_OBS_STEPS=2
 N_ACTION_STEPS=8
 CAMERA_H=256
@@ -67,7 +68,7 @@ VIDEO_FPS=10
 # Where to dump args.json / results.jsonl / summary.json.
 # Leave empty ("") to let the Python script auto-generate
 #   outputs_eval_gmm/<HL_ckpt_stem>__<LL_dir>_<ckpt>/<timestamp>/
-OUTPUT_DIR="GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_MUG_CLEANUP_50_SAMPLES_D1_DINOV2_FINAL_FOR_PAPER_TABLE"
+OUTPUT_DIR="${SCRIPT_DIR}/GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_COFFEE_50_SAMPLES_D2_DINOV2_GTMIX_p05_3RD_SEED"
 
 # --------------------------------------------------------------------------- #
 # Auto-resume + auto-merge.
@@ -149,18 +150,18 @@ PYEOF
 
 # Step 1: fold any leftover ${OUTPUT_DIR}_RESUME_* dirs from earlier runs.
 shopt -s nullglob
-for resume_dir in "${SMITH_MIMICGEN}/${MAIN_OUTPUT_DIR}_RESUME_"*; do
+for resume_dir in "${MAIN_OUTPUT_DIR}_RESUME_"*; do
   if [[ -d "${resume_dir}" && ! -f "${resume_dir}/.merged" ]]; then
     echo "[merge] folding $(basename "${resume_dir}") into ${MAIN_OUTPUT_DIR}"
-    do_merge "${resume_dir}" "${SMITH_MIMICGEN}/${MAIN_OUTPUT_DIR}" "${ORIG_SEED}"
+    do_merge "${resume_dir}" "${MAIN_OUTPUT_DIR}" "${ORIG_SEED}"
   fi
 done
 shopt -u nullglob
 
 # Step 2: count COMPLETED, decide whether to run Python and where it writes.
 COMPLETED=0
-if [[ -f "${SMITH_MIMICGEN}/${MAIN_OUTPUT_DIR}/results.jsonl" ]]; then
-  COMPLETED=$(wc -l < "${SMITH_MIMICGEN}/${MAIN_OUTPUT_DIR}/results.jsonl")
+if [[ -f "${MAIN_OUTPUT_DIR}/results.jsonl" ]]; then
+  COMPLETED=$(wc -l < "${MAIN_OUTPUT_DIR}/results.jsonl")
 fi
 
 if (( COMPLETED >= N_EPISODES )); then
@@ -257,5 +258,5 @@ fi
 # --------------------------------------------------------------------------- #
 if [[ "${PY_OUTPUT_DIR}" != "${MAIN_OUTPUT_DIR}" ]]; then
   echo "[merge] folding ${PY_OUTPUT_DIR} into ${MAIN_OUTPUT_DIR}"
-  do_merge "${SMITH_MIMICGEN}/${PY_OUTPUT_DIR}" "${SMITH_MIMICGEN}/${MAIN_OUTPUT_DIR}" "${ORIG_SEED}"
+  do_merge "${PY_OUTPUT_DIR}" "${MAIN_OUTPUT_DIR}" "${ORIG_SEED}"
 fi
