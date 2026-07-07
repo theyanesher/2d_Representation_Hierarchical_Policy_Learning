@@ -73,6 +73,11 @@ def main():
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--pcd_subsample", type=int, default=1,
                    help="Keep every Nth scene point if rendering is slow.")
+    p.add_argument("--goal_key", type=str, default="goal_gripper_pcd",
+                   help="npz key for the goal gripper PCD (e.g. goal_gripper_pcd_rdp).")
+    p.add_argument("--goal_dir", type=Path, default=None,
+                   help="Read --goal_key from this mirror demo dir (e.g. the EXTRA_KEYPOINTS "
+                        "demo dir) instead of --demo_dir. Obs still come from --demo_dir.")
     args = p.parse_args()
 
     npz_files = sorted(args.demo_dir.glob("*.npz"), key=lambda q: int(q.stem))
@@ -88,7 +93,8 @@ def main():
         scenes.append(_squeeze(d["point_cloud"]).astype(np.float32))      # (N,3)
         s = _squeeze(d["state"]).astype(np.float32)                       # (8,)
         states.append(s)
-        goals.append(_squeeze(d["goal_gripper_pcd"]).astype(np.float32))  # (4,3)
+        gd = np.load(args.goal_dir / f.name, allow_pickle=True) if args.goal_dir is not None else d
+        goals.append(_squeeze(gd[args.goal_key]).astype(np.float32))  # (4,3)
         actions.append(_squeeze(d["action"]).astype(np.float32))          # (8,) abs pose+open
         cur_grips.append(build_gripper_pcd_from_pose_np(
             s[:7][None], np.array([[s[7]]], np.float32), template_4)[0])  # (4,3)

@@ -956,7 +956,16 @@ def main():
             }) + "\n")
             results_f.flush()
 
-    env.close()
+    # EnvRobosuite doesn't implement close(); guard so a cleanup error never
+    # aborts the run. Without this the AttributeError propagates out of main(),
+    # skips summary.json below, and (under `set -e`) kills a multi-seed shell
+    # loop before later seeds run.
+    _close = getattr(env, "close", None)
+    if callable(_close):
+        try:
+            _close()
+        except Exception as e:
+            print(f"[warn] env.close() failed, ignoring: {e}")
     summary = {
         "n_episodes":   args.n_episodes,
         "mean_reward":  float(np.mean(rewards)),

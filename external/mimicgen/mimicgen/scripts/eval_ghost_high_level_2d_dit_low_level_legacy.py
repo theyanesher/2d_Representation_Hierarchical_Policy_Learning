@@ -4,31 +4,22 @@ Hierarchical eval for MimicGen using:
   - HL: lfd3d ArticubotNetwork (PointNet++ with optional FiLM text conditioning,
         GMM head -> per-anchor 4x3 displacement + 1 weight logit)
   - LL: 2D DiT image policy from `2D_Hierarchical_Policy_Learning_Github`
-        trained with task=coffee_gmm_goal (consumes the FULL GMM distribution
-        via WeightedCrossAttention with policy.gmm_top_k=1024 applied internally)
+        (FlowMatchingDiTImagePolicy with frozen DINOv2)
 
 Per step: env obs -> HL(scene_pcd + gripper_pcd, gripper-first concat with mask)
-        -> ALL N=4500 anchor (4-pt goal, softmax-prob) candidates in world frame
-        -> LL(cam0_image, cam1_image, state, gmm_all_goals, gmm_all_weights)
-        -> hybrid_delta -> policy_action_batch_to_env_action -> env.step
+        -> argmax-anchor 4-pt subgoal in world frame
+        -> LL(cam0_image, cam1_image, state, goal_gripper_pts) -> hybrid_delta
+        -> SMITH's policy_action_batch_to_env_action -> env.step
 
-Sister script of eval_ghost_high_level_2d_dit_low_level.py. The only differences
-are isolated to:
-  - infer_articubot_gmm (returns the full distribution instead of an argmax sample)
-  - build_ll_obs_dict (injects gmm_all_goals + gmm_all_weights instead of goal_gripper_pts)
-  - run_episode wiring
-Everything else (sys.path bootstrap, lfd3d stubs, env build, LL load, action
-conversion, video recorder, summary stats) is intentionally identical to the
-ghost script.
+Disentangled from eval_2d_dit_mimicgen.py:
+  - No SMITH HL repo, no SigLIP cat embedding, no per-task cat_idx.
+  - Only shared utility is `policy_action_batch_to_env_action` from
+    eval_smith_utils (read-only import).
 
-Weights format on the wire — verified to match the GMM training data produced by
-lfd3d/scripts/run_gmm_on_dataset_batch_optimized.py:
-  - obs/gmm_all_weights: softmax probabilities (sum-to-1 per timestep) AFTER stripping
-                          the K=4 gripper anchors.
-  - obs/gmm_all_goals  : (anchor_xyz + displacement) AFTER stripping the K=4 gripper
-                          anchors.
-Top-K (1024 by default) is applied INSIDE the LL policy from the training cfg —
-we pass all 4500 candidates here.
+The lfd3d package is read-only here. We only `import` from it. Heavy
+training-time deps (pytorch_lightning, pytorch3d, diffusers, wandb, trimesh,
+transformers) are stubbed in sys.modules if missing — they're never reached
+on the inference path.
 """
 
 import argparse
@@ -72,7 +63,7 @@ def _bootstrap_paths(args):
     )
     # SMITH_on_mimicgen root + its vendored external/ deps.
     # This script lives at:
-    #   SMITH_on_mimicgen/external/mimicgen/mimicgen/scripts/eval_gmm_high_level_2d_dit_low_level.py
+    #   SMITH_on_mimicgen/external/mimicgen/mimicgen/scripts/eval_ghost_high_level_2d_dit_low_level.py
     # parents: [0]=scripts [1]=mimicgen(inner) [2]=mimicgen(outer) [3]=external [4]=SMITH_on_mimicgen
     smith_root = Path(__file__).resolve().parents[4]
     _prepend_sys_path(
@@ -195,11 +186,10 @@ def _stub_unused_lfd3d_deps():
 
 
 # -----------------------------------------------------------------------------
-# Shape meta describing the obs dict the env populates and the LL/HL paths consume.
-# Identical to the ghost eval (the env emits the same keys regardless of which
-# LL we plug in). gmm_all_goals / gmm_all_weights are NOT registered here — same
-# pattern goal_gripper_pts uses in the ghost script: those keys are not produced
-# by the env, they are injected by us in build_ll_obs_dict.
+# Shape meta describing the obs dict the LL model expects.
+# Identical to the SMITH eval — same env, same LL.
+# point_cloud / gripper_pcd / robot0_eef_quat are needed by the HL path and
+# the action-conversion step but never reach the LL model.
 # -----------------------------------------------------------------------------
 def get_shape_meta(camera_h: int, camera_w: int):
     return {
@@ -207,6 +197,7 @@ def get_shape_meta(camera_h: int, camera_w: int):
             "agentview_image":          {"shape": [3, camera_h, camera_w], "type": "rgb"},
             "robot0_eye_in_hand_image": {"shape": [3, camera_h, camera_w], "type": "rgb"},
             "state":                    {"shape": [10],                    "type": "low_dim"},
+            "goal_gripper_pts":         {"shape": [4, 3],                  "type": "low_dim"},
             "point_cloud":              {"shape": [4500, 3],               "type": "point_cloud"},
             "gripper_pcd":              {"shape": [4, 3],                  "type": "low_dim"},
             "robot0_eef_quat":          {"shape": [4],                     "type": "low_dim"},
@@ -217,7 +208,7 @@ def get_shape_meta(camera_h: int, camera_w: int):
 
 # -----------------------------------------------------------------------------
 # Build a MimicGen robosuite env at the requested camera resolution.
-# Mirrors the ghost eval (camera set must match training distribution).
+# Mirrors the SMITH eval (camera set must match training distribution).
 # -----------------------------------------------------------------------------
 def create_mimicgen_env(dataset_path: str, shape_meta: dict, camera_h: int, camera_w: int):
     import robomimic.utils.env_utils as EnvUtils
@@ -256,11 +247,7 @@ def create_mimicgen_env(dataset_path: str, shape_meta: dict, camera_h: int, came
 
 
 # -----------------------------------------------------------------------------
-# Load the 2D DiT low-level policy. Identical to the ghost eval path —
-# the policy class (FlowMatchingDiTImagePolicy) automatically picks up the
-# GMM mode from the saved Hydra config (has_gmm=True via gmm_goals/gmm_weights
-# keys in shape_meta), use_goal_cross_attention=True, use_weighted_cross_attention=True,
-# gmm_top_k=1024.
+# Load the 2D DiT low-level policy. Identical to the SMITH eval path.
 # -----------------------------------------------------------------------------
 def load_low_level_2d_dit(exp_dir: str, ckpt_name: str, device: str = "cuda"):
     import hydra
@@ -290,8 +277,7 @@ def load_low_level_2d_dit(exp_dir: str, ckpt_name: str, device: str = "cuda"):
 # lfd3d ArticubotNetwork loading + inference.
 # -----------------------------------------------------------------------------
 def build_articubot_model_cfg(in_channels: int = 4, use_rgb: bool = False):
-    """Mirror scripts/run_gmm_on_dataset.py:build_model_cfg for the coffee_task ckpt.
-    Identical to the ghost eval — same model architecture, only the LL changes."""
+    """Mirror scripts/run_gmm_on_dataset.py:build_model_cfg for the coffee_task ckpt."""
     from omegaconf import OmegaConf
     return OmegaConf.create(
         {
@@ -335,30 +321,18 @@ def load_articubot_high_level(ckpt_path: str, model_cfg, device: str = "cuda"):
     return network
 
 
-# -----------------------------------------------------------------------------
-# CHANGED vs ghost eval: return the FULL GMM distribution instead of one sample.
-# Mirrors lfd3d/scripts/run_gmm_on_dataset_batch_optimized.py:infer_gmm — identical
-# math (gripper-first concat with mask, strip K=4 gripper anchors, softmax over
-# scene anchors only). The training data on disk under `obs/gmm_all_weights` is
-# exactly these post-softmax probabilities, and `obs/gmm_all_goals` is exactly
-# `gaussian_means[:, K:]`. This function returns both, ready to be tiled across
-# n_obs_steps and fed into the LL.
-# -----------------------------------------------------------------------------
-def infer_articubot_gmm(
+def infer_articubot_subgoal(
     network,
     scene_pcd_t,    # (1, N, 3)
     gripper_pcd_t,  # (1, K=4, 3)
     text_embed_t,   # (1, 1152) — zeros for the coffee ckpt
+    argmax_weight: bool = True,
 ):
     """
-    Returns:
-        gaussian_means : (1, N, 4, 3) world-frame 4-keypoint goal candidates
-                         (gripper anchors stripped — N=4500 for the coffee task)
-        probabilities  : (1, N)       softmax probabilities over those N anchors
-                         (sum-to-1 per batch)
+    Mirror scripts/run_gmm_on_dataset.py:infer_gmm.
+    Returns the sampled subgoal as (1, 4, 3) world-frame xyz.
     """
     import torch
-    import torch.nn.functional as F
 
     device = scene_pcd_t.device
     B, K, _ = gripper_pcd_t.shape
@@ -379,60 +353,108 @@ def infer_articubot_gmm(
         )                                                          # (B, K+N, 13)
 
     B, KN, _ = outputs.shape
-    weights = outputs[:, :, -1]                                    # (B, K+N) raw logits
+    weights = outputs[:, :, -1]                                    # (B, K+N)
     displacements = outputs[:, :, :-1].reshape(B, KN, 4, 3)        # (B, K+N, 4, 3)
     gaussian_means = anchor_xyz_full[:, :, None, :] + displacements  # (B, K+N, 4, 3)
 
-    # Strip the K=4 gripper anchors — matches the training-data generator.
-    weights = weights[:, K:]                                       # (B, N) raw logits
-    gaussian_means = gaussian_means[:, K:, :, :]                   # (B, N, 4, 3)
+    # Strip the K=4 gripper anchors so we sample only over scene anchors —
+    # matches run_gmm_on_dataset.py.
+    weights = weights[:, K:]
+    gaussian_means = gaussian_means[:, K:, :, :]
 
-    probabilities = F.softmax(weights, dim=1)                      # (B, N)
-    return gaussian_means, probabilities
+    probabilities = torch.nn.functional.softmax(weights, dim=1)
+    if argmax_weight:
+        sampled_idx = torch.argmax(probabilities, dim=1)           # (B,)
+    else:
+        sampled_idx = torch.multinomial(probabilities, num_samples=1).squeeze(1)
+    batch_idx = torch.arange(B, device=outputs.device)
+    return gaussian_means[batch_idx, sampled_idx]                  # (B, 4, 3)
 
 
 # -----------------------------------------------------------------------------
-# Halo-collapse the per-anchor GMM into a few discrete modes.
+# Canonical Franka-gripper 4-keypoint template (lifted from articubot_util.py).
 #
-# LOGIC-IDENTICAL copy of reduce_gmm_to_modes in the HL dataset generator
-# (lfd3d/scripts/run_gmm_on_dataset_batch_optimized.py). Keep the two IN SYNC so
-# the modes the LL sees at inference match exactly what it was trained on
-# (same radius / max_modes / weighting). Inlined (not imported) because the
-# inference env stubs out the HL repo's heavy training deps.
+# The env's runtime gripper_pcd is built from this template, and the 2D DiT was
+# trained on data where goal_gripper_pts[3] = canonical grasp_center. But the
+# lfd3d trainer (lfd3d/models/articubot.py:extract_gt_4_points) replaces the
+# GT 4th keypoint with `midpoint(index 0, index 1)` before computing the loss
+# (because NpyDataset.GRIPPER_IDX = [0, 1, 2]). So GHOST's output index 3
+# is midpoint(top, right_finger), not grasp_center — an off-distribution input
+# to the 2D DiT. The helpers below reconstruct the canonical grasp_center
+# from indices [top, right, left] via Kabsch alignment.
 #
-#   weight-ordered greedy NMS in goal-centroid space:
-#     mode weight = SUM of member anchor weights (total probability mass)
-#     mode goal   = weight-weighted average of member goals (4, 3)
+# The 2D DiT is more robust to this mismatch than SMITH LL (which does rigid
+# pose decomposition via get_gripper_pos_orient_from_4_points_torch and breaks
+# outright), but observed success rate is still below expected. Snapping the
+# subgoal back to the canonical template brings GHOST's output in-distribution
+# with the 2D DiT's training data.
 # -----------------------------------------------------------------------------
-def reduce_gmm_to_modes(all_goals, all_weights, radius=0.03, max_modes=3, w_thresh=1e-4):
-    """(T,N,4,3)+(T,N) -> (T,max_modes,4,3)+(T,max_modes), zero-padded/sorted by weight."""
-    T, N = all_weights.shape
-    modes = np.zeros((T, max_modes, 4, 3), dtype=np.float32)
-    mode_weights = np.zeros((T, max_modes), dtype=np.float32)
-    for t in range(T):
-        w = all_weights[t]
-        keep = np.where(w > w_thresh)[0]
-        if keep.size == 0:
-            continue
-        g = all_goals[t, keep]                 # (n, 4, 3)
-        wk = w[keep].astype(np.float64)        # (n,)
-        cent = g.mean(axis=1)                  # (n, 3) goal centroids
-        used = np.zeros(keep.size, dtype=bool)
-        collected = []                         # list of (mode_weight, mode_goal(4,3))
-        for idx in np.argsort(wk)[::-1]:       # seeds in descending weight
-            if used[idx]:
-                continue
-            d = np.linalg.norm(cent - cent[idx], axis=1)
-            members = np.where((d <= radius) & (~used))[0]
-            used[members] = True
-            mw = wk[members].sum()
-            mg = (g[members] * wk[members][:, None, None]).sum(axis=0) / mw
-            collected.append((mw, mg.astype(np.float32)))
-        collected.sort(key=lambda x: x[0], reverse=True)
-        for k, (mw, mg) in enumerate(collected[:max_modes]):
-            modes[t, k] = mg
-            mode_weights[t, k] = mw
-    return modes, mode_weights
+_TEMPLATE_GRIPPER_PCD = np.array([
+    [ 0.5648266,   0.05482348,  0.34434554],   # 0 = top
+    [ 0.5642125,   0.02702148,  0.2877661 ],   # 1 = right finger (open template)
+    [ 0.53906703,  0.01263776,  0.38347825],   # 2 = left finger  (open template)
+    [ 0.54250515, -0.00441092,  0.32957944],   # 3 = grasp center
+], dtype=np.float64)
+_TEMPLATE_RIGHT_CLOSED = np.array([0.55415434, 0.02126799, 0.32605097], dtype=np.float64)
+_TEMPLATE_LEFT_CLOSED  = np.array([0.54912525, 0.01839125, 0.34519340], dtype=np.float64)
+_TEMPLATE_CLOSED_ANGLE = 2.6652539383870777e-05
+_TEMPLATE_OPEN_ANGLE   = 0.04
+
+
+def _canonical_template_at_finger_angle(joint_angle: float) -> np.ndarray:
+    """Return (4, 3) canonical Franka template with fingers interpolated to joint_angle."""
+    tpl = _TEMPLATE_GRIPPER_PCD.copy()
+    span = _TEMPLATE_OPEN_ANGLE - _TEMPLATE_CLOSED_ANGLE
+    frac = (joint_angle - _TEMPLATE_CLOSED_ANGLE) / span
+    tpl[1] = _TEMPLATE_RIGHT_CLOSED + (_TEMPLATE_GRIPPER_PCD[1] - _TEMPLATE_RIGHT_CLOSED) * frac
+    tpl[2] = _TEMPLATE_LEFT_CLOSED  + (_TEMPLATE_GRIPPER_PCD[2] - _TEMPLATE_LEFT_CLOSED)  * frac
+    return tpl
+
+
+def _estimate_finger_angle_from_right_left_dist(right_to_left_dist: float) -> float:
+    """Recover gripper joint angle from the right-to-left finger distance."""
+    open_tpl = _canonical_template_at_finger_angle(_TEMPLATE_OPEN_ANGLE)
+    closed_tpl = _canonical_template_at_finger_angle(_TEMPLATE_CLOSED_ANGLE)
+    open_d = float(np.linalg.norm(open_tpl[1] - open_tpl[2]))
+    closed_d = float(np.linalg.norm(closed_tpl[1] - closed_tpl[2]))
+    frac = float(np.clip((right_to_left_dist - closed_d) / (open_d - closed_d), 0.0, 1.0))
+    return _TEMPLATE_CLOSED_ANGLE + frac * (_TEMPLATE_OPEN_ANGLE - _TEMPLATE_CLOSED_ANGLE)
+
+
+def _kabsch_rigid_transform(src: np.ndarray, dst: np.ndarray):
+    """Kabsch: find R (3,3) and t (3,) minimizing ||R @ src + t - dst||² rowwise."""
+    src_mean = src.mean(axis=0)
+    dst_mean = dst.mean(axis=0)
+    src_c = src - src_mean
+    dst_c = dst - dst_mean
+    H = src_c.T @ dst_c
+    U, _, Vt = np.linalg.svd(H)
+    d = float(np.sign(np.linalg.det(Vt.T @ U.T)))
+    R = Vt.T @ np.diag([1.0, 1.0, d]) @ U.T
+    t = dst_mean - R @ src_mean
+    return R, t
+
+
+def fix_ghost_subgoal_canonical(ghost_subgoal_np: np.ndarray) -> np.ndarray:
+    """
+    Replace GHOST's index-3 keypoint (which lfd3d trains as midpoint(0, 1))
+    with the canonical grasp_center implied by indices [top, right, left].
+
+    Args:
+        ghost_subgoal_np: (4, 3) GHOST HL output, in robot-base frame.
+    Returns:
+        (4, 3) float32 with indices 0, 1, 2 unchanged and index 3 replaced by
+        the canonical grasp_center from Kabsch alignment to the Franka template.
+    """
+    pts = np.asarray(ghost_subgoal_np, dtype=np.float64).reshape(4, 3)
+    finger_dist = float(np.linalg.norm(pts[1] - pts[2]))
+    joint_angle = _estimate_finger_angle_from_right_left_dist(finger_dist)
+    template = _canonical_template_at_finger_angle(joint_angle)
+    R, t = _kabsch_rigid_transform(template[:3], pts[:3])
+    grasp_center_pred = R @ template[3] + t
+    fixed = pts.copy()
+    fixed[3] = grasp_center_pred
+    return fixed.astype(np.float32)
 
 
 # -----------------------------------------------------------------------------
@@ -464,10 +486,8 @@ def build_hl_inputs_lfd3d(obs, device):
     return scene_pcd_t, gripper_pcd_t
 
 
-# CHANGED vs ghost eval: this builds only the always-present LL keys (cams + state).
-# The GMM keys are tiled and injected by run_episode after the HL forward.
 def build_ll_obs_dict(obs, n_obs_steps: int, device):
-    """LL takes (B=1, T=n_obs_steps, ...) tensors. Same image+state path as the ghost eval."""
+    """LL takes (B=1, T=n_obs_steps, ...) tensors. Identical to the SMITH eval."""
     import torch
 
     cam0 = obs["agentview_image"]              # (3, H, W) float32 [0,1]
@@ -495,11 +515,18 @@ def _agentview_to_uint8_rgb(obs):
 # -----------------------------------------------------------------------------
 # Goal-overlay helpers (NEW). Purely additive — used only when
 # --save_goal_overlay_videos is on. Never touched by the existing inference path.
-# Duplicated from the ghost eval script (intentional, to keep these two scripts
-# fully independent — refactor into a shared module later if desired).
 # -----------------------------------------------------------------------------
 def _get_agentview_world_to_pixel(env, camera_h: int, camera_w: int):
-    """4x4 world->pixel transform for the 'agentview' camera. None on any failure."""
+    """
+    Build the 4x4 world->pixel transform for the 'agentview' camera.
+
+    Returns the matrix on success, or None if anything is missing (we keep
+    silent and disable overlay rather than crashing the eval).
+
+    Note: pixel coords from this matrix are in the orientation of the
+    *flipped* agentview frame (origin top-left, +v down), which matches what
+    `_agentview_to_uint8_rgb` returns. No additional v-flip needed.
+    """
     try:
         from robosuite.utils.camera_utils import get_camera_transform_matrix
         inner = env.env if hasattr(env, "env") else env
@@ -514,8 +541,15 @@ def _get_agentview_world_to_pixel(env, camera_h: int, camera_w: int):
 def _get_robot_base_world_pos(env, body_name_substring: str = "robot0_base"):
     """
     Return the world-frame xyz of the mujoco body whose name contains
-    `body_name_substring`. The HL/LL obs frames are robot-base relative, so this
-    offset must be added to each keypoint before projecting through the camera matrix.
+    `body_name_substring` (default 'robot0_base'). This is used as the
+    base-to-world offset for the HL/LL obs frames, which report
+    robot0_eef_pos / gripper_pcd / goal_gripper_pts in robot-base coords
+    rather than mujoco world coords.
+
+    Returns:
+        np.ndarray of shape (3,)  on success, or None if no matching body was
+        found / sim unavailable. Caller falls back to zero-offset projection
+        when None.
     """
     try:
         inner = env.env if hasattr(env, "env") else env
@@ -535,15 +569,15 @@ def _get_robot_base_world_pos(env, body_name_substring: str = "robot0_base"):
 def _project_world_points_to_uv(points_world: np.ndarray, w2p: np.ndarray, H: int, W: int):
     """
     points_world : (N, 3) world-frame xyz
-    w2p          : (4, 4) world->pixel transform
+    w2p          : (4, 4) world->pixel transform from get_camera_transform_matrix
     Returns:
         uv         : (N, 2) int  — [u_col, v_row] in standard CV convention
-        visibility : (N,) bool   — True iff z_cam>0 AND inside the image
+        visibility : (N,) bool   — True iff z>0 AND inside the image
     """
     pts = np.asarray(points_world, dtype=np.float64).reshape(-1, 3)
     n = pts.shape[0]
-    homo = np.concatenate([pts, np.ones((n, 1))], axis=1)
-    proj = (w2p @ homo.T).T
+    homo = np.concatenate([pts, np.ones((n, 1))], axis=1)        # (N, 4)
+    proj = (w2p @ homo.T).T                                       # (N, 4)
     z = proj[:, 2]
     safe_z = np.where(np.abs(z) > 1e-6, z, 1e-6)
     u = np.round(proj[:, 0] / safe_z).astype(int)
@@ -552,48 +586,47 @@ def _project_world_points_to_uv(points_world: np.ndarray, w2p: np.ndarray, H: in
     return np.stack([u, v], axis=1), visible
 
 
-def _draw_gmm_goal_overlay(frame: np.ndarray, uv: np.ndarray, visible: np.ndarray,
-                            weights: np.ndarray, radius: int = 2) -> None:
+# Fixed per-keypoint colors (RGB — frames are RGB). Coffee/MimicGen grippers
+# have 4 keypoints; we cycle if more are passed.
+_GOAL_KP_COLORS_RGB = (
+    (255,  50,  50),   # red
+    ( 50, 255,  50),   # green
+    ( 50,  50, 255),   # blue
+    (255, 220,  20),   # yellow
+)
+_GOAL_LINK_COLOR_RGB = (255, 255, 255)
+
+
+def _draw_goal_overlay(frame: np.ndarray, uv: np.ndarray, visible: np.ndarray,
+                        radius: int = 4, draw_links: bool = True) -> None:
     """
-    GMM overlay: ONE filled circle per candidate (not 4), colored blue with
-    brightness proportional to weight / max(weight) over the kept candidates.
+    Draw the projected 4-keypoint subgoal on `frame` IN-PLACE.
 
-    - Skips candidates where visible=False (off-screen / behind camera).
-    - Sorts ascending by weight so high-weight candidates are drawn last (on top).
-    - Caller is expected to have already filtered out below-threshold candidates.
-
-    `frame` is modified IN-PLACE (RGB uint8).
+    - One filled circle per visible keypoint (color-coded per keypoint index).
+    - Optional thin polygon connecting the keypoints (drawn only on the
+      visible ones, in their natural order).
     """
     try:
         import cv2
     except Exception as e:
         print(f"[overlay] disabled mid-episode — cv2 unavailable: {e}")
         return
-    if uv.size == 0:
-        return
-    visible = np.asarray(visible, dtype=bool)
-    if not visible.any():
-        return
-    uvs = uv[visible]
-    ws = np.asarray(weights, dtype=np.float64)[visible]
-    max_w = float(ws.max()) + 1e-12
-    # High-weight on top
-    order = np.argsort(ws)
-    for idx in order:
-        u, v = int(uvs[idx, 0]), int(uvs[idx, 1])
-        w_norm = float(ws[idx]) / max_w        # in (0, 1]
-        b = int(100 + 155 * w_norm)            # 100..255
-        # RGB tuple — frame is RGB. Use a deep blue with brightness scaled.
-        cv2.circle(frame, (u, v), radius, (40, 40, b), thickness=-1)
+    pts_visible = []
+    for i, ((u, v), vis) in enumerate(zip(uv, visible)):
+        if not vis:
+            continue
+        color = _GOAL_KP_COLORS_RGB[i % len(_GOAL_KP_COLORS_RGB)]
+        cv2.circle(frame, (int(u), int(v)), radius, color, thickness=-1)
+        cv2.circle(frame, (int(u), int(v)), radius + 1, (0, 0, 0), thickness=1)  # black rim
+        pts_visible.append((int(u), int(v)))
+    if draw_links and len(pts_visible) >= 2:
+        for i in range(len(pts_visible)):
+            cv2.line(frame, pts_visible[i], pts_visible[(i + 1) % len(pts_visible)],
+                     _GOAL_LINK_COLOR_RGB, thickness=1)
 
 
 # -----------------------------------------------------------------------------
 # Single episode rollout.
-# CHANGED vs ghost eval:
-#   - HL returns (gaussian_means, probabilities) instead of a single (1,4,3) subgoal.
-#   - LL obs gets `gmm_all_goals` and `gmm_all_weights` (tiled over n_obs_steps)
-#     instead of `goal_gripper_pts`.
-# Everything else is identical.
 # -----------------------------------------------------------------------------
 def run_episode(
     env,
@@ -605,11 +638,8 @@ def run_episode(
     n_action_steps: int,
     max_steps: int,
     device: str,
-    use_gmm_modes: bool = False,
-    mode_radius: float = 0.03,
-    max_modes: int = 3,
+    argmax_weight: bool = True,
     save_goal_overlay: bool = False,
-    gmm_overlay_weight_threshold: float = 0.001,
 ):
     import torch
     from eval_smith_utils import policy_action_batch_to_env_action
@@ -625,28 +655,34 @@ def run_episode(
     frames = [_agentview_to_uint8_rgb(obs)]
 
     # ---- Goal-overlay setup (NEW, additive) ----
+    # On any setup failure we keep `frames_overlay = None` and skip overlay
+    # silently; regular eval is untouched.
     frames_overlay = None
     w2p = None
-    base_offset_world = None
-    # Latest GMM cached for drawing: centroids (N, 3) base-frame, weights (N,) probs.
-    current_gmm_centroids_base = None
-    current_gmm_weights = None
+    base_offset_world = None  # robot-base origin in world frame; used to convert
+                              # obs (which are base-relative) into world coords
+                              # before projection. None means "treat obs as world".
+    current_subgoal_np = None  # (4, 3) base-frame xyz, set after first HL call
     if save_goal_overlay:
         H, W = frames[0].shape[:2]
         w2p = _get_agentview_world_to_pixel(env, H, W)
         base_offset_world = _get_robot_base_world_pos(env, "robot0_base")
         if w2p is not None:
-            frames_overlay = [frames[0].copy()]
+            frames_overlay = [frames[0].copy()]   # reset frame: no goal yet
+
+            # One-line confirmation. Also project the *current* gripper_pcd
+            # (with the offset applied) so user can see the fix is working.
             try:
                 gp = np.asarray(obs.get("gripper_pcd", []), dtype=np.float64)
                 if gp.ndim == 2 and gp.shape[1] >= 3:
                     gp = gp[:, :3]
                 if base_offset_world is not None and gp.size > 0:
                     gp_world = gp + base_offset_world
-                    _uv_g, vis_g = _project_world_points_to_uv(gp_world, w2p, H, W)
+                    uv_g, vis_g = _project_world_points_to_uv(gp_world, w2p, H, W)
+                    n_vis = int(vis_g.sum())
                     print(f"[overlay] base_offset_world={tuple(base_offset_world.tolist())}  "
-                          f"sanity-check gripper_pcd: {int(vis_g.sum())}/{gp.shape[0]} keypoints visible  "
-                          f"(weight_threshold={gmm_overlay_weight_threshold})")
+                          f"sanity-check gripper_pcd: {n_vis}/{gp.shape[0]} keypoints visible "
+                          f"(first uv={tuple(uv_g[0].tolist()) if uv_g.shape[0] else None})")
                 elif base_offset_world is None:
                     print("[overlay] WARNING: no robot0_base body found — projecting as if obs were "
                           "world-frame, which may be wrong.")
@@ -654,46 +690,61 @@ def run_episode(
                 print(f"[overlay] sanity-check failed (non-fatal): {_e}")
 
     while step < max_steps:
-        # ------------------- HL: PCD -> full GMM distribution ----------------
+        # ------------------- HL: PCD -> 4-pt subgoal -------------------------
         scene_pcd_t, gripper_pcd_t = build_hl_inputs_lfd3d(obs, device)
-        gmm_means, gmm_probs = infer_articubot_gmm(
+        subgoal = infer_articubot_subgoal(
             hl_network, scene_pcd_t, gripper_pcd_t, text_embed_t,
-        )                                                            # (1, N, 4, 3), (1, N)
+            argmax_weight=argmax_weight,
+        )                                                            # (1, 4, 3)
 
-        # (GMM goals/weights are reduced-or-not and tiled below, right before
-        # injection into the LL obs — see the use_gmm_modes branch. The overlay
-        # below still uses the full untiled GMM gmm_means/gmm_probs.)
+        # GHOST/lfd3d trains its 4th keypoint as midpoint(top, right_finger),
+        # not the canonical grasp_center. The 2D DiT was trained on canonical
+        # 4-tuples (index 3 = grasp_center), so GHOST's output is off-distribution.
+        # Snap index 3 to the canonical grasp_center reconstructed from the
+        # well-supervised [top, right, left] subset.
+        subgoal_raw_np = subgoal[0].detach().cpu().numpy()           # (4, 3)
+        subgoal_fixed_np = fix_ghost_subgoal_canonical(subgoal_raw_np)
+        subgoal = torch.from_numpy(subgoal_fixed_np).float().to(device).unsqueeze(0)
+        subgoal_t = subgoal.unsqueeze(1).repeat(1, n_obs_steps, 1, 1)  # (1, T, 4, 3)
 
-        # Cache GMM centroids+weights for overlay drawing during the next env-step batch.
+        # --- DIAG: pre-fix vs post-fix vs obs pair-distances (one block per HL call) ---
+        try:
+            sg = subgoal_raw_np
+            sf = subgoal_fixed_np
+            gp = np.asarray(obs["gripper_pcd"], dtype=np.float64)
+            if gp.ndim == 2 and gp.shape[1] >= 3:
+                gp = gp[:, :3]
+            def _pd(p):
+                return (
+                    float(np.linalg.norm(p[0] - p[1])),
+                    float(np.linalg.norm(p[0] - p[2])),
+                    float(np.linalg.norm(p[1] - p[2])),
+                    float(np.linalg.norm(p[0] - p[3])),
+                    float(np.linalg.norm(p[1] - p[3])),
+                    float(np.linalg.norm(p[2] - p[3])),
+                )
+            d01,d02,d12,d03,d13,d23 = _pd(sg)
+            f01,f02,f12,f03,f13,f23 = _pd(sf)
+            e01,e02,e12,e03,e13,e23 = _pd(gp)
+            print(f"[diag step={step:03d}] raw subgoal: "
+                  f"01={d01:.4f} 02={d02:.4f} 12={d12:.4f} "
+                  f"03={d03:.4f} 13={d13:.4f} 23={d23:.4f}")
+            print(f"[diag step={step:03d}] fix subgoal: "
+                  f"01={f01:.4f} 02={f02:.4f} 12={f12:.4f} "
+                  f"03={f03:.4f} 13={f13:.4f} 23={f23:.4f}")
+            print(f"[diag step={step:03d}] obs        : "
+                  f"01={e01:.4f} 02={e02:.4f} 12={e12:.4f} "
+                  f"03={e03:.4f} 13={e13:.4f} 23={e23:.4f}")
+        except Exception as _e:
+            print(f"[diag] pair-dist check failed (non-fatal): {_e}")
+
+        # Cache the chosen (fixed) subgoal for overlay drawing on the next batch of frames.
         if frames_overlay is not None:
-            # centroid = mean over the 4 keypoints  → (N, 3)
-            means_np = gmm_means[0].detach().cpu().numpy()   # (N, 4, 3) base frame
-            probs_np = gmm_probs[0].detach().cpu().numpy()   # (N,) probabilities
-            current_gmm_centroids_base = means_np.mean(axis=1)  # (N, 3)
-            current_gmm_weights = probs_np
+            current_subgoal_np = subgoal[0].detach().cpu().numpy()    # (4, 3)
 
-        # ------------------- LL: image obs + GMM dist -> action --------------
+        # ------------------- LL: image obs + subgoal -> action ---------------
         ll_obs = build_ll_obs_dict(obs, n_obs_steps, device)
-        if use_gmm_modes:
-            # Halo-collapse the full GMM into discrete modes with the SAME params
-            # the dataset generator used, then feed under the keys a modes-trained
-            # LL expects. Zero-weight padded modes are auto-masked by the LL's
-            # WeightedCrossAttention log(w) bias, so 1/2/3 modes all just work.
-            modes_np, mode_w_np = reduce_gmm_to_modes(
-                gmm_means.detach().cpu().numpy(),   # (1, N, 4, 3)
-                gmm_probs.detach().cpu().numpy(),   # (1, N)
-                radius=mode_radius, max_modes=max_modes,
-            )                                                        # (1, K, 4, 3), (1, K)
-            goals   = torch.from_numpy(modes_np).float().to(device)
-            weights = torch.from_numpy(mode_w_np).float().to(device)
-            goals_key, weights_key = "gmm_modes", "gmm_mode_weights"
-        else:
-            goals, weights = gmm_means, gmm_probs                   # (1, N, 4, 3), (1, N)
-            goals_key, weights_key = "gmm_all_goals", "gmm_all_weights"
-
-        # Tile over n_obs_steps so the LL sees one entry per obs step.
-        ll_obs[goals_key]   = goals.unsqueeze(1).repeat(1, n_obs_steps, 1, 1, 1)
-        ll_obs[weights_key] = weights.unsqueeze(1).repeat(1, n_obs_steps, 1)
+        ll_obs["goal_gripper_pts"] = subgoal_t
 
         with torch.no_grad():
             action_dict = ll_model.predict_action(ll_obs)
@@ -714,25 +765,18 @@ def run_episode(
             frame = _agentview_to_uint8_rgb(obs)
             frames.append(frame)
 
-            # Build the overlay frame.
+            # Build the overlay frame for this env step (additive only).
             if frames_overlay is not None:
                 overlay = frame.copy()
-                if current_gmm_centroids_base is not None and current_gmm_weights is not None:
+                if current_subgoal_np is not None:
                     H, W = overlay.shape[:2]
-                    # 1. Filter by absolute weight threshold (probabilities, sum to 1).
-                    keep_mask = current_gmm_weights >= gmm_overlay_weight_threshold
-                    if keep_mask.any():
-                        kept_centroids_base = current_gmm_centroids_base[keep_mask]  # (M, 3)
-                        kept_weights        = current_gmm_weights[keep_mask]         # (M,)
-                        # 2. Base-frame → world-frame.
-                        if base_offset_world is not None:
-                            kept_centroids_world = kept_centroids_base + base_offset_world
-                        else:
-                            kept_centroids_world = kept_centroids_base
-                        # 3. Project.
-                        uv, vis = _project_world_points_to_uv(kept_centroids_world, w2p, H, W)
-                        # 4. Draw.
-                        _draw_gmm_goal_overlay(overlay, uv, vis, kept_weights)
+                    # Convert base-frame keypoints -> world frame before projecting.
+                    if base_offset_world is not None:
+                        pts_world = current_subgoal_np + base_offset_world
+                    else:
+                        pts_world = current_subgoal_np
+                    uv, vis = _project_world_points_to_uv(pts_world, w2p, H, W)
+                    _draw_goal_overlay(overlay, uv, vis)
                 frames_overlay.append(overlay)
 
             total_reward += float(reward)
@@ -754,16 +798,14 @@ def run_episode(
 # -----------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
-        description="Hierarchical eval: lfd3d ArticubotNetwork HL + 2D DiT GMM-LL on a MimicGen task")
+        description="Hierarchical eval: lfd3d ArticubotNetwork HL + 2D DiT LL on a MimicGen task")
     parser.add_argument("--dataset_path", type=str, required=True,
-        help="HDF5 dataset whose env_meta defines the MimicGen env (e.g. coffee_d0.hdf5)")
+        help="HDF5 dataset whose env_meta defines the MimicGen env (e.g. coffee_d2.hdf5)")
     parser.add_argument("--high_level_ckpt", type=str, required=True,
         help="Path to a lfd3d ArticubotNetwork Lightning .ckpt")
     parser.add_argument("--low_level_exp_dir", type=str, required=True,
-        help="Hydra output dir of the GMM-LL training run "
-             "(.hydra/config.yaml inside; expected to have policy.gmm_top_k>0 and "
-             "use_goal_cross_attention=True, use_weighted_cross_attention=True)")
-    parser.add_argument("--low_level_checkpoint", type=str, default="epoch_30.ckpt")
+        help="Hydra output dir of the 2D DiT training run (.hydra/config.yaml inside)")
+    parser.add_argument("--low_level_checkpoint", type=str, default="epoch_60.ckpt")
     parser.add_argument("--lfd3d_repo", type=str, required=True,
         help="Path to lfd3d/lfd3d/ (provides lfd3d.models.articubot.ArticubotNetwork via src/)")
     parser.add_argument("--dit_2d_repo", type=str, required=True,
@@ -776,6 +818,8 @@ def main():
              "Feeding a real embedding here is off-distribution for that ckpt.")
     parser.add_argument("--hl_in_channels", type=int, default=4,
         help="ArticubotNetwork in_channels. 4 = xyz + 1 mask (use_rgb=False).")
+    parser.add_argument("--hl_argmax_weight", type=int, default=1,
+        help="1 = argmax over softmaxed scene anchor weights; 0 = multinomial sample.")
     parser.add_argument("--n_episodes",     type=int, default=10)
     parser.add_argument("--max_steps",      type=int, default=400)
     parser.add_argument("--seed",           type=int, default=100000)
@@ -785,33 +829,17 @@ def main():
     parser.add_argument("--camera_w",       type=int, default=256)
     parser.add_argument("--output_dir",     type=str, default=None,
         help="Where to save args.json / results.jsonl / summary.json. "
-             "Default: outputs_eval_gmm/<HL_dir>__<LL_dir>_<ckpt>/<timestamp>/.")
+             "Default: outputs_eval_ghost/<HL_dir>__<LL_dir>_<ckpt>/<timestamp>/.")
     parser.add_argument("--save_videos", action=argparse.BooleanOptionalAction, default=True,
         help="Write an mp4 of every episode to <output_dir>/media/. "
              "Filenames carry the outcome (..._success.mp4 / ..._failure.mp4). Pass --no-save-videos to disable.")
     parser.add_argument("--save_goal_overlay_videos", action=argparse.BooleanOptionalAction, default=True,
         help="In addition to the regular video, write a sister mp4 to "
-             "<output_dir>/media_with_goal_overlay/ with the GMM goal centroids "
-             "projected onto each frame (one point per kept candidate). "
-             "Requires --save_videos; pass --no-save_goal_overlay_videos to disable.")
-    parser.add_argument("--gmm_overlay_weight_threshold", type=float, default=0.001,
-        help="Absolute probability threshold for plotting a GMM candidate in the overlay. "
-             "Keeps candidates with weight >= threshold (weights are softmax probs over N anchors). "
-             "Lower => more points shown.")
+             "<output_dir>/media_with_goal_overlay/ with the HL 4-keypoint subgoal "
+             "projected onto each frame. Requires --save_videos; pass "
+             "--no-save_goal_overlay_videos to disable.")
     parser.add_argument("--video_fps", type=int, default=10,
         help="Frame rate for saved mp4s.")
-    parser.add_argument("--use_gmm_modes", action="store_true", default=False,
-        help="Halo-collapse the HL's full per-anchor GMM to discrete modes "
-             "(reduce_gmm_to_modes) and feed the LL gmm_modes/gmm_mode_weights "
-             "instead of gmm_all_goals/gmm_all_weights. Use when the LL was "
-             "trained on the mode-based task (mugcleanup_D1_modes_goal).")
-    parser.add_argument("--mode_radius", type=float, default=0.03,
-        help="Merge radius (m) for GMM mode reduction. MUST match the value the "
-             "LL's training dataset was generated with (default 0.03). "
-             "Only used with --use_gmm_modes.")
-    parser.add_argument("--max_modes", type=int, default=3,
-        help="Max modes kept per step (must match the LL's gmm_modes shape). "
-             "Only used with --use_gmm_modes.")
     args = parser.parse_args()
 
     import json
@@ -821,7 +849,7 @@ def main():
         hl_tag = Path(args.high_level_ckpt).stem
         ll_tag = Path(args.low_level_exp_dir).name
         ckpt_tag = Path(args.low_level_checkpoint).stem
-        args.output_dir = f"outputs_eval_gmm/{hl_tag}__{ll_tag}_{ckpt_tag}/{ts}"
+        args.output_dir = f"outputs_eval_ghost/{hl_tag}__{ll_tag}_{ckpt_tag}/{ts}"
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"[output] saving results to {output_dir.resolve()}")
@@ -859,33 +887,10 @@ def main():
         print("[HL] using zero (1152,) text embedding (matches coffee ckpt's use_text_embed=False)")
     text_embed_t = torch.from_numpy(text_embed_np).float().unsqueeze(0).to(device)  # (1, 1152)
 
-    # Load LL (2D DiT GMM-conditioned).
-    print(f"[LL] loading 2D DiT GMM-LL from {args.low_level_exp_dir}/{args.low_level_checkpoint}")
-    ll_model, ll_cfg = load_low_level_2d_dit(
+    # Load LL (2D DiT).
+    print(f"[LL] loading 2D DiT from {args.low_level_exp_dir}/{args.low_level_checkpoint}")
+    ll_model, _ll_cfg = load_low_level_2d_dit(
         args.low_level_exp_dir, args.low_level_checkpoint, device=device)
-
-    # Sanity-check the LL config: this script only makes sense when the LL was
-    # actually trained on the GMM task — print a clear warning otherwise.
-    from omegaconf import OmegaConf
-    ll_use_gca   = OmegaConf.select(ll_cfg, "policy.use_goal_cross_attention",   default=False)
-    ll_use_wca   = OmegaConf.select(ll_cfg, "policy.use_weighted_cross_attention", default=False)
-    ll_top_k     = OmegaConf.select(ll_cfg, "policy.gmm_top_k",                  default=None)
-    print(f"[LL] use_goal_cross_attention={ll_use_gca}, "
-          f"use_weighted_cross_attention={ll_use_wca}, gmm_top_k={ll_top_k}")
-    if not (ll_use_gca and ll_use_wca):
-        print("[LL][WARN] this LL run was NOT trained with weighted GMM cross-attention. "
-              "The GMM tensors will be ignored unless the LL's shape_meta has gmm_goals/gmm_weights typed obs.")
-
-    # GMM-modes cross-check: when --use_gmm_modes, the LL must read gmm_modes.
-    if args.use_gmm_modes:
-        ll_goals_key = getattr(ll_model, "gmm_goals_key", None)
-        print(f"[LL] use_gmm_modes=True -> feeding gmm_modes/gmm_mode_weights "
-              f"(mode_radius={args.mode_radius}, max_modes={args.max_modes}); "
-              f"LL gmm_goals_key={ll_goals_key}")
-        if ll_goals_key not in (None, "gmm_modes"):
-            print(f"[LL][WARN] LL expects goals key '{ll_goals_key}', not 'gmm_modes'. "
-                  "Modes will be injected under 'gmm_modes' and the LL likely won't read "
-                  "them — was this LL trained on the modes task (mugcleanup_D1_modes_goal)?")
 
     # Video setup.
     video_recorder_cls = None
@@ -900,8 +905,7 @@ def main():
         if save_overlay:
             videos_dir_overlay = output_dir / "media_with_goal_overlay"
             videos_dir_overlay.mkdir(parents=True, exist_ok=True)
-            print(f"[overlay] goal-overlay rollouts -> {videos_dir_overlay.resolve()} "
-                  f"(weight_threshold={args.gmm_overlay_weight_threshold})")
+            print(f"[overlay] goal-overlay rollouts -> {videos_dir_overlay.resolve()}")
 
     # Roll out — stream per-episode results to results.jsonl.
     rewards, successes = [], []
@@ -916,11 +920,8 @@ def main():
                 controller,
                 args.n_obs_steps, args.n_action_steps, args.max_steps,
                 device=device,
-                use_gmm_modes=args.use_gmm_modes,
-                mode_radius=args.mode_radius,
-                max_modes=args.max_modes,
+                argmax_weight=bool(args.hl_argmax_weight),
                 save_goal_overlay=save_overlay,
-                gmm_overlay_weight_threshold=args.gmm_overlay_weight_threshold,
             )
 
             video_path = None
@@ -955,16 +956,7 @@ def main():
             }) + "\n")
             results_f.flush()
 
-    # EnvRobosuite doesn't implement close(); guard so a cleanup error never
-    # aborts the run. Without this the AttributeError propagates out of main(),
-    # skips summary.json below, and (under `set -e`) kills a multi-seed shell
-    # loop before later seeds run.
-    _close = getattr(env, "close", None)
-    if callable(_close):
-        try:
-            _close()
-        except Exception as e:
-            print(f"[warn] env.close() failed, ignoring: {e}")
+    env.close()
     summary = {
         "n_episodes":   args.n_episodes,
         "mean_reward":  float(np.mean(rewards)),
