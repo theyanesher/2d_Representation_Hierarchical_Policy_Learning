@@ -1,0 +1,66 @@
+name: kitchen_D1_gmm_goal_gt_mix
+
+# GT / predicted goal-MIX variant of kitchen_D1_gmm_goal.
+#
+# Identical container to the plain full-GMM WCA task (gmm_all_goals (4500,4,3) +
+# gmm_all_weights (4500)), but the dataset is the additive subclass
+# LazyArticuBotGtMixDataset: with per-item probability gt_mix_p it replaces the
+# predicted GMM goals with a sparse ground-truth goal set (present goal, plus a
+# neighbor keyframe goal inside a +-gt_transition_radius window with triangular
+# weights peaking at gt_transition_pmax at the transition); otherwise it passes
+# the predicted GMM through unchanged. Nothing about the policy / shapes changes.
+
+image_shape: &image_shape [3, 256, 256]
+shape_meta: &shape_meta
+  obs:
+    cam0_image:
+      shape: *image_shape
+      type: rgb
+    cam1_image:
+      shape: *image_shape
+      type: rgb
+    state:
+      shape: [10]
+      type: low_dim
+    gmm_all_goals:
+      shape: [4500, 4, 3]  # all anchor goal predictions from the high-level GMM
+      type: gmm_goals
+    gmm_all_weights:
+      shape: [4500]         # softmax probability of each anchor
+      type: gmm_weights
+  action:
+    shape: [10]
+
+env_runner:
+  _target_: diffusion_policy.env_runner.articubot_image_runner.ArticubotImageRunner
+  n_train: 6
+  n_train_vis: 2
+  train_start_seed: 0
+  n_test: 50
+  n_test_vis: 4
+  legacy_test: True
+  test_start_seed: 100000
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  n_envs: null
+  observation_mode: image
+
+dataset:
+  _target_: diffusion_policy.dataset.lazy_articubot_gt_mix_dataset.LazyArticuBotGtMixDataset
+  shape_meta: *shape_meta
+  data_dir: /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/KITCHEN_D1
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  action_mode: ${action_mode}
+  # --- GT / predicted goal mixing (this variant only) ---------------------
+  gt_mix_p: 0.5             # P(use GT goals this sample); null => off (pure predicted)
+  gt_transition_radius: 5   # +-window (frames) around a goal-change keyframe
+  gt_transition_pmax: 0.5   # neighbor mode weight at the transition (-> 50/50)

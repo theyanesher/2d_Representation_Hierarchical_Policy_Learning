@@ -4,24 +4,27 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name mug-d1-wca-100demo-dinov2
+#SBATCH -t 20:00:00 # 12-hour budget
+#SBATCH --job-name kitchen-d1-goal-gripper-100demo-dinov2
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# 100-demo baseline: flow-matching DiT low-level policy on MUG_CLEANUP_D1 with
-# GMM weighted cross-attention (serial WCA → visual CA pattern) and DINOv2
-# visual encoder. Uses the FIRST NUM_DEMOS demos (demo_0.h5 through
-# demo_(NUM_DEMOS-1).h5) from the full 1000-trajectory dataset on /ocean.
+# 100-demo version of the non-GMM goal_gripper baseline, on KITCHEN_D1.
+#
+# Train flow-matching DiT low-level policy on KITCHEN_D1 conditioned on the
+# single ground-truth goal_gripper_pts (4 keypoints) — NO GMM distribution.
+# Uses the FIRST NUM_DEMOS demos from the NO_GMM h5 dataset.
+#
+# Source on /ocean is the GROOT-style demo_N/ npz tree, so we first consolidate
+# it into h5 (idempotent — skips already-converted demos). If the NO_GMM h5 dir
+# already has at least NUM_DEMOS converted files we skip the python startup
+# entirely. Then we stage only the first NUM_DEMOS h5 files to node-local
+# scratch before training.
 #
 # NUM_DEMOS defaults to 100. Override at submission time:
 #   NUM_DEMOS=200 sbatch this_script.sh
-#
-# Only the requested demos are rsynced to node-local scratch — the rest stay
-# on /ocean and are never read. This keeps staging fast (~30s for 100 demos
-# vs ~5min for the full 1000).
 
 set -euo pipefail
 set -x
@@ -33,12 +36,47 @@ NUM_DEMOS="${NUM_DEMOS:-100}"
 echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1"
+SRC_NPZ_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/KITCHEN_D1"
+NO_GMM_H5_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/LOW_LEVEL_GROOT_TRAINING_DATASET/NO_GMM_DATASET/Kitchen_D1"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
+# --- generate npz -> h5 if missing ---------------------------------------
+# Conversion is per-demo idempotent. We trigger it only if the NO_GMM h5 dir
+# doesn't already have at least NUM_DEMOS files (demo_0.h5 .. demo_(N-1).h5
+# need to exist for the staging step to succeed).
+src_demo_count=$(find "${SRC_NPZ_DIR}" -mindepth 1 -maxdepth 1 -type d -name "demo_*" 2>/dev/null | wc -l)
+existing_h5_count=0
+if [ -d "${NO_GMM_H5_DIR}" ]; then
+    existing_h5_count=$(find "${NO_GMM_H5_DIR}" -maxdepth 1 -name "*.h5" 2>/dev/null | wc -l)
+fi
+echo "[gen] src demo_*/ in ${SRC_NPZ_DIR}: ${src_demo_count}"
+echo "[gen] existing *.h5 in ${NO_GMM_H5_DIR}: ${existing_h5_count}"
+
+if [ "${existing_h5_count}" -ge "${NUM_DEMOS}" ]; then
+    echo "[gen] already have ${existing_h5_count} h5 files (≥ NUM_DEMOS=${NUM_DEMOS}) → skipping h5 generation"
+else
+    echo "[gen] converting demo_*/ → demo_*.h5 (need at least NUM_DEMOS=${NUM_DEMOS}; have ${existing_h5_count})"
+    mkdir -p "${NO_GMM_H5_DIR}"
+    (
+        cd "${REPO_DIR}"
+        USE_TF=0 \
+        GIT_LFS_SKIP_SMUDGE=1 \
+        PYTHONNOUSERSITE=1 \
+        PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
+        pixi run python generate_non_gmm_goals_for_low_level.py \
+            --dataset_dir "${SRC_NPZ_DIR}" \
+            --no_gmm \
+            --no_gmm_output_dir "${NO_GMM_H5_DIR}"
+    )
+    echo "[gen] done. *.h5 count now: $(find "${NO_GMM_H5_DIR}" -maxdepth 1 -name "*.h5" | wc -l)"
+fi
+
+# --- node-local scratch --------------------------------------------------
 # Pick a node-local scratch dir. Always prefer the per-job isolated subdir
 # (/local/slurm-<jobid>/local/) so SLURM auto-cleans on job end and concurrent
-# jobs on the same node never collide.
+# jobs on the same node never collide. PSC's SLURM doesn't always pre-create
+# that subtree, so we force-create it ourselves when SLURM_JOB_ID is set. Fall
+# back to $LOCAL or /tmp only if no per-job dir exists.
 if [ -n "${SLURM_JOB_ID:-}" ]; then
     SCRATCH_ROOT="/local/slurm-${SLURM_JOB_ID}/local"
     mkdir -p "${SCRATCH_ROOT}"
@@ -47,7 +85,8 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/MUG_CLEANUP_D1_Low_Level_${NUM_DEMOS}demo"
+SRC_DATA_DIR="${NO_GMM_H5_DIR}"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Kitchen_D1_Low_Level_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS files) --------------------------------
 THREADS="${RSYNC_THREADS:-32}"
@@ -71,7 +110,6 @@ export -f copy_one
 export SRC_DATA_DIR DEST_DATA_DIR
 
 # Generate exactly the demo filenames we want and feed to xargs.
-# Each rsync stays resumable per-file, so re-runs skip already-copied demos.
 seq 0 $((NUM_DEMOS - 1)) \
     | awk '{print "demo_" $1 ".h5"}' \
     | xargs -P "${THREADS}" -I {} \
@@ -97,15 +135,14 @@ PYTHONNOUSERSITE=1 \
 PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_workspace.yaml \
-    task=MimicGen_Tasks/mugcleanup_D1_gmm_goal \
+    task=MimicGen_Tasks/kitchen_goal_gripper \
     task.dataset.data_dir="${DEST_DATA_DIR}" \
     visual_encoder=dinov2 \
-    policy.use_goal_cross_attention=true \
-    policy.use_weighted_cross_attention=true \
-    policy.gmm_top_k=6 \
-    logging.project=MimicGen_GMM_Low_Level_Policy \
-    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS \
-    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS \
-    training.checkpoint_every=10 \
+    logging.project=mimicgen_tasks \
+    logging.name=kitchen_D1_goal_gripper_${NUM_DEMOS}demo_dinov2_DIT \
+    name=kitchen_D1_goal_gripper_${NUM_DEMOS}demo_dinov2_DIT \
     dataloader.batch_size=128 \
-    dataloader.num_workers=16
+    dataloader.num_workers=16 \
+    training.checkpoint_every=5 \
+    training.resume=True \
+    +training.resume_ckpt_path="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.06.29/09.35.47_kitchen_D1_goal_gripper_100demo_dinov2_DIT_kitchen_goal_gripper/checkpoints/epoch_35.ckpt"

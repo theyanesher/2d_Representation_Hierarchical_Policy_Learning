@@ -1,0 +1,69 @@
+name: mugcleanup_D1_modes_goal
+
+# Mode-based variant of mugcleanup_D1_gmm_goal: instead of the full per-anchor
+# GMM (gmm_all_goals/gmm_all_weights, 4500 components), this conditions on the
+# halo-collapsed discrete modes produced by reduce_gmm_to_modes in the dataset
+# generator (obs/gmm_modes + obs/gmm_mode_weights, padded to max_modes=3).
+#
+# Per frame there are 1 (cruise) / 2-3 (transition) real modes; empty slots have
+# weight 0 and are auto-masked by WeightedCrossAttention's log(w) bias, so this
+# task MUST be trained with policy.use_weighted_cross_attention=true and
+# policy.gmm_top_k=null (keep all modes; do NOT truncate to the argmax).
+#
+# The gmm_all_* arrays still exist in the h5 but are intentionally omitted here,
+# so they are never loaded (also a big I/O win: (3,4,3) vs (4500,4,3) per frame).
+
+image_shape: &image_shape [3, 256, 256]
+shape_meta: &shape_meta
+  obs:
+    cam0_image:
+      shape: *image_shape
+      type: rgb
+    cam1_image:
+      shape: *image_shape
+      type: rgb
+    state:
+      shape: [10]
+      type: low_dim
+    gmm_modes:
+      shape: [3, 4, 3]   # max_modes discrete goal modes (centroid of 4 gripper kpts)
+      type: gmm_goals
+    gmm_mode_weights:
+      shape: [3]          # summed probability mass per mode (0 = empty slot)
+      type: gmm_weights
+  action:
+    shape: [10]
+
+env_runner:
+  _target_: diffusion_policy.env_runner.articubot_image_runner.ArticubotImageRunner
+  n_train: 6
+  n_train_vis: 2
+  train_start_seed: 0
+  n_test: 50
+  n_test_vis: 4
+  legacy_test: True
+  test_start_seed: 100000
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  n_envs: null
+  observation_mode: image
+
+dataset:
+  _target_: diffusion_policy.dataset.lazy_articubot_dataset.LazyArticuBotDataset
+  shape_meta: *shape_meta
+  data_dir: /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  action_mode: ${action_mode}
+  # Multimodal oversampling: collective sampling mass put on frames with >=2 GMM
+  # modes (transition frames); the rest share (1 - percentage_training).
+  # null => uniform sampling. Override at launch, e.g. task.dataset.percentage_training=0.5
+  percentage_training: null

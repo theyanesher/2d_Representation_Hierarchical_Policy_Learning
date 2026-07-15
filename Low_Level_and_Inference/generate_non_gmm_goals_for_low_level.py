@@ -544,6 +544,73 @@ def process_demo_dir_rl_bench(demo_dir, args):
             f.create_dataset(f'_physical/{cam_idx}_intrinsic', data=obs_bufs[f'{cam_idx}_intrinsic'][0])
 
 
+# Alternative goal sources produced by the RDP keypoint pipeline. Each per-frame
+# npz in the EXTRA_KEYPOINTS tree holds goal_gripper_pcd_<source> (1, 4, 3).
+EXTRA_GOAL_SOURCES = ['rdp', 'rdp_gripper', 'random', 'fixed_interval']
+
+
+def inject_extra_goals_into_h5(h5_dir, extra_goals_dir, max_files=None):
+    """Backfill obs/goal_gripper_pts_<source> datasets into existing demo h5 files.
+
+    For each demo_N.h5 in h5_dir, reads extra_goals_dir/demo_N/t.npz (same
+    per-frame layout as the main npz tree, verified frame-aligned) and writes
+    one (T, 4, 3) float32 dataset per source in EXTRA_GOAL_SOURCES. Idempotent:
+    files that already have all sources are skipped, and only missing sources
+    are written (append-only — existing datasets are never modified), so this
+    is safe to run unconditionally at the start of every training job.
+    """
+    h5_files = sorted(
+        [f for f in os.listdir(h5_dir) if f.endswith('.h5') and f.startswith('demo_')],
+        key=lambda x: int(os.path.splitext(x)[0].split('_')[1]),
+    )
+    if max_files is not None:
+        h5_files = h5_files[:max_files]
+
+    n_injected, n_skipped = 0, 0
+    for fname in tqdm(h5_files, desc="Injecting extra goal keys"):
+        h5_path = os.path.join(h5_dir, fname)
+        demo_name = os.path.splitext(fname)[0]
+
+        with h5py.File(h5_path, 'r') as f:
+            missing = [s for s in EXTRA_GOAL_SOURCES
+                       if f'obs/goal_gripper_pts_{s}' not in f]
+            T = f['obs/goal_gripper_pts'].shape[0]
+        if not missing:
+            n_skipped += 1
+            continue
+
+        demo_npz_dir = os.path.join(extra_goals_dir, demo_name)
+        if not os.path.isdir(demo_npz_dir):
+            raise FileNotFoundError(
+                f"{demo_name}: extra-goals npz dir not found: {demo_npz_dir}"
+            )
+        npz_files = sorted(
+            [f2 for f2 in os.listdir(demo_npz_dir) if f2.endswith('.npz')],
+            key=lambda x: int(os.path.splitext(x)[0]),
+        )
+        # h5 may have been generated with --max_timesteps; npz tree must cover it.
+        if len(npz_files) < T:
+            raise ValueError(
+                f"{demo_name}: h5 has T={T} frames but only {len(npz_files)} npz "
+                f"files in {demo_npz_dir} — refusing to inject misaligned goals."
+            )
+        npz_files = npz_files[:T]
+
+        bufs = {s: np.zeros((T, 4, 3), dtype=np.float32) for s in missing}
+        for t, nf in enumerate(npz_files):
+            data = np.load(os.path.join(demo_npz_dir, nf))
+            for s in missing:
+                bufs[s][t] = data[f'goal_gripper_pcd_{s}'][0]
+
+        with h5py.File(h5_path, 'a') as f:
+            for s in missing:
+                f.create_dataset(f'obs/goal_gripper_pts_{s}', data=bufs[s])
+        n_injected += 1
+        print(f"  {demo_name}: injected {missing}")
+
+    print(f"[inject] done: {n_injected} file(s) updated, {n_skipped} already complete.")
+
+
 def process_file(h5_path, goal_policy, cat_embedding, args):
     with h5py.File(h5_path, 'r') as f:
         T = f['obs/cam0_depth'].shape[0]
@@ -645,7 +712,16 @@ if __name__ == '__main__':
     parser.add_argument('--no_gmm',                action='store_true',    help='Skip GMM inference; consolidate npz files into h5 only (npz format only)')
     parser.add_argument('--no_gmm_output_dir',     type=str, default=None, help='Output directory for h5 files when --no_gmm is used (required with --no_gmm)')
     parser.add_argument('--rl_bench',              action='store_true',    help='RL Bench npz variant: 4 cameras (front/left_shoulder/right_shoulder/wrist) + native 8-D state/action. Requires --no_gmm.')
+    parser.add_argument('--inject_extra_goals',    action='store_true',    help='Backfill obs/goal_gripper_pts_{rdp,rdp_gripper,random,fixed_interval} into existing h5 files in --dataset_dir from the --extra_goals_dir npz tree, then exit. Idempotent.')
+    parser.add_argument('--extra_goals_dir',       type=str, default=None, help='EXTRA_KEYPOINTS npz tree (demo_N/t.npz with goal_gripper_pcd_<source> keys). Required with --inject_extra_goals.')
     args = parser.parse_args()
+
+    # Injection mode: --dataset_dir is the h5 dir; no model or GMM flags involved.
+    if args.inject_extra_goals:
+        if not args.extra_goals_dir:
+            parser.error("--inject_extra_goals requires --extra_goals_dir")
+        inject_extra_goals_into_h5(args.dataset_dir, args.extra_goals_dir, args.max_files)
+        sys.exit(0)
 
     # Validate --no_gmm / --no_gmm_output_dir pairing
     if args.no_gmm_output_dir and not args.no_gmm:

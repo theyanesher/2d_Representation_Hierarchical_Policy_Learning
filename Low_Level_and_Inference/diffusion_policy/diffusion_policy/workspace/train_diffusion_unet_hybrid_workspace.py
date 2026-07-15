@@ -130,7 +130,26 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         dataset: BaseImageDataset
         dataset = hydra.utils.instantiate(cfg.task.dataset)
         assert isinstance(dataset, BaseImageDataset)
-        train_dataloader = DataLoader(dataset, **cfg.dataloader)
+        # Optional multimodal oversampling: if the dataset exposes per-sample
+        # weights (e.g. via task.dataset.percentage_training), draw the train
+        # batches with a WeightedRandomSampler instead of uniform shuffling.
+        # Backward-compatible: datasets without get_sample_weights (or returning
+        # None) fall through to the plain shuffled DataLoader.
+        _sample_weights = getattr(dataset, "get_sample_weights", lambda: None)()
+        if _sample_weights is not None:
+            from torch.utils.data import WeightedRandomSampler
+            _dl_kwargs = dict(cfg.dataloader)
+            _dl_kwargs.pop("shuffle", None)  # sampler is mutually exclusive with shuffle
+            _train_sampler = WeightedRandomSampler(
+                weights=torch.as_tensor(_sample_weights, dtype=torch.double),
+                num_samples=len(_sample_weights),
+                replacement=True,
+            )
+            train_dataloader = DataLoader(dataset, sampler=_train_sampler, **_dl_kwargs)
+            print(f"[train] multimodal oversampling ON: WeightedRandomSampler over "
+                  f"{len(_sample_weights)} train samples.")
+        else:
+            train_dataloader = DataLoader(dataset, **cfg.dataloader)
         normalizer = dataset.get_normalizer()
 
         # configure validation dataset
@@ -328,8 +347,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         del pred_action
                         del mse
                 
-                # checkpoint
-                if (self.epoch % cfg.training.checkpoint_every) == 0:
+                # checkpoint (skip epoch 0 — an untrained-but-one-epoch model
+                # is never useful and each save costs ~4GB on /ocean)
+                if (self.epoch % cfg.training.checkpoint_every) == 0 and self.epoch != 0:
                     # checkpointing
                     if cfg.checkpoint.save_last_ckpt:
                         self.save_checkpoint(tag=f'epoch_{self.epoch}')
@@ -363,6 +383,18 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 json_logger.log(step_log)
                 self.global_step += 1
                 self.epoch += 1
+
+            # Final checkpoint: the modulo gate above misses the last epoch
+            # whenever (num_epochs-1) % checkpoint_every != 0 (e.g. epochs 0-99
+            # with checkpoint_every=10 last saves at epoch 90). Save it here,
+            # unless the gate already saved this exact epoch.
+            last_epoch = self.epoch - 1
+            already_saved = (
+                (last_epoch % cfg.training.checkpoint_every) == 0 and last_epoch != 0
+            )
+            if cfg.checkpoint.save_last_ckpt and not already_saved:
+                self.save_checkpoint(tag=f'epoch_{last_epoch}')
+                self.save_checkpoint()
 
 @hydra.main(
     version_base=None,

@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # 12-hour budget
+#SBATCH -t 48:00:00 # 48-hour budget
 #SBATCH --job-name sweep-dustpan-wca-100demo-dinov2
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/RL_TRAINING_DATASET/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/RL_TRAINING_DATASET/logs/job_%j.err
@@ -45,7 +45,7 @@ echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$
 # Permanent GMM-annotated h5 dataset on /ocean, produced by the high-level
 # converter job (ROBO_GMM_DATASET_GEN_SCRIPT/sweepToDustpanOfSize.sh).
 # Overridable via the RL_BENCH_GMM_H5_DIR env var.
-SRC_DATA_DIR="${RL_BENCH_GMM_H5_DIR:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/RL_BENCH_DATASETS/sweep_to_dustpan_of_size}"
+SRC_DATA_DIR="${RL_BENCH_GMM_H5_DIR:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/RL_BENCH_DATASETS/sweep_to_dustpan_of_size_LANGCOND}"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
 # --- precondition: GMM dataset must already exist ------------------------
@@ -130,10 +130,11 @@ pixi run python diffusion_policy/train.py \
     "policy.crop_shape=[126,126]" \
     policy.use_goal_cross_attention=true \
     policy.use_weighted_cross_attention=true \
-    policy.gmm_top_k=64 \
+    policy.gmm_top_k=6 \
     logging.project=rl_bench_tasks \
-    logging.name=sweep_to_dustpan_gmm_wca_${NUM_DEMOS}demo_dinov2_DIT \
-    name=sweep_to_dustpan_gmm_wca_${NUM_DEMOS}demo_dinov2_DIT \
+    logging.name=sweep_to_dustpan_gmm_wca_${NUM_DEMOS}demo_dinov2_DIT_LANGCOND \
+    name=sweep_to_dustpan_gmm_wca_${NUM_DEMOS}demo_dinov2_DIT_LANGCOND \
     dataloader.batch_size=64 \
     dataloader.num_workers=16 \
-    training.checkpoint_every=10
+    training.num_epochs=2500 \
+    training.checkpoint_every=100

@@ -50,8 +50,36 @@ class LazyArticuBotDataset(BaseImageDataset):
             ghost_heatmap_last_channel_only=False,
             add_current_heatmap=False,
             heatmap_augmentation=None,
+            percentage_training=None,
+            goal_source='default',
+            gmm_pred_npz_dir=None,
+            gmm_pred_key_suffix='rdp',
         ):
         super().__init__()
+
+        # Goal source selection. 'default' reads obs/goal_gripper_pts as always.
+        # The other sources read obs/goal_gripper_pts_<source> — alternative
+        # goals injected into the h5 files by generate_non_gmm_goals_for_low_level.py
+        # --inject_extra_goals. Only the h5 path is remapped; the model-facing
+        # obs key (and shape_meta / normalizers) are unchanged.
+        VALID_GOAL_SOURCES = ('default', 'rdp', 'rdp_gripper', 'random', 'fixed_interval')
+        if goal_source not in VALID_GOAL_SOURCES:
+            raise ValueError(
+                f"Invalid goal_source '{goal_source}'. Expected one of {VALID_GOAL_SOURCES}"
+            )
+        self.goal_source = goal_source
+
+        # External GMM prediction source (RDP pipeline). When set, the
+        # gmm_goals/gmm_weights-typed obs keys are served from a parallel
+        # per-frame npz tree (<dir>/demo_N/<t>.npz containing
+        # gmm_all_goals_<sfx> / gmm_all_weights_<sfx>, produced by
+        # run_gmm_pred_to_npz.py) instead of the h5 files. The h5 copies of
+        # those keys are then never read — the h5 files stay untouched.
+        self.gmm_pred_npz_dir = Path(gmm_pred_npz_dir) if gmm_pred_npz_dir else None
+        self.gmm_pred_key_suffix = gmm_pred_key_suffix
+        if self.gmm_pred_npz_dir is not None and not self.gmm_pred_npz_dir.is_dir():
+            raise FileNotFoundError(
+                f"gmm_pred_npz_dir does not exist: {self.gmm_pred_npz_dir}")
         self.ghost_heatmap_last_channel_only = ghost_heatmap_last_channel_only
         self.add_current_heatmap = add_current_heatmap
 
@@ -155,13 +183,61 @@ class LazyArticuBotDataset(BaseImageDataset):
         
         key_to_h5path = {'action': self.action_key}
         for key in all_obs_keys:
+            if self.gmm_pred_npz_dir is not None and key in self.gmm_keys:
+                # Served from the external npz tree — skip the h5 read path so
+                # the buffer never loads the (stale) h5 copies of these keys.
+                continue
             key_to_h5path[key] = f'obs/{key}'
+        if self.goal_source != 'default':
+            for key in self.goal_gripper_keys:
+                key_to_h5path[key] = f'obs/{key}_{self.goal_source}'
+            print(f"[LazyArticuBotDataset] goal_source={self.goal_source}: "
+                  f"{ {k: key_to_h5path[k] for k in self.goal_gripper_keys} }")
 
         print(f"Indexing {len(h5_paths)} trajectories from {data_dir} (lazy)...")
         self.replay_buffer = LazyH5Buffer(
             h5_paths=h5_paths,
             key_to_h5path=key_to_h5path,
         )
+
+        # Episode file stems ("demo_N") — used to resolve external npz trees
+        # (the prediction tree mirrors the dataset layout demo_N/<t>.npz).
+        self._episode_stems = [Path(p).stem for p in h5_paths]
+
+        if self.gmm_pred_npz_dir is not None:
+            self._gmm_goals_key = next(
+                (k for k, a in shape_meta['obs'].items()
+                 if a.get('type') == 'gmm_goals'), None)
+            self._gmm_weights_key = next(
+                (k for k, a in shape_meta['obs'].items()
+                 if a.get('type') == 'gmm_weights'), None)
+            if self._gmm_goals_key is None or self._gmm_weights_key is None:
+                raise ValueError(
+                    "gmm_pred_npz_dir is set but shape_meta has no "
+                    "gmm_goals/gmm_weights obs keys — nothing to serve from npz.")
+            missing = [s for s in self._episode_stems
+                       if not (self.gmm_pred_npz_dir / s).is_dir()]
+            if missing:
+                raise FileNotFoundError(
+                    f"gmm_pred_npz_dir={self.gmm_pred_npz_dir} is missing "
+                    f"{len(missing)} demo dir(s), e.g. {missing[:3]} — run the "
+                    f"RDP prediction generation (run_gmm_pred_to_npz.py) first.")
+            sfx = self.gmm_pred_key_suffix
+            print(f"[LazyArticuBotDataset] GMM source = npz tree {self.gmm_pred_npz_dir} "
+                  f"(keys gmm_all_goals_{sfx} / gmm_all_weights_{sfx}); "
+                  f"h5 gmm keys are NOT read.")
+
+        # LazyH5Buffer silently drops keys absent from every file — fail loudly
+        # here instead of with an opaque KeyError mid-training.
+        if self.goal_source != 'default':
+            for key in self.goal_gripper_keys:
+                if key not in self.replay_buffer:
+                    raise KeyError(
+                        f"goal_source='{self.goal_source}' but '{key_to_h5path[key]}' "
+                        f"is missing from the h5 files in {data_dir}. Run "
+                        f"generate_non_gmm_goals_for_low_level.py --inject_extra_goals "
+                        f"first (the RDP training scripts do this automatically)."
+                    )
 
         # -----------------------------------------------------------------------
         # 3. Setup sampler — identical to the eager dataset
@@ -195,8 +271,71 @@ class LazyArticuBotDataset(BaseImageDataset):
 
         print(f"Dataset initialized with {len(self.sampler)} training sequences.")
 
+        # -----------------------------------------------------------------------
+        # 4. Optional multimodal oversampling (--percentage_training).
+        #    When set, frames whose GMM goal distribution has >=2 real modes
+        #    (i.e. genuinely-multimodal / transition frames) collectively get
+        #    sampling mass `percentage_training`; all single-mode (cruise) frames
+        #    share the remaining (1 - percentage_training). Mirrors the high-level
+        #    transition_p weighted sampler. Requires a gmm_weights-typed obs key
+        #    (e.g. gmm_mode_weights from the modes task). None => uniform sampling.
+        # -----------------------------------------------------------------------
+        self.percentage_training = percentage_training
+        self.gmm_weights_key = None
+        for key, attr in shape_meta['obs'].items():
+            if attr.get('type') == 'gmm_weights':
+                self.gmm_weights_key = key
+                break
+        self.sample_weights = None
+        if percentage_training is not None:
+            if self.gmm_weights_key is None or self.gmm_weights_key not in self.replay_buffer:
+                print(f"[LazyArticuBotDataset] percentage_training={percentage_training} requested "
+                      f"but no gmm_weights obs key found -> falling back to uniform sampling.")
+            else:
+                self.sample_weights = self._compute_multimodal_sample_weights(
+                    self.gmm_weights_key, float(percentage_training)
+                )
+
+    def _compute_multimodal_sample_weights(self, gmm_weights_key, p, mode_thresh=1e-6):
+        """Per-train-sample weights putting collective mass `p` on multimodal
+        (>=2 nonzero modes) frames, (1-p) on the rest. Returns float64 array of
+        length len(self.sampler)."""
+        # n_modes per GLOBAL frame (read the whole tiny gmm_mode_weights once)
+        all_mw = np.asarray(self.replay_buffer[gmm_weights_key][:])   # (total_frames, K)
+        n_modes = (all_mw > mode_thresh).sum(axis=1)                  # (total_frames,)
+        is_multi_frame = n_modes >= 2
+
+        idx_arr = np.asarray(self.sampler.indices)   # (N, 4): [buf_start, buf_end, ...]
+        N = len(idx_arr)
+        n_obs = self.n_obs_steps or 1
+        is_multi = np.zeros(N, dtype=bool)
+        for i in range(N):
+            bs = int(idx_arr[i, 0]); be = int(idx_arr[i, 1])
+            # multimodal sample if ANY of its obs frames is multimodal
+            is_multi[i] = bool(is_multi_frame[bs:min(bs + n_obs, be)].any())
+
+        n_multi = int(is_multi.sum())
+        n_other = N - n_multi
+        w = np.zeros(N, dtype=np.float64)
+        if n_multi == 0 or n_other == 0:
+            w[:] = 1.0 / max(N, 1)   # all one class -> uniform (nothing to up/down-weight)
+        else:
+            w[is_multi] = p / n_multi
+            w[~is_multi] = (1.0 - p) / n_other
+        print(f"[LazyArticuBotDataset] percentage_training={p}: "
+              f"{n_multi}/{N} train samples are multimodal (>=2 modes); "
+              f"they collectively get sampling mass {p}.")
+        return w
+
+    def get_sample_weights(self):
+        """Per-sample weights for a WeightedRandomSampler, or None for uniform."""
+        return getattr(self, "sample_weights", None)
+
     def get_validation_dataset(self):
         val_set = copy.copy(self)
+        # Validation must never use the train multimodal-oversampling weights
+        # (they're indexed to the train sampler and have the wrong length here).
+        val_set.sample_weights = None
         val_set.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
             sequence_length=self.horizon,
@@ -376,6 +515,36 @@ class LazyArticuBotDataset(BaseImageDataset):
 
         return np.concatenate([abs_xyz, abs_6d, abs_grip], axis=-1).astype(np.float32)
 
+    def _fill_gmm_from_pred_npz(self, idx: int, obs_dict: dict):
+        """Serve the gmm_goals/gmm_weights obs keys for this sample's obs frames
+        from the external per-frame npz tree (gmm_pred_npz_dir/demo_N/<t>.npz).
+
+        Maps each obs position j -> global replay-buffer frame exactly the way
+        SequenceSampler lays real frames into the padded window (positions
+        [ssi, sei) <- buffer [bsi, bei); pads repeat the edge frames) — the
+        same mapping LazyArticuBotGtMixDataset uses for its GT overwrite.
+        """
+        To = self.n_obs_steps or 1
+        bsi, _bei, ssi, sei = self.sampler.indices[idx]
+        bsi, ssi, sei = int(bsi), int(ssi), int(sei)
+        episode_ends = np.asarray(self.replay_buffer.episode_ends)
+        sfx = self.gmm_pred_key_suffix
+
+        goals, weights = [], []
+        for j in range(To):
+            real_pos = min(max(j, ssi), sei - 1)
+            gf = bsi + (real_pos - ssi)
+            ep = int(np.searchsorted(episode_ends, gf, side='right'))
+            ep_start = 0 if ep == 0 else int(episode_ends[ep - 1])
+            local = gf - ep_start
+            d = np.load(
+                self.gmm_pred_npz_dir / self._episode_stems[ep] / f"{local}.npz")
+            goals.append(d[f"gmm_all_goals_{sfx}"][0])
+            weights.append(d[f"gmm_all_weights_{sfx}"][0])
+
+        obs_dict[self._gmm_goals_key] = np.stack(goals).astype(np.float32)
+        obs_dict[self._gmm_weights_key] = np.stack(weights).astype(np.float32)
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         data = self.sampler.sample_sequence(idx)
         T_slice = slice(self.n_obs_steps)
@@ -473,11 +642,16 @@ class LazyArticuBotDataset(BaseImageDataset):
             del data[key]
 
         # GMM distribution: loaded as-is (no reshape, no normalization)
-        # gmm_all_goals:   (T, 2044, 4, 3) float32
-        # gmm_all_weights: (T, 2044)       float32
-        for key in self.gmm_keys:
-            obs_dict[key] = data[key][T_slice].astype(np.float32)
-            del data[key]
+        # gmm_all_goals:   (T, N, 4, 3) float32
+        # gmm_all_weights: (T, N)       float32
+        # With gmm_pred_npz_dir set, these come from the external npz tree
+        # (the h5 copies were never loaded by the buffer).
+        if self.gmm_pred_npz_dir is not None and self.gmm_keys:
+            self._fill_gmm_from_pred_npz(idx, obs_dict)
+        else:
+            for key in self.gmm_keys:
+                obs_dict[key] = data[key][T_slice].astype(np.float32)
+                del data[key]
 
         # Actions
         # 6. Actions

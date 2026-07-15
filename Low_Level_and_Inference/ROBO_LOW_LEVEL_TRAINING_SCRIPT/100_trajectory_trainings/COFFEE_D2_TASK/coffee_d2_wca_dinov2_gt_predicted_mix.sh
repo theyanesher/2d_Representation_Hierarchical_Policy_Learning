@@ -4,24 +4,24 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name mug-d1-wca-100demo-dinov2
+#SBATCH -t 12:00:00 # 12-hour budget
+#SBATCH --job-name coffee-d2-wca-100demo-dinov2-gtmix
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# 100-demo baseline: flow-matching DiT low-level policy on MUG_CLEANUP_D1 with
-# GMM weighted cross-attention (serial WCA → visual CA pattern) and DINOv2
-# visual encoder. Uses the FIRST NUM_DEMOS demos (demo_0.h5 through
-# demo_(NUM_DEMOS-1).h5) from the full 1000-trajectory dataset on /ocean.
+# 100-demo GT/predicted goal-MIX run on Coffee_D2.
 #
-# NUM_DEMOS defaults to 100. Override at submission time:
+# Identical to coffee_d2_weighted_cross_attention.sh EXCEPT it uses the additive
+# task `coffee_D2_gmm_goal_gt_mix`, whose dataset subclass (LazyArticuBotGtMixDataset)
+# replaces the predicted GMM goals with sparse ground-truth goals on a per-item
+# Bernoulli(gt_mix_p); the rest of the time it passes the predicted high-level
+# GMM through unchanged. Same data, same container, same policy / gmm_top_k=6 —
+# only the goal *contents* are mixed per sample. p lives in the config
+# (gt_mix_p=0.5); override here or at launch:
+#   GT_MIX_P=0.3 sbatch this_script.sh
 #   NUM_DEMOS=200 sbatch this_script.sh
-#
-# Only the requested demos are rsynced to node-local scratch — the rest stay
-# on /ocean and are never read. This keeps staging fast (~30s for 100 demos
-# vs ~5min for the full 1000).
 
 set -euo pipefail
 set -x
@@ -32,13 +32,19 @@ export PATH="$HOME/.pixi/bin:$PATH"
 NUM_DEMOS="${NUM_DEMOS:-100}"
 echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
 
+# --- gt-mix probability (lives in the config; overridable here) -----------
+GT_MIX_P="${GT_MIX_P:-0.5}"
+echo "[gt_mix] gt_mix_p=${GT_MIX_P}  (P of using ground-truth goals per sample)"
+
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1"
+SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Coffee_D2"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
 # Pick a node-local scratch dir. Always prefer the per-job isolated subdir
 # (/local/slurm-<jobid>/local/) so SLURM auto-cleans on job end and concurrent
-# jobs on the same node never collide.
+# jobs on the same node never collide. PSC's SLURM doesn't always pre-create
+# that subtree, so we force-create it ourselves when SLURM_JOB_ID is set. Fall
+# back to $LOCAL or /tmp only if no per-job dir exists.
 if [ -n "${SLURM_JOB_ID:-}" ]; then
     SCRATCH_ROOT="/local/slurm-${SLURM_JOB_ID}/local"
     mkdir -p "${SCRATCH_ROOT}"
@@ -47,7 +53,7 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/MUG_CLEANUP_D1_Low_Level_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Coffee_D2_Low_Level_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS files) --------------------------------
 THREADS="${RSYNC_THREADS:-32}"
@@ -71,7 +77,6 @@ export -f copy_one
 export SRC_DATA_DIR DEST_DATA_DIR
 
 # Generate exactly the demo filenames we want and feed to xargs.
-# Each rsync stays resumable per-file, so re-runs skip already-copied demos.
 seq 0 $((NUM_DEMOS - 1)) \
     | awk '{print "demo_" $1 ".h5"}' \
     | xargs -P "${THREADS}" -I {} \
@@ -97,15 +102,16 @@ PYTHONNOUSERSITE=1 \
 PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_workspace.yaml \
-    task=MimicGen_Tasks/mugcleanup_D1_gmm_goal \
+    task=MimicGen_Tasks/coffee_D2_gmm_goal_gt_mix \
     task.dataset.data_dir="${DEST_DATA_DIR}" \
+    task.dataset.gt_mix_p="${GT_MIX_P}" \
     visual_encoder=dinov2 \
     policy.use_goal_cross_attention=true \
     policy.use_weighted_cross_attention=true \
     policy.gmm_top_k=6 \
     logging.project=MimicGen_GMM_Low_Level_Policy \
-    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS \
-    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS \
-    training.checkpoint_every=10 \
+    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_D2_GTMIX_p${GT_MIX_P} \
+    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_D2_GTMIX_p${GT_MIX_P} \
+    training.checkpoint_every=5 \
     dataloader.batch_size=128 \
     dataloader.num_workers=16

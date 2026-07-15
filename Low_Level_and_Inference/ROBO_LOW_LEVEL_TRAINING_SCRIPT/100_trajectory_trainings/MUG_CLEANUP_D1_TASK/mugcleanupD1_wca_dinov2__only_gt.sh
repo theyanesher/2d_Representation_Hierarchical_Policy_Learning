@@ -5,23 +5,27 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 12:00:00 # Estimated time, 48hour max. DD-HH:MM.
-#SBATCH --job-name mug-d1-wca-100demo-dinov2
+#SBATCH --job-name mug-d1-wca-100demo-dinov2-onlygt
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# 100-demo baseline: flow-matching DiT low-level policy on MUG_CLEANUP_D1 with
-# GMM weighted cross-attention (serial WCA → visual CA pattern) and DINOv2
-# visual encoder. Uses the FIRST NUM_DEMOS demos (demo_0.h5 through
-# demo_(NUM_DEMOS-1).h5) from the full 1000-trajectory dataset on /ocean.
+# 100-demo ONLY-GT run on MUG_CLEANUP_D1 (no high-level policy / no predicted GMM).
 #
-# NUM_DEMOS defaults to 100. Override at submission time:
+# Same flow-matching DiT + DINOv2 + weighted-cross-attention setup as the gt/pred
+# mix run, but with gt_mix_p=1.0 -> EVERY sample uses the ground-truth goal set,
+# never the high-level GMM prediction:
+#   cruise frame      -> 1 mode  = present GT goal,                 weight 1.0
+#   transition frame  -> 2 modes = [present GT, neighbor GT goal],  triangular
+#                        weights (50/50 at the goal-change, tapering over +-5)
+# It reuses the `mugcleanup_D1_gmm_goal_gt_mix` task (the GT goals are written
+# into the same 4500-slot GMM container, all other slots weight 0), with
+# gmm_top_k=6 and the original Mug_Cleanup_D1 dataset.
+#
+# GT_MIX_P is pinned to 1.0 here (that's what "only GT" means). NUM_DEMOS=100.
+# Override at submission time:
 #   NUM_DEMOS=200 sbatch this_script.sh
-#
-# Only the requested demos are rsynced to node-local scratch — the rest stay
-# on /ocean and are never read. This keeps staging fast (~30s for 100 demos
-# vs ~5min for the full 1000).
 
 set -euo pipefail
 set -x
@@ -31,6 +35,10 @@ export PATH="$HOME/.pixi/bin:$PATH"
 # --- demo selection ------------------------------------------------------
 NUM_DEMOS="${NUM_DEMOS:-100}"
 echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
+
+# --- gt-mix probability: ONLY GT -> 1.0 ----------------------------------
+GT_MIX_P="${GT_MIX_P:-1.0}"
+echo "[gt_mix] gt_mix_p=${GT_MIX_P}  (ONLY ground-truth goals; high-level GMM never used)"
 
 # --- paths ---------------------------------------------------------------
 SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/Mug_Cleanup_D1"
@@ -97,15 +105,16 @@ PYTHONNOUSERSITE=1 \
 PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_workspace.yaml \
-    task=MimicGen_Tasks/mugcleanup_D1_gmm_goal \
+    task=MimicGen_Tasks/mugcleanup_D1_gmm_goal_gt_mix \
     task.dataset.data_dir="${DEST_DATA_DIR}" \
+    task.dataset.gt_mix_p="${GT_MIX_P}" \
     visual_encoder=dinov2 \
     policy.use_goal_cross_attention=true \
     policy.use_weighted_cross_attention=true \
     policy.gmm_top_k=6 \
     logging.project=MimicGen_GMM_Low_Level_Policy \
-    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS \
-    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS \
+    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS_ONLY_GT \
+    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_MugCleanup_D1_6_GOALS_ONLY_GT \
     training.checkpoint_every=10 \
     dataloader.batch_size=128 \
     dataloader.num_workers=16

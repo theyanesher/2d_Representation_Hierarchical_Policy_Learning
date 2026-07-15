@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # 12-hour budget
+#SBATCH -t 44:00:00 # 44-hour budget
 #SBATCH --job-name sweep-dustpan-goal-gripper-100demo-dinov2
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/RL_TRAINING_DATASET/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/RL_TRAINING_DATASET/logs/job_%j.err
@@ -157,4 +157,5 @@ pixi run python diffusion_policy/train.py \
     name=sweep_to_dustpan_goal_gripper_${NUM_DEMOS}demo_dinov2_DIT \
     dataloader.batch_size=64 \
     dataloader.num_workers=16 \
-    training.checkpoint_every=5
+    training.num_epochs=2500 \
+    training.checkpoint_every=100
