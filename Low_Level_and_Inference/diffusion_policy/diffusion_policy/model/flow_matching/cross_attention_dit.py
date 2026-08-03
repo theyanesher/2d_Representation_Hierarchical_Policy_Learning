@@ -204,13 +204,27 @@ class WeightedCrossAttention(nn.Module):
     Multi-head cross-attention with per-key log-prior from GMM weights.
 
     Implements:
-        logits_{i,j} = (Q_i · K_j) / sqrt(d_k) + log(w_j)
+        logits_{i,j} = alpha · (Q_i · K_j) / sqrt(d_k) + log(w_j)
         attn         = softmax(logits, dim=-1)
         out_i        = sum_j  attn_{i,j} · V_j
 
     This is equivalent to multiplying the un-normalised attention scores by w_j
     before the softmax, i.e. high-probability GMM candidates attract more
     attention regardless of the query content.
+
+    alpha (only active when use_alpha=True; alpha=1 otherwise, the original
+    formula) scales ONLY the content term, i.e. attn_j ∝ w_j · exp(alpha·s_j):
+    it dials how loudly the query's content can re-rank candidates against the
+    GMM prior. A candidate can out-attend a higher-weighted one only if
+    alpha·Δs > log(w_top/w_j), so with content logits spread Δs ≈ O(10):
+        alpha = 1.0  → candidates within ~e^10 of the top weight are reachable
+                        (content selects nearly freely, prior is a soft bias)
+        alpha = 0.3  → within ~20× of the top weight (≈ effective top-6)
+        alpha = 0.1  → within ~3× (≈ effective top-1..3)
+        alpha → 0    → attn = w exactly: query-independent prior pooling
+                        (output collapses to the w-weighted mean of V_j)
+    Note alpha also scales gradients into to_q/to_k, so small alpha slows
+    content-path learning — intended for the prior-following ablation.
     """
 
     def __init__(
@@ -221,11 +235,15 @@ class WeightedCrossAttention(nn.Module):
         head_dim: int,
         dropout: float = 0.0,
         bias: bool = True,
+        use_alpha: bool = False,
+        alpha: float = 1.0,
     ):
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = head_dim
         self.scale = head_dim ** -0.5
+        self.use_alpha = use_alpha
+        self.alpha = float(alpha)
         inner_dim = num_heads * head_dim
 
         self.to_q   = nn.Linear(query_dim, inner_dim, bias=bias)
@@ -250,6 +268,11 @@ class WeightedCrossAttention(nn.Module):
         V = self.to_v(encoder_hidden_states).view(B, N_k, H, Dh).transpose(1, 2)  # (B,H,N_k,Dh)
 
         logits = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # (B,H,T_q,N_k)
+
+        # Ablation: scale the content term only (prior term below stays at full
+        # strength) — attn_j ∝ w_j · exp(alpha·s_j).
+        if self.use_alpha:
+            logits = self.alpha * logits
 
         # Add log-weight bias: boost high-probability keys, suppress low-probability ones.
         log_w = torch.log(weights.clamp(min=1e-8))        # (B, N_k)
@@ -370,6 +393,12 @@ class BasicTransformerBlock(nn.Module):
         # When True, goal cross-attention uses WeightedCrossAttention (log-bias from GMM weights)
         # instead of standard Attention. Requires use_goal_cross_attention=True.
         use_weighted_cross_attention: bool = False,
+        # Ablation knob for WeightedCrossAttention ONLY (no other attention layer
+        # is touched): scale the content logits by wca_alpha before adding the
+        # log-weight prior — logits = alpha·QKᵀ/√d + log(w). Requires
+        # use_weighted_cross_attention=True to have any effect.
+        use_alpha: bool = False,
+        wca_alpha: float = 1.0,
         # When True (and use_goal_cross_attention=True), goal-CA and visual-CA run in
         # parallel: both read the *pre-block* hidden_states through their own AdaLN,
         # their outputs are concatenated along the feature dim and projected back to D
@@ -423,6 +452,8 @@ class BasicTransformerBlock(nn.Module):
         self.norm_type = norm_type
         self.use_goal_cross_attention = use_goal_cross_attention
         self.use_weighted_cross_attention = use_weighted_cross_attention
+        self.use_alpha = use_alpha
+        self.wca_alpha = wca_alpha
         self.use_parallel_cross_attentions = use_parallel_cross_attentions
         self.use_gated_goal_residual = use_gated_goal_residual
         self.use_goal_adaln_modulation = use_goal_adaln_modulation
@@ -522,6 +553,8 @@ class BasicTransformerBlock(nn.Module):
                     head_dim=attention_head_dim,
                     dropout=dropout,
                     bias=attention_bias,
+                    use_alpha=use_alpha,
+                    alpha=wca_alpha,
                 )
             else:
                 self.attn_goal = Attention(
@@ -830,6 +863,8 @@ class GoalAuxiliaryStreamBlock(nn.Module):
         final_dropout: bool = False,
         attention_out_bias: bool = True,
         use_weighted_cross_attention: bool = True,
+        use_alpha: bool = False,
+        wca_alpha: float = 1.0,
         log_attention_grad_norms: bool = False,
     ):
         super().__init__()
@@ -871,6 +906,8 @@ class GoalAuxiliaryStreamBlock(nn.Module):
                 head_dim=attention_head_dim,
                 dropout=dropout,
                 bias=attention_bias,
+                use_alpha=use_alpha,
+                alpha=wca_alpha,
             )
         else:
             self.attn_wca2 = Attention(
@@ -1006,6 +1043,13 @@ class DiT(ModelMixin, ConfigMixin):
         # weights) instead of standard scaled-dot-product attention.
         # Requires use_goal_cross_attention=True and goal_weights passed to forward().
         use_weighted_cross_attention: bool = False,
+        # Ablation: scale ONLY the WeightedCrossAttention content logits by wca_alpha —
+        #   logits = wca_alpha · QKᵀ/√d + log(w)
+        # No other attention layer (visual CA, self-attn) is touched. Small alpha makes
+        # the GMM weights dominate candidate ranking (alpha→0 ⇒ attn = w exactly).
+        # Requires use_weighted_cross_attention=True.
+        use_alpha: bool = False,
+        wca_alpha: float = 1.0,
         # When True (and use_goal_cross_attention=True), each cross-attn block runs
         # goal-CA and visual-CA in parallel rather than serially. See BasicTransformerBlock.
         use_parallel_cross_attentions: bool = False,
@@ -1084,6 +1128,15 @@ class DiT(ModelMixin, ConfigMixin):
             assert use_state_adaln, (
                 "use_gate_on_state_adaln=True requires use_state_adaln=True"
             )
+        if use_alpha:
+            assert use_weighted_cross_attention, (
+                "use_alpha=True requires use_weighted_cross_attention=True "
+                "(alpha lives inside WeightedCrossAttention only)"
+            )
+            assert wca_alpha > 0.0, (
+                f"wca_alpha must be > 0 (got {wca_alpha}); use a small value like "
+                f"0.01 for the prior-only regime rather than exactly 0"
+            )
 
         self.attention_head_dim = attention_head_dim
         self.inner_dim = num_attention_heads * attention_head_dim
@@ -1115,6 +1168,8 @@ class DiT(ModelMixin, ConfigMixin):
                         norm_type=norm_type,
                         final_dropout=final_dropout,
                         use_weighted_cross_attention=use_weighted_cross_attention,
+                        use_alpha=use_alpha,
+                        wca_alpha=wca_alpha,
                         log_attention_grad_norms=log_attention_grad_norms,
                     )
                     for _ in range(num_layers)
@@ -1149,6 +1204,10 @@ class DiT(ModelMixin, ConfigMixin):
                             and use_goal_cross_attention
                             and (not interleave_self_attention or idx % 2 == 0)
                         ),
+                        # Alpha only matters inside WCA, which the flag above
+                        # already gates per block — safe to pass unconditionally.
+                        use_alpha=use_alpha,
+                        wca_alpha=wca_alpha,
                         use_parallel_cross_attentions=(
                             use_parallel_cross_attentions
                             and use_goal_cross_attention

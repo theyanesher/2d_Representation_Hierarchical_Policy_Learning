@@ -62,6 +62,12 @@ policy:
   #   logits += log(w_j)  — requires use_goal_cross_attention=true and GMM obs keys.
   use_weighted_cross_attention: false
 
+  # Ablation: scale ONLY the WeightedCrossAttention content logits by wca_alpha —
+  #   logits = wca_alpha * QK^T/sqrt(d) + log(w_j)
+  # Requires use_weighted_cross_attention=true. See train_flow_matching_dit_workspace.yaml.
+  use_alpha: false
+  wca_alpha: 1.0
+
   # Keep only the top-K GMM candidates by weight before encoding.
   # Useful with use_goal_cross_attention=false (self-attention) to bound sequence length.
   # null = use all candidates.
@@ -85,6 +91,8 @@ policy:
     interleave_self_attention: true
     use_goal_cross_attention: ${policy.use_goal_cross_attention}
     use_weighted_cross_attention: ${policy.use_weighted_cross_attention}
+    use_alpha: ${policy.use_alpha}
+    wca_alpha: ${policy.wca_alpha}
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel

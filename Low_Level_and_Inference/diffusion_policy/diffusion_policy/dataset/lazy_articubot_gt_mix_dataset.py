@@ -134,9 +134,18 @@ class LazyArticuBotGtMixDataset(LazyArticuBotDataset):
                 # External GT source: one npz per frame, mirroring the dataset
                 # layout (demo_N/<t>.npz), value shaped (1, K, C).
                 stem = Path(h5path).stem
+                demo_dir = self.gt_goal_npz_dir / stem
+                # Numeric filenames can have gaps (e.g. KITCHEN_D1 demo_70 has
+                # no 62.npz); the h5 was built from the sorted list of existing
+                # files, so h5 timestep t is the t-th sorted stem.
+                frame_stems = sorted((p.stem for p in demo_dir.glob('*.npz')), key=int)
+                if len(frame_stems) != T:
+                    raise RuntimeError(
+                        f"gt_goal npz tree {demo_dir} has {len(frame_stems)} "
+                        f"frames but the h5 episode has {T} — trees out of sync?")
                 goals = np.stack([
-                    np.load(self.gt_goal_npz_dir / stem / f"{t}.npz")[self.gt_goal_npz_key][0]
-                    for t in range(T)
+                    np.load(demo_dir / f"{fs}.npz")[self.gt_goal_npz_key][0]
+                    for fs in frame_stems
                 ]).astype(np.float32)  # (T, K, C)
             else:
                 with h5py.File(h5path, 'r') as f:

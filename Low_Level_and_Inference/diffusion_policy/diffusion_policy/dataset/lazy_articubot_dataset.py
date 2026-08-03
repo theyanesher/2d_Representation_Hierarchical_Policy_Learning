@@ -80,6 +80,11 @@ class LazyArticuBotDataset(BaseImageDataset):
         if self.gmm_pred_npz_dir is not None and not self.gmm_pred_npz_dir.is_dir():
             raise FileNotFoundError(
                 f"gmm_pred_npz_dir does not exist: {self.gmm_pred_npz_dir}")
+        # Per-episode sorted npz stems of the prediction tree, built lazily.
+        # The numeric filenames can have gaps (e.g. KITCHEN_D1 demo_70 has no
+        # 62.npz), and the h5 was built from the SORTED list of existing files
+        # — so h5 timestep t corresponds to the t-th sorted stem, not '<t>.npz'.
+        self._pred_stems_cache = {}
         self.ghost_heatmap_last_channel_only = ghost_heatmap_last_channel_only
         self.add_current_heatmap = add_current_heatmap
 
@@ -515,6 +520,21 @@ class LazyArticuBotDataset(BaseImageDataset):
 
         return np.concatenate([abs_xyz, abs_6d, abs_grip], axis=-1).astype(np.float32)
 
+    def _pred_frame_stems(self, ep: int, ep_len: int):
+        """Sorted npz stems for episode ep of the prediction tree. h5 timestep
+        t maps to stems[t]; filenames are NOT assumed contiguous (see
+        _pred_stems_cache comment in __init__)."""
+        stems = self._pred_stems_cache.get(ep)
+        if stems is None:
+            demo_dir = self.gmm_pred_npz_dir / self._episode_stems[ep]
+            stems = sorted((p.stem for p in demo_dir.glob('*.npz')), key=int)
+            if len(stems) != ep_len:
+                raise RuntimeError(
+                    f"prediction npz tree {demo_dir} has {len(stems)} frames "
+                    f"but the h5 episode has {ep_len} — trees out of sync?")
+            self._pred_stems_cache[ep] = stems
+        return stems
+
     def _fill_gmm_from_pred_npz(self, idx: int, obs_dict: dict):
         """Serve the gmm_goals/gmm_weights obs keys for this sample's obs frames
         from the external per-frame npz tree (gmm_pred_npz_dir/demo_N/<t>.npz).
@@ -537,8 +557,9 @@ class LazyArticuBotDataset(BaseImageDataset):
             ep = int(np.searchsorted(episode_ends, gf, side='right'))
             ep_start = 0 if ep == 0 else int(episode_ends[ep - 1])
             local = gf - ep_start
+            stems = self._pred_frame_stems(ep, int(episode_ends[ep]) - ep_start)
             d = np.load(
-                self.gmm_pred_npz_dir / self._episode_stems[ep] / f"{local}.npz")
+                self.gmm_pred_npz_dir / self._episode_stems[ep] / f"{stems[local]}.npz")
             goals.append(d[f"gmm_all_goals_{sfx}"][0])
             weights.append(d[f"gmm_all_weights_{sfx}"][0])
 

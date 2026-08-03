@@ -1,0 +1,62 @@
+name: push_t_task_goal_gripper
+
+# PushT native resolution is 256x256, single agentview camera (no wrist).
+# There is no depth (all zeros in the source npz) and no camera
+# intrinsics/extrinsics — the h5 files (built with
+# generate_non_gmm_goals_for_low_level.py --no_gmm --push_t) contain neither.
+image_shape: &image_shape [3, 256, 256]
+
+# Native PushT layout (no MimicGen 10-D / 6D-rotation form):
+#   state  = pusher xy (2)
+#   action = ABSOLUTE target xy for the pusher's P-controller (2)
+# action_mode stays the default (hybrid_delta), which reads action/hybrid as-is
+# and range-normalizes it — no 10-D / 6D assumption (same recipe as the RL
+# Bench tasks). Do NOT use action_mode 'absolute'; that path composes 6-D
+# rotations and assumes 10-D.
+shape_meta: &shape_meta
+  obs:
+    cam0_image:            # agentview (only camera)
+      shape: *image_shape
+      type: rgb
+    state:
+      shape: [2]
+      type: low_dim
+    goal_gripper_pts:
+      shape: [4, 3]
+      type: goal_gripper
+  action:
+    shape: [2]
+
+# Kept for config-shape parity with the MimicGen tasks. The workspace does NOT
+# instantiate the env_runner (the call is commented out), so this is dead config
+# and the MimicGen ArticubotImageRunner is never created for PushT.
+env_runner:
+  _target_: diffusion_policy.env_runner.articubot_image_runner.ArticubotImageRunner
+  n_train: 6
+  n_train_vis: 2
+  train_start_seed: 0
+  n_test: 50
+  n_test_vis: 4
+  legacy_test: True
+  test_start_seed: 100000
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  n_envs: null
+  observation_mode: image
+
+dataset:
+  _target_: diffusion_policy.dataset.lazy_articubot_dataset.LazyArticuBotDataset
+  shape_meta: *shape_meta
+  # Overridden by the launch script (task.dataset.data_dir=<staged scratch dir>).
+  data_dir: /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/LOW_LEVEL_GROOT_TRAINING_DATASET/NO_GMM_DATASET/PUSH_T_TASK
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  action_mode: ${action_mode}

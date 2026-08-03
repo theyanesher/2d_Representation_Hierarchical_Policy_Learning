@@ -101,6 +101,15 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         # cross-attention uses the GMM probability weights as a log-prior bias on attention
         # logits: logits += log(w_j). The encoder does NOT append weight as an input feature.
         use_weighted_cross_attention: bool = False,
+        # Ablation (requires use_weighted_cross_attention=True): scale ONLY the
+        # WeightedCrossAttention content logits by wca_alpha —
+        #   logits = wca_alpha · QKᵀ/√d + log(w_j)
+        # Small alpha lets the GMM weights dominate candidate ranking (alpha→0
+        # collapses the WCA to prior-weighted pooling of goal tokens). No other
+        # attention layer is affected. The value is mirrored into
+        # diffusion_model_cfg by the workspace yaml, same as the flags above.
+        use_alpha: bool = False,
+        wca_alpha: float = 1.0,
         # When True (requires use_goal_cross_attention=True), each cross-attn block runs
         # the goal-CA and visual-CA in parallel from the *pre-block* hidden_states,
         # concatenates their outputs and projects back to D via fuse_proj, then adds as
@@ -282,6 +291,13 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.has_gmm = gmm_goals_key is not None and gmm_weights_key is not None
         self.use_goal_cross_attention = use_goal_cross_attention
         self.use_weighted_cross_attention = use_weighted_cross_attention
+        self.use_alpha = use_alpha
+        self.wca_alpha = wca_alpha
+        if use_alpha:
+            assert use_weighted_cross_attention, (
+                "use_alpha=True requires use_weighted_cross_attention=True "
+                "(alpha lives inside WeightedCrossAttention only)"
+            )
         self.use_parallel_cross_attentions = use_parallel_cross_attentions
         self.use_gated_goal_residual = use_gated_goal_residual
         self.use_goal_adaln_modulation = use_goal_adaln_modulation
@@ -303,6 +319,8 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                   f"goals_key={gmm_goals_key!r}, weights_key={gmm_weights_key!r}, "
                   f"use_goal_cross_attention={use_goal_cross_attention}, "
                   f"use_weighted_cross_attention={use_weighted_cross_attention}, "
+                  f"use_alpha={use_alpha}, wca_alpha={wca_alpha}, "
+                  f"gmm_top_k={gmm_top_k}, "
                   f"use_parallel_cross_attentions={use_parallel_cross_attentions}, "
                   f"use_gated_goal_residual={use_gated_goal_residual}, "
                   f"use_goal_adaln_modulation={use_goal_adaln_modulation}, "

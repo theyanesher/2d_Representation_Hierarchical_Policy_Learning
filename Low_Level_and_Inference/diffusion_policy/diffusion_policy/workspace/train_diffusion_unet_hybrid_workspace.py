@@ -125,6 +125,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 )
             print(f"Resuming from checkpoint {lastest_ckpt_path}")
             self.load_checkpoint(path=lastest_ckpt_path)
+            # Mid-run checkpoints are saved before the end-of-epoch
+            # global_step/epoch increments, so advance both counters to start
+            # with the next epoch instead of re-training the saved one.
+            self.global_step += 1
+            self.epoch += 1
+            print(f"Resumed state: next epoch {self.epoch}, global_step {self.global_step}")
 
         # configure dataset
         dataset: BaseImageDataset
@@ -229,6 +235,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         with JsonLogger(log_path) as json_logger:
             print("TOTAL EPOCHSSSSSSSSSSSS", cfg.training.num_epochs)
             for local_epoch_idx in range(cfg.training.num_epochs):
+                # num_epochs is an absolute epoch target: a resumed run
+                # continues from the restored self.epoch and stops there,
+                # rather than running num_epochs additional epochs.
+                if self.epoch >= cfg.training.num_epochs:
+                    break
                 step_log = dict()
                 # Per-epoch accumulator for attention-block grad norms.
                 # Populated by _collect_attn_grad_norms() after each loss.backward().

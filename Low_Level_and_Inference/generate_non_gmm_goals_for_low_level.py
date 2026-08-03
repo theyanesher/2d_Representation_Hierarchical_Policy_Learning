@@ -544,6 +544,74 @@ def process_demo_dir_rl_bench(demo_dir, args):
             f.create_dataset(f'_physical/{cam_idx}_intrinsic', data=obs_bufs[f'{cam_idx}_intrinsic'][0])
 
 
+def process_demo_dir_push_t(demo_dir, args):
+    """PushT analog of process_demo_dir_rl_bench (--no_gmm consolidation only).
+
+    Reads the PushT per-frame npz schema:
+      - single camera: rgb_agentview (1, 256, 256, 3) uint8, channel-last -> cam0.
+        depth_agentview is all zeros and there are no camera
+        intrinsics/extrinsics, so no depth / K / E datasets are written.
+      - state/action: native 2-D pusher xy, written verbatim. state = current
+        pusher position; action = ABSOLUTE target xy for the env's P-controller
+        (verified: state[t+1] tracks toward action[t]). Same recipe as RL Bench:
+        action/delta and action/hybrid hold the same native array and the
+        trainer reads action/hybrid as-is under action_mode 'hybrid_delta'.
+      - goal_gripper_pcd -> goal_gripper_pts; gripper_pcd -> present_gripper_pts;
+        point_cloud passed through.
+
+    Output h5 (per demo):
+      action/delta            (T, 2)            float64  (= native absolute action)
+      action/hybrid           (T, 2)            float32  (= native absolute action)
+      obs/cam0_image          (T, 256, 256, 3)  uint8
+      obs/goal_gripper_pts    (T, 4, 3)         float32
+      obs/point_cloud         (T, N, 3)         float32
+      obs/present_gripper_pts (T, 4, 3)         float32
+      obs/state               (T, 2)            float32
+    """
+    demo_name = os.path.basename(demo_dir)
+    out_h5 = os.path.join(args.no_gmm_output_dir, demo_name + '.h5')
+    if os.path.exists(out_h5):
+        print(f"  {demo_name}: skipping (already exists at {out_h5})")
+        return
+
+    npz_files = sorted(
+        [f for f in os.listdir(demo_dir) if f.endswith('.npz')],
+        key=lambda x: int(os.path.splitext(x)[0]),
+    )
+    T_total = len(npz_files)
+    T = T_total if args.max_timesteps is None else min(T_total, args.max_timesteps)
+    npz_files = npz_files[:T]
+
+    obs_bufs = {
+        'cam0_image':          [],
+        'goal_gripper_pts':    [],
+        'point_cloud':         [],
+        'present_gripper_pts': [],
+        'state':               [],
+    }
+    act_buf = []
+
+    for fname in npz_files:
+        data = np.load(os.path.join(demo_dir, fname), allow_pickle=True)
+        obs_bufs['cam0_image'].append(data['rgb_agentview'][0].astype(np.uint8))
+        obs_bufs['goal_gripper_pts'].append(data['goal_gripper_pcd'][0].astype(np.float32))
+        obs_bufs['point_cloud'].append(data['point_cloud'][0].astype(np.float32))
+        obs_bufs['present_gripper_pts'].append(data['gripper_pcd'][0].astype(np.float32))
+        obs_bufs['state'].append(data['state'][0].astype(np.float32))   # (2,)
+        act_buf.append(data['action'][0].astype(np.float32))            # (2,)
+
+    act_arr = np.stack(act_buf, axis=0)   # (T, 2) float32
+
+    with h5py.File(out_h5, 'w') as f:
+        # Native 2-D absolute action written verbatim. delta/hybrid are the same
+        # array (no MimicGen hybrid-delta form); the trainer reads action/hybrid.
+        f.create_dataset('action/delta',  data=act_arr.astype(np.float64))
+        f.create_dataset('action/hybrid', data=act_arr.astype(np.float32))
+
+        for key, buf in sorted(obs_bufs.items()):
+            f.create_dataset(f'obs/{key}', data=np.stack(buf, axis=0))
+
+
 # Alternative goal sources produced by the RDP keypoint pipeline. Each per-frame
 # npz in the EXTRA_KEYPOINTS tree holds goal_gripper_pcd_<source> (1, 4, 3).
 EXTRA_GOAL_SOURCES = ['rdp', 'rdp_gripper', 'random', 'fixed_interval']
@@ -712,6 +780,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_gmm',                action='store_true',    help='Skip GMM inference; consolidate npz files into h5 only (npz format only)')
     parser.add_argument('--no_gmm_output_dir',     type=str, default=None, help='Output directory for h5 files when --no_gmm is used (required with --no_gmm)')
     parser.add_argument('--rl_bench',              action='store_true',    help='RL Bench npz variant: 4 cameras (front/left_shoulder/right_shoulder/wrist) + native 8-D state/action. Requires --no_gmm.')
+    parser.add_argument('--push_t',                action='store_true',    help='PushT npz variant: single agentview camera, native 2-D state/action (absolute target xy). Depth is all zeros and there are no camera intrinsics/extrinsics, so none are written. Requires --no_gmm.')
     parser.add_argument('--inject_extra_goals',    action='store_true',    help='Backfill obs/goal_gripper_pts_{rdp,rdp_gripper,random,fixed_interval} into existing h5 files in --dataset_dir from the --extra_goals_dir npz tree, then exit. Idempotent.')
     parser.add_argument('--extra_goals_dir',       type=str, default=None, help='EXTRA_KEYPOINTS npz tree (demo_N/t.npz with goal_gripper_pcd_<source> keys). Required with --inject_extra_goals.')
     args = parser.parse_args()
@@ -728,6 +797,10 @@ if __name__ == '__main__':
         parser.error("--no_gmm_output_dir can only be used together with --no_gmm")
     if args.no_gmm and not args.no_gmm_output_dir:
         parser.error("--no_gmm requires --no_gmm_output_dir")
+    if args.push_t and not args.no_gmm:
+        parser.error("--push_t requires --no_gmm")
+    if args.push_t and args.rl_bench:
+        parser.error("--push_t and --rl_bench are mutually exclusive")
     if args.rl_bench and not args.no_gmm:
         parser.error("--rl_bench is an RL Bench variant of the --no_gmm consolidation; pass --no_gmm too")
 
@@ -773,6 +846,10 @@ if __name__ == '__main__':
             if args.rl_bench:
                 process_demo_dir_rl_bench(demo_path, args)
                 print(f"  {demo_name}: consolidated to h5 (rl_bench, no GMM)")
+                continue
+            if args.push_t:
+                process_demo_dir_push_t(demo_path, args)
+                print(f"  {demo_name}: consolidated to h5 (push_t, no GMM)")
                 continue
             goals, all_goals, all_weights = process_demo_dir(demo_path, goal_policy, cat_embedding, args)
             if not args.no_gmm:

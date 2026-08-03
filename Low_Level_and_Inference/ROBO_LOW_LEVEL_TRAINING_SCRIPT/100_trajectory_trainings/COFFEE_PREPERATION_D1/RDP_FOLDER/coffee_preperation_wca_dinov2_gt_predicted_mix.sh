@@ -46,6 +46,16 @@ PRED_SRC_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_
 GT_SRC_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/EXTRA_KEYPOINTS/COFFEE_PREPERATION_D1"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
+# --- resume from checkpoint ----------------------------------------------
+# Resume the full training state (model + EMA + optimizer + epoch counter)
+# from this checkpoint via training.resume=true + training.resume_ckpt_path.
+# Default: epoch_70.ckpt from the 2026.07.08 run — the last VALID save of that
+# run (epoch_75/epoch_80 are 0-byte and latest.ckpt is truncated; the job hit
+# quota/walltime mid-save). Override at submission time, or set RESUME_CKPT=""
+# to train from scratch:
+#   RESUME_CKPT="" sbatch this_script.sh
+RESUME_CKPT="${RESUME_CKPT:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.07.08/04.38.43_groot_GMM_WCA_100demo_dinov2_Coffee_Preperation_D1_RDP_GTMIX_p0.5_coffee_preperation_gmm_goal_gt_mix/checkpoints/epoch_70.ckpt}"
+
 # Pick a node-local scratch dir. Always prefer the per-job isolated subdir
 # (/local/slurm-<jobid>/local/) so SLURM auto-cleans on job end and concurrent
 # jobs on the same node never collide.
@@ -118,6 +128,20 @@ fi
 # --- train ---------------------------------------------------------------
 cd "${REPO_DIR}"
 
+# Build hydra resume overrides only if a checkpoint was requested. The '+' on
+# resume_ckpt_path is required because that key isn't in the base config.
+RESUME_ARGS=()
+if [ -n "${RESUME_CKPT}" ]; then
+    echo "[resume] resuming training from ${RESUME_CKPT}"
+    if [ ! -f "${RESUME_CKPT}" ]; then
+        echo "[resume] ERROR: checkpoint not found: ${RESUME_CKPT}" >&2
+        exit 1
+    fi
+    RESUME_ARGS=(training.resume=true "+training.resume_ckpt_path=${RESUME_CKPT}")
+else
+    echo "[resume] RESUME_CKPT empty -> training from scratch"
+fi
+
 USE_TF=0 \
 GIT_LFS_SKIP_SMUDGE=1 \
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
@@ -143,4 +167,5 @@ pixi run python diffusion_policy/train.py \
     name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_Preperation_D1_RDP_GTMIX_p${GT_MIX_P} \
     training.checkpoint_every=5 \
     dataloader.batch_size=128 \
-    dataloader.num_workers=16
+    dataloader.num_workers=16 \
+    ${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"}
