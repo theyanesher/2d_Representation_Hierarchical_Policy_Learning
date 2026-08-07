@@ -4,7 +4,9 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # 12-hour budget
+#SBATCH -t 4:00:00 # resume budget: 14 remaining epochs (86..99) at ~7.8
+                   # min/epoch (orig run: 86 epochs in ~11.2h) ~= 2h + margin.
+                   # Use 12:00:00 for a fresh run (RESUME_CKPT="").
 #SBATCH --job-name coffee-prep-d1-goal-gripper-rdp-100demo-dinov2
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/100_trajectory_trainings/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/100_trajectory_trainings/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.err
@@ -42,11 +44,19 @@ NO_GMM_H5_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
 # --- resume from checkpoint ----------------------------------------------
-# Empty by default: a fresh goal-source variant should NOT resume from a
-# default-goal checkpoint. Override at submission time if resuming a previous
-# run OF THIS SAME VARIANT:
-#   RESUME_CKPT=/path/to/epoch_X.ckpt sbatch this_script.sh
-RESUME_CKPT="${RESUME_CKPT:-}"
+# Default: epoch_85.ckpt of the 2026.07.05 RDP goal_gripper run (that job's
+# 12h limit expired at epoch 85 of 100). training.num_epochs=100 below is an
+# ABSOLUTE stop — the resumed run trains epochs 86..99 and terminates; it can
+# NOT run past 100. Set RESUME_CKPT="" (and -t 12h) for a fresh run:
+#   RESUME_CKPT="" sbatch this_script.sh
+RESUME_CKPT="${RESUME_CKPT:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.07.05/03.43.02_coffee_preperation_D1_goal_gripper_rdp_100demo_dinov2_DIT_coffee_preperation_goal_gripper/checkpoints/epoch_85.ckpt}"
+
+# Tag the W&B run so the resume leg is distinguishable from the original.
+if [ -n "${RESUME_CKPT}" ]; then
+    RESUME_TAG="_resumeE$(basename "${RESUME_CKPT}" .ckpt | grep -oE '[0-9]+' || echo X)"
+else
+    RESUME_TAG=""
+fi
 
 # --- generate npz -> h5 if missing ---------------------------------------
 # Conversion is per-demo idempotent. We trigger it only if the NO_GMM h5 dir
@@ -181,9 +191,10 @@ pixi run python diffusion_policy/train.py \
     +task.dataset.goal_source=${GOAL_SOURCE} \
     visual_encoder=dinov2 \
     logging.project=mimicgen_tasks \
-    logging.name=coffee_preperation_D1_goal_gripper_${GOAL_SOURCE}_${NUM_DEMOS}demo_dinov2_DIT \
-    name=coffee_preperation_D1_goal_gripper_${GOAL_SOURCE}_${NUM_DEMOS}demo_dinov2_DIT \
+    logging.name=coffee_preperation_D1_goal_gripper_${GOAL_SOURCE}_${NUM_DEMOS}demo_dinov2_DIT${RESUME_TAG} \
+    name=coffee_preperation_D1_goal_gripper_${GOAL_SOURCE}_${NUM_DEMOS}demo_dinov2_DIT${RESUME_TAG} \
     dataloader.batch_size=128 \
     dataloader.num_workers=16 \
     training.checkpoint_every=5 \
+    training.num_epochs=100 \
     ${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"}

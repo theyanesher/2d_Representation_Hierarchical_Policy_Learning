@@ -4,50 +4,39 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 9:00:00 # resume budget: 75 remaining epochs at ~5.8 min/epoch
-                   # (125 epochs took 12h) ~= 7.2h + staging/margin. Use ~18h
-                   # for a fresh 200-epoch run (RESUME_CKPT="").
-#SBATCH --job-name push-t-wca-alpha0.3-ablation
+#SBATCH -t 20:00:00 # fresh 200-epoch budget: ~5.8 min/epoch on H100
+                    # (alpha0.1/0.3 runs: 125 epochs in 12h) ~= 19.2h.
+#SBATCH --job-name push-t-wca-alpha0.01-ablation
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# ALPHA ABLATION on PushT_Task GOAL_SWAP (DINOv2, serial WCA, GT-mix) — ALPHA=0.3 variant.
+# ALPHA ABLATION on PushT_Task GOAL_SWAP (DINOv2, serial WCA, GT-mix) — ALPHA=0.01 variant.
 #
-# Same treatment as the KITCHEN_D1 alpha ablation, applied to the PushT recipe.
-# Compared to the top-6 GT-mix baseline (pusht_wca_dinov2_gt_predicted_mix.sh),
-# this run:
-#   1. passes many more GMM candidates to the policy (gmm_top_k=TOP_K, default
-#      2500 of the 4500 anchors). On PushT GOAL_SWAP this matters even more than
-#      on Kitchen: the predicted GMM is very diffuse — top-6 carries only ~6.7%
-#      mean (1.6% min) of the probability mass, so the old baseline discarded
-#      ~93% of the posterior on average.
-#   2. scales ONLY the WeightedCrossAttention content logits by ALPHA:
-#          logits = ALPHA * QK^T/sqrt(d) + log(w_j)
-#      Small ALPHA makes the high-level GMM weights dominate candidate ranking.
-#      NOTE: because the PushT weights are so flat, the log-weight prior is weak
-#      here — expect alpha to bite less than on Kitchen at the same value.
-#      No other attention layer (visual CA / self-attn) is touched.
+# Same treatment as pushT_wca_dinov2_alpha0.1_ablation.sh, one knob changed:
+# ALPHA defaults to 0.01. Per the interpretation anchors (content-logit
+# spread ~10): 0.3 ~ effective top-6, 0.1 ~ top-1..3, <=0.01 ~ PRIOR-ONLY —
+# at this alpha the WCA content logits are essentially muted and attention
+# follows the high-level GMM weights (log w) almost exactly, i.e. this run
+# probes "trust the high-level prior" as a policy.
+#
+#   logits = ALPHA * QK^T/sqrt(d) + log(w_j)
 #
 # Everything else matches the GT-mix baseline: task push_t_task_gmm_goal_gt_mix
 # with gt_mix_p=GT_MIX_P (default 0.5), ALL demos, single agentview camera,
 # 200 epochs, checkpoint every 5, optional RESUME_CKPT.
 #
 # Launch matrix (env overrides):
-#   sbatch this_script.sh                       # top-2500, alpha=0.3, gtmix 0.5
-#   ALPHA=0.1  sbatch this_script.sh            # top-2500, alpha=0.1
-#   USE_ALPHA=false sbatch this_script.sh       # top-2500 CONTROL (original
-#                                               #   formula, no alpha) — needed to
-#                                               #   separate "more goals" from "alpha"
-#   TOP_K=6 USE_ALPHA=false sbatch this_script.sh   # reproduces the old baseline
+#   sbatch this_script.sh                       # top-2500, alpha=0.01, gtmix 0.5
+#   ALPHA=0.001 sbatch this_script.sh           # top-2500, alpha=0.001
+#   USE_ALPHA=false sbatch this_script.sh       # top-2500 CONTROL (no alpha)
 #   GT_MIX_P=0.3 sbatch this_script.sh          # different GT-mix probability
 #
 # MEMORY NOTE: goal tokens + per-block WCA K/V activations scale linearly in
 # TOP_K * batch_size (~25 GB extra fp32 at TOP_K=2500 / batch 64, ~50 GB at
 # batch 128 — borderline on an 80 GB H100 even with PushT's single camera), so
-# BATCH_SIZE defaults to 64. If you change batch relative to the batch-128
-# baseline, consider re-running the baseline at the matched batch for fairness.
+# BATCH_SIZE defaults to 64. Will NOT fit a V100-32 at TOP_K=2500.
 
 set -euo pipefail
 set -x
@@ -55,7 +44,7 @@ set -x
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # --- ablation knobs -------------------------------------------------------
-ALPHA="${ALPHA:-0.3}"          # wca_alpha value (used only when USE_ALPHA=true)
+ALPHA="${ALPHA:-0.01}"         # wca_alpha value (used only when USE_ALPHA=true)
 USE_ALPHA="${USE_ALPHA:-true}" # false => original WCA formula (alpha off)
 TOP_K="${TOP_K:-2500}"         # gmm_top_k candidates passed to the policy
 BATCH_SIZE="${BATCH_SIZE:-64}" # see MEMORY NOTE above
@@ -90,16 +79,12 @@ echo "[ablation] run name: ${RUN_NAME}"
 
 # --- resume from checkpoint ----------------------------------------------
 # Resume the full training state (model + EMA + optimizer + epoch counter).
-# Default is empty (train from scratch). Override at submission time:
+# num_epochs is an ABSOLUTE target (resumed runs stop at 200, not +200).
+# Default is empty (fresh run). Override at submission time:
 #   RESUME_CKPT=/path/to/epoch_N.ckpt sbatch this_script.sh
-# Default: epoch_125.ckpt — the last save before the original run (job
-# 42873186's sibling) TIMEOUTed at its 12h limit. num_epochs is an ABSOLUTE
-# target (resumed run stops at 200, not +200). Set RESUME_CKPT="" (and
-# -t ~18h) for a fresh run:
-#   RESUME_CKPT="" sbatch this_script.sh
-RESUME_CKPT="${RESUME_CKPT:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.07.30/23.24.17_groot_GMM_WCA_206demo_dinov2_PushT_Task_GOALSWAP_GTMIX_p0.5_top2500_alpha0.3_bs64_push_t_task_gmm_goal_gt_mix/checkpoints/epoch_125.ckpt}"
+RESUME_CKPT="${RESUME_CKPT:-}"
 
-# Tag the W&B run so the resume leg is distinguishable from the original.
+# Tag the W&B run so a resume leg is distinguishable from the original.
 if [ -n "${RESUME_CKPT}" ]; then
     RESUME_TAG="_resumeE$(basename "${RESUME_CKPT}" .ckpt | grep -oE '[0-9]+' || echo X)"
 else

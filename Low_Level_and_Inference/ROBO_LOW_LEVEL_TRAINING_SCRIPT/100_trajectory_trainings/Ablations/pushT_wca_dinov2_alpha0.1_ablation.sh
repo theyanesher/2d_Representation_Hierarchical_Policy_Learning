@@ -4,7 +4,9 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # 12-hour budget
+#SBATCH -t 9:00:00 # resume budget: 75 remaining epochs at ~5.8 min/epoch
+                   # (125 epochs took 12h) ~= 7.2h + staging/margin. Use ~18h
+                   # for a fresh 200-epoch run (RESUME_CKPT="").
 #SBATCH --job-name push-t-wca-alpha0.1-ablation
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
@@ -88,9 +90,23 @@ echo "[ablation] run name: ${RUN_NAME}"
 
 # --- resume from checkpoint ----------------------------------------------
 # Resume the full training state (model + EMA + optimizer + epoch counter).
-# Default is empty (train from scratch). Override at submission time:
-#   RESUME_CKPT=/path/to/epoch_N.ckpt sbatch this_script.sh
-RESUME_CKPT="${RESUME_CKPT:-}"
+# Default: epoch_125.ckpt — the last save before the original run (job
+# 42873559) TIMEOUTed at its 12h limit. num_epochs is an ABSOLUTE target
+# (resumed run stops at 200, not +200) and the checkpoint restores
+# _output_dir, so new checkpoints land in the original
+# outputs/2026.07.30/23.24.17_* folder. Set RESUME_CKPT="" (and -t ~18h)
+# for a fresh run:
+#   RESUME_CKPT="" sbatch this_script.sh
+RESUME_CKPT="${RESUME_CKPT:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.07.30/23.24.17_groot_GMM_WCA_206demo_dinov2_PushT_Task_GOALSWAP_GTMIX_p0.5_top2500_alpha0.1_bs64_push_t_task_gmm_goal_gt_mix/checkpoints/epoch_125.ckpt}"
+
+# Tag the W&B run so the resume leg is distinguishable from the original.
+if [ -n "${RESUME_CKPT}" ]; then
+    RESUME_TAG="_resumeE$(basename "${RESUME_CKPT}" .ckpt | grep -oE '[0-9]+' || echo X)"
+else
+    RESUME_TAG=""
+fi
+RUN_NAME="${RUN_NAME}${RESUME_TAG}"
+echo "[ablation] final run name: ${RUN_NAME}"
 
 # Pick a node-local scratch dir. Always prefer the per-job isolated subdir
 # (/local/slurm-<jobid>/local/) so SLURM auto-cleans on job end and concurrent

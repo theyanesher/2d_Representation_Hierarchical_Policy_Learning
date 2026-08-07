@@ -5,29 +5,30 @@
                               # rejects it ("Requested node configuration is
                               # not available"); CPUs come bundled 5-per-GPU.
 #SBATCH --gpus=v100-32:1      # 1x V100-32GB (32GB VRAM: fine for top-6, NOT top2500)
-#SBATCH -t 24:00:00           # H100 bs128 did 200 epochs in 5h19m; V100 bs64 est.
-                              # 15-20h. Short limit = better backfill odds; if it
-                              # times out, relaunch with RESUME_CKPT=...
-#SBATCH --job-name push-t-wca-sigmoid-gtmix-v100
+#SBATCH -t 48:00:00           # ~94k steps (943/epoch x 100) AND 2 cameras (vs
+                              # PushT's 1) -> ~2-2.5x the PushT V100 wall time,
+                              # est. 20-35h. If it times out anyway, relaunch
+                              # with RESUME_CKPT=...
+#SBATCH --job-name kitchen-d1-wca-sigmoid-gtmix-v100
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# HIGH-LEVEL ABLATION low-level run on PushT_Task: SIGMOID-SWAP predictions.
+# HIGH-LEVEL ABLATION low-level run on KITCHEN_D1: SIGMOID-SWAP predictions.
 #
-# Identical recipe to ../../PUSH_T_TASK/pusht_wca_dinov2_gt_predicted_mix.sh
-# (task push_t_task_gmm_goal_gt_mix, ALL 206 demos, gt_mix_p=0.5 with GT goals
-# from the h5's own goal_gripper_pts — the STANDARD goals the ablation
-# high-level was trained on — gmm_top_k=6, 200 epochs) EXCEPT:
+# Same recipe as the kitchen WCA baseline (task kitchen_D1_gmm_goal_gt_mix,
+# first 100 demos, gt_mix_p=0.5 with GT goals from the h5's own
+# goal_gripper_pts — the STANDARD goals the ablation high-level was trained
+# on — gmm_top_k=6, 100 epochs) EXCEPT:
 #   1. The predicted GMM comes from the SIGMOID-SWAP ablation high-level
-#      (goal swap with the smooth sigmoid profile, tau=1.0, instead of the
-#      linear/triangular window) via the parallel npz tree, using the same
-#      gmm_pred_npz_dir/key_suffix override mechanism as the coffee RDP
-#      gt-mix run. The h5's embedded (GOAL_SWAP) GMM keys are never loaded.
+#      (goal swap with the smooth sigmoid profile, tau=1.25) via the
+#      parallel npz tree, using the same gmm_pred_npz_dir/key_suffix override
+#      mechanism as the coffee RDP gt-mix run. The h5's embedded GMM keys are
+#      never loaded.
 #   2. Runs on a GPU-shared V100-32 (ROBO down), so BATCH_SIZE defaults to 64
-#      instead of the baseline's 128 (DINOv2+DiT at bs128 will not fit 32GB),
-#      and dataloader workers drop to 4 (GPU-shared gives 5 CPUs/GPU).
+#      (DINOv2+DiT at bs128 will not fit 32GB) and dataloader workers drop
+#      to 4 (GPU-shared gives 5 CPUs/GPU).
 #
 # The npz prediction tree must be fully generated first
 # (ROBO_GMM_DATASET_GEN_SCRIPT/ABLATION/...) — staging fails fast otherwise.
@@ -48,28 +49,22 @@ SUFFIX="sigmoid"
 GT_MIX_P="${GT_MIX_P:-0.5}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
+NUM_DEMOS="${NUM_DEMOS:-100}"  # first 100 demos: matches all kitchen low-level runs
 echo "[gt_mix] gt_mix_p=${GT_MIX_P}  (P of using ground-truth goals per sample)"
+echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
+
+# NOTE: the completed 2026.08.02 run used the untagged name (no _tau1.25).
+RUN_NAME="groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Kitchen_D1_SIGMOID_tau1.25_GTMIX_p${GT_MIX_P}_top6_bs${BATCH_SIZE}"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="${GMM_H5_DIR:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/PUSH_T_TASK_GOAL_SWAP}"
-PRED_SRC_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/ABLATIONS/SIGMOID_EXPERIMENTS_GMM_PREDICTIONS/PushT"
+SRC_DATA_DIR="${GMM_H5_DIR:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/KITCHEN_D1}"
+PRED_SRC_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/ABLATIONS/SIGMOID_EXPERIMENTS_GMM_PREDICTIONS/KITCHEN_D1"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
-
-# --- demo selection (default: ALL h5 files in the source dir) --------------
-src_h5_count=$(find "${SRC_DATA_DIR}" -maxdepth 1 -name 'demo_*.h5' 2>/dev/null | wc -l)
-if [ "${src_h5_count}" -eq 0 ]; then
-    echo "[stage] ERROR: no demo_*.h5 in ${SRC_DATA_DIR}." >&2
-    exit 1
-fi
-NUM_DEMOS="${NUM_DEMOS:-${src_h5_count}}"
-echo "[demo_limit] using ${NUM_DEMOS} of ${src_h5_count} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
-
-RUN_NAME="groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_PushT_Task_SIGMOID_GTMIX_p${GT_MIX_P}_top6_bs${BATCH_SIZE}"
 
 # --- resume from checkpoint ----------------------------------------------
 # Resume the full training state (model + EMA + optimizer + epoch counter).
 # num_epochs is an ABSOLUTE target: a resumed run continues from the restored
-# epoch and still stops at 200. Default empty (train from scratch):
+# epoch and still stops at 100. Default empty (train from scratch):
 #   RESUME_CKPT=/path/to/epoch_N.ckpt sbatch this_script.sh
 RESUME_CKPT="${RESUME_CKPT:-}"
 
@@ -84,8 +79,8 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/PushT_Task_GoalSwap_Low_Level_${NUM_DEMOS}demo"
-DEST_PRED_DIR="${SCRATCH_ROOT}/PushT_GMM_PRED_${SUFFIX}_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/KITCHEN_D1_Low_Level_${NUM_DEMOS}demo"
+DEST_PRED_DIR="${SCRATCH_ROOT}/KITCHEN_D1_GMM_PRED_${SUFFIX}_${NUM_DEMOS}demo"
 
 # --- stage dataset (h5 files + prediction npz tree) ------------------------
 THREADS="${RSYNC_THREADS:-8}"
@@ -157,7 +152,7 @@ PYTHONNOUSERSITE=1 \
 PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_workspace.yaml \
-    task=MimicGen_Tasks/push_t_task_gmm_goal_gt_mix \
+    task=MimicGen_Tasks/kitchen_D1_gmm_goal_gt_mix \
     task.dataset.data_dir="${DEST_DATA_DIR}" \
     task.dataset.gt_mix_p="${GT_MIX_P}" \
     +task.dataset.gmm_pred_npz_dir="${DEST_PRED_DIR}" \
@@ -169,8 +164,8 @@ pixi run python diffusion_policy/train.py \
     logging.project=MimicGen_GMM_Low_Level_Policy \
     logging.name="${RUN_NAME}" \
     name="${RUN_NAME}" \
-    training.checkpoint_every=5 \
-    training.num_epochs=200 \
+    training.checkpoint_every=10 \
+    training.num_epochs=100 \
     dataloader.batch_size="${BATCH_SIZE}" \
     dataloader.num_workers="${NUM_WORKERS}" \
     ${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"}

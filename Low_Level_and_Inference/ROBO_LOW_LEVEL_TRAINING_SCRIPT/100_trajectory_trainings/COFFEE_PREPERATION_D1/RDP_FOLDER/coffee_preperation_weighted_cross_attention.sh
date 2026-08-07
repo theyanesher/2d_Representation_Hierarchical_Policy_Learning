@@ -4,7 +4,9 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 12:00:00 # 12-hour budget
+#SBATCH -t 4:00:00 # resume budget: 14 remaining epochs (86..99) at ~7.9
+                   # min/epoch (orig run: 86 epochs in ~11.5h) ~= 2h + margin.
+                   # Use 12:00:00 for a fresh run (RESUME_CKPT="").
 #SBATCH --job-name coffee-prep-d1-wca-100demo-dinov2-rdp
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/100_trajectory_trainings/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/100_trajectory_trainings/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.err
@@ -101,6 +103,29 @@ if [ "${pred_count}" -ne "${NUM_DEMOS}" ]; then
     exit 1
 fi
 
+# --- resume from checkpoint ----------------------------------------------
+# Default: epoch_85.ckpt of the 2026.07.08 run (stopped at epoch 85 of 100
+# during the July-8 quota/walltime crunch). training.num_epochs=100 below is
+# an ABSOLUTE stop — the resumed run trains epochs 86..99 and terminates; it
+# can NOT run past 100. Set RESUME_CKPT="" (and -t 12h) for a fresh run:
+#   RESUME_CKPT="" sbatch this_script.sh
+RESUME_CKPT="${RESUME_CKPT:-/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/outputs/2026.07.08/02.42.29_groot_GMM_WCA_100demo_dinov2_Coffee_Preperation_D1_RDP_coffee_preperation_gmm_goal/checkpoints/epoch_85.ckpt}"
+
+# Tag the W&B run so the resume leg is distinguishable from the original.
+RESUME_ARGS=()
+RESUME_TAG=""
+if [ -n "${RESUME_CKPT}" ]; then
+    echo "[resume] resuming training from ${RESUME_CKPT}"
+    if [ ! -f "${RESUME_CKPT}" ]; then
+        echo "[resume] ERROR: checkpoint not found: ${RESUME_CKPT}" >&2
+        exit 1
+    fi
+    RESUME_ARGS=(training.resume=true "+training.resume_ckpt_path=${RESUME_CKPT}")
+    RESUME_TAG="_resumeE$(basename "${RESUME_CKPT}" .ckpt | grep -oE '[0-9]+' || echo X)"
+else
+    echo "[resume] RESUME_CKPT empty -> training from scratch"
+fi
+
 # --- train ---------------------------------------------------------------
 cd "${REPO_DIR}"
 
@@ -122,8 +147,10 @@ pixi run python diffusion_policy/train.py \
     policy.use_weighted_cross_attention=true \
     policy.gmm_top_k=6 \
     logging.project=MimicGen_GMM_Low_Level_Policy \
-    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_Preperation_D1_RDP \
-    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_Preperation_D1_RDP \
+    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_Preperation_D1_RDP${RESUME_TAG} \
+    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Coffee_Preperation_D1_RDP${RESUME_TAG} \
     training.checkpoint_every=5 \
+    training.num_epochs=100 \
     dataloader.batch_size=128 \
-    dataloader.num_workers=16
+    dataloader.num_workers=16 \
+    ${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"}
