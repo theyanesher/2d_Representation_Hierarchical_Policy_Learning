@@ -1507,33 +1507,35 @@ class GoalRegressionModule(pl.LightningModule):
                 padding_mask,
             )
 
-            # Calculate pixel metrics
-            intrinsics = batch["intrinsics"]
-            H, W = batch["rgbs"].shape[2:4]
+            # Calculate pixel metrics — only when the dataset provides camera
+            # parameters (camera-less datasets, e.g. PushT, omit "intrinsics").
+            if "intrinsics" in batch:
+                intrinsics = batch["intrinsics"]
+                H, W = batch["rgbs"].shape[2:4]
 
-            # Project GT to 2D (take first point only)
-            gt_2d = (
-                self.project_3d_to_2d(gt[:, :1, :], intrinsics, (H, W))
-                .squeeze(1)
-                .long()
-            )  # (B, 2)
+                # Project GT to 2D (take first point only)
+                gt_2d = (
+                    self.project_3d_to_2d(gt[:, :1, :], intrinsics, (H, W))
+                    .squeeze(1)
+                    .long()
+                )  # (B, 2)
 
-            # Project all predictions to 2D (take first point only)
-            all_pred_3d = (
-                init[:, None, :, :] + pred_dict[self.prediction_type]["all_pred"]
-            )  # (B, N, 4, 3)
-            all_pred_2d = (
-                self.project_3d_to_2d(all_pred_3d[:, :, :1, :], intrinsics, (H, W))
-                .squeeze(2)
-                .long()
-            )  # (B, N, 2)
+                # Project all predictions to 2D (take first point only)
+                all_pred_3d = (
+                    init[:, None, :, :] + pred_dict[self.prediction_type]["all_pred"]
+                )  # (B, N, 4, 3)
+                all_pred_2d = (
+                    self.project_3d_to_2d(all_pred_3d[:, :, :1, :], intrinsics, (H, W))
+                    .squeeze(2)
+                    .long()
+                )  # (B, N, 2)
 
-            pred_dict = calc_pix_metrics(pred_dict, gt_2d, all_pred_2d, (H, W))
+                pred_dict = calc_pix_metrics(pred_dict, gt_2d, all_pred_2d, (H, W))
             train_metrics.update(pred_dict)
 
-            if self.trainer.is_global_zero:
+            if self.trainer.is_global_zero and "intrinsics" in batch:
                 ####################################################
-                # logging visualizations
+                # logging visualizations (needs camera projection)
                 ####################################################
                 self.log_viz_to_wandb(batch, pred_dict, weighted_displacement, "train")
 
@@ -1548,25 +1550,22 @@ class GoalRegressionModule(pl.LightningModule):
         loss = torch.stack([x["loss"] for x in self.train_outputs]).mean()
         log_dictionary["train/loss"] = loss
 
-        def mean_metric(metric_name):
-            return torch.stack(
-                [x[metric_name].mean() for x in self.train_outputs if metric_name in x]
-            ).mean()
-
-        if any("rmse" in x for x in self.train_outputs):
-            log_dictionary["train/rmse"] = mean_metric("rmse")
-            log_dictionary["train/wta_rmse"] = mean_metric("wta_rmse")
-            log_dictionary["train/chamfer_dist"] = mean_metric("chamfer_dist")
-            log_dictionary["train/wta_chamfer_dist"] = mean_metric("wta_chamfer_dist")
-            log_dictionary["train/sample_std"] = mean_metric("sample_std")
-            log_dictionary["train/pix_dist"] = mean_metric("pix_dist")
-            log_dictionary["train/wta_pix_dist"] = mean_metric("wta_pix_dist")
-            log_dictionary["train/normalized_pix_dist"] = mean_metric(
-                "normalized_pix_dist"
-            )
-            log_dictionary["train/wta_normalized_pix_dist"] = mean_metric(
-                "wta_normalized_pix_dist"
-            )
+        # Log each metric only if at least one step produced it. Pixel metrics
+        # (pix_dist etc.) are absent for camera-less datasets (e.g. PushT).
+        for metric_name in [
+            "rmse",
+            "wta_rmse",
+            "chamfer_dist",
+            "wta_chamfer_dist",
+            "sample_std",
+            "pix_dist",
+            "wta_pix_dist",
+            "normalized_pix_dist",
+            "wta_normalized_pix_dist",
+        ]:
+            vals = [x[metric_name].mean() for x in self.train_outputs if metric_name in x]
+            if vals:
+                log_dictionary[f"train/{metric_name}"] = torch.stack(vals).mean()
 
         ####################################################
         # logging training metrics
@@ -1625,34 +1624,37 @@ class GoalRegressionModule(pl.LightningModule):
             padding_mask,
         )
 
-        # Calculate pixel metrics
-        intrinsics = batch["intrinsics"]
-        H, W = batch["rgbs"].shape[2:4]
+        # Calculate pixel metrics — only when the dataset provides camera
+        # parameters (camera-less datasets, e.g. PushT, omit "intrinsics").
+        if "intrinsics" in batch:
+            intrinsics = batch["intrinsics"]
+            H, W = batch["rgbs"].shape[2:4]
 
-        # Project GT to 2D (take first point only)
-        gt_2d = (
-            self.project_3d_to_2d(gt[:, :1, :], intrinsics, (H, W)).squeeze(1).long()
-        )  # (B, 2)
+            # Project GT to 2D (take first point only)
+            gt_2d = (
+                self.project_3d_to_2d(gt[:, :1, :], intrinsics, (H, W)).squeeze(1).long()
+            )  # (B, 2)
 
-        # Project all predictions to 2D (take first point only)
-        all_pred_3d = (
-            init[:, None, :, :] + pred_dict[self.prediction_type]["all_pred"]
-        )  # (B, N, 4, 3)
-        all_pred_2d = (
-            self.project_3d_to_2d(all_pred_3d[:, :, :1, :], intrinsics, (H, W))
-            .squeeze(2)
-            .long()
-        )  # (B, N, 2)
+            # Project all predictions to 2D (take first point only)
+            all_pred_3d = (
+                init[:, None, :, :] + pred_dict[self.prediction_type]["all_pred"]
+            )  # (B, N, 4, 3)
+            all_pred_2d = (
+                self.project_3d_to_2d(all_pred_3d[:, :, :1, :], intrinsics, (H, W))
+                .squeeze(2)
+                .long()
+            )  # (B, N, 2)
 
-        pred_dict = calc_pix_metrics(pred_dict, gt_2d, all_pred_2d, (H, W))
+            pred_dict = calc_pix_metrics(pred_dict, gt_2d, all_pred_2d, (H, W))
         self.val_outputs[val_tag].append(pred_dict)
 
         ####################################################
-        # logging visualizations
+        # logging visualizations (needs camera projection)
         ####################################################
         if (
             batch_idx == self.random_val_viz_idx[val_tag]
             and self.trainer.is_global_zero
+            and "intrinsics" in batch
         ):
             self.log_viz_to_wandb(
                 batch, pred_dict, weighted_displacement, f"val_{val_tag}"
@@ -1681,7 +1683,12 @@ class GoalRegressionModule(pl.LightningModule):
                 continue
 
             for metric in all_metrics.keys():
-                values = torch.stack([x[metric].mean() for x in val_outputs]).mean()
+                # Pixel metrics are absent for camera-less datasets (e.g.
+                # PushT) — skip any metric this tag's outputs never produced.
+                vals = [x[metric].mean() for x in val_outputs if metric in x]
+                if not vals:
+                    continue
+                values = torch.stack(vals).mean()
                 tag_metrics[metric] = values
                 all_metrics[metric].append(values)
 
@@ -1691,7 +1698,8 @@ class GoalRegressionModule(pl.LightningModule):
 
         # Avg over all datasets
         for metric, values in all_metrics.items():
-            log_dict[f"val/{metric}"] = torch.stack(values).mean()
+            if values:
+                log_dict[f"val/{metric}"] = torch.stack(values).mean()
 
         # Minimize the linear combination of RMSE (reconstruction error) and -std (i.e. maximize diversity)
         # TODO: Find a better metric, and dynamically configure this....

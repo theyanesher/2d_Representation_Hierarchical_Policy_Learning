@@ -1,0 +1,123 @@
+#!/bin/bash
+#SBATCH -N 1 # Number of nodes
+#SBATCH --ntasks-per-node=1   # 1 python process per node (PyTorch Lightning rejects -n / --ntasks)
+#SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
+#SBATCH -p ROBO
+#SBATCH --gpus=h100:1 #GPU specification. H100
+#SBATCH -t 48:00:00 # Estimated time, 48hour max. DD-HH:MM.
+#SBATCH --job-name coffee-prep-d1-high-level-rdp
+#SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RDP_TRAINING_SCRIPTS/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.out
+#SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RDP_TRAINING_SCRIPTS/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.err
+#SBATCH --mail-type=END
+#SBATCH --mail-user=pbhowal@andrew.cmu.edu
+
+# Train articubot (GMM cross-displacement high-level policy) on COFFEE_PREPERATION_D1,
+# using RDP goals (goal_gripper_pcd_rdp) read from the EXTRA_KEYPOINTS tree
+# instead of the default goal_gripper_pcd stored in the main frame files.
+# Stages the full ~1000-demo dataset and the EXTRA_KEYPOINTS tree onto the
+# compute node's local scratch ($LOCAL on PSC Bridges-2) before training.
+# Sampler/swap caches are written to a persistent subdir of the /ocean
+# EXTRA_KEYPOINTS source so the full-dataset goal scan runs only once.
+
+set -euo pipefail
+set -x
+
+export PATH="$HOME/.pixi/bin:$PATH"
+
+GOAL_SOURCE="rdp"
+
+# --- paths ---------------------------------------------------------------
+SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/COFFEE_PREPERATION_D1"
+EXTRA_SRC_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/EXTRA_KEYPOINTS/COFFEE_PREPERATION_D1"
+REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
+
+# Persistent cache dir for sampler weights / swap metadata (full-1000 runs).
+CACHE_DIR="${EXTRA_SRC_DIR}/.transition_cache_full"
+mkdir -p "${CACHE_DIR}"
+
+# Pick a node-local scratch dir. We want the per-job isolated subdir
+# (/local/slurm-<jobid>/local/) so concurrent jobs on the same node never
+# collide. PSC's SLURM doesn't always pre-create that subtree on this cluster,
+# so we force-create it ourselves when SLURM_JOB_ID is set.
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    SCRATCH_ROOT="/local/slurm-${SLURM_JOB_ID}/local"
+    mkdir -p "${SCRATCH_ROOT}"
+elif [ -n "${LOCAL:-}" ]; then
+    SCRATCH_ROOT="${LOCAL}"
+else
+    SCRATCH_ROOT="${TMPDIR:-/tmp}"
+fi
+DEST_DATA_DIR="${SCRATCH_ROOT}/COFFEE_PREPERATION_D1"
+DEST_EXTRA_DIR="${SCRATCH_ROOT}/COFFEE_PREPERATION_D1_extra_goals"
+
+# --- stage dataset -------------------------------------------------------
+# Parallel copy: split the ~1000 top-level demo dirs across N rsync workers via
+# xargs -P. Override with RSYNC_THREADS=N env var.
+THREADS="${RSYNC_THREADS:-32}"
+
+echo "[stage] source : ${SRC_DATA_DIR}"
+echo "[stage] extra  : ${EXTRA_SRC_DIR}"
+echo "[stage] dest   : ${DEST_DATA_DIR}"
+echo "[stage] extra dest: ${DEST_EXTRA_DIR}"
+echo "[stage] threads: ${THREADS}"
+mkdir -p "${DEST_DATA_DIR}" "${DEST_EXTRA_DIR}"
+
+stage_start=$(date +%s)
+
+# Per-entry rsync wrapper. Exit code 24 ("vanished files") is a benign warning —
+# usually rsync's own temp files (.<name>.XXXXXX) left behind by a previously
+# interrupted sync. Treat it as success so it doesn't trip xargs/set -e.
+copy_one() {
+    rsync -a --exclude='.*.??????' "$1" "$2"
+    local rc=$?
+    [ "$rc" -eq 24 ] && return 0
+    return "$rc"
+}
+export -f copy_one
+export SRC_DATA_DIR DEST_DATA_DIR EXTRA_SRC_DIR DEST_EXTRA_DIR
+
+# Each rsync handles one top-level entry (a demo_* dir). rsync stays resumable
+# per-entry, so re-running the script skips already-copied demos cheaply.
+find "${SRC_DATA_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+    | xargs -P "${THREADS}" -I {} \
+        bash -c 'copy_one "${SRC_DATA_DIR}/$1" "${DEST_DATA_DIR}/"' _ {}
+
+# Stage the extra-goal files (small; ~16KB per frame). Exclude the persistent
+# cache subdir — the training job reads caches from /ocean directly.
+find "${EXTRA_SRC_DIR}" -mindepth 1 -maxdepth 1 -name 'demo_*' -printf '%f\n' \
+    | xargs -P "${THREADS}" -I {} \
+        bash -c 'copy_one "${EXTRA_SRC_DIR}/$1" "${DEST_EXTRA_DIR}/"' _ {}
+
+stage_elapsed=$(( $(date +%s) - stage_start ))
+echo "[stage] done in ${stage_elapsed}s. $(du -sh "${DEST_DATA_DIR}" | cut -f1) + $(du -sh "${DEST_EXTRA_DIR}" | cut -f1) staged."
+
+# --- train ---------------------------------------------------------------
+cd "${REPO_DIR}"
+
+USE_TF=0 \
+GIT_LFS_SKIP_SMUDGE=1 \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+WANDB_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/wandb_cache \
+WANDB_DATA_DIR=/ocean/projects/cis240052p/pbhowal/wandb_data \
+PYTHONNOUSERSITE=1 \
+PIXI_CACHE_DIR=/ocean/projects/cis240052p/pbhowal/pixi_cache \
+pixi run python scripts/train.py \
+    model=articubot \
+    dataset=Coffee_Preperation_D1 \
+    dataset.data_dir="${DEST_DATA_DIR}" \
+    model.use_rgb=False \
+    model.in_channels=4 \
+    training.batch_size=164 \
+    wandb.entity=pbhowal-carnegie-mellon-university \
+    "hydra.run.dir=logs/train_COFFEE_PREPERATION_D1_GOAL_SWAP_RDP_FULL/$(date +%Y-%m-%d/%H-%M-%S)" \
+    +dataset.goal_source="${GOAL_SOURCE}" \
+    +dataset.extra_goals_dir="${DEST_EXTRA_DIR}" \
+    +dataset.transition_cache_dir="${CACHE_DIR}" \
+    +dataset.use_weighted_sampler=True \
+    +dataset.transition_p=0.5 \
+    +dataset.transition_radius=5 \
+    +dataset.transition_label_swap=True \
+    +dataset.transition_swap_p_max=0.5 \
+    "resources.gpus=[0]" \
+    +training.checkpoint_every_n_epochs=5 \
+    training.check_val_every_n_epochs=15

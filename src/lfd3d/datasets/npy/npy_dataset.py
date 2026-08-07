@@ -82,10 +82,58 @@ class NpyDataset(BaseDataset):
         self.data_dir = Path(dataset_cfg.data_dir)
         self.task_caption = dataset_cfg.task_caption
 
+        # Goal source selection. "default" reads goal_gripper_pcd from the main
+        # per-frame .npz (original behavior). The other sources read
+        # goal_gripper_pcd_<source> from a parallel directory tree
+        # (extra_goals_dir/demo_X/t.npz) produced by the RDP keypoint pipeline.
+        VALID_GOAL_SOURCES = (
+            "default",
+            "rdp",
+            "rdp_gripper",
+            "random",
+            "fixed_interval",
+        )
+        self.goal_source = dataset_cfg.get("goal_source", "default")
+        if self.goal_source not in VALID_GOAL_SOURCES:
+            raise ValueError(
+                f"Invalid goal_source '{self.goal_source}'. "
+                f"Expected one of {VALID_GOAL_SOURCES}"
+            )
+        self.extra_goals_dir = None
+        if self.goal_source != "default":
+            extra_goals_dir = dataset_cfg.get("extra_goals_dir", None)
+            if not extra_goals_dir:
+                raise ValueError(
+                    f"goal_source='{self.goal_source}' requires dataset.extra_goals_dir "
+                    "to point at the EXTRA_KEYPOINTS copy of this dataset."
+                )
+            self.extra_goals_dir = Path(extra_goals_dir)
+            if not self.extra_goals_dir.is_dir():
+                raise FileNotFoundError(
+                    f"extra_goals_dir does not exist: {self.extra_goals_dir}"
+                )
+        print(f"[NpyDataset] goal_source={self.goal_source} ({split})")
+
+        # Where the sampler-weight / swap-metadata caches live. Defaults to
+        # data_dir (original behavior). Jobs that stage data to node-local
+        # scratch can set transition_cache_dir to a persistent location (e.g.
+        # the /ocean source dir) so the full-dataset goal scans run only once.
+        cache_dir = dataset_cfg.get("transition_cache_dir", None)
+        self._transition_cache_dir = Path(cache_dir) if cache_dir else self.data_dir
+        # Distinguish caches per goal source; default keeps the legacy names.
+        self._goal_src_tag = "" if self.goal_source == "default" else f"_{self.goal_source}"
+
         # RL Bench datasets use a different camera schema (front_* keys, stored
         # channel-first) than MimicGen (agentview_*, channel-last). When set,
         # _read_primary_camera reads/normalizes the RL Bench `front` camera.
         self.is_rl_bench = dataset_cfg.get("is_rl_bench", False)
+
+        # Camera-less datasets (has_camera: False, e.g. PushT): frames carry no
+        # intrinsics/extrinsics (and depth is all zeros), so we omit the
+        # rgbs/depths/intrinsics/extrinsics keys from every sample entirely.
+        # GoalRegressionModule detects the missing "intrinsics" key and skips
+        # pixel metrics and camera-projection visualizations.
+        self.has_camera = dataset_cfg.get("has_camera", True)
 
         # Collect all frame paths, sorted deterministically
         all_frames = []
@@ -113,11 +161,21 @@ class NpyDataset(BaseDataset):
         if split == "train" and dataset_cfg.get("use_weighted_sampler", False):
             p = float(dataset_cfg.get("transition_p", 0.5))
             radius = int(dataset_cfg.get("transition_radius", 10))
-            cache_file = self.data_dir / f".sample_weights_p{p}_r{radius}.npy"
+            cache_file = (
+                self._transition_cache_dir
+                / f".sample_weights{self._goal_src_tag}_p{p}_r{radius}.npy"
+            )
             if cache_file.exists():
                 print(f"[NpyDataset] Loading cached transition weights from {cache_file}")
                 self.sample_weights = np.load(cache_file)
-            else:
+                if len(self.sample_weights) != len(self.frames):
+                    print(
+                        f"[NpyDataset] Cached weights cover {len(self.sample_weights)} "
+                        f"frames but dataset has {len(self.frames)} — stale cache "
+                        f"(different demo subset/split?). Recomputing."
+                    )
+                    self.sample_weights = None
+            if self.sample_weights is None:
                 print(f"[NpyDataset] Computing transition weights (p={p}, radius={radius})...")
                 self.sample_weights = self._compute_sample_weights(p=p, transition_radius=radius)
                 np.save(cache_file, self.sample_weights)
@@ -130,23 +188,69 @@ class NpyDataset(BaseDataset):
         self._swap_neighbor_goals = None
         self._swap_p = None
         if split == "train" and dataset_cfg.get("transition_label_swap", False):
-            radius = int(dataset_cfg.get("transition_radius", 10))
+            # Two fully independent swap-probability profiles:
+            #   linear  (default) — the original triangular scheme. Uses
+            #             transition_radius: p decays linearly to 0 at radius+1.
+            #   sigmoid           — smooth profile with NO window. Uses only
+            #             transition_swap_tau (temperature): every frame swaps
+            #             toward the goal across its nearest transition with
+            #                 p_swap(d) = 2 * p_max * sigmoid(-d / tau)
+            #             (= p_max at the transition, tails self-limit).
+            # transition_radius keeps its role for the WEIGHTED SAMPLER in both
+            # profiles; the sigmoid swap itself never reads it.
+            profile = str(dataset_cfg.get("transition_swap_profile", "linear"))
             p_max = float(dataset_cfg.get("transition_swap_p_max", 0.5))
-            cache_file = self.data_dir / f".swap_meta_pmax{p_max}_r{radius}.npz"
+            if profile == "linear":
+                radius = int(dataset_cfg.get("transition_radius", 10))
+                cache_file = (
+                    self._transition_cache_dir
+                    / f".swap_meta{self._goal_src_tag}_pmax{p_max}_r{radius}.npz"
+                )
+                compute_desc = f"profile=linear, p_max={p_max}, radius={radius}"
+            elif profile == "sigmoid":
+                tau = float(dataset_cfg.get("transition_swap_tau", 1.0))
+                cache_file = (
+                    self._transition_cache_dir
+                    / f".swap_meta_sigmoid{self._goal_src_tag}_pmax{p_max}_tau{tau}.npz"
+                )
+                compute_desc = f"profile=sigmoid, p_max={p_max}, tau={tau}"
+            else:
+                raise ValueError(
+                    f"Invalid transition_swap_profile '{profile}'. "
+                    f"Expected 'linear' or 'sigmoid'."
+                )
             if cache_file.exists():
                 print(f"[NpyDataset] Loading cached swap metadata from {cache_file}")
                 arr = np.load(cache_file)
                 self._swap_neighbor_goals = arr["neighbor_goals"]
                 self._swap_p = arr["p_swap"]
-            else:
-                print(f"[NpyDataset] Computing swap metadata (p_max={p_max}, radius={radius})...")
-                self._swap_neighbor_goals, self._swap_p = self._compute_swap_meta(
-                    transition_radius=radius, p_max=p_max
-                )
+                if len(self._swap_p) != len(self.frames):
+                    print(
+                        f"[NpyDataset] Cached swap metadata covers {len(self._swap_p)} "
+                        f"frames but dataset has {len(self.frames)} — stale cache "
+                        f"(different demo subset/split?). Recomputing."
+                    )
+                    self._swap_neighbor_goals, self._swap_p = None, None
+            if self._swap_p is None:
+                print(f"[NpyDataset] Computing swap metadata ({compute_desc})...")
+                if profile == "linear":
+                    self._swap_neighbor_goals, self._swap_p = self._compute_swap_meta(
+                        transition_radius=radius, p_max=p_max
+                    )
+                else:
+                    self._swap_neighbor_goals, self._swap_p = self._compute_swap_meta_sigmoid(
+                        tau=tau, p_max=p_max
+                    )
                 np.savez(cache_file, neighbor_goals=self._swap_neighbor_goals, p_swap=self._swap_p)
                 print(f"[NpyDataset] Saved swap metadata to {cache_file}")
-            n_eligible = int((self._swap_p > 0).sum())
-            print(f"[NpyDataset] {n_eligible}/{len(self.frames)} frames eligible for label swap")
+            # For the sigmoid profile p_swap is nonzero (but tiny) almost
+            # everywhere; count frames with non-negligible probability instead.
+            eligible_thresh = 0.0 if profile == "linear" else 0.01
+            n_eligible = int((self._swap_p > eligible_thresh).sum())
+            print(
+                f"[NpyDataset] {n_eligible}/{len(self.frames)} frames eligible "
+                f"for label swap (p_swap > {eligible_thresh})"
+            )
 
         # Per-frame language conditioning. When enabled, each frame is
         # conditioned on its own `lang_goal` instruction (e.g. RL Bench
@@ -219,6 +323,20 @@ class NpyDataset(BaseDataset):
             f"{len(distinct)} distinct lang_goal(s) over {len(self.frames)} frames: {distinct}"
         )
 
+    def _load_goal(self, frame_path: Path) -> np.ndarray:
+        """
+        Load the (4, 3) goal gripper keypoints for one frame from the selected
+        goal source. For "default" this is goal_gripper_pcd in the main frame
+        file; otherwise goal_gripper_pcd_<source> from the parallel
+        extra_goals_dir tree (same demo_X/t.npz layout).
+        """
+        if self.goal_source == "default":
+            d = np.load(frame_path, allow_pickle=True)
+            return d["goal_gripper_pcd"][0].astype(np.float32)
+        extra_path = self.extra_goals_dir / frame_path.parent.name / frame_path.name
+        d = np.load(extra_path, allow_pickle=True)
+        return d[f"goal_gripper_pcd_{self.goal_source}"][0].astype(np.float32)
+
     def _compute_sample_weights(self, p: float, transition_radius: int) -> np.ndarray:
         """
         Frames within transition_radius of a goal transition get collective
@@ -236,8 +354,7 @@ class NpyDataset(BaseDataset):
             paths   = [f for _, f in indexed_frames]
 
             goals = np.array([
-                np.load(path, allow_pickle=True)["goal_gripper_pcd"][0]
-                for path in paths
+                self._load_goal(path) for path in paths
             ])  # (T, 4, 3)
 
             transitions = [
@@ -291,8 +408,7 @@ class NpyDataset(BaseDataset):
             paths   = [f for _, f in indexed_frames]
 
             goals = np.array([
-                np.load(path, allow_pickle=True)["goal_gripper_pcd"][0]
-                for path in paths
+                self._load_goal(path) for path in paths
             ])  # (T, 4, 3)
 
             transitions = [
@@ -323,6 +439,73 @@ class NpyDataset(BaseDataset):
                 global_idx = indices[local_t]
                 neighbor_goals[global_idx] = neighbor.astype(np.float32)
                 p_swap_arr[global_idx] = p_max * (1.0 - best_d / (transition_radius + 1))
+
+        return neighbor_goals, p_swap_arr
+
+    def _compute_swap_meta_sigmoid(self, tau: float, p_max: float):
+        """
+        Sigmoid swap profile — fully independent of the linear/triangular one
+        and of transition_radius. EVERY frame in a demo that has at least one
+        goal transition stores the "neighbor goal" (the goal on the other side
+        of its NEAREST transition) and the per-frame Bernoulli swap probability
+
+            p_swap(d) = 2 * p_max * sigmoid(-d / tau)
+                      = 2 * p_max / (1 + exp(d / tau))
+
+        where d = |t - t_trans| to the nearest transition and tau is the
+        temperature: small tau -> mixing confined to the boundary, large tau ->
+        gradual mixing. p_swap(0) = p_max exactly; the tails self-limit (no
+        hard window is applied). Reframed as P(label = next goal), this is a
+        smooth sigmoid ramp from ~0 before the transition to ~1 after it,
+        crossing 0.5*(2*p_max) at the boundary.
+
+        Frames in demos with no transitions keep p_swap = 0.
+
+        Returns:
+            neighbor_goals: (N, 4, 3) float32
+            p_swap_arr:     (N,)       float32
+        """
+        n = len(self.frames)
+        neighbor_goals = np.zeros((n, 4, 3), dtype=np.float32)
+        p_swap_arr = np.zeros((n,), dtype=np.float32)
+
+        frame_groups: dict = {}
+        for i, f in enumerate(self.frames):
+            frame_groups.setdefault(str(f.parent), []).append((i, f))
+
+        for indexed_frames in frame_groups.values():
+            indices = [i for i, _ in indexed_frames]
+            paths   = [f for _, f in indexed_frames]
+
+            goals = np.array([
+                self._load_goal(path) for path in paths
+            ])  # (T, 4, 3)
+
+            transitions = [
+                t for t in range(1, len(goals))
+                if not np.allclose(goals[t], goals[t - 1], atol=1e-6)
+            ]
+            if not transitions:
+                continue
+            trans_arr = np.asarray(transitions)
+
+            for local_t in range(len(goals)):
+                # Nearest transition (no window — the sigmoid tail decides).
+                d_all = np.abs(local_t - trans_arr)
+                j = int(d_all.argmin())
+                best_t, best_d = int(trans_arr[j]), int(d_all[j])
+
+                # Neighbor = goal on the other side of the nearest transition.
+                # t_trans is the first frame of the new goal, so frames < t_trans
+                # carry the previous goal and frames >= t_trans carry the new one.
+                if local_t < best_t:
+                    neighbor = goals[best_t]            # upcoming goal
+                else:
+                    neighbor = goals[best_t - 1]        # previous goal
+
+                global_idx = indices[local_t]
+                neighbor_goals[global_idx] = neighbor.astype(np.float32)
+                p_swap_arr[global_idx] = 2.0 * p_max / (1.0 + np.exp(best_d / tau))
 
         return neighbor_goals, p_swap_arr
 
@@ -362,7 +545,10 @@ class NpyDataset(BaseDataset):
 
         anchor_pcd = d["point_cloud"][0].astype(np.float32)       # (N, 3)
         action_pcd = d["gripper_pcd"][0].astype(np.float32)       # (4, 3)
-        goal_pcd   = d["goal_gripper_pcd"][0].astype(np.float32)  # (4, 3)
+        if self.goal_source == "default":
+            goal_pcd = d["goal_gripper_pcd"][0].astype(np.float32)  # (4, 3)
+        else:
+            goal_pcd = self._load_goal(self.frames[idx])            # (4, 3)
 
         # Label swap augmentation: with linearly-decaying probability around
         # transitions, replace the GT goal with the goal across the nearest
@@ -393,11 +579,26 @@ class NpyDataset(BaseDataset):
 
         # Camera data (primary view). Schema-normalized across MimicGen
         # (agentview_*, channel-last) and RL Bench (front_*, channel-first).
-        rgb, depth, K, T = self._read_primary_camera(d)
+        # Omitted entirely for camera-less datasets (has_camera: False).
+        camera_items = {}
+        if self.has_camera:
+            rgb, depth, K, T = self._read_primary_camera(d)
 
-        # Stack start/end frames; data is already a single frame so duplicate
-        rgbs   = np.stack([rgb, rgb], axis=0)    # (2, H, W, 3)
-        depths = np.stack([depth, depth], axis=0)  # (2, H, W)
+            # Stack start/end frames; data is already a single frame so duplicate
+            rgbs   = np.stack([rgb, rgb], axis=0)    # (2, H, W, 3)
+            depths = np.stack([depth, depth], axis=0)  # (2, H, W)
+            camera_items = {
+                # Primary camera
+                "rgbs":       rgbs,
+                "depths":     depths,
+                "intrinsics": K,
+                "extrinsics": T,
+                # Auxiliary cameras (none)
+                "aux_rgbs":       np.zeros((0, 2, rgb.shape[0], rgb.shape[1], 3), dtype=np.uint8),
+                "aux_depths":     np.zeros((0, 2, rgb.shape[0], rgb.shape[1]), dtype=np.float32),
+                "aux_intrinsics": np.zeros((0, 3, 3), dtype=np.float32),
+                "aux_extrinsics": np.zeros((0, 4, 4), dtype=np.float32),
+            }
 
         # Dummy gripper trajectory (10 future steps)
         gripper_trajectory = np.tile(action_pcd_norm[[0]], (10, 1)).astype(np.float32)
@@ -413,16 +614,9 @@ class NpyDataset(BaseDataset):
             text_embed = self.text_embed
 
         return {
-            # Primary camera
-            "rgbs":       rgbs,
-            "depths":     depths,
-            "intrinsics": K,
-            "extrinsics": T,
-            # Auxiliary cameras (none)
-            "aux_rgbs":       np.zeros((0, 2, rgb.shape[0], rgb.shape[1], 3), dtype=np.uint8),
-            "aux_depths":     np.zeros((0, 2, rgb.shape[0], rgb.shape[1]), dtype=np.float32),
-            "aux_intrinsics": np.zeros((0, 3, 3), dtype=np.float32),
-            "aux_extrinsics": np.zeros((0, 4, 4), dtype=np.float32),
+            # Camera keys (rgbs/depths/intrinsics/extrinsics/aux_*) — empty
+            # dict when has_camera is False.
+            **camera_items,
             # Point clouds
             "action_pcd":       action_pcd_norm,   # (4, 3) → Pointclouds
             "anchor_pcd":       anchor_pcd_norm,   # (N, 3) → Pointclouds(features=anchor_feat_pcd)

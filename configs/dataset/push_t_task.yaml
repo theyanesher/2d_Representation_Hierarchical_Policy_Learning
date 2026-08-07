@@ -1,0 +1,25 @@
+defaults:
+  - base_dataset
+
+name: push_t_task
+
+data_dir: /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/PushT_Task
+
+task_caption: "push the T-shaped block onto the target"
+
+# Single-task training — text conditioning off (zeros served to the model).
+use_text_embed: False
+
+val_episode_ratio: 0.1  # fraction of demos held out for validation
+
+# PCD config
+num_points: 4500   # matches the pre-computed point cloud size
+max_depth: 2.0     # unused — PushT has no depth
+
+# PushT frames carry no camera intrinsics/extrinsics (and depth is all zeros).
+# The dataset omits rgbs/depths/intrinsics/extrinsics from every sample and
+# the model skips pixel metrics + camera-projection visualizations.
+has_camera: False
+
+# Coordinates are in the arena-normalized PushT scale (~0.25 span); leave raw.
+normalize: False

@@ -4,24 +4,30 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for npz load + h5 write workers
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100 (needed by the high-level GMM forward pass)
-#SBATCH -t 12:00:00
-#SBATCH --job-name kitchen-d1-gmm-gen
+#SBATCH -t 8:00:00
+#SBATCH --job-name push-t-task-gmm-gen-goal-swap
 #SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_GMM_DATASET_GEN_SCRIPT/logs/job_%j.out
 #SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_GMM_DATASET_GEN_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=END
 #SBATCH --mail-user=pbhowal@andrew.cmu.edu
 
-# Generate the GMM-annotated h5 dataset for KITCHEN_D1 by running the
-# high-level (multimodal) GMM model on every demo's per-step npz, then ship
-# the result back to /ocean for the low-level trainer to consume.
+# Generate the GMM-annotated h5 dataset for PushT_Task using the GOAL_SWAP
+# high-level model (trained on all 206 demos, 2026-07-19 run; checkpoint =
+# best val rmse_and_std_combi at epoch 89).
+#
+# Uses ALL demos in the PushT npz tree (206 as of writing). --push_t handles
+# the PushT schema: the single agentview RGB is kept as obs/cam0_image (the
+# low-level policy trains on it); depth / intrinsics / extrinsics / wrist keys
+# are absent or all-zero in the npz, so none are read or written. State and
+# action are the native 2-D pusher xy (action = absolute target).
 #
 # Pipeline:
-#   1. Stage the source npz tree (D2/KITCHEN_D1) onto the node's /local SSD —
-#      many small npz reads from /ocean are slow.
+#   1. Stage the source npz tree (D2/PushT_Task, ~1 GB) onto the node's /local
+#      SSD — many small npz reads from /ocean are slow.
 #   2. Run scripts/run_gmm_on_dataset_batch_optimized.py with --gmm_output_dir
 #      pointing at a /local h5 dir — h5 writes stay on the fast SSD.
-#   3. rsync the generated demo_*.h5 from /local back to the durable /ocean
-#      location LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/KITCHEN_D1/.
+#   3. rsync the generated demo_*.h5 back to the durable /ocean location
+#      (with a free-space guard first — the full set is ~10-15 GB).
 
 set -euo pipefail
 set -x
@@ -29,10 +35,21 @@ set -x
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # --- paths ---------------------------------------------------------------
-SRC_NPZ_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/KITCHEN_D1"
+SRC_NPZ_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/PushT_Task"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
-CKPT_PATH="${REPO_DIR}/logs/train_KITCHEN_D1_GOAL_SWAP_100demo/2026-06-29/02-27-21/checkpoints/periodic-epoch=epoch=74.ckpt"
-FINAL_OCEAN_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/KITCHEN_D1"
+CKPT_PATH="${REPO_DIR}/logs/train_PushT_Task_GOAL_SWAP/2026-07-19/23-17-19/checkpoints/epoch=89-step=16200-val/rmse_and_std_combi=0.060.ckpt"
+FINAL_OCEAN_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/PUSH_T_TASK_GOAL_SWAP"
+
+if [ ! -f "${CKPT_PATH}" ]; then
+    echo "[ckpt] ERROR: checkpoint not found: ${CKPT_PATH}" >&2
+    exit 1
+fi
+echo "[ckpt] using: ${CKPT_PATH}"
+
+# --- demo selection (default: ALL demos in the source tree) ---------------
+src_demo_count=$(find "${SRC_NPZ_DIR}" -mindepth 1 -maxdepth 1 -type d -name 'demo_*' | wc -l)
+NUM_DEMOS="${NUM_DEMOS:-${src_demo_count}}"
+echo "[demo_limit] processing ${NUM_DEMOS} of ${src_demo_count} demos (demo_0 .. demo_$((NUM_DEMOS-1)))"
 
 # --- node-local scratch --------------------------------------------------
 # Per-job isolated subdir so concurrent jobs on the same node never collide.
@@ -46,12 +63,12 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_NPZ_DIR="${SCRATCH_ROOT}/KITCHEN_D1_npz"      # staged inputs
-DEST_H5_DIR="${SCRATCH_ROOT}/KITCHEN_D1_gmm_h5"    # converter outputs
+DEST_NPZ_DIR="${SCRATCH_ROOT}/PushT_Task_npz"                # staged inputs
+DEST_H5_DIR="${SCRATCH_ROOT}/PUSH_T_TASK_GOAL_SWAP_gmm_h5"   # converter outputs
 
 # --- (1) stage npz source to /local --------------------------------------
-# Parallel copy: split the ~1000 top-level demo dirs across N rsync workers
-# via xargs -P. Override with RSYNC_THREADS=N env var.
+# Parallel copy: split the demo dirs across N rsync workers via xargs -P.
+# Override with RSYNC_THREADS=N env var.
 THREADS="${RSYNC_THREADS:-32}"
 
 echo "[stage] source : ${SRC_NPZ_DIR}"
@@ -74,9 +91,10 @@ export -f copy_one
 export SRC_DIR_ENV="${SRC_NPZ_DIR}"
 export DEST_DIR_ENV="${DEST_NPZ_DIR}"
 
-# Each rsync handles one top-level entry (a demo_* dir). rsync stays resumable
-# per-entry, so re-running the script skips already-copied demos cheaply.
-find "${SRC_NPZ_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+# Each rsync handles one top-level demo_* dir. rsync stays resumable per-entry,
+# so re-running the script skips already-copied demos cheaply.
+seq 0 $((NUM_DEMOS - 1)) \
+    | awk '{print "demo_" $1}' \
     | xargs -P "${THREADS}" -I {} \
         bash -c 'copy_one "${SRC_DIR_ENV}/$1" "${DEST_DIR_ENV}/"' _ {}
 
@@ -96,14 +114,24 @@ pixi run python scripts/run_gmm_on_dataset_batch_optimized.py \
     --dataset_dir "${DEST_NPZ_DIR}/" \
     --ckpt_path "${CKPT_PATH}" \
     --gmm_output_dir "${DEST_H5_DIR}" \
+    --push_t \
     --start_demo 0 \
-    --max_files 1000 \
+    --max_files "${NUM_DEMOS}" \
     --batch_size 164
 
 gen_elapsed=$(( $(date +%s) - gen_start ))
 echo "[gen] done in ${gen_elapsed}s. $(find "${DEST_H5_DIR}" -maxdepth 1 -name "*.h5" | wc -l) h5 files written ($(du -sh "${DEST_H5_DIR}" | cut -f1))."
 
-# --- (3) ship the generated h5 files back to /ocean ---------------------
+# --- (3) ship the generated h5 files back to /ocean, with free-space guard
+need_kb=$(du -sk "${DEST_H5_DIR}" | cut -f1)
+avail_kb=$(df -k --output=avail "$(dirname "${FINAL_OCEAN_DIR}")" | tail -1 | tr -d ' ')
+buffer_kb=$(( 20 * 1024 * 1024 ))  # keep >=20GB headroom on /ocean after shipping
+if [ "$(( need_kb + buffer_kb ))" -gt "${avail_kb}" ]; then
+    echo "[ship] ERROR: need ${need_kb}KB + 20GB buffer but only ${avail_kb}KB free on /ocean." >&2
+    echo "[ship] Generated h5s are preserved on ${DEST_H5_DIR} for THIS job only — free space and re-run (generation resumes via per-demo skip)." >&2
+    exit 1
+fi
+
 echo "[ship] dest : ${FINAL_OCEAN_DIR}"
 mkdir -p "${FINAL_OCEAN_DIR}"
 

@@ -556,6 +556,11 @@ def process_demo_dir(demo_dir, network, text_embed, args):
             ("wrist",          "wrist_depth",          "wrist_rgb",
              "wrist_camera_extrinsics",          "wrist_camera_intrinsics",          True),
         ]
+    elif getattr(args, "push_t", False):
+        # PushT: no camera intrinsics/extrinsics on disk (and depth is all
+        # zeros) — read/write no camera keys at all. Every camera loop below
+        # iterates cam_specs, so an empty list makes them no-ops.
+        cam_specs = []
     else:
         cam_specs = [
             ("agentview", "depth_agentview", "rgb_agentview",
@@ -573,6 +578,10 @@ def process_demo_dir(demo_dir, network, text_embed, args):
     for i in range(len(cam_specs)):
         for suffix in ("depth", "extrinsic", "image", "intrinsic"):
             obs_bufs[f"cam{i}_{suffix}"] = []
+    if getattr(args, "push_t", False):
+        # PushT has an RGB agentview camera but no depth/intrinsics/extrinsics —
+        # keep cam0_image (the low-level policy trains on it) and nothing else.
+        obs_bufs["cam0_image"] = []
     act_delta = []
 
     # --rl_bench: copy every remaining npz key verbatim into obs/<key>.
@@ -632,6 +641,8 @@ def process_demo_dir(demo_dir, network, text_embed, args):
                 _to_hwc_uint8(data[k_rgb][0]) if rgb_chw else data[k_rgb][0]
             )
             obs_bufs[f"cam{i}_intrinsic"].append(data[k_intr][0].astype(np.float32))
+        if getattr(args, "push_t", False):
+            obs_bufs["cam0_image"].append(data["rgb_agentview"][0].astype(np.uint8))
         obs_bufs["goal_gripper_pts"].append(gt_goal.astype(np.float32))
         obs_bufs["point_cloud"].append(scene_pcds[t])
         obs_bufs["present_gripper_pts"].append(gripper_pcds[t])
@@ -797,6 +808,15 @@ if __name__ == "__main__":
              "layout (agentview + wrist) and the original fixed schema."
     )
     parser.add_argument(
+        "--push_t", action="store_true", default=False,
+        help="Treat the dataset as the PushT npz format: single agentview RGB "
+             "camera (kept as obs/cam0_image — the low-level policy trains on "
+             "it) but no depth / intrinsics / extrinsics / wrist keys (absent "
+             "or all-zero in the npz, so none are read or written). State and "
+             "action are native 2-D. The GMM forward pass and the viser "
+             "visualization are unaffected. Mutually exclusive with --rl_bench."
+    )
+    parser.add_argument(
         "--argmax_weight",
         type=int,
         default=1,
@@ -902,6 +922,9 @@ if __name__ == "__main__":
         "off (modes are the raw high-level prediction).",
     )
     args = parser.parse_args()
+
+    if args.push_t and args.rl_bench:
+        parser.error("--push_t and --rl_bench are mutually exclusive")
 
     model_cfg = build_model_cfg(in_channels=args.in_channels, use_rgb=args.use_rgb)
     network = load_articubot(args.ckpt_path, model_cfg)
