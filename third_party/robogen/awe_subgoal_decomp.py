@@ -45,6 +45,21 @@ arrays, but the non-pos_only path (used to build gt_states here) needs it as
 a list of {"robot0_eef_pos", "robot0_eef_quat"} dicts. Passing pos_only=True
 therefore raises a TypeError inside the library -- not something fixable
 from this side without forking the package.
+
+Second packaging quirk: waypoint_extraction.traj_reconstruction does
+`from utils import put_text, remove_object` -- an ABSOLUTE import of a
+top-level `utils` module that the pip package does not itself ship (it
+assumes it's run from inside the original AWE repo checkout, sitting next
+to a sibling utils.py with cv2/mujoco debug-rendering helpers). Whatever
+`utils` package happens to be first on sys.path silently satisfies that
+import instead -- in this repo that's mimicgen/mimicgen/utils/, which has no
+put_text/remove_object and errors. Neither symbol is ever called by
+dp_waypoint_selection/greedy_waypoint_selection (they're only used by
+traj_reconstruction's video-annotation helpers, unreachable from the
+geometric-only, env=None path this module uses), so
+_import_waypoint_extraction() pre-registers a stub `utils` module in
+sys.modules with no-op put_text/remove_object before importing
+waypoint_extraction, exactly like the robosuite stub above.
 """
 
 import importlib.util
@@ -52,6 +67,21 @@ import sys
 import types
 
 import numpy as np
+
+
+def _stub_utils_module():
+    """Satisfy waypoint_extraction.traj_reconstruction's `from utils import
+    put_text, remove_object` with no-op stand-ins, so a same-named local
+    package elsewhere on sys.path (e.g. mimicgen/utils/) can't shadow it and
+    break an import path that's unreachable from this module's actual usage
+    anyway. See module docstring for the full explanation."""
+    existing = sys.modules.get("utils")
+    if existing is not None and hasattr(existing, "put_text") and hasattr(existing, "remove_object"):
+        return
+    stub = types.ModuleType("utils")
+    stub.put_text = lambda *a, **k: None
+    stub.remove_object = lambda *a, **k: None
+    sys.modules["utils"] = stub
 
 
 def _import_waypoint_extraction():
@@ -66,6 +96,8 @@ def _import_waypoint_extraction():
             stub = types.ModuleType("robosuite")
             stub.__path__ = spec.submodule_search_locations
             sys.modules["robosuite"] = stub
+
+    _stub_utils_module()
 
     from waypoint_extraction import dp_waypoint_selection, greedy_waypoint_selection
 

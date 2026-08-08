@@ -6,10 +6,11 @@ convert_dataset.py and writes ADDITIONAL goal_gripper_pcd variants computed by
 the RDP-family methods (rdp, rdp_gripper, random, fixed_interval), the
 B-spline knot method (bspline), and AWE / Automatic Waypoint Extraction
 (awe). The original dataset is treated as READ-ONLY; new keys live in a
-mirror tree:
+mirror tree, one per requested method-set so different --methods runs never
+collide or overwrite each other:
 
-    <DATA_ROOT>/<TASK>/<demo>/<t>.npz                      (original, untouched)
-    <DATA_ROOT>/EXTRA_KEYPOINTS/<TASK>/<demo>/<t>.npz      (new keys, this script)
+    <DATA_ROOT>/<TASK>/<demo>/<t>.npz                                (original, untouched)
+    <DATA_ROOT>/EXTRA_KEYPOINTS_<method1>_<method2>/<TASK>/<demo>/<t>.npz   (new keys, this script)
 
 Each new .npz holds one key per method, saved IDENTICALLY to the original
 `goal_gripper_pcd` ((1, 4, 3) float32) so they are drop-in interchangeable:
@@ -45,13 +46,20 @@ from rdp_subgoal_decomp import compute_rdp_subgoal_gripper_pcd, VALID_METHODS as
 from bspline_subgoal_decomp import compute_bspline_subgoal_gripper_pcd, VALID_METHODS as BSPLINE_METHODS
 from awe_subgoal_decomp import compute_awe_subgoal_gripper_pcd
 
-EXTRA_DIRNAME = "EXTRA_KEYPOINTS"
+EXTRA_DIRNAME_PREFIX = "EXTRA_KEYPOINTS"
 # awe_subgoal_decomp's own VALID_METHODS=("greedy","dp") names its internal
 # solver, not an output key -- "awe" is the single goal_gripper_pcd_awe key
 # this script produces; --awe_solver below picks which of greedy/dp computes it.
 AWE_METHODS = ("awe",)
 VALID_METHODS = RDP_METHODS + BSPLINE_METHODS + AWE_METHODS
 METHOD_KEY = {m: "goal_gripper_pcd_{}".format(m) for m in VALID_METHODS}
+
+
+def _extra_dirname(methods):
+    """EXTRA_KEYPOINTS_<method1>_<method2>_... -- keeps different --methods
+    runs (e.g. rdp-only vs. bspline-only vs. all) in separate mirror trees so
+    they never collide or partially overwrite each other."""
+    return "_".join([EXTRA_DIRNAME_PREFIX] + list(methods))
 
 
 def _sorted_step_files(demo_dir):
@@ -209,7 +217,7 @@ def main():
                     help="bspline: max-abs (Chebyshev) EEF reconstruction error budget, metres")
     ap.add_argument("--degree", type=int, default=3,
                     help="bspline: spline degree (3 = cubic, matches bspline-policy's default)")
-    ap.add_argument("--awe_err_threshold", type=float, default=0.03,
+    ap.add_argument("--awe_err_threshold", type=float, default=0.2,
                     help="awe: max reconstruction error (position in metres, "
                          "+ rotation in radians) before AWE adds another waypoint")
     ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="greedy",
@@ -225,9 +233,12 @@ def main():
     bad = [m for m in methods if m not in VALID_METHODS]
     if bad:
         raise SystemExit("Unknown method(s) {}. Valid: {}".format(bad, list(VALID_METHODS)))
+    # canonical order so e.g. --methods bspline rdp and --methods rdp bspline
+    # land in the same mirror tree instead of silently forking into two.
+    methods = sorted(methods, key=list(VALID_METHODS).index)
 
     task_dir = os.path.join(args.data_root, args.task)
-    out_task_dir = os.path.join(args.data_root, EXTRA_DIRNAME, args.task)
+    out_task_dir = os.path.join(args.data_root, _extra_dirname(methods), args.task)
     if not os.path.isdir(task_dir):
         raise SystemExit("Task dir not found: {}".format(task_dir))
 
