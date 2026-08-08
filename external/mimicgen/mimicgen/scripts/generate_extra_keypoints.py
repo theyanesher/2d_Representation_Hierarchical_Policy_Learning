@@ -35,6 +35,8 @@ import sys
 import glob
 import json
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 
 # third_party/robogen on the path (rdp_subgoal_decomp + subgoal_decomp +
@@ -44,7 +46,23 @@ _ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(_ROOT, "third_party", "robogen"))
 from rdp_subgoal_decomp import compute_rdp_subgoal_gripper_pcd, VALID_METHODS as RDP_METHODS
 from bspline_subgoal_decomp import compute_bspline_subgoal_gripper_pcd, VALID_METHODS as BSPLINE_METHODS
-from awe_subgoal_decomp import compute_awe_subgoal_gripper_pcd
+# awe_subgoal_decomp is imported LAZILY (see _get_awe_fn below), not here: it
+# eagerly pulls in robosuite -> numba-jitted transform utils on import, which
+# sets the CPU's flush-denormals-to-zero flag process-wide -- that silently
+# perturbs scipy.interpolate.splprep's convergence in bspline_subgoal_decomp's
+# _fit_sparsest_bspline, making bspline's knot count depend on whether AWE was
+# ever imported in the same process. An unconditional top-level import would
+# contaminate every non-awe run; importing only when 'awe' is requested keeps
+# rdp/bspline-only runs byte-for-byte reproducible.
+_awe_fn = None
+
+
+def _get_awe_fn():
+    global _awe_fn
+    if _awe_fn is None:
+        from awe_subgoal_decomp import compute_awe_subgoal_gripper_pcd
+        _awe_fn = compute_awe_subgoal_gripper_pcd
+    return _awe_fn
 
 EXTRA_DIRNAME_PREFIX = "EXTRA_KEYPOINTS"
 # awe_subgoal_decomp's own VALID_METHODS=("greedy","dp") names its internal
@@ -160,7 +178,7 @@ def process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=False):
                 return_switch_idxs=True,
             )
         elif m in AWE_METHODS:
-            goal, switch_idxs = compute_awe_subgoal_gripper_pcd(
+            goal, switch_idxs = _get_awe_fn()(
                 gripper_pcd=gripper_pcd,
                 eef_pos=eef_pos,
                 eef_quat=eef_quat,
@@ -196,6 +214,16 @@ def process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=False):
     return T, idx_record
 
 
+def _process_demo_worker(demo, demo_dir, out_demo_dir, methods, opts, dump_indices):
+    """Top-level (picklable) wrapper so process_demo can run inside a
+    ProcessPoolExecutor worker -- one worker per demo. Parallelism is only
+    ACROSS demos: each demo's waypoint search (dp in particular, O(T^3) and
+    strictly sequential over the trajectory) cannot itself be split across
+    workers, so --num_workers only pays off with multiple demos queued."""
+    T, idx_record = process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=dump_indices)
+    return demo, T, idx_record
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_root", required=True,
@@ -217,7 +245,7 @@ def main():
                     help="bspline: max-abs (Chebyshev) EEF reconstruction error budget, metres")
     ap.add_argument("--degree", type=int, default=3,
                     help="bspline: spline degree (3 = cubic, matches bspline-policy's default)")
-    ap.add_argument("--awe_err_threshold", type=float, default=0.3,
+    ap.add_argument("--awe_err_threshold", type=float, default=0.2,
                     help="awe: max reconstruction error (position in metres, "
                          "+ rotation in radians) before AWE adds another waypoint")
     ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="dp",
@@ -227,6 +255,11 @@ def main():
                     help="also write _keypoints.json per demo (for viser inspection)")
     ap.add_argument("--force", action="store_true",
                     help="recompute every demo even if it looks complete (disable resume)")
+    ap.add_argument("--num_workers", type=int, default=1,
+                    help="parallelize ACROSS demos (one process per demo in flight). "
+                         "Each demo's own waypoint search -- dp especially, O(T^3) and "
+                         "inherently sequential -- cannot be split further, so this only "
+                         "helps when multiple demos are queued (default: 1, sequential)")
     args = ap.parse_args()
 
     methods = list(VALID_METHODS) if args.methods == ["all"] else args.methods
@@ -254,21 +287,42 @@ def main():
 
     counts = {m: [] for m in methods}
     n_skipped = 0
-    for i, demo in enumerate(demos):
+    pending = []
+    for demo in demos:
         demo_dir = os.path.join(task_dir, demo)
         out_demo_dir = os.path.join(out_task_dir, demo)
         if not args.force and _demo_is_complete(demo_dir, out_demo_dir, methods, args.dump_indices):
             n_skipped += 1
-            print("[skip] {} ({}/{}): already complete".format(demo, i + 1, len(demos)))
+            print("[skip] {}: already complete".format(demo))
             continue
-        T, idx_record = process_demo(
-            demo_dir, out_demo_dir, methods, args, dump_indices=args.dump_indices,
-        )
-        for m in methods:
-            counts[m].append(len(idx_record.get(m, [])))
-        print("[done] {} ({}/{}): T={} | {}".format(
-            demo, i + 1, len(demos), T,
-            " ".join("{}={}kp".format(m, len(idx_record.get(m, []))) for m in methods)))
+        pending.append((demo, demo_dir, out_demo_dir))
+
+    n_done = 0
+    if args.num_workers <= 1:
+        for demo, demo_dir, out_demo_dir in pending:
+            _, T, idx_record = _process_demo_worker(
+                demo, demo_dir, out_demo_dir, methods, args, args.dump_indices)
+            n_done += 1
+            for m in methods:
+                counts[m].append(len(idx_record.get(m, [])))
+            print("[done] {} ({}/{}): T={} | {}".format(
+                demo, n_done, len(pending), T,
+                " ".join("{}={}kp".format(m, len(idx_record.get(m, []))) for m in methods)))
+    else:
+        with ProcessPoolExecutor(max_workers=args.num_workers) as ex:
+            futures = {
+                ex.submit(_process_demo_worker, demo, demo_dir, out_demo_dir, methods, args,
+                          args.dump_indices): demo
+                for demo, demo_dir, out_demo_dir in pending
+            }
+            for fut in as_completed(futures):
+                demo, T, idx_record = fut.result()
+                n_done += 1
+                for m in methods:
+                    counts[m].append(len(idx_record.get(m, [])))
+                print("[done] {} ({}/{}): T={} | {}".format(
+                    demo, n_done, len(pending), T,
+                    " ".join("{}={}kp".format(m, len(idx_record.get(m, []))) for m in methods)))
 
     if n_skipped:
         print("[resume] skipped {}/{} already-complete demos (use --force to recompute)".format(
