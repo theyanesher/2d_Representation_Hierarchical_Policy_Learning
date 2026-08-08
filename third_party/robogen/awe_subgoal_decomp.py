@@ -147,7 +147,13 @@ def _select_waypoints(  # noqa: PLR0913, PLR0917
     else:
         raise ValueError(f"Unknown method '{method}'. Valid: {VALID_METHODS}")
 
-    return sorted({int(w) for w in waypoints})
+    # Drop a frame-0 waypoint (possible if the gripper command flips between
+    # frames 0 and 1) so the switch-index convention matches
+    # rdp_subgoal_decomp.py/bspline_subgoal_decomp.py's _finalize_indices,
+    # which always excludes index 0 -- a boundary there is degenerate (goal
+    # == the gripper's own frame-0 pose) and would otherwise make AWE the
+    # only method capable of producing it, skewing method comparisons.
+    return sorted({int(w) for w in waypoints if w > 0})
 
 
 def _assign_subgoals(waypoints, gripper_pcd):

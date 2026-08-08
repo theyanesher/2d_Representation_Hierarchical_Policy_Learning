@@ -213,14 +213,14 @@ def main():
     ap.add_argument("--seed", type=int, default=0, help="seed for 'random'")
     ap.add_argument("--snap_window", type=int, default=5,
                     help="frames within which rdp_gripper snaps to a gripper transition")
-    ap.add_argument("--max_error", type=float, default=0.01,
+    ap.add_argument("--max_error", type=float, default=0.08,
                     help="bspline: max-abs (Chebyshev) EEF reconstruction error budget, metres")
     ap.add_argument("--degree", type=int, default=3,
                     help="bspline: spline degree (3 = cubic, matches bspline-policy's default)")
-    ap.add_argument("--awe_err_threshold", type=float, default=0.2,
+    ap.add_argument("--awe_err_threshold", type=float, default=0.3,
                     help="awe: max reconstruction error (position in metres, "
                          "+ rotation in radians) before AWE adds another waypoint")
-    ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="greedy",
+    ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="dp",
                     help="awe: greedy (fast, near-optimal) or dp (optimal, "
                          "O(T^3) -- short demos only, roughly <= a few hundred frames)")
     ap.add_argument("--dump_indices", action="store_true",

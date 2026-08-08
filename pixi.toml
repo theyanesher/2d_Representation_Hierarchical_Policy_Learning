@@ -19,7 +19,8 @@ cmake = "*"
 # Core Math/ML/Robotics - Pins Retained
 numpy = "1.23.*"
 pandas = "1.5.*"
-scipy = ">=1.10,<1.11"
+# scipy moved to [pypi-dependencies] (needs >=1.15; conda-forge's >=1.15
+# build is broken here -- see the note there)
 sympy = "*"
 pytorch = ">=2.5.1,<3"
 pytorch-cuda = "12.1.*"
@@ -29,7 +30,6 @@ pyyaml = "*"
 packaging = "*"
 networkx = "*"
 omegaconf = "*"
-viser = ">=0.2.23,<0.3"
 torchvision = ">=0.20.1,<0.21"
 pybullet = ">=3.25,<4"
 termcolor = ">=3.1.0,<4"
@@ -49,6 +49,16 @@ mujoco-py = "==2.1.2.14"
 cython = "==3.2.9"
 robosuite = "*"
 
+# scipy>=1.15 for bspline_subgoal_decomp.py's generate_knots (real
+# bspline-policy algorithm). Must stay a PyPI dep, not conda: the conda-forge
+# >=1.15 build has a reproducible scipy.special._multiufuncs ValueError on
+# import regardless of numpy version. Previously conda pulled in scipy
+# transitively via viser+scikit-image (both removed below -- viser is used
+# only via lazy `import viser` in run_gmm_on_dataset.py / the viser scripts,
+# install it ad hoc with `pip install viser` when needed; scikit-image was
+# never imported anywhere in this repo, it was only viser's dependency).
+scipy = ">=1.15"
+
 # Math, ML, & Robotics - Kept Pinned for Stability
 einops = "==0.6.1"
 geomloss = "==0.2.6"
@@ -56,8 +66,7 @@ gym = "==0.26.2"
 mujoco = "==2.3.7"
 open3d = "==0.16.0"
 pyassimp = "==5.2.5"
-pyrender = "*" 
-scikit-image = "*"
+pyrender = "*"
 scikit-learn = "*"
 sentence-transformers = "==2.2.2"
 timm = "==0.4.12"
