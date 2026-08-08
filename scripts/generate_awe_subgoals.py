@@ -1,22 +1,11 @@
-"""Generate ground-truth subgoals for the high-level policy using AWE
-(Automatic Waypoint Extraction, https://pypi.org/project/waypoint-extraction/).
-
-For every demo, AWE selects a sparse set of frame indices ("waypoints") along
-the trajectory such that linearly interpolating the end-effector pose between
-consecutive waypoints reconstructs the full trajectory within `err_threshold`.
-Each frame is then assigned the *next upcoming* waypoint's gripper keypoints
-as its subgoal — the same "goal repeats until the demo passes it" convention
-NpyDataset/the RDP pipeline already use for `goal_gripper_pcd`.
-
-NOTE on the AWE package API: despite what you may have seen elsewhere, the
-installed `waypoint_extraction` package does NOT expose an `extract_waypoints`
-function. It exposes two selection algorithms:
-    waypoint_extraction.dp_waypoint_selection(...)      # optimal, O(T^3) - slow
-    waypoint_extraction.greedy_waypoint_selection(...)  # near-optimal, faster
-Both work purely geometrically (env=None) as long as `actions[:, -1]` carries
-the gripper open/close command and `gt_states` carries eef pos/quat — no live
-simulator is required. This script uses `greedy` by default; pass --method dp
-only for short demos (a few hundred frames at most).
+"""CLI + multiprocessing wrapper that generates ground-truth subgoals for the
+high-level policy using AWE (Automatic Waypoint Extraction). The actual
+per-demo algorithm (waypoint selection + goal assignment) lives in
+third_party/robogen/awe_subgoal_decomp.py -- see that module's docstring for
+how AWE works, the `waypoint_extraction` package API, and a packaging quirk
+worked around there (robosuite/EGL import avoidance). This script's job is
+just to walk demo_*/ directories, fan work out across --num_workers, and
+write the resulting goal_gripper_pcd_<key_suffix> per frame.
 
 Output format (mirrors the RDP `extra_goals_dir` convention used by
 NpyDataset's goal_source="rdp"/"rdp_gripper" -- see
@@ -65,7 +54,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Manager
 
 import numpy as np
-from waypoint_extraction import dp_waypoint_selection, greedy_waypoint_selection
+
+# third_party/robogen on the path (awe_subgoal_decomp lives there, alongside
+# rdp_subgoal_decomp/subgoal_decomp/bayesian_subgoal_decomp).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, os.path.join(_ROOT, "third_party", "robogen"))
+from awe_subgoal_decomp import compute_awe_subgoal_gripper_pcd  # noqa: E402
 
 
 def sorted_frame_files(demo_dir):
@@ -105,60 +100,6 @@ def load_demo_trajectory(demo_dir, frames):
     return eef_pos, eef_quat, gripper_cmd, gripper_pcd
 
 
-def select_waypoints(  # noqa: PLR0913, PLR0917
-    eef_pos, eef_quat, gripper_cmd, err_threshold, method, pos_only
-):
-    """Run AWE over one demo's trajectory and return a sorted list of
-    frame indices (0-indexed, always including the last frame)."""
-    num_frames = eef_pos.shape[0]
-
-    # `actions[:, :3]` supplies the waypoint positions for geometric interpolation;
-    # `actions[:, -1]` supplies the gripper open/close toggle signal. Passing the
-    # eef position itself (rather than a delta action) is correct here since AWE's
-    # geometric error is computed against absolute end-effector positions.
-    actions = np.concatenate([eef_pos, gripper_cmd[:, None]], axis=1)  # (T, 4)
-    gt_states = [
-        {"robot0_eef_pos": eef_pos[t], "robot0_eef_quat": eef_quat[t]}
-        for t in range(num_frames)
-    ]
-
-    if method == "dp":
-        waypoints = dp_waypoint_selection(
-            env=None,
-            actions=actions,
-            gt_states=gt_states,
-            err_threshold=err_threshold,
-            pos_only=pos_only,
-        )
-    elif method == "greedy":
-        waypoints = greedy_waypoint_selection(
-            env=None,
-            actions=actions,
-            gt_states=gt_states,
-            err_threshold=err_threshold,
-            geometry=True,  # stay on the geometric (no-simulator) path
-            pos_only=pos_only,
-        )
-    else:
-        raise ValueError(f"Unknown method: {method}")
-
-    return sorted({int(w) for w in waypoints})
-
-
-def assign_subgoals(waypoints, gripper_pcd):
-    """For every frame, assign the gripper keypoints of the next upcoming
-    waypoint (inclusive) as its subgoal -- goals repeat until the demo passes
-    each waypoint, matching the existing goal_gripper_pcd convention."""
-    num_frames = gripper_pcd.shape[0]
-    goals = np.zeros((num_frames, 4, 3), dtype=np.float32)
-    wp_idx = 0
-    for t in range(num_frames):
-        while waypoints[wp_idx] < t:
-            wp_idx += 1
-        goals[t] = gripper_pcd[waypoints[wp_idx]]
-    return goals
-
-
 def _set_stage(status, demo_name, stage, **extra):
     """Update this demo's entry in the shared status dict (Manager proxies
     need whole-value reassignment, not in-place mutation, to sync)."""
@@ -196,13 +137,20 @@ def _process_demo_worker(  # noqa: PLR0913, PLR0917
         )
 
         _set_stage(status, demo_name, "running_awe", frames=len(frames))
+        actions = np.concatenate([eef_pos, gripper_cmd[:, None]], axis=1)  # (T, 4)
         with contextlib.redirect_stdout(log_buf):
-            waypoints = select_waypoints(
-                eef_pos, eef_quat, gripper_cmd, err_threshold, method, pos_only
+            goals, waypoints = compute_awe_subgoal_gripper_pcd(
+                gripper_pcd=gripper_pcd,
+                eef_pos=eef_pos,
+                eef_quat=eef_quat,
+                actions=actions,
+                err_threshold=err_threshold,
+                method=method,
+                pos_only=pos_only,
+                return_switch_idxs=True,
             )
 
         _set_stage(status, demo_name, "assigning_goals", waypoints=len(waypoints))
-        goals = assign_subgoals(waypoints, gripper_pcd)
 
         _set_stage(status, demo_name, "writing")
         os.makedirs(out_demo_dir, exist_ok=True)

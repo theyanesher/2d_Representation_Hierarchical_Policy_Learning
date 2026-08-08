@@ -3,8 +3,10 @@ Offline keypoint / subgoal generator — velocity-free, no simulator.
 
 Reads the already-rendered per-timestep .npz dataset produced by
 convert_dataset.py and writes ADDITIONAL goal_gripper_pcd variants computed by
-the RDP-family methods (rdp, rdp_gripper, random, fixed_interval). The original
-dataset is treated as READ-ONLY; new keys live in a mirror tree:
+the RDP-family methods (rdp, rdp_gripper, random, fixed_interval), the
+B-spline knot method (bspline), and AWE / Automatic Waypoint Extraction
+(awe). The original dataset is treated as READ-ONLY; new keys live in a
+mirror tree:
 
     <DATA_ROOT>/<TASK>/<demo>/<t>.npz                      (original, untouched)
     <DATA_ROOT>/EXTRA_KEYPOINTS/<TASK>/<demo>/<t>.npz      (new keys, this script)
@@ -13,7 +15,8 @@ Each new .npz holds one key per method, saved IDENTICALLY to the original
 `goal_gripper_pcd` ((1, 4, 3) float32) so they are drop-in interchangeable:
 
     goal_gripper_pcd_rdp, goal_gripper_pcd_rdp_gripper,
-    goal_gripper_pcd_random, goal_gripper_pcd_fixed_interval
+    goal_gripper_pcd_random, goal_gripper_pcd_fixed_interval,
+    goal_gripper_pcd_bspline, goal_gripper_pcd_awe
 
 Incremental & safe: adding a method later loads the existing mirror .npz, keeps
 all prior keys verbatim, adds the new ones, and rewrites the whole file. Nothing
@@ -33,13 +36,21 @@ import json
 import argparse
 import numpy as np
 
-# third_party/robogen on the path (rdp_subgoal_decomp + subgoal_decomp live there)
+# third_party/robogen on the path (rdp_subgoal_decomp + subgoal_decomp +
+# bspline_subgoal_decomp + awe_subgoal_decomp live there)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(_ROOT, "third_party", "robogen"))
-from rdp_subgoal_decomp import compute_rdp_subgoal_gripper_pcd, VALID_METHODS
+from rdp_subgoal_decomp import compute_rdp_subgoal_gripper_pcd, VALID_METHODS as RDP_METHODS
+from bspline_subgoal_decomp import compute_bspline_subgoal_gripper_pcd, VALID_METHODS as BSPLINE_METHODS
+from awe_subgoal_decomp import compute_awe_subgoal_gripper_pcd
 
 EXTRA_DIRNAME = "EXTRA_KEYPOINTS"
+# awe_subgoal_decomp's own VALID_METHODS=("greedy","dp") names its internal
+# solver, not an output key -- "awe" is the single goal_gripper_pcd_awe key
+# this script produces; --awe_solver below picks which of greedy/dp computes it.
+AWE_METHODS = ("awe",)
+VALID_METHODS = RDP_METHODS + BSPLINE_METHODS + AWE_METHODS
 METHOD_KEY = {m: "goal_gripper_pcd_{}".format(m) for m in VALID_METHODS}
 
 
@@ -50,14 +61,15 @@ def _sorted_step_files(demo_dir):
 
 def _load_demo_arrays(step_files):
     """Stack the per-step keys this generator needs into (T, ...) arrays."""
-    eef_pos, gripper_qpos, action, gripper_pcd = [], [], [], []
+    eef_pos, eef_quat, gripper_qpos, action, gripper_pcd = [], [], [], [], []
     for f in step_files:
         d = np.load(f)
         eef_pos.append(d["eef_pos"][0])
+        eef_quat.append(d["eef_quat"][0])
         gripper_qpos.append(d["gripper_qpos"][0])
         action.append(d["action"][0])
         gripper_pcd.append(d["gripper_pcd"][0])
-    return (np.asarray(eef_pos), np.asarray(gripper_qpos),
+    return (np.asarray(eef_pos), np.asarray(eef_quat), np.asarray(gripper_qpos),
             np.asarray(action), np.asarray(gripper_pcd, dtype=np.float32))
 
 
@@ -125,26 +137,47 @@ def process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=False):
     T = len(step_files)
     if T == 0:
         return 0, {}
-    eef_pos, gripper_qpos, action, gripper_pcd = _load_demo_arrays(step_files)
+    eef_pos, eef_quat, gripper_qpos, action, gripper_pcd = _load_demo_arrays(step_files)
 
     method_goals = {}
     idx_record = {}
     for m in methods:
-        goal, switch_idxs = compute_rdp_subgoal_gripper_pcd(
-            gripper_pcd=gripper_pcd,
-            eef_pos=eef_pos,
-            method=m,
-            eef_qpos=gripper_qpos,
-            actions=action,
-            epsilon=opts.epsilon,
-            interval=opts.interval,
-            n_random=opts.n_random,
-            seed=opts.seed,
-            snap_window=opts.snap_window,
-            return_switch_idxs=True,
-        )
+        if m in BSPLINE_METHODS:
+            goal, switch_idxs = compute_bspline_subgoal_gripper_pcd(
+                gripper_pcd=gripper_pcd,
+                eef_pos=eef_pos,
+                method=m,
+                max_error=opts.max_error,
+                degree=opts.degree,
+                return_switch_idxs=True,
+            )
+        elif m in AWE_METHODS:
+            goal, switch_idxs = compute_awe_subgoal_gripper_pcd(
+                gripper_pcd=gripper_pcd,
+                eef_pos=eef_pos,
+                eef_quat=eef_quat,
+                actions=action,
+                err_threshold=opts.awe_err_threshold,
+                method=opts.awe_solver,
+                pos_only=False,
+                return_switch_idxs=True,
+            )
+        else:
+            goal, switch_idxs = compute_rdp_subgoal_gripper_pcd(
+                gripper_pcd=gripper_pcd,
+                eef_pos=eef_pos,
+                method=m,
+                eef_qpos=gripper_qpos,
+                actions=action,
+                epsilon=opts.epsilon,
+                interval=opts.interval,
+                n_random=opts.n_random,
+                seed=opts.seed,
+                snap_window=opts.snap_window,
+                return_switch_idxs=True,
+            )
         method_goals[METHOD_KEY[m]] = goal
-        idx_record[m] = switch_idxs.tolist()
+        idx_record[m] = [int(x) for x in switch_idxs]
 
     _write_mirror(out_demo_dir, method_goals, T)
 
@@ -172,6 +205,16 @@ def main():
     ap.add_argument("--seed", type=int, default=0, help="seed for 'random'")
     ap.add_argument("--snap_window", type=int, default=5,
                     help="frames within which rdp_gripper snaps to a gripper transition")
+    ap.add_argument("--max_error", type=float, default=0.01,
+                    help="bspline: max-abs (Chebyshev) EEF reconstruction error budget, metres")
+    ap.add_argument("--degree", type=int, default=3,
+                    help="bspline: spline degree (3 = cubic, matches bspline-policy's default)")
+    ap.add_argument("--awe_err_threshold", type=float, default=0.03,
+                    help="awe: max reconstruction error (position in metres, "
+                         "+ rotation in radians) before AWE adds another waypoint")
+    ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="greedy",
+                    help="awe: greedy (fast, near-optimal) or dp (optimal, "
+                         "O(T^3) -- short demos only, roughly <= a few hundred frames)")
     ap.add_argument("--dump_indices", action="store_true",
                     help="also write _keypoints.json per demo (for viser inspection)")
     ap.add_argument("--force", action="store_true",
