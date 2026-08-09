@@ -4,12 +4,12 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 16:00:00 # Estimated time, 16hour max. DD-HH:MM.
-#SBATCH --job-name coffee-prep-d1-high-level-rdp-100demo
-#SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RDP_TRAINING_SCRIPTS/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.out
-#SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RDP_TRAINING_SCRIPTS/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.err
+#SBATCH -t 24:00:00 # Estimated time, 24hour max. DD-HH:MM.
+#SBATCH --job-name hammer-cleanup-d1-high-level-rdp-100demo
+#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/hammer-cleanup-d1-high-level-rdp-100demo_%j.out
+#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/hammer-cleanup-d1-high-level-rdp-100demo_%j.err
 #SBATCH --mail-type=END
-#SBATCH --mail-user=pbhowal@andrew.cmu.edu
+#SBATCH --mail-user=teswaram@andrew.cmu.edu
 
 # 100-DEMO variant: train articubot (GMM cross-displacement high-level policy)
 # on COFFEE_PREPERATION_D1 using RDP goals (goal_gripper_pcd_rdp) from the

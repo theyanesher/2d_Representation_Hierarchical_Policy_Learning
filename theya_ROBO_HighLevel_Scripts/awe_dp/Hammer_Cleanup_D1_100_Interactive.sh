@@ -1,27 +1,17 @@
 #!/bin/bash
-#SBATCH -N 1 # Number of nodes
-#SBATCH --ntasks-per-node=1   # 1 python process per node (PyTorch Lightning rejects -n / --ntasks)
-#SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
-#SBATCH -p ROBO
-#SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 16:00:00 # Estimated time, 16hour max. DD-HH:MM.
-#SBATCH --job-name coffee-prep-d1-high-level-rdp-100demo
-#SBATCH -o /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RDP_TRAINING_SCRIPTS/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.out
-#SBATCH -e /ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning/ROBO_HIGH_LEVEL_TRAINING_SCRIPT/RDP_TRAINING_SCRIPTS/COFFEE_PREPERATION_D1/RDP_FOLDER/logs/job_%j.err
-#SBATCH --mail-type=END
-#SBATCH --mail-user=pbhowal@andrew.cmu.edu
-
-# 100-DEMO variant: train articubot (GMM cross-displacement high-level policy)
-# on COFFEE_PREPERATION_D1 using RDP goals (goal_gripper_pcd_rdp) from the
-# EXTRA_KEYPOINTS tree, but only on the FIRST NUM_DEMOS demos
-# (demo_0 .. demo_(N-1)). Run dirs carry a _${NUM_DEMOS}demo suffix so these
-# are never confused with the full-dataset trainings.
+# Interactive session variant of Hammer_Cleanup_D1_100.sh — no #SBATCH
+# directives, meant to be run directly inside an already-allocated
+# interactive session (salloc/srun), the same way hammercleanupD1_Interactive.sh
+# is used for the plain (non-AWE) HammerCleanupD1 training.
 #
-# NUM_DEMOS defaults to 100. Override at submission time:
-#   NUM_DEMOS=200 sbatch this_script.sh
+# Trains articubot on HAMMER_CLEANUP_D1 using AWE goals (goal_gripper_pcd_awe)
+# from the EXTRA_KEYPOINTS tree, on the FIRST NUM_DEMOS demos
+# (demo_0 .. demo_(N-1)).
+#
+# NUM_DEMOS defaults to 100. Override before running:
+#   NUM_DEMOS=200 ./Hammer_Cleanup_D1_100_Interactive.sh
 
 set -euo pipefail
-set -x
 
 export PIXI_HOME="/ocean/projects/cis240052p/eswaramo/data/pixi"
 export PATH="$PIXI_HOME/bin:$PATH"
@@ -33,16 +23,12 @@ NUM_DEMOS="${NUM_DEMOS:-100}"
 echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0 .. demo_$((NUM_DEMOS-1)))"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/KITCHEN_D1"
-EXTRA_SRC_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/EXTRA_KEYPOINTS/KITCHEN_D1"
+SRC_DATA_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/HAMMER_CLEANUP_D1"
+EXTRA_SRC_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/EXTRA_KEYPOINTS/HAMMER_CLEANUP_D1"
 REPO_DIR="/ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning"
 
 # --- resume from checkpoint ----------------------------------------------
-# Resumes full Lightning state (weights + optimizer + scheduler + epoch) via
-# the +resume_from override in scripts/train.py. Defaults to the last intact
-# checkpoint of the 2026-07-04 100-demo run (scancelled at ~epoch 45; epoch 44
-# was the last periodic save). Set RESUME_CKPT="" to train from scratch:
-#   RESUME_CKPT="" sbatch this_script.sh
+# Set RESUME_CKPT to a checkpoint path to resume; leave empty to train from scratch.
 RESUME_CKPT=""
 
 # Persistent cache dir for sampler weights / swap metadata, one per demo count
@@ -50,20 +36,21 @@ RESUME_CKPT=""
 CACHE_DIR="${EXTRA_SRC_DIR}/.transition_cache_${NUM_DEMOS}demo"
 mkdir -p "${CACHE_DIR}"
 
-# Pick a node-local scratch dir. We want the per-job isolated subdir
-# (/local/slurm-<jobid>/local/) so concurrent jobs on the same node never
-# collide. PSC's SLURM doesn't always pre-create that subtree on this cluster,
-# so we force-create it ourselves when SLURM_JOB_ID is set.
-if [ -n "${SLURM_JOB_ID:-}" ]; then
+# Pick a node-local scratch dir. Always prefer the per-job isolated subdir
+# (/local/slurm-<jobid>/local/) so SLURM auto-cleans on job end and concurrent
+# jobs on the same node never collide. Fall back to $LOCAL or /tmp only if no
+# per-job dir exists (e.g. running outside SLURM).
+if [ -n "${SLURM_JOB_ID:-}" ] && [ -d "/local/slurm-${SLURM_JOB_ID}/local" ]; then
     SCRATCH_ROOT="/local/slurm-${SLURM_JOB_ID}/local"
-    mkdir -p "${SCRATCH_ROOT}"
+elif [ -n "${SLURM_JOB_ID:-}" ] && [ -d "/local/slurm-${SLURM_JOB_ID}" ]; then
+    SCRATCH_ROOT="/local/slurm-${SLURM_JOB_ID}"
 elif [ -n "${LOCAL:-}" ]; then
     SCRATCH_ROOT="${LOCAL}"
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/KITCHEN_D1_${NUM_DEMOS}demo"
-DEST_EXTRA_DIR="${SCRATCH_ROOT}/KITCHEN_D1_extra_goals_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/HAMMER_CLEANUP_D1_${NUM_DEMOS}demo"
+DEST_EXTRA_DIR="${SCRATCH_ROOT}/HAMMER_CLEANUP_D1_extra_goals_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS demo dirs) ----------------------------
 # Parallel copy: split the requested demo dirs across N rsync workers via
@@ -143,9 +130,9 @@ if [ -n "${RESUME_CKPT}" ]; then
         echo "[resume] ERROR: checkpoint not found: ${RESUME_CKPT}" >&2
         exit 1
     fi
-    # Hydra-level single quotes are required: the checkpoint filename contains
-    # '=' (periodic-epoch=epoch=44.ckpt), which otherwise breaks the override
-    # grammar ("mismatched input '=' expecting <EOF>").
+    # Hydra-level single quotes are required if the checkpoint filename contains
+    # '=' (e.g. periodic-epoch=epoch=44.ckpt), which otherwise breaks the
+    # override grammar ("mismatched input '=' expecting <EOF>").
     RESUME_ARGS=("+resume_from='${RESUME_CKPT}'")
 else
     echo "[resume] RESUME_CKPT empty -> training from scratch"
@@ -159,13 +146,13 @@ WANDB_DATA_DIR=/ocean/projects/cis240052p/eswaramo/logs/wandb_data \
 PYTHONNOUSERSITE=1 \
 pixi run python scripts/train.py \
     model=articubot \
-    dataset=Kitchen \
+    dataset=hammerCleanupD1 \
     dataset.data_dir="${DEST_DATA_DIR}" \
     model.use_rgb=False \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=humantorobot \
-    "hydra.run.dir=logs/train_KITCHEN_D1_GOAL_SWAP_RDP_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_HAMMER_CLEANUP_D1_GOAL_SWAP_AWE_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
     +dataset.goal_source="${GOAL_SOURCE}" \
     +dataset.extra_goals_dir="${DEST_EXTRA_DIR}" \
     +dataset.transition_cache_dir="${CACHE_DIR}" \
