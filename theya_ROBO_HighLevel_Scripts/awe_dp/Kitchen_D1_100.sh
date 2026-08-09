@@ -5,10 +5,10 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 24:00:00 # Estimated time, 24hour max. DD-HH:MM.
-#SBATCH --job-name kitchen-d1-high-level-rdp-100demo
-#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/kitchen-d1-high-level-rdp-100demo_%j.out
-#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/kitchen-d1-high-level-rdp-100demo_%j.err
-#SBATCH --mail-type=END
+#SBATCH --job-name kitchen-d1-high-level-awe-subgoals-100demo
+#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/kitchen-d1-high-level-awe-subgoals-100demo_%j.out
+#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/kitchen-d1-high-level-awe-subgoals-100demo_%j.err
+#SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
 # 100-DEMO variant: train articubot (GMM cross-displacement high-level policy)
@@ -165,7 +165,7 @@ pixi run python scripts/train.py \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=humantorobot \
-    "hydra.run.dir=logs/train_KITCHEN_D1_GOAL_SWAP_RDP_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_KITCHEN_D1_AWE_SUBGOALS_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
     +dataset.goal_source="${GOAL_SOURCE}" \
     +dataset.extra_goals_dir="${DEST_EXTRA_DIR}" \
     +dataset.transition_cache_dir="${CACHE_DIR}" \

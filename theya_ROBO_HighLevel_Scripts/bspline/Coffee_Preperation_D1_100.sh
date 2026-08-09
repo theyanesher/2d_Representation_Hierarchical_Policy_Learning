@@ -5,14 +5,14 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 24:00:00 # Estimated time, 24hour max. DD-HH:MM.
-#SBATCH --job-name coffee-prep-d1-high-level-awe-subgoals-100demo
-#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/coffee-prep-d1-high-level-awe-subgoals-100demo_%j.out
-#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/coffee-prep-d1-high-level-awe-subgoals-100demo_%j.err
+#SBATCH --job-name coffee-prep-d1-high-level-bspline-subgoals-100demo
+#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/bspline/logs/coffee-prep-d1-high-level-bspline-subgoals-100demo_%j.out
+#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/bspline/logs/coffee-prep-d1-high-level-bspline-subgoals-100demo_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
 # 100-DEMO variant: train articubot (GMM cross-displacement high-level policy)
-# on COFFEE_PREPERATION_D1 using RDP goals (goal_gripper_pcd_rdp) from the
+# on COFFEE_PREPERATION_D1 using bspline subgoals (goal_gripper_pcd_bspline) from the
 # EXTRA_KEYPOINTS tree, but only on the FIRST NUM_DEMOS demos
 # (demo_0 .. demo_(N-1)). Run dirs carry a _${NUM_DEMOS}demo suffix so these
 # are never confused with the full-dataset trainings.
@@ -165,7 +165,7 @@ pixi run python scripts/train.py \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=humantorobot \
-    "hydra.run.dir=logs/train_COFFEE_PREPERATION_D1_AWE_subgoals_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_COFFEE_PREPERATION_D1_BSPLINE_subgoals_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
     +dataset.goal_source="${GOAL_SOURCE}" \
     +dataset.extra_goals_dir="${DEST_EXTRA_DIR}" \
     +dataset.transition_cache_dir="${CACHE_DIR}" \

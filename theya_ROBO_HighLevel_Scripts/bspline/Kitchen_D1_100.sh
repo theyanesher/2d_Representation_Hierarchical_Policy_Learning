@@ -5,14 +5,14 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 24:00:00 # Estimated time, 24hour max. DD-HH:MM.
-#SBATCH --job-name coffee-prep-d1-high-level-awe-subgoals-100demo
-#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/coffee-prep-d1-high-level-awe-subgoals-100demo_%j.out
-#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/coffee-prep-d1-high-level-awe-subgoals-100demo_%j.err
+#SBATCH --job-name kitchen-d1-high-level-bspline-subgoals-100demo
+#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/bspline/logs/kitchen-d1-high-level-bspline-subgoals-100demo_%j.out
+#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/bspline/logs/kitchen-d1-high-level-bspline-subgoals-100demo_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
 # 100-DEMO variant: train articubot (GMM cross-displacement high-level policy)
-# on COFFEE_PREPERATION_D1 using RDP goals (goal_gripper_pcd_rdp) from the
+# on KITCHEN_D1 using bspline subgoals (goal_gripper_pcd_bspline) from the
 # EXTRA_KEYPOINTS tree, but only on the FIRST NUM_DEMOS demos
 # (demo_0 .. demo_(N-1)). Run dirs carry a _${NUM_DEMOS}demo suffix so these
 # are never confused with the full-dataset trainings.
@@ -33,8 +33,8 @@ NUM_DEMOS="${NUM_DEMOS:-100}"
 echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0 .. demo_$((NUM_DEMOS-1)))"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/COFFEE_PREPERATION_D1"
-EXTRA_SRC_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/EXTRA_KEYPOINTS/COFFEE_PREPERATION_D1"
+SRC_DATA_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/KITCHEN_D1"
+EXTRA_SRC_DIR="/ocean/projects/cis240052p/eswaramo/data/D2/EXTRA_KEYPOINTS/KITCHEN_D1"
 REPO_DIR="/ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning"
 
 # --- resume from checkpoint ----------------------------------------------
@@ -62,8 +62,8 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/COFFEE_PREPERATION_D1_${NUM_DEMOS}demo"
-DEST_EXTRA_DIR="${SCRATCH_ROOT}/COFFEE_PREPERATION_D1_extra_goals_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/KITCHEN_D1_${NUM_DEMOS}demo"
+DEST_EXTRA_DIR="${SCRATCH_ROOT}/KITCHEN_D1_extra_goals_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS demo dirs) ----------------------------
 # Parallel copy: split the requested demo dirs across N rsync workers via
@@ -159,13 +159,13 @@ WANDB_DATA_DIR=/ocean/projects/cis240052p/eswaramo/logs/wandb_data \
 PYTHONNOUSERSITE=1 \
 pixi run python scripts/train.py \
     model=articubot \
-    dataset=Coffee_Preperation_D1 \
+    dataset=Kitchen \
     dataset.data_dir="${DEST_DATA_DIR}" \
     model.use_rgb=False \
     model.in_channels=4 \
     training.batch_size=164 \
     wandb.entity=humantorobot \
-    "hydra.run.dir=logs/train_COFFEE_PREPERATION_D1_AWE_subgoals_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
+    "hydra.run.dir=logs/train_KITCHEN_D1_BSPLINE_SUBGOALS_${NUM_DEMOS}demo/$(date +%Y-%m-%d/%H-%M-%S)" \
     +dataset.goal_source="${GOAL_SOURCE}" \
     +dataset.extra_goals_dir="${DEST_EXTRA_DIR}" \
     +dataset.transition_cache_dir="${CACHE_DIR}" \
