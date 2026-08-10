@@ -90,7 +90,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/murmurhash-1.0.15-py310h25320af_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/nettle-3.6-he412f7d_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-1.23.5-py310h53a5b5f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-1.26.4-py310hb13e2d6_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ocl-icd-2.3.4-hb03c661_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/opencl-headers-2025.06.13-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openh264-2.1.1-h780b84a_0.tar.bz2
@@ -1662,9 +1662,9 @@ packages:
     - nettle >=3.6,<3.7.0a0
   size: 6773272
   timestamp: 1605211080998
-- conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-1.23.5-py310h53a5b5f_0.conda
-  sha256: c3b2dc03dbae88ae1337e37e672aa44008898395d3508839bf35323b54e71665
-  md5: 3b114b1559def8bad228fec544ac1812
+- conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-1.26.4-py310hb13e2d6_0.conda
+  sha256: 028fe2ea8e915a0a032b75165f11747770326f3d767e642880540c60a3256425
+  md5: 6593de64c935768b6bad3e19b3e978be
   depends:
   - libblas >=3.9.0,<4.0a0
   - libcblas >=3.9.0,<4.0a0
@@ -1681,9 +1681,9 @@ packages:
   - pkg:pypi/numpy?source=hash-mapping
   run_exports:
     weak:
-    - numpy >=1.23.5,<2.0a0
-  size: 5848510
-  timestamp: 1668919395225
+    - numpy >=1.26.4,<2.0a0
+  size: 7009070
+  timestamp: 1707225917496
 - conda: https://conda.anaconda.org/conda-forge/linux-64/ocl-icd-2.3.4-hb03c661_1.conda
   sha256: 75f3bf733523a338f73d6c276c4a26634877cd970edb558f2769d9fa52b100a9
   md5: c2871ba95727fd1382c05db66048b64c
@@ -7132,29 +7132,29 @@ packages:
   - opencv-python>=3.0 ; extra == 'other'
   - matplotlib>=3.0 ; extra == 'other'
   - moviepy>=1.0.0 ; extra == 'other'
-  - swig==4.* ; extra == 'testing'
-  - lz4>=3.1.0 ; extra == 'testing'
-  - pygame==2.1.0 ; extra == 'testing'
-  - mujoco==2.2 ; extra == 'testing'
   - matplotlib>=3.0 ; extra == 'testing'
-  - mujoco-py>=2.1,<2.2 ; extra == 'testing'
+  - lz4>=3.1.0 ; extra == 'testing'
+  - moviepy>=1.0.0 ; extra == 'testing'
   - opencv-python>=3.0 ; extra == 'testing'
   - box2d-py==2.3.5 ; extra == 'testing'
-  - moviepy>=1.0.0 ; extra == 'testing'
   - imageio>=2.14.1 ; extra == 'testing'
+  - pygame==2.1.0 ; extra == 'testing'
+  - swig==4.* ; extra == 'testing'
+  - mujoco-py>=2.1,<2.2 ; extra == 'testing'
+  - mujoco==2.2 ; extra == 'testing'
   - pytest==7.0.1 ; extra == 'testing'
-  - swig==4.* ; extra == 'all'
-  - lz4>=3.1.0 ; extra == 'all'
-  - pygame==2.1.0 ; extra == 'all'
-  - mujoco==2.2 ; extra == 'all'
   - matplotlib>=3.0 ; extra == 'all'
-  - mujoco-py>=2.1,<2.2 ; extra == 'all'
+  - pytest==7.0.1 ; extra == 'all'
+  - lz4>=3.1.0 ; extra == 'all'
+  - moviepy>=1.0.0 ; extra == 'all'
   - ale-py~=0.8.0 ; extra == 'all'
   - opencv-python>=3.0 ; extra == 'all'
   - box2d-py==2.3.5 ; extra == 'all'
-  - moviepy>=1.0.0 ; extra == 'all'
-  - pytest==7.0.1 ; extra == 'all'
   - imageio>=2.14.1 ; extra == 'all'
+  - pygame==2.1.0 ; extra == 'all'
+  - swig==4.* ; extra == 'all'
+  - mujoco-py>=2.1,<2.2 ; extra == 'all'
+  - mujoco==2.2 ; extra == 'all'
   requires_python: '>=3.6'
 - pypi: https://files.pythonhosted.org/packages/ab/b5/36c712098e6191d1b4e349304ef73a8d06aed77e56ceaac8c0a306c7bda1/jupyterlab_widgets-3.0.16-py3-none-any.whl
   name: jupyterlab-widgets

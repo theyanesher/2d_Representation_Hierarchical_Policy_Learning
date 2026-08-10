@@ -17,7 +17,7 @@ setuptools = "*"
 wheel = "*"
 cmake = "*"
 # Core Math/ML/Robotics - Pins Retained
-numpy = "1.23.*"
+numpy = "1.26.*"
 pandas = "1.5.*"
 # scipy moved to [pypi-dependencies] (needs >=1.15; conda-forge's >=1.15
 # build is broken here -- see the note there)
@@ -391,6 +391,13 @@ pillow = "<12"
 
 [activation]
 env = { PYTHONPATH = ".:3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Policy:external/mast3r:external/mast3r/dust3r:external/Isaac-GR00T", PROJECT_DIR= ".", NUMEXPR_MAX_THREADS = "90", HYDRA_FULL_ERROR = "1",  SETUPTOOLS_USE_DISTUTILS = "stdlib", PYTHONNOUSERSITE = "1" }
+# fix_stale_numpy_core.sh: works around a conda-forge numpy packaging quirk
+# that breaks every scipy.special/signal/interpolate import ("ValueError:
+# All ufuncs must have type numpy.ufunc") -- see the script for the full
+# root-cause writeup. Idempotent no-op once fixed; runs on every activation
+# so it self-heals after `pixi install` reinstalls the buggy conda numpy
+# build (e.g. after switching branches or updating deps).
+scripts = ["scripts/env_fixes/fix_stale_numpy_core.sh"]
 
 [tasks]
 install-mino-utils = """

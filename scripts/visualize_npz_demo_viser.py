@@ -58,9 +58,14 @@ VISER_TYPE_COLORS = [
     (60, 200, 90),  # limegreen
     (40, 200, 200),  # cyan
 ]
+# Emoji swatches for the GUI legend, same order as VISER_TYPE_COLORS -- kept
+# as plain markdown (no raw HTML/CSS) since viser's markdown widget doesn't
+# render inline <span style="..."> color spans.
+VISER_TYPE_SWATCHES = ["\U0001f534", "\U0001f537", "\U0001f7e0", "\U0001f7e3", "\U0001f7e2", "\U0001f7e6"]
+VISER_TYPE_NAMES = ["red", "royalblue", "orange", "magenta", "limegreen", "cyan"]
 
 GRAY = (170, 170, 170)
-GRIPPER_RED = (255, 0, 0)
+GRIPPER_RED = (0, 255, 0)
 ACTIVE_WHITE_MIX = 0.55  # blend toward white for the "active goal" highlight
 _MIN_VALID_DEPTH = 1e-6  # points at/behind the camera plane are invalid
 
@@ -204,6 +209,9 @@ def main():  # noqa: PLR0915
         for i, k in enumerate(goal_keys)
     }
     print(f"Demos: {len(demo_names)}. Goal types: {', '.join(folders.values())}")
+    print("Color legend (goal type -> RGB):")
+    for k in goal_keys:
+        print(f"  {folders[k]:<20s} {colors[k]}")
 
     server = viser.ViserServer(port=args.port)
     print(f"[viser] Open http://localhost:{args.port}")
@@ -218,6 +226,16 @@ def main():  # noqa: PLR0915
     all_points_checkbox = server.gui.add_checkbox(
         "All 4 keypoints", args.all_goal_points
     )
+    # Static legend mapping each goal type to its swatch color, so it's
+    # obvious which dot color corresponds to which subgoal type in the
+    # scene (colors are fixed per-run, assigned above from VISER_TYPE_COLORS).
+    # Plain markdown only -- viser's markdown widget doesn't render raw HTML.
+    legend_lines = ["**Legend**"]
+    for i, k in enumerate(goal_keys):
+        swatch = VISER_TYPE_SWATCHES[i % len(VISER_TYPE_SWATCHES)]
+        name = VISER_TYPE_NAMES[i % len(VISER_TYPE_NAMES)]
+        legend_lines.append(f"{swatch} {folders[k]} ({name})")
+    server.gui.add_markdown("\n\n".join(legend_lines))
     info_md = server.gui.add_markdown("")
 
     state = {}  # populated by load_current_demo()

@@ -24,7 +24,17 @@ Usage as a drop-in replacement for compute_new_goal_gripper_pcd:
 """
 
 import numpy as np
-from scipy.signal import find_peaks
+# scipy.signal is imported LAZILY (see curvature_switch_indices below), not
+# here: scipy.signal -> scipy.special eagerly pulls in scipy's special-
+# function gufuncs (sph_legendre_p & co., added in scipy 1.15), which crash
+# on import ("ValueError: All ufuncs must have type numpy.ufunc") under this
+# repo's conda-forge Python build regardless of numpy version -- an upstream
+# scipy/conda-forge-Python ABI issue, not something this repo can pin its way
+# out of. Every OTHER caller of this module (rdp_subgoal_decomp.py wants only
+# gripper_switch_indices; bspline_subgoal_decomp.py only needs
+# scipy.interpolate, never scipy.signal/scipy.special) doesn't need
+# find_peaks, so paying that cost only when curvature_switch_indices is
+# actually called unblocks them without touching any pin.
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +117,8 @@ def curvature_switch_indices(
         curvature_norm = curvature / c_max
     else:
         return np.array([], dtype=int)
+
+    from scipy.signal import find_peaks  # noqa: PLC0415 -- see the lazy-import note at the top of this file
 
     peaks, _ = find_peaks(curvature_norm, height=threshold,
                           distance=min_segment_len)

@@ -4,8 +4,10 @@ Offline keypoint / subgoal generator — velocity-free, no simulator.
 Reads the already-rendered per-timestep .npz dataset produced by
 convert_dataset.py and writes ADDITIONAL goal_gripper_pcd variants computed by
 the RDP-family methods (rdp, rdp_gripper, random, fixed_interval), the
-B-spline knot method (bspline), and AWE / Automatic Waypoint Extraction
-(awe). The original dataset is treated as READ-ONLY; new keys live in a
+B-spline methods (bspline: every interior knot; bspline_greville: only the
+high-influence control points, via their Greville abscissae), and AWE /
+Automatic Waypoint Extraction (awe). The original dataset is treated as
+READ-ONLY; new keys live in a
 mirror tree, one per requested method-set so different --methods runs never
 collide or overwrite each other:
 
@@ -175,6 +177,7 @@ def process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=False):
                 method=m,
                 max_error=opts.max_error,
                 degree=opts.degree,
+                influence_threshold=opts.influence_threshold,
                 return_switch_idxs=True,
             )
         elif m in AWE_METHODS:
@@ -245,6 +248,9 @@ def main():
                     help="bspline: max-abs (Chebyshev) EEF reconstruction error budget, metres")
     ap.add_argument("--degree", type=int, default=3,
                     help="bspline: spline degree (3 = cubic, matches bspline-policy's default)")
+    ap.add_argument("--influence_threshold", type=float, default=None,
+                    help="bspline_greville: min control-polygon deviation (metres) for a "
+                         "control point to become a subgoal boundary; default: --max_error")
     ap.add_argument("--awe_err_threshold", type=float, default=0.2,
                     help="awe: max reconstruction error (position in metres, "
                          "+ rotation in radians) before AWE adds another waypoint")
