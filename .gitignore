@@ -5,5 +5,8 @@ Low_Level_and_Inference/data/
 Low_Level_and_Inference/outputs/
 Low_Level_and_Inference/outputs_eval/
 Low_Level_and_Inference/ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/
+Low_Level_and_Inference/logs/
+logs/
 *.err
 *.out
+.claude/
