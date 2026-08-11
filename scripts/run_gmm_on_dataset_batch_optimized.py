@@ -60,7 +60,9 @@ try:
     torch._C._dispatch_has_kernel_for_dispatch_key("torchvision::nms", "Meta")
 except RuntimeError:
     _torchvision_schema = torch.library.Library("torchvision", "DEF")
-    _torchvision_schema.define("nms(Tensor dets, Tensor scores, float iou_threshold) -> Tensor")
+    _torchvision_schema.define(
+        "nms(Tensor dets, Tensor scores, float iou_threshold) -> Tensor"
+    )
 
 from lfd3d.models.articubot import ArticubotNetwork
 
@@ -89,7 +91,9 @@ def load_articubot(ckpt_path, model_cfg, device="cuda"):
     network = ArticubotNetwork(model_cfg=model_cfg).to(device)
 
     ckpt = torch.load(ckpt_path, map_location=device)
-    state = ckpt["state_dict"] if isinstance(ckpt, dict) and "state_dict" in ckpt else ckpt
+    state = (
+        ckpt["state_dict"] if isinstance(ckpt, dict) and "state_dict" in ckpt else ckpt
+    )
 
     # GoalRegressionModule wraps the network as self.network, so saved keys are
     # prefixed with "network." — strip that prefix to load directly into ArticubotNetwork.
@@ -98,7 +102,9 @@ def load_articubot(ckpt_path, model_cfg, device="cuda"):
     }
     missing, unexpected = network.load_state_dict(network_state, strict=False)
     if missing or unexpected:
-        print(f"[load_articubot] missing keys: {len(missing)}, unexpected: {len(unexpected)}")
+        print(
+            f"[load_articubot] missing keys: {len(missing)}, unexpected: {len(unexpected)}"
+        )
     print(f"Successfully loaded model from: {ckpt_path}")
     network.eval()
     return network
@@ -135,11 +141,20 @@ def read_demo_lang_goal(demo_dir):
 def quat_to_rotmat_np(q):
     q = q / (np.linalg.norm(q, axis=-1, keepdims=True) + 1e-8)
     x, y, z, w = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
-    R = np.stack([
-        1 - 2 * (y * y + z * z), 2 * (x * y - z * w),     2 * (x * z + y * w),
-        2 * (x * y + z * w),     1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
-        2 * (x * z - y * w),     2 * (y * z + x * w),     1 - 2 * (x * x + y * y)
-    ], axis=-1).reshape(q.shape[:-1] + (3, 3))
+    R = np.stack(
+        [
+            1 - 2 * (y * y + z * z),
+            2 * (x * y - z * w),
+            2 * (x * z + y * w),
+            2 * (x * y + z * w),
+            1 - 2 * (x * x + z * z),
+            2 * (y * z - x * w),
+            2 * (x * z - y * w),
+            2 * (y * z + x * w),
+            1 - 2 * (x * x + y * y),
+        ],
+        axis=-1,
+    ).reshape(q.shape[:-1] + (3, 3))
     return R
 
 
@@ -212,12 +227,14 @@ def infer_gmm(network, scene_pcd, gripper_pcd, text_embed, args):
     net_in, anchor_xyz_full = prepare_network_input(scene_pcd, gripper_pcd)
 
     outputs = network(
-        net_in, text_embedding=text_embed, data_source=["libero_franka"] * scene_pcd.shape[0]
+        net_in,
+        text_embedding=text_embed,
+        data_source=["libero_franka"] * scene_pcd.shape[0],
     )  # (B, K+N, 13)
 
     B, KN, _ = outputs.shape
-    weights = outputs[:, :, -1]                                      # (B, K+N)
-    displacements = outputs[:, :, :-1].reshape(B, KN, 4, 3)          # (B, K+N, 4, 3)
+    weights = outputs[:, :, -1]  # (B, K+N)
+    displacements = outputs[:, :, :-1].reshape(B, KN, 4, 3)  # (B, K+N, 4, 3)
     gaussian_means = anchor_xyz_full[:, :, None, :] + displacements  # (B, K+N, 4, 3)
 
     # Strip the first K=4 gripper anchors so output covers the scene PCD only —
@@ -228,11 +245,11 @@ def infer_gmm(network, scene_pcd, gripper_pcd, text_embed, args):
 
     probabilities = torch.nn.functional.softmax(weights, dim=1)
     if args.argmax_weight:
-        sampled_idx = torch.argmax(probabilities, dim=1)             # (B,)
+        sampled_idx = torch.argmax(probabilities, dim=1)  # (B,)
     else:
         sampled_idx = torch.multinomial(probabilities, num_samples=1).squeeze(1)
     batch_idx = torch.arange(B, device=outputs.device)
-    prediction = gaussian_means[batch_idx, sampled_idx]              # (B, 4, 3)
+    prediction = gaussian_means[batch_idx, sampled_idx]  # (B, 4, 3)
 
     return prediction, probabilities, anchor_points, gaussian_means
 
@@ -340,7 +357,10 @@ def visualize_with_viser_interactive(
             if anchor_keep.any():
                 server.scene.add_point_cloud(
                     name="gmm_anchors",
-                    points=data["anchor_points"].cpu().numpy().reshape(-1, 3)[anchor_keep],
+                    points=data["anchor_points"]
+                    .cpu()
+                    .numpy()
+                    .reshape(-1, 3)[anchor_keep],
                     colors=anchor_colors[anchor_keep],
                     point_size=0.0025,
                 )
@@ -357,11 +377,17 @@ def visualize_with_viser_interactive(
                 keep[top_idx] = True
                 if keep.any():
                     kept_goals = all_goals[keep].reshape(-1, 3)
-                    kept_alpha_anchor = np.power(weights_np[keep] / max_w, gmm_alpha_gamma)
-                    kept_alpha = np.repeat(kept_alpha_anchor.astype(np.float32), 4)[:, None]
+                    kept_alpha_anchor = np.power(
+                        weights_np[keep] / max_w, gmm_alpha_gamma
+                    )
+                    kept_alpha = np.repeat(kept_alpha_anchor.astype(np.float32), 4)[
+                        :, None
+                    ]
                     bright_green = np.array([0, 200, 0], dtype=np.float32)
                     bg_gray = np.array([180, 180, 180], dtype=np.float32)
-                    goal_colors = (kept_alpha * bright_green + (1.0 - kept_alpha) * bg_gray).astype(np.uint8)
+                    goal_colors = (
+                        kept_alpha * bright_green + (1.0 - kept_alpha) * bg_gray
+                    ).astype(np.uint8)
                     server.scene.add_point_cloud(
                         name="all_gmm_goals",
                         points=kept_goals,
@@ -397,7 +423,7 @@ def visualize_with_viser_interactive(
         # out over the green all-goals cloud. One cloud, re-written each frame —
         # there is always >=1 mode, so no stale modes linger.
         if show_gmm_modes and "gmm_modes" in data:
-            modes = np.asarray(data["gmm_modes"])          # (K, 4, 3)
+            modes = np.asarray(data["gmm_modes"])  # (K, 4, 3)
             mode_w = np.asarray(data["gmm_mode_weights"])  # (K,)
             palette = np.array(
                 [[255, 140, 0], [0, 200, 255], [255, 255, 0], [255, 0, 255]],
@@ -433,7 +459,9 @@ def visualize_with_viser_interactive(
         server.stop()
 
 
-def reduce_gmm_to_modes(all_goals, all_weights, radius=0.03, max_modes=3, w_thresh=1e-4):
+def reduce_gmm_to_modes(
+    all_goals, all_weights, radius=0.03, max_modes=3, w_thresh=1e-4
+):
     """Collapse the per-anchor GMM (N components) into a few spatial modes.
 
     The high-level GMM puts weight on every scene anchor, so a single physical
@@ -477,13 +505,13 @@ def reduce_gmm_to_modes(all_goals, all_weights, radius=0.03, max_modes=3, w_thre
         keep = np.where(w > w_thresh)[0]
         if keep.size == 0:
             continue
-        g = all_goals[t, keep]                 # (n, 4, 3)
-        wk = w[keep].astype(np.float64)        # (n,)
-        cent = g.mean(axis=1)                  # (n, 3) goal centroids
+        g = all_goals[t, keep]  # (n, 4, 3)
+        wk = w[keep].astype(np.float64)  # (n,)
+        cent = g.mean(axis=1)  # (n, 3) goal centroids
 
         used = np.zeros(keep.size, dtype=bool)
-        collected = []                         # list of (mode_weight, mode_goal(4,3))
-        for idx in np.argsort(wk)[::-1]:       # seeds in descending weight
+        collected = []  # list of (mode_weight, mode_goal(4,3))
+        for idx in np.argsort(wk)[::-1]:  # seeds in descending weight
             if used[idx]:
                 continue
             d = np.linalg.norm(cent - cent[idx], axis=1)
@@ -522,8 +550,8 @@ def snap_nearest_mode_to_gt(modes, mode_weights, gt_goals):
     """
     modes = modes.copy()
     T = modes.shape[0]
-    gt_cent = gt_goals.mean(axis=1)          # (T, 3)
-    mode_cent = modes.mean(axis=2)           # (T, K, 3)
+    gt_cent = gt_goals.mean(axis=1)  # (T, 3)
+    mode_cent = modes.mean(axis=2)  # (T, K, 3)
     for t in range(T):
         active = np.where(mode_weights[t] > 0)[0]
         if active.size == 0:
@@ -569,14 +597,38 @@ def process_demo_dir(demo_dir, network, text_embed, args):
     # Each spec = (name, depth_key, rgb_key, extr_key, intr_key, rgb_is_chw_float).
     if args.rl_bench:
         cam_specs = [
-            ("front",          "front_depth",          "front_rgb",
-             "front_camera_extrinsics",          "front_camera_intrinsics",          True),
-            ("left_shoulder",  "left_shoulder_depth",  "left_shoulder_rgb",
-             "left_shoulder_camera_extrinsics",  "left_shoulder_camera_intrinsics",  True),
-            ("right_shoulder", "right_shoulder_depth", "right_shoulder_rgb",
-             "right_shoulder_camera_extrinsics", "right_shoulder_camera_intrinsics", True),
-            ("wrist",          "wrist_depth",          "wrist_rgb",
-             "wrist_camera_extrinsics",          "wrist_camera_intrinsics",          True),
+            (
+                "front",
+                "front_depth",
+                "front_rgb",
+                "front_camera_extrinsics",
+                "front_camera_intrinsics",
+                True,
+            ),
+            (
+                "left_shoulder",
+                "left_shoulder_depth",
+                "left_shoulder_rgb",
+                "left_shoulder_camera_extrinsics",
+                "left_shoulder_camera_intrinsics",
+                True,
+            ),
+            (
+                "right_shoulder",
+                "right_shoulder_depth",
+                "right_shoulder_rgb",
+                "right_shoulder_camera_extrinsics",
+                "right_shoulder_camera_intrinsics",
+                True,
+            ),
+            (
+                "wrist",
+                "wrist_depth",
+                "wrist_rgb",
+                "wrist_camera_extrinsics",
+                "wrist_camera_intrinsics",
+                True,
+            ),
         ]
     elif getattr(args, "push_t", False):
         # PushT: no camera intrinsics/extrinsics on disk (and depth is all
@@ -585,10 +637,22 @@ def process_demo_dir(demo_dir, network, text_embed, args):
         cam_specs = []
     else:
         cam_specs = [
-            ("agentview", "depth_agentview", "rgb_agentview",
-             "agentview_extrinsics", "agentview_intrinsics", False),
-            ("wrist",     "depth_wrist",     "rgb_wrist",
-             "wrist_extrinsics",     "wrist_intrinsics",     False),
+            (
+                "agentview",
+                "depth_agentview",
+                "rgb_agentview",
+                "agentview_extrinsics",
+                "agentview_intrinsics",
+                False,
+            ),
+            (
+                "wrist",
+                "depth_wrist",
+                "rgb_wrist",
+                "wrist_extrinsics",
+                "wrist_intrinsics",
+                False,
+            ),
         ]
 
     obs_bufs = {
@@ -613,7 +677,13 @@ def process_demo_dir(demo_dir, network, text_embed, args):
     # is copied as-is.
     if args.rl_bench:
         generic_bufs = defaultdict(list)
-        consumed_keys = {"action", "point_cloud", "state", "goal_gripper_pcd", "gripper_pcd"}
+        consumed_keys = {
+            "action",
+            "point_cloud",
+            "state",
+            "goal_gripper_pcd",
+            "gripper_pcd",
+        }
         for _, k_depth, k_rgb, k_extr, k_intr, _ in cam_specs:
             consumed_keys.update((k_depth, k_rgb, k_extr, k_intr))
 
@@ -635,19 +705,19 @@ def process_demo_dir(demo_dir, network, text_embed, args):
         # lang_goal) are stored as object/pickled arrays; the generic --rl_bench
         # copy loop touches every key, so they must be unpicklable.
         data = np.load(os.path.join(demo_dir, fname), allow_pickle=True)
-        merged_pcd = data["point_cloud"][0]       # (N, 3)
+        merged_pcd = data["point_cloud"][0]  # (N, 3)
         # Fallback: if `gripper_pcd` is absent (e.g. RL Bench-converted dataset),
         # derive the 4-pt current gripper from `state` via the RVT template.
         if "gripper_pcd" in data.files:
-            gripper_pcd = data["gripper_pcd"][0]      # (4, 3)
+            gripper_pcd = data["gripper_pcd"][0]  # (4, 3)
         else:
-            s = data["state"][0]                       # (8,) [xyz, qx,qy,qz,qw, open]
+            s = data["state"][0]  # (8,) [xyz, qx,qy,qz,qw, open]
             gripper_pcd = build_gripper_pcd_from_pose_np(
                 s[:7][None].astype(np.float32),
                 np.array([[float(s[7])]], np.float32),
                 _GRIPPER_TEMPLATE_4,
-            )[0]                                        # (4, 3)
-        gt_goal = data["goal_gripper_pcd"][0]     # (4, 3)
+            )[0]  # (4, 3)
+        gt_goal = data["goal_gripper_pcd"][0]  # (4, 3)
 
         if merged_pcd.shape[0] != args.num_points:
             merged_pcd = downsample(merged_pcd, args.num_points)
@@ -684,7 +754,9 @@ def process_demo_dir(demo_dir, network, text_embed, args):
         b = end - start
 
         scene_b = torch.from_numpy(scene_pcds[start:end]).to("cuda", non_blocking=True)
-        gripper_b = torch.from_numpy(gripper_pcds[start:end]).to("cuda", non_blocking=True)
+        gripper_b = torch.from_numpy(gripper_pcds[start:end]).to(
+            "cuda", non_blocking=True
+        )
         text_b = text_embed.expand(b, -1).contiguous()
 
         prediction, weights, _anchor_points, gmm_components = infer_gmm(
@@ -702,8 +774,10 @@ def process_demo_dir(demo_dir, network, text_embed, args):
         # gets stored as obs/gmm_modes.
         if args.visualize_gmm_modes:
             viz_modes, viz_mode_w = reduce_gmm_to_modes(
-                gmm_all_goals, gmm_all_weights,
-                radius=args.mode_radius, max_modes=args.max_modes,
+                gmm_all_goals,
+                gmm_all_weights,
+                radius=args.mode_radius,
+                max_modes=args.max_modes,
             )
         all_timestep_data = []
         for t in range(T):
@@ -715,11 +789,11 @@ def process_demo_dir(demo_dir, network, text_embed, args):
                 "prediction": torch.from_numpy(gmm_pred_goals[t]).unsqueeze(0),
                 "gmm_all_components": torch.from_numpy(gmm_all_goals[t]).unsqueeze(0),
                 "gt_goal": gt_goals[t],
-                "present_gripper": gripper_pcds[t],   # (K=4, 3) current gripper
+                "present_gripper": gripper_pcds[t],  # (K=4, 3) current gripper
             }
             if args.visualize_gmm_modes:
-                entry["gmm_modes"] = viz_modes[t]            # (K, 4, 3)
-                entry["gmm_mode_weights"] = viz_mode_w[t]    # (K,)
+                entry["gmm_modes"] = viz_modes[t]  # (K, 4, 3)
+                entry["gmm_mode_weights"] = viz_mode_w[t]  # (K,)
             all_timestep_data.append(entry)
         if len(all_timestep_data) > 0:
             visualize_with_viser_interactive(
@@ -766,8 +840,12 @@ def process_demo_dir(demo_dir, network, text_embed, args):
             f.create_dataset("obs/gmm_modes", data=gmm_modes)
             f.create_dataset("obs/gmm_mode_weights", data=gmm_mode_weights)
         for i in range(len(cam_specs)):
-            f.create_dataset(f"_physical/cam{i}_extrinsic", data=obs_bufs[f"cam{i}_extrinsic"][0])
-            f.create_dataset(f"_physical/cam{i}_intrinsic", data=obs_bufs[f"cam{i}_intrinsic"][0])
+            f.create_dataset(
+                f"_physical/cam{i}_extrinsic", data=obs_bufs[f"cam{i}_extrinsic"][0]
+            )
+            f.create_dataset(
+                f"_physical/cam{i}_intrinsic", data=obs_bufs[f"cam{i}_intrinsic"][0]
+            )
 
         if args.rl_bench:
             # Raw absolute control, verbatim under its original name (in addition
@@ -822,22 +900,26 @@ if __name__ == "__main__":
     )
     parser.add_argument("--use_rgb", action="store_true", default=False)
     parser.add_argument(
-        "--rl_bench", action="store_true", default=False,
+        "--rl_bench",
+        action="store_true",
+        default=False,
         help="Treat the dataset as the RL Bench converted format: 4 cameras "
-             "(front, left_shoulder, right_shoulder, wrist) mapped to the GROOT "
-             "cam0..cam3 schema (RGB -> (H,W,3) uint8, depth -> uint16 mm). Also "
-             "copies every remaining npz key verbatim into obs/<key> and stores "
-             "the raw action at obs/action. Default uses the 2-cam mimicgen "
-             "layout (agentview + wrist) and the original fixed schema."
+        "(front, left_shoulder, right_shoulder, wrist) mapped to the GROOT "
+        "cam0..cam3 schema (RGB -> (H,W,3) uint8, depth -> uint16 mm). Also "
+        "copies every remaining npz key verbatim into obs/<key> and stores "
+        "the raw action at obs/action. Default uses the 2-cam mimicgen "
+        "layout (agentview + wrist) and the original fixed schema.",
     )
     parser.add_argument(
-        "--push_t", action="store_true", default=False,
+        "--push_t",
+        action="store_true",
+        default=False,
         help="Treat the dataset as the PushT npz format: single agentview RGB "
-             "camera (kept as obs/cam0_image — the low-level policy trains on "
-             "it) but no depth / intrinsics / extrinsics / wrist keys (absent "
-             "or all-zero in the npz, so none are read or written). State and "
-             "action are native 2-D. The GMM forward pass and the viser "
-             "visualization are unaffected. Mutually exclusive with --rl_bench."
+        "camera (kept as obs/cam0_image — the low-level policy trains on "
+        "it) but no depth / intrinsics / extrinsics / wrist keys (absent "
+        "or all-zero in the npz, so none are read or written). State and "
+        "action are native 2-D. The GMM forward pass and the viser "
+        "visualization are unaffected. Mutually exclusive with --rl_bench.",
     )
     parser.add_argument(
         "--argmax_weight",
@@ -967,9 +1049,8 @@ if __name__ == "__main__":
     lang_goal_text_embed = None  # callable(demo_dir) -> (1, 1152) cuda tensor
     text_embed = None
     if args.use_lang_goal:
-        from transformers import AutoModel, AutoProcessor
-
         from lfd3d.datasets.rgb_text_feature_gen import get_siglip_text_embedding
+        from transformers import AutoModel, AutoProcessor
 
         print("Per-demo language conditioning ON: loading SigLIP for lang_goal...")
         _siglip = AutoModel.from_pretrained("google/siglip-so400m-patch14-384")
@@ -1028,7 +1109,9 @@ if __name__ == "__main__":
         # visualization mode the viewer only launches *inside* process_demo_dir,
         # so skipping a cached h5 would silently never show anything — always
         # re-process when visualizing.
-        viz_mode = args.visualize or args.visualize_all_gmm_goals or args.visualize_gmm_modes
+        viz_mode = (
+            args.visualize or args.visualize_all_gmm_goals or args.visualize_gmm_modes
+        )
         if os.path.exists(out_h5_check) and not viz_mode:
             print(f"  {demo_name}: skipping (already exists at {out_h5_check})")
             continue
