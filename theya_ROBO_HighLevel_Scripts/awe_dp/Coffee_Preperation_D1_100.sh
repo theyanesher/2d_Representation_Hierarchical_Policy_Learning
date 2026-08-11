@@ -26,7 +26,7 @@ set -x
 export PIXI_HOME="/ocean/projects/cis240052p/eswaramo/data/pixi"
 export PATH="$PIXI_HOME/bin:$PATH"
 
-GOAL_SOURCE="bspline"
+GOAL_SOURCE="awe"
 
 # --- demo selection ------------------------------------------------------
 NUM_DEMOS="${NUM_DEMOS:-100}"
