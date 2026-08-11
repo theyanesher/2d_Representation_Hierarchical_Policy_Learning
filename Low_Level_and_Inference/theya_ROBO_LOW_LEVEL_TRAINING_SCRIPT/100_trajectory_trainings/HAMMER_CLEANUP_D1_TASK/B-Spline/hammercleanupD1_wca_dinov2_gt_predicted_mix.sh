@@ -70,7 +70,7 @@ elif [ -n "${LOCAL:-}" ]; then
 else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
-DEST_DATA_DIR="${SCRATCH_ROOT}/Hammer_Cleanup_D1_AWE_Low_Level_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Hammer_Cleanup_D1_Bspline_Low_Level_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS files) --------------------------------
 THREADS="${RSYNC_THREADS:-32}"
@@ -141,8 +141,8 @@ pixi run python diffusion_policy/train.py \
     policy.use_weighted_cross_attention=true \
     policy.gmm_top_k=6 \
     logging.project=MimicGen_GMM_Low_Level_Policy \
-    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Hammer_Cleanup_D1_AWE_GTMIX_p${GT_MIX_P} \
-    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Hammer_Cleanup_D1_AWE_GTMIX_p${GT_MIX_P} \
+    logging.name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Hammer_Cleanup_D1_Bspline_GTMIX_p${GT_MIX_P} \
+    name=groot_GMM_WCA_${NUM_DEMOS}demo_dinov2_Hammer_Cleanup_D1_Bspline_GTMIX_p${GT_MIX_P} \
     training.checkpoint_every=5 \
     dataloader.batch_size=128 \
     dataloader.num_workers=16 \
