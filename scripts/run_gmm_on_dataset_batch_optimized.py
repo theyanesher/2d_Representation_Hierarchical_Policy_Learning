@@ -53,6 +53,15 @@ import torch
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+# This inference path only needs torchvision's pure-Python utilities through
+# timm.  Register the NMS schema so torchvision can initialize even when its
+# optional native operators are unavailable in the Pixi environment.
+try:
+    torch._C._dispatch_has_kernel_for_dispatch_key("torchvision::nms", "Meta")
+except RuntimeError:
+    _torchvision_schema = torch.library.Library("torchvision", "DEF")
+    _torchvision_schema.define("nms(Tensor dets, Tensor scores, float iou_threshold) -> Tensor")
+
 from lfd3d.models.articubot import ArticubotNetwork
 
 
@@ -280,6 +289,7 @@ def visualize_with_viser_interactive(
     show_gmm_modes=False,
     gmm_weight_threshold: float = 0.01,
     gmm_alpha_gamma: float = 0.5,
+    max_visualized_gmm_goals: int = 50,
 ):
     """Interactive viser viewer with a timestep slider — matches the SMITH script."""
     import time
@@ -296,6 +306,11 @@ def visualize_with_viser_interactive(
         "Timestep", min=0, max=T - 1, step=1, initial_value=0
     )
     mode_info = server.gui.add_markdown("**modes:** —") if show_gmm_modes else None
+    server.gui.add_markdown(
+        "**Legend:** gray = scene · blue→red = high-weight anchors · "
+        "green = top predicted subgoals · yellow = maximum-probability subgoal · "
+        "black = ground truth · red = current gripper"
+    )
 
     def render_timestep(t):
         data = all_timestep_data[t]
@@ -306,7 +321,7 @@ def visualize_with_viser_interactive(
             name="scene_pcd",
             points=merged_pcd,
             colors=np.tile([180, 180, 180], (merged_pcd.shape[0], 1)).astype(np.uint8),
-            point_size=0.004,
+            point_size=0.0015,
         )
 
         if has_gmm:
@@ -317,22 +332,29 @@ def visualize_with_viser_interactive(
             anchor_colors = np.zeros((len(w_norm), 3), dtype=np.uint8)
             anchor_colors[:, 0] = (w_norm * 255).astype(np.uint8)
             anchor_colors[:, 2] = ((1 - w_norm) * 255).astype(np.uint8)
-            server.scene.add_point_cloud(
-                name="gmm_anchors",
-                points=data["anchor_points"].cpu().numpy().reshape(-1, 3),
-                colors=anchor_colors,
-                point_size=0.008,
-            )
+            # Anchors coincide with the scene points. Drawing all of them used
+            # to cover the gray scene with a large blue cloud because most GMM
+            # probabilities are close to zero. Show only meaningful anchors.
+            max_w = weights_np.max() + 1e-12
+            anchor_keep = weights_np >= gmm_weight_threshold * max_w
+            if anchor_keep.any():
+                server.scene.add_point_cloud(
+                    name="gmm_anchors",
+                    points=data["anchor_points"].cpu().numpy().reshape(-1, 3)[anchor_keep],
+                    colors=anchor_colors[anchor_keep],
+                    point_size=0.0025,
+                )
 
             if show_all_gmm_goals:
                 all_goals = data["gmm_all_components"].squeeze(0).cpu().numpy()
                 N = all_goals.shape[0]
-                # Softmax weights are highly peaked — most anchors carry near-zero
-                # mass. Filter to anchors >= gmm_weight_threshold * peak so the
-                # rendered cloud is actually meaningful, then fade-by-weight
-                # within the kept set using the configured gamma.
-                max_w = weights_np.max() + 1e-12
-                keep = weights_np >= gmm_weight_threshold * max_w  # (N,) bool
+                # Keep only the highest-probability components. The complete
+                # distribution is still written to disk; this cap affects only
+                # the interactive viewer.
+                n_show = min(max(1, max_visualized_gmm_goals), N)
+                top_idx = np.argsort(weights_np)[-n_show:]
+                keep = np.zeros(N, dtype=bool)
+                keep[top_idx] = True
                 if keep.any():
                     kept_goals = all_goals[keep].reshape(-1, 3)
                     kept_alpha_anchor = np.power(weights_np[keep] / max_w, gmm_alpha_gamma)
@@ -344,21 +366,21 @@ def visualize_with_viser_interactive(
                         name="all_gmm_goals",
                         points=kept_goals,
                         colors=goal_colors,
-                        point_size=0.014,
+                        point_size=0.0015,
                     )
 
             server.scene.add_point_cloud(
                 name="predicted_goal",
                 points=data["prediction"].cpu().numpy().reshape(-1, 3),
-                colors=np.tile([144, 238, 144], (4, 1)).astype(np.uint8),
-                point_size=0.018,
+                colors=np.tile([255, 230, 0], (4, 1)).astype(np.uint8),
+                point_size=0.008,
             )
 
         server.scene.add_point_cloud(
             name="ground_truth_goal_gripper",
             points=data["gt_goal"].reshape(-1, 3),
             colors=np.tile([0, 0, 0], (4, 1)).astype(np.uint8),
-            point_size=0.022,
+            point_size=0.006,
         )
 
         # Current gripper (red), 4-pt — same source the network sees as input.
@@ -367,7 +389,7 @@ def visualize_with_viser_interactive(
                 name="present_gripper",
                 points=np.asarray(data["present_gripper"]).reshape(-1, 3),
                 colors=np.tile([255, 0, 0], (4, 1)).astype(np.uint8),
-                point_size=0.022,
+                point_size=0.006,
             )
 
         # Halo-collapsed GMM modes: each mode's 4 keypoints in a distinct color
@@ -392,7 +414,7 @@ def visualize_with_viser_interactive(
                     name="gmm_modes",
                     points=np.concatenate(pts, 0).astype(np.float32),
                     colors=np.concatenate(cols, 0).astype(np.uint8),
-                    point_size=0.03,
+                    point_size=0.008,
                 )
             if mode_info is not None:
                 active = [f"{w:.3f}" for w in mode_w if w > 0]
@@ -706,6 +728,7 @@ def process_demo_dir(demo_dir, network, text_embed, args):
                 show_gmm_modes=args.visualize_gmm_modes,
                 gmm_weight_threshold=args.gmm_weight_threshold,
                 gmm_alpha_gamma=args.gmm_alpha_gamma,
+                max_visualized_gmm_goals=args.max_visualized_gmm_goals,
             )
 
     # ---- Phase 4: write the consolidated h5 ----
@@ -836,7 +859,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--visualize_all_gmm_goals",
         action="store_true",
-        help="Also render all N GMM component goals colored by weight.",
+        help="Render the highest-probability GMM component goals, colored by weight.",
+    )
+    parser.add_argument(
+        "--max_visualized_gmm_goals",
+        type=int,
+        default=50,
+        help="Maximum GMM components shown in Viser per timestep (default: 50). "
+        "This does not alter inference or saved outputs.",
     )
     parser.add_argument(
         "--visualize_gmm_modes",
