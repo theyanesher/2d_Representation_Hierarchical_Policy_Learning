@@ -1,19 +1,0 @@
-COMMAND: pixi run python manipulation/extract_images_from_states.py --folder_name data/diverse_objects_mino/ --exp_name test_gen_demo --extract_name 41510 --traj_idx 461 --angle_threshold 0.9736744769604139 --randomize_camera 0 --observation_mode image --save_path data/rgb_mino_data/ --extract_pcds
-LOG_FILE: logs/extraction/41510/job_0461.log
-----------------------------------------
-
---- STREAMING OUTPUT ---
-pybullet build time: Sep  3 2024 12:51:57
-Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
-Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
-Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
-See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
-all experiments to render:  ['2025-11-08-08-43-47']
-Using forced angle threshold: 0.9736744769604139
-not open enough, continue
-all traj_pos_ori length:  0
-0it [00:00, ?it/s]0it [00:00, ?it/s]
-
-----------------------------------------
-STATUS: SUCCESS
-EXIT_CODE: 0

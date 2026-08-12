@@ -1,39 +1,0 @@
-COMMAND: pixi run python manipulation/extract_images_from_states.py --folder_name data/diverse_objects_mino/ --exp_name test_gen_demo --extract_name 41510 --traj_idx 423 --angle_threshold 0.9736744769604139 --randomize_camera 0 --observation_mode image --save_path data/rgb_mino_data/ --extract_pcds
-LOG_FILE: logs/extraction/41510/job_0423.log
-----------------------------------------
-
---- STREAMING OUTPUT ---
-pybullet build time: Sep  3 2024 12:51:57
-Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
-Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
-Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
-See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
-b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-baseb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-link_0b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-link_1b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-link_2b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-baseb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-link_0b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-link_1b3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-No inertial data for link, using mass=1, localinertiadiagonal = 1,1,1, identity local inertial frameb3Warning[examples/Importers/ImportURDFDemo/BulletUrdfImporter.cpp,126]:
-link_2/project_data/held/pratik/run_sample_basic_experiments/Bimanual_Manipulation/Articubot_Data_For_RVT/ArticuBot/.pixi/envs/default/lib/python3.10/site-packages/gym/spaces/box.py:127: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
-  logger.warn(f"Box bound precision lowered by casting to {self.dtype}")
-all experiments to render:  ['2025-11-08-07-48-41']
-Using forced angle threshold: 0.9736744769604139
-tracikpy not installed, using just default pybullet ik solver
-  0%|          | 0/82 [00:00<?, ?it/s]  1%|          | 1/82 [00:00<00:38,  2.10it/s]  2%|▏         | 2/82 [00:01<00:44,  1.81it/s]  4%|▎         | 3/82 [00:01<00:56,  1.40it/s]  5%|▍         | 4/82 [00:02<00:49,  1.58it/s]  6%|▌         | 5/82 [00:02<00:44,  1.72it/s]  7%|▋         | 6/82 [00:03<00:41,  1.81it/s]  9%|▊         | 7/82 [00:04<00:41,  1.79it/s] 10%|▉         | 8/82 [00:04<00:39,  1.87it/s] 11%|█         | 9/82 [00:05<00:41,  1.75it/s] 12%|█▏        | 10/82 [00:05<00:39,  1.81it/s] 13%|█▎        | 11/82 [00:06<00:39,  1.81it/s] 15%|█▍        | 12/82 [00:06<00:41,  1.69it/s] 16%|█▌        | 13/82 [00:07<00:46,  1.50it/s] 17%|█▋        | 14/82 [00:08<00:46,  1.48it/s] 18%|█▊        | 15/82 [00:09<00:44,  1.51it/s] 20%|█▉        | 16/82 [00:09<00:43,  1.51it/s] 21%|██        | 17/82 [00:10<00:41,  1.56it/s] 22%|██▏       | 18/82 [00:10<00:37,  1.68it/s] 23%|██▎       | 19/82 [00:11<00:35,  1.76it/s] 24%|██▍       | 20/82 [00:11<00:33,  1.82it/s] 26%|██▌       | 21/82 [00:12<00:35,  1.72it/s] 27%|██▋       | 22/82 [00:13<00:33,  1.77it/s] 28%|██▊       | 23/82 [00:13<00:31,  1.85it/s] 29%|██▉       | 24/82 [00:14<00:31,  1.83it/s] 30%|███       | 25/82 [00:14<00:32,  1.74it/s] 32%|███▏      | 26/82 [00:15<00:31,  1.77it/s] 33%|███▎      | 27/82 [00:15<00:31,  1.76it/s] 34%|███▍      | 28/82 [00:16<00:32,  1.68it/s] 35%|███▌      | 29/82 [00:17<00:34,  1.54it/s] 37%|███▋      | 30/82 [00:17<00:32,  1.62it/s] 38%|███▊      | 31/82 [00:18<00:30,  1.69it/s] 39%|███▉      | 32/82 [00:18<00:28,  1.75it/s] 40%|████      | 33/82 [00:19<00:29,  1.69it/s] 41%|████▏     | 34/82 [00:20<00:29,  1.63it/s] 43%|████▎     | 35/82 [00:20<00:29,  1.60it/s] 44%|████▍     | 36/82 [00:21<00:27,  1.66it/s] 45%|████▌     | 37/82 [00:21<00:26,  1.70it/s] 46%|████▋     | 38/82 [00:22<00:24,  1.76it/s] 48%|████▊     | 39/82 [00:23<00:27,  1.54it/s] 49%|████▉     | 40/82 [00:23<00:27,  1.53it/s] 50%|█████     | 41/82 [00:24<00:28,  1.45it/s] 51%|█████     | 42/82 [00:25<00:28,  1.41it/s] 52%|█████▏    | 43/82 [00:26<00:25,  1.51it/s] 54%|█████▎    | 44/82 [00:26<00:24,  1.53it/s] 55%|█████▍    | 45/82 [00:27<00:22,  1.65it/s] 56%|█████▌    | 46/82 [00:27<00:20,  1.76it/s] 57%|█████▋    | 47/82 [00:28<00:19,  1.76it/s] 59%|█████▊    | 48/82 [00:28<00:20,  1.66it/s] 60%|█████▉    | 49/82 [00:29<00:21,  1.50it/s] 61%|██████    | 50/82 [00:30<00:21,  1.48it/s] 62%|██████▏   | 51/82 [00:30<00:20,  1.54it/s] 63%|██████▎   | 52/82 [00:31<00:18,  1.62it/s] 65%|██████▍   | 53/82 [00:32<00:16,  1.71it/s] 66%|██████▌   | 54/82 [00:32<00:15,  1.78it/s] 67%|██████▋   | 55/82 [00:33<00:15,  1.79it/s] 68%|██████▊   | 56/82 [00:33<00:15,  1.73it/s] 70%|██████▉   | 57/82 [00:34<00:14,  1.72it/s] 71%|███████   | 58/82 [00:34<00:13,  1.75it/s] 72%|███████▏  | 59/82 [00:35<00:12,  1.81it/s] 73%|███████▎  | 60/82 [00:35<00:11,  1.86it/s] 74%|███████▍  | 61/82 [00:36<00:11,  1.85it/s] 76%|███████▌  | 62/82 [00:37<00:11,  1.68it/s] 77%|███████▋  | 63/82 [00:37<00:12,  1.54it/s] 78%|███████▊  | 64/82 [00:38<00:11,  1.54it/s] 79%|███████▉  | 65/82 [00:39<00:10,  1.70it/s] 80%|████████  | 66/82 [00:39<00:09,  1.74it/s] 82%|████████▏ | 67/82 [00:40<00:10,  1.46it/s] 83%|████████▎ | 68/82 [00:41<00:09,  1.45it/s] 84%|████████▍ | 69/82 [00:41<00:08,  1.55it/s] 85%|████████▌ | 70/82 [00:42<00:07,  1.70it/s] 87%|████████▋ | 71/82 [00:42<00:06,  1.78it/s] 88%|████████▊ | 72/82 [00:43<00:05,  1.84it/s] 89%|████████▉ | 73/82 [00:43<00:04,  1.92it/s] 90%|█████████ | 74/82 [00:44<00:04,  1.95it/s] 91%|█████████▏| 75/82 [00:44<00:03,  1.96it/s] 93%|█████████▎| 76/82 [00:45<00:03,  1.87it/s] 94%|█████████▍| 77/82 [00:45<00:02,  1.68it/s] 95%|█████████▌| 78/82 [00:46<00:02,  1.65it/s] 96%|█████████▋| 79/82 [00:47<00:01,  1.51it/s] 98%|█████████▊| 80/82 [00:47<00:01,  1.58it/s] 99%|█████████▉| 81/82 [00:48<00:00,  1.69it/s]100%|██████████| 82/82 [00:48<00:00,  1.83it/s]100%|██████████| 82/82 [00:48<00:00,  1.68it/s]
-Finished extracting data from trajectory with length: 41 time cost 54.43335676193237
-all traj_pos_ori length:  1
-  0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:03<00:00,  3.01s/it]100%|██████████| 1/1 [00:03<00:00,  3.01s/it]
-
-----------------------------------------
-STATUS: SUCCESS
-EXIT_CODE: 0

@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=12    # 12 CPU cores for the python process (dataloader workers etc.)
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
-#SBATCH -t 24:00:00 # 24-hour budget
+#SBATCH -t 12:00:00 # 12-hour budget
 #SBATCH --job-name hammer-cleanup-d1-BSpline-wca-100demo-dinov2-gtmix-goalswap
 #SBATCH -o /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/hammer-cleanup-d1-BSpline-wca-100demo-dinov2-gtmix-goalswap_job_%j.out
 #SBATCH -e /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/hammer-cleanup-d1-BSpline-wca-100demo-dinov2-gtmix-goalswap_job_%j.err
