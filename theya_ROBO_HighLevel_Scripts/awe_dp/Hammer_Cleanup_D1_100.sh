@@ -6,8 +6,8 @@
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 24:00:00 # Estimated time, 24hour max. DD-HH:MM.
 #SBATCH --job-name hammer-cleanup-d1-high-level-awe-subgoals-100demo
-#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/hammer-cleanup-d1-high-level-awe-subgoals-100demo_%j.out
-#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/theya_ROBO_HighLevel_Scripts/awe_dp/logs/hammer-cleanup-d1-high-level-awe-subgoals-100demo_%j.err
+#SBATCH -o /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/logs/hammer-cleanup-d1-high-level-awe-subgoals-100demo_%j.out
+#SBATCH -e /ocean/projects/cis240052p/eswaramo/code/2d_Representation_Hierarchical_Policy_Learning/logs/hammer-cleanup-d1-high-level-awe-subgoals-100demo_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
