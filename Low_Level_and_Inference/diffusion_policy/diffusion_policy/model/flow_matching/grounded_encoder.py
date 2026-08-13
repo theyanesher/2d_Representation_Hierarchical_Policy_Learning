@@ -32,10 +32,16 @@ from diffusion_policy.model.flow_matching.rope4d_grounding import (
     extract_patch_centers,
     unproject_depth_to_world,
 )
+from diffusion_policy.model.flow_matching.visual_encoders import _crop_cam_keys
 from diffusion_policy.model.vision.crop_randomizer import (
     CropRandomizer,
     crop_image_from_indices,
 )
+
+# NOTE on the import direction: this module imports from visual_encoders at
+# module level, and visual_encoders imports THIS module lazily inside
+# build_visual_encoder(). Keep it that way — making both directions eager
+# creates a circular import.
 
 
 class DINOv2RoPE4DGroundedEncoder(nn.Module):
@@ -67,6 +73,34 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
         gripper_key: str = "present_gripper_pts",
         n_total_steps: int = 18,
         n_keypoints: int = 4,
+        # --- optional goal-candidate tokens in the trunk ---------------------
+        # When goal_key is None the trunk carries only patches + gripper (the
+        # Approach 2 / plain-RoPE configuration). When set, the top-K GMM
+        # candidates join as grounded tokens so patches can ground themselves
+        # against where the robot is being sent. They are context only —
+        # discarded at the output like the gripper tokens — and this does NOT
+        # replace the DiT's own goal pathway (WCA still runs unchanged).
+        goal_key: Optional[str] = None,
+        goal_weights_key: Optional[str] = None,
+        goal_top_k: int = 6,
+        # Goals are FUTURE targets, so they sit at the far end of the time axis
+        # rather than alongside the observations (which live at obs_step/n_total).
+        goal_time_frac: float = 1.0,
+        # Prior knobs, namespaced away from the DiT's wca_alpha / wca_beta since
+        # both sets are live at once:
+        #   logits(goal key j) = alpha_trunk * (q.k)/sqrt(d)
+        #                        + beta_trunk  * log(pi_j / pi_max)
+        #                        + gamma_trunk * log(pi_max)
+        # beta_trunk  ranks candidates against each other.
+        # gamma_trunk ties the goal stream's overall loudness to how peaked the
+        #             high-level mixture is; 0.0 decouples them, 1.0 reproduces a
+        #             raw log(pi) bias. Raw log(pi) is NOT the natural default
+        #             here: unlike WCA, this softmax also spans the 1000+ patch
+        #             keys, so a uniformly negative bias would suppress goals
+        #             against patches rather than merely rank them.
+        alpha_trunk: float = 1.0,
+        beta_trunk: float = 1.0,
+        gamma_trunk: float = 0.0,
         # YAML cfg
         model_name: str = "facebook/dinov2-base",
         frozen: bool = True,
@@ -132,6 +166,31 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
         self.grip_temporal_embed = nn.Embedding(n_obs_steps, embed_dim)
         nn.init.normal_(self.grip_temporal_embed.weight, std=0.02)
 
+        # Goal candidates: ONE token per candidate. Its RoPE position is
+        # keypoint 3, which is bit-identically obs/state[:3] in these datasets —
+        # the EE frame origin. Using the 4-point centroid instead would sit a
+        # systematic ~29.5 mm off that convention, comparable to the whole
+        # nearest-anchor scale (25-35 mm). The content still carries all 4
+        # keypoints, so orientation and aperture are not lost.
+        self.goal_key = goal_key
+        self.goal_weights_key = goal_weights_key
+        self.goal_top_k = int(goal_top_k)
+        self.goal_time_frac = float(goal_time_frac)
+        self.alpha_trunk = float(alpha_trunk)
+        self.beta_trunk = float(beta_trunk)
+        self.gamma_trunk = float(gamma_trunk)
+        self.goal_encoder = None
+        if goal_key is not None:
+            assert goal_weights_key is not None, (
+                "goal_key requires goal_weights_key (the GMM mixture weights)"
+            )
+            self.goal_encoder = nn.Sequential(
+                nn.Linear(n_keypoints * 3, embed_dim), nn.ReLU(),
+                nn.Linear(embed_dim, embed_dim),
+            )
+            self.goal_temporal_embed = nn.Embedding(n_obs_steps, embed_dim)
+            nn.init.normal_(self.goal_temporal_embed.weight, std=0.02)
+
         assert embed_dim == num_heads * head_dim, (
             f"embed_dim ({embed_dim}) must equal num_heads*head_dim "
             f"({num_heads}*{head_dim}={num_heads*head_dim})"
@@ -166,18 +225,25 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
         return tokens
 
     def encode(self, nobs: dict) -> Tensor:
-        raise NotImplementedError(
-            "DINOv2RoPE4DGroundedEncoder needs unnormalised depth/state, so it "
-            "must be driven via encode_with_positions(nobs, raw_obs)."
-        )
+        """Standard VisualTokenEncoder entry point: (B, To*n_cams*N_tok, D).
 
-    # ------------------------------------------------------------------ #
-    def encode_with_positions(self, nobs: dict, raw_obs: dict):
+        Reads geometry straight out of ``nobs``, which requires the task to set
+        ``identity_normalize_depth: true`` so depth arrives in METRES. The
+        intrinsics/extrinsics (matrix keys) and present_gripper_pts
+        (goal_gripper key) are identity-normalised already.
+
+        Used by policies that only want better visual tokens — the anchors and
+        validity mask are computed and discarded. Callers that need them (the
+        goal-GMM auxiliary head) use ``encode_with_positions`` instead.
         """
-        Args:
-            nobs:    normalised obs dict (used for RGB only).
-            raw_obs: unnormalised obs dict (depth in metres, camera matrices,
-                     gripper keypoints in world metres).
+        return self._encode(nobs, geom=nobs)[0]
+
+    def encode_with_positions(self, nobs: dict, raw_obs: dict):
+        """As ``encode``, but sources geometry from ``raw_obs`` and returns the
+        per-token anchors and validity mask alongside the tokens.
+
+        For policies that read raw obs directly instead of relying on
+        ``identity_normalize_depth``.
 
         Returns:
             vis_tokens : (B, To*n_cams*N_tok, D)   grounded patch tokens
@@ -186,11 +252,22 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
             grip_tokens: (B, To*n_keypoints, D)
             grip_xyz   : (B, To*n_keypoints, 3)
         """
+        return self._encode(nobs, geom=raw_obs)
+
+    # ------------------------------------------------------------------ #
+    def _encode(self, nobs: dict, geom: dict):
+        """Shared body.
+
+        Args:
+            nobs: normalised obs dict — used for RGB only.
+            geom: dict to read geometry from (depth in METRES, camera matrices,
+                  gripper keypoints in world metres). Either ``nobs`` itself
+                  when the task identity-normalises depth, or a raw obs dict.
+        """
         To = self.n_obs_steps
         n_cams = len(self.cam_keys)
 
         # -- RGB crop, capturing the offsets so depth gets the identical crop --
-        from diffusion_policy.model.flow_matching.visual_encoders import _crop_cam_keys
         cropped, B, _, offsets = _crop_cam_keys(
             self.cam_keys, self.crop_randomizer, nobs, To, return_offsets=True,
         )
@@ -202,12 +279,12 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
             toks = self.projector(self.forward(imgs.reshape(B * To, C, Hc, Wc)))
             N_tok = toks.shape[1]
 
-            depth = raw_obs[self.depth_keys[ci]][:, :To]         # (B,To,1,H,W) metres
+            depth = geom[self.depth_keys[ci]][:, :To]         # (B,To,1,H,W) metres
             depth = depth.reshape(B * To, *depth.shape[2:])
             if depth.dim() == 4:
                 depth = depth[:, 0]                              # (B*To, H, W)
-            K = raw_obs[self.intrinsic_keys[ci]][:, :To].reshape(B * To, 3, 3)
-            E = raw_obs[self.extrinsic_keys[ci]][:, :To].reshape(B * To, 4, 4)
+            K = geom[self.intrinsic_keys[ci]][:, :To].reshape(B * To, 3, 3)
+            E = geom[self.extrinsic_keys[ci]][:, :To].reshape(B * To, 4, 4)
 
             pm = unproject_depth_to_world(depth.float(), K.float(), E.float())
             # Identical crop to the RGB, so patch i of the ViT and row i of the
@@ -247,7 +324,7 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
         vis_valid = valid.reshape(B, n_vis)
 
         # -- Gripper keypoint tokens (raw world metres) --
-        gp = raw_obs[self.gripper_key][:, :To].float()           # (B, To, K, 3)
+        gp = geom[self.gripper_key][:, :To].float()           # (B, To, K, 3)
         K_pts = gp.shape[2]
         gtok = self.gripper_encoder(gp.reshape(-1, 3)).reshape(B, To, K_pts, D)
         gtok = gtok + self.keypoint_embed(torch.arange(K_pts, device=device))
@@ -260,14 +337,67 @@ class DINOv2RoPE4DGroundedEncoder(nn.Module):
         t_vis = t_vals.repeat_interleave(n_cams * N_tok)[None, :, None].expand(B, -1, 1)
         t_grip = t_vals.repeat_interleave(K_pts)[None, :, None].expand(B, -1, 1)
 
-        pos = torch.cat([
+        seq = [vis_tokens, grip_tokens]
+        pos = [
             torch.cat([vis_xyz * self.xyz_scale, t_vis], dim=-1),
             torch.cat([grip_xyz * self.xyz_scale, t_grip], dim=-1),
-        ], dim=1)
+        ]
 
-        # -- RoPE4D trunk over [patches ; gripper keypoints] --
-        x = torch.cat([vis_tokens, grip_tokens], dim=1)
+        # -- Goal-candidate tokens (optional) --
+        n_goal, goal_bias = 0, None
+        if self.goal_encoder is not None:
+            gpts = geom[self.goal_key][:, :To].float()            # (B, To, N, K, 3)
+            gw = geom[self.goal_weights_key][:, :To].float()      # (B, To, N)
+            Kc = min(self.goal_top_k, gw.shape[-1])
+            # Same topk on the same weights as the policy's gmm_top_k, so the
+            # two goal pathways always see the identical candidate set.
+            idx = torch.topk(gw, Kc, dim=-1).indices              # (B, To, Kc)
+            gw = torch.gather(gw, 2, idx)
+            gpts = torch.gather(
+                gpts, 2,
+                idx[..., None, None].expand(*idx.shape, gpts.shape[-2], gpts.shape[-1]),
+            )                                                    # (B, To, Kc, K, 3)
+
+            gt = self.goal_encoder(gpts.reshape(B * To * Kc, -1)).reshape(B, To, Kc, D)
+            gt = gt + self.goal_temporal_embed(step_ids)[None, :, None, :]
+            n_goal = To * Kc
+            seq.append(gt.reshape(B, n_goal, D))
+
+            # Keypoint 3 is the EE origin (== obs/state[:3]), not the centroid.
+            goal_xyz = gpts[..., 3, :].reshape(B, n_goal, 3)
+            t_goal = goal_xyz.new_full(
+                (B, n_goal, 1), self.goal_time_frac * self.time_scale,
+            )
+            pos.append(torch.cat([goal_xyz * self.xyz_scale, t_goal], dim=-1))
+
+            # pi_max is taken per (batch, obs step): each step carries its own
+            # mixture, so the gauge must be fixed within a step, not across.
+            log_pi = torch.log(gw.clamp(min=1e-8))                # (B, To, Kc)
+            log_pi_max = log_pi.max(dim=-1, keepdim=True).values  # (B, To, 1)
+            goal_bias = (
+                self.beta_trunk * (log_pi - log_pi_max)
+                + self.gamma_trunk * log_pi_max
+            ).reshape(B, n_goal)
+
+        x = torch.cat(seq, dim=1)
+        pos = torch.cat(pos, dim=1)
+        n_grip = grip_tokens.shape[1]
+        N_total = x.shape[1]
+
+        # Goal keys only: scale their content logits (a per-key scale hits the
+        # matching COLUMN of the score matrix) and add the log-prior bias.
+        key_scale = key_bias = None
+        if n_goal:
+            key_bias = x.new_zeros(B, N_total)
+            key_bias[:, N_total - n_goal:] = goal_bias
+            if self.alpha_trunk != 1.0:
+                key_scale = x.new_ones(N_total)
+                key_scale[N_total - n_goal:] = self.alpha_trunk
+
+        # -- RoPE4D trunk over [patches ; gripper keypoints ; goal candidates] --
         for block in self.trunk:
-            x = block(x, pos)
+            x = block(x, pos, key_scale=key_scale, key_bias=key_bias)
 
-        return x[:, :n_vis], vis_xyz, vis_valid, x[:, n_vis:], grip_xyz
+        # Gripper and goal tokens are context only — discarded here. Just the
+        # patch tokens go on to the DiT.
+        return x[:, :n_vis], vis_xyz, vis_valid, x[:, n_vis:n_vis + n_grip], grip_xyz

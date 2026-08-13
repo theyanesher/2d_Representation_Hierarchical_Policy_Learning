@@ -2211,8 +2211,17 @@ def build_visual_encoder(encoder_type: str, encoder_cfg: dict) -> VisualTokenEnc
     Instantiate a VisualTokenEncoder by type name.
 
     encoder_type : 'resnet' | 'resnet_prope' | 'dinov2' | 'dinov3'
+                 | 'dinov2_rope4d_grounded'
     encoder_cfg  : kwargs forwarded to the constructor (includes injected params)
     """
+    # Imported lazily: grounded_encoder imports _crop_cam_keys from THIS module
+    # at module level, so an eager import here would be circular.
+    if encoder_type == "dinov2_rope4d_grounded":
+        from diffusion_policy.model.flow_matching.grounded_encoder import (
+            DINOv2RoPE4DGroundedEncoder,
+        )
+        return DINOv2RoPE4DGroundedEncoder(**encoder_cfg)
+
     registry = {
         "resnet":       ResNetTokenEncoder,
         "resnet_prope": ResNetPRoPETokenEncoder,

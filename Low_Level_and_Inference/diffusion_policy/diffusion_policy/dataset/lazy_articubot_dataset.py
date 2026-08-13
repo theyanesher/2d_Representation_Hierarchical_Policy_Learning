@@ -54,8 +54,18 @@ class LazyArticuBotDataset(BaseImageDataset):
             goal_source='default',
             gmm_pred_npz_dir=None,
             gmm_pred_key_suffix='rdp',
+            identity_normalize_depth=False,
         ):
         super().__init__()
+
+        # Depth normalization. By default depth-typed keys get the Welford
+        # standardizer, which is what the ArticuBot depth tasks expect. Encoders
+        # that UNPROJECT depth need raw metres instead, and the standard
+        # VisualTokenEncoder.encode(nobs) interface only ever sees normalized
+        # obs — so set this True to hand them metres and keep the encoder a
+        # drop-in (no policy subclass, no raw_obs plumbing). Default False keeps
+        # every existing task byte-identical.
+        self.identity_normalize_depth = bool(identity_normalize_depth)
 
         # Goal source selection. 'default' reads obs/goal_gripper_pts as always.
         # The other sources read obs/goal_gripper_pts_<source> — alternative
@@ -405,11 +415,17 @@ class LazyArticuBotDataset(BaseImageDataset):
         # Depth — online Welford normalizer, no data loaded upfront.
         # Stats are accumulated per-channel (1 channel) during the first
         # max_samples training steps.
+        # With identity_normalize_depth=True the depth passes through untouched
+        # so nobs carries raw METRES, which is what an unprojecting encoder
+        # needs. See the note in __init__.
         for key in self.depth_keys:
-            normalizer[key] = get_welford_image_normalizer(
-                num_channels=1,
-                max_samples=len(self.sampler) * self.n_obs_steps,
-            )
+            if self.identity_normalize_depth:
+                normalizer[key] = get_identity_normalizer()
+            else:
+                normalizer[key] = get_welford_image_normalizer(
+                    num_channels=1,
+                    max_samples=len(self.sampler) * self.n_obs_steps,
+                )
 
         for key in self.heatmap_keys:
             normalizer[key] = get_identity_normalizer()

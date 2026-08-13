@@ -79,6 +79,7 @@ policy:
   use_weighted_cross_attention: false
   use_alpha: false
   wca_alpha: 1.0
+  wca_beta: 1.0
   use_parallel_cross_attentions: false
   use_gated_goal_residual: false
   use_goal_adaln_modulation: false
@@ -107,6 +108,7 @@ policy:
     use_weighted_cross_attention: ${policy.use_weighted_cross_attention}
     use_alpha: ${policy.use_alpha}
     wca_alpha: ${policy.wca_alpha}
+    wca_beta: ${policy.wca_beta}
     use_parallel_cross_attentions: ${policy.use_parallel_cross_attentions}
     use_gated_goal_residual: ${policy.use_gated_goal_residual}
     use_goal_adaln_modulation: ${policy.use_goal_adaln_modulation}

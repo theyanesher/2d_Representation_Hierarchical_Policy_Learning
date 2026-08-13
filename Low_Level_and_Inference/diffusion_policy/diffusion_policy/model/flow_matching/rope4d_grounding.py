@@ -156,8 +156,29 @@ class RoPE4DSelfAttention(nn.Module):
         self.rope = RotaryPositionEmbedding4D(head_dim, base_frequency=base_frequency)
         self.dropout = dropout
 
-    def forward(self, x: Tensor, pos: Tensor) -> Tensor:
-        """x: (B, N, dim), pos: (B, N, 4)."""
+    def forward(
+        self,
+        x: Tensor,
+        pos: Tensor,
+        key_scale: Optional[Tensor] = None,
+        key_bias: Optional[Tensor] = None,
+    ) -> Tensor:
+        """
+        Args:
+            x:         (B, N, dim)
+            pos:       (B, N, 4)
+            key_scale: (N,) per-KEY multiplier on the content logits. Scaling a
+                       key vector scales exactly that COLUMN of the score matrix,
+                       so a slice-wise scale targets attention *to* those keys
+                       without touching how anything else attends. (Scaling q
+                       instead would scale whole rows, i.e. every logit — a
+                       global temperature, not a per-key knob.)
+            key_bias:  (B, N) added to the logits for those keys. Passed through
+                       SDPA's attn_mask, which is ADDITIVE for float masks, so
+                       the flash path is preserved — worth caring about at ~1k
+                       tokens, where a manual implementation would materialise an
+                       N x N score matrix per head.
+        """
         B, N, _ = x.shape
         H, D = self.num_heads, self.head_dim
 
@@ -167,10 +188,19 @@ class RoPE4DSelfAttention(nn.Module):
 
         q = self.rope(self.q_norm(q), pos)
         k = self.rope(self.k_norm(k), pos)
+        # Applied after RoPE: q . (a * R(k)) == a * (q . R(k)), so the rotation
+        # and the scale commute as far as the logit is concerned.
+        if key_scale is not None:
+            k = k * key_scale.to(k.dtype).view(1, 1, N, 1)
         v = v.to(q.dtype)
 
+        attn_mask = None
+        if key_bias is not None:
+            attn_mask = key_bias.to(q.dtype).view(B, 1, 1, N)
+
         out = F.scaled_dot_product_attention(
-            q, k, v, dropout_p=self.dropout if self.training else 0.0,
+            q, k, v, attn_mask=attn_mask,
+            dropout_p=self.dropout if self.training else 0.0,
         )
         return self.to_out(out.transpose(1, 2).reshape(B, N, -1))
 
@@ -200,7 +230,13 @@ class RoPE4DBlock(nn.Module):
         self.norm2 = nn.LayerNorm(dim)
         self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn)
 
-    def forward(self, x: Tensor, pos: Tensor) -> Tensor:
-        x = x + self.attn(self.norm1(x), pos)
+    def forward(
+        self,
+        x: Tensor,
+        pos: Tensor,
+        key_scale: Optional[Tensor] = None,
+        key_bias: Optional[Tensor] = None,
+    ) -> Tensor:
+        x = x + self.attn(self.norm1(x), pos, key_scale=key_scale, key_bias=key_bias)
         x = x + self.ff(self.norm2(x))
         return x

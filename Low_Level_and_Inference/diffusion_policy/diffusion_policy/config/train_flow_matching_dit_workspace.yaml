@@ -63,13 +63,20 @@ policy:
   use_weighted_cross_attention: false
 
   # Ablation: scale ONLY the WeightedCrossAttention content logits by wca_alpha —
-  #   logits = wca_alpha * QK^T/sqrt(d) + log(w_j)
+  #   logits = wca_alpha * QK^T/sqrt(d) + wca_beta * log(w_j)
   # No other attention layer is touched. Small alpha makes the GMM weights dominate
   # candidate ranking; alpha→0 collapses the WCA to prior-weighted pooling.
   # Rough guide (content-logit spread ≈ 10): 0.3 ≈ effective top-6, 0.1 ≈ top-1..3,
   # ≤0.01 ≈ prior-only. Requires use_weighted_cross_attention=true.
   use_alpha: false
   wca_alpha: 1.0
+
+  # Prior temperature on the log-weight term: wca_beta * log(w) = log(w^beta).
+  # 1.0 = original formula (all pre-beta runs unchanged); >1 sharpens the GMM
+  # prior toward top-1, <1 flattens it, 0 removes it (pure content attention).
+  # No enable flag needed — 1.0 is a no-op. Requires use_weighted_cross_attention=true
+  # to deviate from 1.0.
+  wca_beta: 1.0
 
   # Set to true to run goal-CA and visual-CA in parallel inside each cross-attn block
   # (both read the pre-block hidden_states, outputs are concat'd along feature dim and
@@ -147,6 +154,7 @@ policy:
     use_weighted_cross_attention: ${policy.use_weighted_cross_attention}
     use_alpha: ${policy.use_alpha}
     wca_alpha: ${policy.wca_alpha}
+    wca_beta: ${policy.wca_beta}
     use_parallel_cross_attentions: ${policy.use_parallel_cross_attentions}
     use_gated_goal_residual: ${policy.use_gated_goal_residual}
     use_goal_adaln_modulation: ${policy.use_goal_adaln_modulation}
