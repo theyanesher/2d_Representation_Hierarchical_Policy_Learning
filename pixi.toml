@@ -46,8 +46,10 @@ ompl = { path = "external/ompl-1.7.0-cp310-cp310-manylinux_2_28_x86_64.whl"}
 # AWE (Automatic Waypoint Extraction) ground-truth subgoal generation
 waypoint-extraction = "==0.1"
 mujoco-py = "==2.1.2.14"
-cython = "==3.2.9"
 robosuite = "*"
+# Needed to import external/mimicgen/mimicgen/envs/robosuite/hammer_cleanup.py
+# (HammerCleanup_D0/D1 env registration) -- not on PyPI, GitHub-only.
+robosuite-task-zoo = { git = "https://github.com/ARISE-Initiative/robosuite-task-zoo.git" }
 
 # scipy>=1.15 for bspline_subgoal_decomp.py's generate_knots (real
 # bspline-policy algorithm). Must stay a PyPI dep, not conda: the conda-forge
@@ -66,7 +68,6 @@ gym = "==0.26.2"
 mujoco = "==2.3.7"
 open3d = "==0.16.0"
 pyassimp = "==5.2.5"
-pyrender = "*"
 scikit-learn = "*"
 sentence-transformers = "==2.2.2"
 timm = "==0.4.12"
@@ -94,6 +95,7 @@ arrow = "*"
 asttokens = "*"
 async-timeout = "*"
 attrs = "*"
+av = "*"
 babel = "*"
 backcall = "*"
 beautifulsoup4 = "*"
@@ -152,6 +154,7 @@ ftfy = "*"
 git-filter-repo = "*"
 gitdb = "*"
 gitpython = "*"
+gdown = "*"
 glfw = "*"
 gpustat = "*"
 gradio = "*"
@@ -238,6 +241,7 @@ nvidia-ml-py = "*"
 oauthlib = "*"
 objaverse = "*"
 openai = "*"
+google-genai = "*"
 opencensus = "*"
 opencensus-context = "*"
 opencv-python = ">=4.11.0.86, <5"
@@ -399,6 +403,73 @@ env = { PYTHONPATH = ".:3d_diffusion_policy/3D-Diffusion-Policy/3D-Diffusion-Pol
 # build (e.g. after switching branches or updating deps).
 scripts = ["scripts/env_fixes/fix_stale_numpy_core.sh"]
 
+# UVD (Universal Visual Decomposer, external/UVD) needs Python 3.9 --
+# setup.py hard-pins python_requires=="3.9.*" and its requirements.txt pins
+# gym==0.21.0 / dm_control==1.0.11, both incompatible with the default
+# environment's Python 3.10 + gym==0.26.2. Isolated into its own feature +
+# environment (no-default-feature, see [environments] below) rather than
+# forced into default.
+#
+# Deliberately NOT declared as [feature.uvd.pypi-dependencies]: uv's
+# resolver is stricter than pip's about malformed metadata, and two
+# packages in this 2021-era stack trip it before a build is ever attempted --
+# external/UVD's own setup.py does `import pkg_resources` at module scope
+# (removed from current setuptools) and gym==0.21.0's wheel metadata
+# declares an unused 'all' extra with the invalid version specifier
+# "opencv-python>=3." (trailing dot, no minor) that uv validates eagerly
+# even though nothing requests that extra. Plain pip tolerates both, so the
+# `install-uvd` task below (same pattern as install-mino-utils) does the
+# actual install; setuptools/wheel are still pinned here as conda deps so
+# pip's own build environment has the old, pkg_resources-having versions
+# UVD's setup.py needs.
+[feature.uvd.dependencies]
+python = "3.9.*"
+# gym==0.21.0's wheel metadata has an invalid version specifier
+# ("opencv-python>=3.", trailing dot) in an unused extra; pip>=24.1 made
+# that a hard parse error instead of a warning (pip's own error message
+# points at this exact fix: "Please use pip<24.1 if you need to use this
+# version").
+pip = "<24.1"
+setuptools = "==65.5.0"
+wheel = "==0.38.4"
+# mujoco-py's EGL rendering shim needs these at build/import time (same
+# story as feature.eval.dependencies below; glfw/mesalib add mujoco-py's
+# GLFW + OSMesa headers/libs that eval's glew/patchelf alone don't cover).
+glew = "*"
+patchelf = "*"
+mesalib = "==21.2.5"
+glfw = "*"
+
+# mujoco_py auto-selects its GPU/EGL extension builder whenever an NVIDIA
+# lib dir is found, which links against libglewegl.so -- not provided by
+# conda-forge's glew (only libGLEW.so, the non-EGL build) and not built by
+# mujoco_py itself. MUJOCO_PY_FORCE_CPU makes it use LinuxCPUExtensionBuilder
+# (plain libGLEW) instead, which is all the offline subgoal-decomposition /
+# dataset-processing use in this repo needs (no on-screen GPU rendering).
+#
+# LD_LIBRARY_PATH must include ~/.mujoco/mujoco210/bin (mujoco_py's compiled
+# libglewosmesa.so/libmujoco210.so live there, prebuilt outside pixi/conda --
+# same external MuJoCo 2.1 binary install the default env's mujoco-py needs)
+# and /usr/lib/nvidia (libnvidia-glcore etc, still probed even in CPU-builder
+# mode). This MUST be set via [activation], not later in Python: glibc's
+# dynamic linker parses LD_LIBRARY_PATH once at process start and caches the
+# search list for every dlopen() after that, so mutating os.environ from
+# inside the running interpreter (e.g. before `import mujoco_py`) is too late
+# and silently has no effect on where its .so gets found.
+[feature.uvd.activation]
+env = { MUJOCO_PY_FORCE_CPU = "1", LD_LIBRARY_PATH = "$LD_LIBRARY_PATH:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia" }
+
+[feature.uvd.tasks]
+# mujoco==2.3.7 pinned explicitly: dm_control==1.0.11 only requires
+# mujoco>=2.3.3 (no upper bound), so pip otherwise picks the newest mujoco,
+# which no longer ships a cp39 wheel and tries to build from source (needs
+# a local MuJoCo install via $MUJOCO_PATH). 2.3.7 is the same version the
+# default env already pins for the same reason -- it has a cp39 wheel.
+install-uvd = """
+pip install -r external/UVD/requirements.txt "mujoco==2.3.7" && \
+pip install --no-build-isolation -e external/UVD
+"""
+
 [tasks]
 install-mino-utils = """
 git submodule update --init external/mino_utils && \
@@ -413,3 +484,38 @@ git submodule update --init --recursive external/Isaac-GR00T && \
 cd external/Isaac-GR00T && \
 git checkout n1-release
 """
+
+# pyrender pins PyOpenGL==3.1.0 exactly (every published version). Split it into
+# its own feature so the `eval` environment below can take a newer PyOpenGL
+# (>=3.1.10, needed for mujoco's EGLDeviceEXT / the hierarchical MimicGen eval
+# scripts) without an unsatisfiable conflict against pyrender in `default`.
+[feature.pyrender.pypi-dependencies]
+pyrender = "*"
+
+# cython==3.2.9 is pinned for the AWE (waypoint-extraction) build. Same story
+# as pyrender above: mujoco_py's bundled cymj.pyx uses pre-3.0 Cython
+# exception-callback syntax ("except * nogil" typedefs) and fails to compile
+# under Cython>=3.0 ("Cannot assign type ... to ... noexcept nogil"). Isolate
+# the AWE pin into its own feature so `eval` (which actually builds mujoco_py's
+# extension at import time, needed by robomimic's EnvRobosuite) can take an
+# older Cython instead.
+[feature.awe-cython.pypi-dependencies]
+cython = "==3.2.9"
+
+[feature.eval.pypi-dependencies]
+pyopengl = ">=3.1.10"
+cython = ">=0.29.21,<3"
+
+# mujoco_py's EGL rendering shim (mujoco_py/gl/eglshim.c) compiles against
+# GL/glew.h at import time, then mujoco_py.builder.fix_shared_library() shells
+# out to the `patchelf` binary to strip its rpath. Neither is installed system-
+# wide and there's no root in this sandbox -- pull both from conda-forge.
+[feature.eval.dependencies]
+glew = "*"
+patchelf = "*"
+
+[environments]
+default = ["pyrender", "awe-cython"]
+eval = ["eval"]
+# no-default-feature: UVD needs Python 3.9, incompatible with default's 3.10.
+uvd = { features = ["uvd"], no-default-feature = true }

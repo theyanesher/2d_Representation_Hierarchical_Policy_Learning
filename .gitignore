@@ -16,8 +16,9 @@ fuse.cfg
 
 # Generation results
 results/
-
+ckpts/
 ray/auth.json
+external/UVD/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -158,6 +159,7 @@ all_xyz.png
 
 third_party/RoboGen_sim2real
 models/
+checkpoints/sam_vit_b_01ec64.pth
 third_party/robogen/test_PointNet2/exps/
 equi_diffpo/scripts/convert.sh
 

@@ -16,10 +16,14 @@ Data layout (per-frame npz convention, see NpyDataset):
 GUI:
     - Demo dropdown: switch between demo_*/ without restarting the server.
     - Timestep slider: scrub frames within the selected demo.
-    - Scene / all-4-points checkboxes: toggle the scene point cloud context
-      (re-read + recolorized at the current timestep on every slider move,
-      not frozen at frame 0) and whether goals are drawn as their centroid
-      or all 4 keypoints.
+    - Scene / gripper / all-4-points checkboxes: toggle the scene point
+      cloud context (re-read + recolorized at the current timestep on every
+      slider move, not frozen at frame 0), the current gripper marker (the
+      sparse 4-keypoint gripper_pcd, drawn in green, always as all 4 points
+      plus its centroid -- the "current waypoint" -- in a darker green, both
+      NOT part of the dense scene point cloud, which is object/table-only,
+      and not affected by the all-4-points toggle below), and whether GOAL
+      markers are drawn as their centroid or all 4 keypoints.
     - Per goal type (auto-detected, one color each, consistent with the
       matplotlib script's palette):
         - ALL unique goals along the path, drawn faint/small (static).
@@ -66,6 +70,7 @@ VISER_TYPE_NAMES = ["red", "royalblue", "orange", "magenta", "limegreen", "cyan"
 
 GRAY = (170, 170, 170)
 GRIPPER_RED = (0, 255, 0)
+WAYPOINT_DARK_GREEN = (0, 100, 0)  # current-gripper centroid, distinct from the 4 keypoints' green
 ACTIVE_WHITE_MIX = 0.55  # blend toward white for the "active goal" highlight
 _MIN_VALID_DEPTH = 1e-6  # points at/behind the camera plane are invalid
 
@@ -166,10 +171,11 @@ def main():  # noqa: PLR0915
         help="Start showing all 4 gripper keypoints per goal "
         "instead of just the centroid.",
     )
-    parser.add_argument("--path_point_size", type=float, default=0.003)
-    parser.add_argument("--goal_point_size", type=float, default=0.006)
-    parser.add_argument("--active_point_size", type=float, default=0.010)
-    parser.add_argument("--scene_point_size", type=float, default=0.004)
+    parser.add_argument("--path_point_size", type=float, default=0.001)
+    parser.add_argument("--goal_point_size", type=float, default=0.003)
+    parser.add_argument("--active_point_size", type=float, default=0.005)
+    parser.add_argument("--scene_point_size", type=float, default=0.003)
+    parser.add_argument("--gripper_point_size", type=float, default=0.002)
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
 
@@ -223,6 +229,7 @@ def main():  # noqa: PLR0915
         "Timestep", min=0, max=1, step=1, initial_value=0
     )
     scene_checkbox = server.gui.add_checkbox("Show scene", args.scene)
+    gripper_checkbox = server.gui.add_checkbox("Show gripper", True)
     all_points_checkbox = server.gui.add_checkbox(
         "All 4 keypoints", args.all_goal_points
     )
@@ -327,18 +334,32 @@ def main():  # noqa: PLR0915
     def render_dynamic(t):
         update_scene(t)
 
-        gripper_t = state["gripper"][t]  # (4, 3)
-        pts = (
-            gripper_t
-            if all_points_checkbox.value
-            else gripper_t.mean(axis=0, keepdims=True)
-        )
-        server.scene.add_point_cloud(
-            "current_gripper",
-            points=pts.reshape(-1, 3),
-            colors=np.tile(GRIPPER_RED, (pts.shape[0], 1)).astype(np.uint8),
-            point_size=args.active_point_size,
-        )
+        if not gripper_checkbox.value:
+            if "gripper_handle" in state:
+                state["gripper_handle"].visible = False
+            if "waypoint_handle" in state:
+                state["waypoint_handle"].visible = False
+        else:
+            gripper_t = state["gripper"][t]  # (4, 3) -- always all 4 points,
+            # independent of the "All 4 keypoints" checkbox (that one only
+            # governs the goal markers).
+            state["gripper_handle"] = server.scene.add_point_cloud(
+                "current_gripper",
+                points=gripper_t.reshape(-1, 3),
+                colors=np.tile(GRIPPER_RED, (gripper_t.shape[0], 1)).astype(np.uint8),
+                point_size=args.gripper_point_size,
+                visible=True,
+            )
+            # Current waypoint: the gripper's own centroid, shown alongside
+            # its 4 keypoints in a darker green so the two are distinguishable.
+            waypoint = gripper_t.mean(axis=0, keepdims=True)
+            state["waypoint_handle"] = server.scene.add_point_cloud(
+                "current_waypoint",
+                points=waypoint,
+                colors=np.tile(WAYPOINT_DARK_GREEN, (waypoint.shape[0], 1)).astype(np.uint8),
+                point_size=args.active_point_size,
+                visible=True,
+            )
 
         lines = [f"**{state['demo']}** — frame {t}/{len(state['path']) - 1}"]
         for k in goal_keys:
@@ -374,6 +395,10 @@ def main():  # noqa: PLR0915
     @scene_checkbox.on_update
     def _(_):
         render_static()
+        render_dynamic(timestep_slider.value)
+
+    @gripper_checkbox.on_update
+    def _(_):
         render_dynamic(timestep_slider.value)
 
     @all_points_checkbox.on_update
