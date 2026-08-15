@@ -93,6 +93,7 @@ class NpyDataset(BaseDataset):
             "fixed_interval",
             "awe",
             "bspline",
+            "uvd",
         )
         self.goal_source = dataset_cfg.get("goal_source", "default")
         if self.goal_source not in valid_goal_sources:

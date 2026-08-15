@@ -1,0 +1,19 @@
+defaults:
+  - base_dataset
+
+name: frankaPushBlock
+
+data_dir: /data/theya/data/uncertainity_subgoal/franka_push_block_mimicgen_npz
+
+task_caption: "push the block to the target"
+
+use_text_embed: False
+
+val_episode_ratio: 0.1  # fraction of demos held out for validation
+
+# PCD config
+num_points: 4500   # matches the pre-computed point cloud size
+max_depth: 2.0
+
+# Keep normalization off (coordinates are already in a reasonable metric scale)
+normalize: False
