@@ -32,7 +32,10 @@ from third_party.robogen.robogen_utils import get_4_points_from_gripper_pos_orie
 try:
     import mujoco_py
     MUJOCO_EXCEPTIONS = [mujoco_py.builder.MujocoException]
-except ImportError:
+except Exception:
+    # NOTE: not just ImportError. mujoco_py's discover_mujoco() raises a bare
+    # Exception when the legacy MuJoCo 2.1 binaries are absent, which is the
+    # normal case with robosuite >= 1.4 (new mujoco bindings).
     MUJOCO_EXCEPTIONS = []
 
 def depth2fgpcd(depth, mask, cam_params):

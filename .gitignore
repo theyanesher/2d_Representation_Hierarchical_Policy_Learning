@@ -181,3 +181,30 @@ SMITH_HIGH_LEVEL_SMITH_LOW_LEVEL_*/
 
 # Low-level training output
 MUG_CLEANUP_d1_100_demo_Resnet_Weighted_Cross_Attention/
+
+# Approach 2 eval output directories. Same idea as the GMM_HIGH_LEVEL_* rules
+# above, but those never matched the Approach 2 naming, so ~250 MB of mp4s and
+# results.jsonl were showing up as untracked under shell_scripts/.
+APPROACH2_*/
+# ..._RESUME_<n> siblings the shell wrappers create when a run is interrupted.
+*_SEED_RESUME_*/
+# Manually stashed rollouts (mp4 + results.jsonl) kept next to the eval scripts.
+Backup_RUNS/
+BACKUP_RUNS/
+backup_runs/
+
+# Datasets (~16 GB of hdf5, fetched not authored). Individual files here exceed
+# GitHub's 100 MB per-file hard limit, so this must stay ignored.
+DATASET/
+
+# Vendored robosuite-task-zoo clone (28 MB), required by the HammerCleanup envs.
+# NOTE: ignored means a fresh clone will NOT have it and HammerCleanup will fail
+# to register. Re-clone it, or promote it to a submodule, when setting up a new
+# checkout.
+external/robosuite-task-zoo/
+
+# Local scratch / backups
+CLAUDE_TEST_VIDEOS/
+*.bak2
+*.bak_*
+*.claude_patched

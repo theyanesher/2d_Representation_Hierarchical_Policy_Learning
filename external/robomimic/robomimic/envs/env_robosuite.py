@@ -26,7 +26,10 @@ from scipy.spatial.transform import Rotation as R
 try:
     import mujoco_py
     MUJOCO_EXCEPTIONS = [mujoco_py.builder.MujocoException]
-except ImportError:
+except Exception:
+    # not just ImportError: mujoco_py raises a bare Exception when the legacy
+    # MuJoCo 2.1 binaries are absent (normal with robosuite >= 1.4).
+    # MUJOCO_EXCEPTIONS only feeds rollout_exceptions, so this is inert.
     MUJOCO_EXCEPTIONS = []
 
 def depth2fgpcd(depth, mask, cam_params):
