@@ -1,3 +1,9 @@
+# 2D Representation Hierarchical Policy Learning
+
+For the complete extra-keypoint generation workflow—including RDP, B-spline,
+AWE, local-Qwen VLM boundaries, UVD, method mixing, output layout, and every
+command-line flag—see [GENERATE_KEYPOINTS.md](GENERATE_KEYPOINTS.md).
+
 ### Notes:
 
 - Instead of using the `conda_environment.yaml` file inside equidiff, use the one in the root of the repo, adds a few extra dependencies for smooth setup

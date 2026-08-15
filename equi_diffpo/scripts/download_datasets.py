@@ -8,9 +8,9 @@ Script to download datasets packaged with the repository.
 import os
 import argparse
 
-import mimicgen_envs
-import mimicgen_envs.utils.file_utils as FileUtils
-from mimicgen_envs import DATASET_REGISTRY
+import mimicgen
+import mimicgen.utils.file_utils as FileUtils
+from mimicgen import DATASET_REGISTRY
 
 
 if __name__ == "__main__":

@@ -16,8 +16,9 @@ fuse.cfg
 
 # Generation results
 results/
-
+ckpts/
 ray/auth.json
+external/UVD/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
