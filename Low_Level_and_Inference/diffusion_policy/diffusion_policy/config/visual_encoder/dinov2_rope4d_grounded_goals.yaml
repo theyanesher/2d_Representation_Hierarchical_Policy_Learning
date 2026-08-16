@@ -1,0 +1,59 @@
+# @package policy
+#
+# DINOv2 + RoPE4D grounded encoder WITH goal candidates in the trunk.
+#
+# Same as dinov2_rope4d_grounded, plus the top-K GMM goal candidates joining the
+# trunk sequence as grounded tokens, so patches can ground themselves against
+# where the robot is being sent — a geometric relation the DiT's content-only
+# cross-attention cannot express.
+#
+#   trunk = [ 1024 patches ; 8 gripper keypoints ; To*K goal candidates ]
+#
+# Goal (and gripper) tokens are CONTEXT ONLY — discarded at the trunk output.
+# This does NOT replace the DiT's goal pathway: WCA still runs unchanged, so the
+# action tokens keep their direct weighted access to the candidates. The trunk is
+# purely an additional, geometric route.
+#
+# Pairs with visual_encoder=dinov2_rope4d_grounded on the SAME task config
+# (coffee_preperation_gmm_goal_gt_mix_rope), so those two runs differ by exactly
+# one thing: whether goals are present in the trunk.
+visual_encoder_type: dinov2_rope4d_grounded
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  model_name: facebook/dinov2-base
+  frozen: true
+  patch_size: 14
+  n_trunk_layers: 2
+  xyz_scale: 5.0
+  base_frequency: 100.0
+  time_scale: 1.0
+  n_total_steps: ${eval:'${n_obs_steps}+${horizon}'}
+  gripper_key: present_gripper_pts
+  n_keypoints: 4
+  num_heads: ${eval:'${policy.hidden_size} // ${policy.diffusion_model_cfg.attention_head_dim}'}
+  head_dim: ${policy.diffusion_model_cfg.attention_head_dim}
+
+  # ---- goal candidates in the trunk ----
+  goal_key: gmm_all_goals
+  goal_weights_key: gmm_all_weights
+  # Same K as the DiT's gmm_top_k, so both pathways see the identical candidates.
+  goal_top_k: ${policy.gmm_top_k}
+  # Goals are future targets: park them at the far end of the time axis rather
+  # than alongside the observations at obs_step/n_total.
+  goal_time_frac: 1.0
+
+  # logits(goal key j) = alpha_trunk * (q.k)/sqrt(d)
+  #                      + beta_trunk  * log(pi_j / pi_max)
+  #                      + gamma_trunk * log(pi_max)
+  #
+  # alpha_trunk -> 0 strips the content term from the goal columns, so every
+  #   token attends to candidates purely by the prior.
+  # beta_trunk  ranks candidates against each other (the wca_beta analogue).
+  # gamma_trunk couples the goal stream's overall loudness to how peaked the
+  #   high-level mixture is. 0.0 keeps them independent; 1.0 reproduces a raw
+  #   log(pi) bias, which would make the trunk listen to goals less whenever the
+  #   high level is uncertain. That may be desirable — but as its own knob, not
+  #   as a side effect of beta.
+  alpha_trunk: 1.0
+  beta_trunk: 1.0
+  gamma_trunk: 0.0

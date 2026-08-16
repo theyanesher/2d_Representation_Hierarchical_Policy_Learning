@@ -103,13 +103,22 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         use_weighted_cross_attention: bool = False,
         # Ablation (requires use_weighted_cross_attention=True): scale ONLY the
         # WeightedCrossAttention content logits by wca_alpha —
-        #   logits = wca_alpha · QKᵀ/√d + log(w_j)
+        #   logits = wca_alpha · QKᵀ/√d + wca_beta · log(w_j)
         # Small alpha lets the GMM weights dominate candidate ranking (alpha→0
         # collapses the WCA to prior-weighted pooling of goal tokens). No other
         # attention layer is affected. The value is mirrored into
         # diffusion_model_cfg by the workspace yaml, same as the flags above.
         use_alpha: bool = False,
         wca_alpha: float = 1.0,
+        # Prior temperature (requires use_weighted_cross_attention=True to deviate
+        # from 1.0): wca_beta scales ONLY the log-weight term of the WCA logits
+        # (beta·log w = log w^beta). Default 1.0 reproduces the original formula
+        # exactly, so every pre-beta checkpoint/config is unaffected. beta>1
+        # sharpens the GMM prior toward top-1, beta<1 flattens it, beta=0 removes
+        # it (pure content cross-attention over the top-K candidates). Always
+        # active — no enable flag, since 1.0 is a no-op. Mirrored into
+        # diffusion_model_cfg by the workspace yaml, same as wca_alpha.
+        wca_beta: float = 1.0,
         # When True (requires use_goal_cross_attention=True), each cross-attn block runs
         # the goal-CA and visual-CA in parallel from the *pre-block* hidden_states,
         # concatenates their outputs and projects back to D via fuse_proj, then adds as
@@ -190,7 +199,18 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         for key, attr in obs_shape_meta.items():
             shape = list(attr["shape"])
             stype = attr.get("type", "low_dim")
-            if stype in ("rgb", "depth", "pointmap", "plucker", "heatmap", "ghost_heatmap"):
+            # NOTE: 'depth' is deliberately NOT in this list. In this policy
+            # family depth is geometry that an encoder UNPROJECTS — it reads
+            # cam{i}_depth by name from nobs alongside the intrinsics and
+            # extrinsics — not a camera to push through the visual backbone.
+            # Listing it would put the depth keys into cam_keys, so the encoder
+            # would treat them as extra cameras and feed 1-channel tensors to a
+            # 3-channel backbone. Depth therefore falls through to the implicit
+            # else below, exactly like intrinsic/extrinsic.
+            # The UNet-family depth tasks (depth_articubot et al.) go through
+            # DiffusionUnetHybridImagePolicy, which parses shape_meta itself and
+            # is unaffected by this list.
+            if stype in ("rgb", "pointmap", "plucker", "heatmap", "ghost_heatmap"):
                 visual_obs_key_shapes[key] = shape
             elif stype == "goal_gripper":
                 goal_gripper_key_shapes[key] = shape
@@ -293,10 +313,20 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
         self.use_weighted_cross_attention = use_weighted_cross_attention
         self.use_alpha = use_alpha
         self.wca_alpha = wca_alpha
+        self.wca_beta = wca_beta
         if use_alpha:
             assert use_weighted_cross_attention, (
                 "use_alpha=True requires use_weighted_cross_attention=True "
                 "(alpha lives inside WeightedCrossAttention only)"
+            )
+        if wca_beta != 1.0:
+            assert use_weighted_cross_attention, (
+                "wca_beta != 1.0 requires use_weighted_cross_attention=True "
+                "(beta lives inside WeightedCrossAttention only)"
+            )
+            assert wca_beta >= 0.0, (
+                f"wca_beta must be >= 0 (got {wca_beta}); beta=0 removes the prior, "
+                f"negative beta would invert the GMM ranking"
             )
         self.use_parallel_cross_attentions = use_parallel_cross_attentions
         self.use_gated_goal_residual = use_gated_goal_residual
@@ -319,7 +349,7 @@ class FlowMatchingDiTImagePolicy(BaseImagePolicy):
                   f"goals_key={gmm_goals_key!r}, weights_key={gmm_weights_key!r}, "
                   f"use_goal_cross_attention={use_goal_cross_attention}, "
                   f"use_weighted_cross_attention={use_weighted_cross_attention}, "
-                  f"use_alpha={use_alpha}, wca_alpha={wca_alpha}, "
+                  f"use_alpha={use_alpha}, wca_alpha={wca_alpha}, wca_beta={wca_beta}, "
                   f"gmm_top_k={gmm_top_k}, "
                   f"use_parallel_cross_attentions={use_parallel_cross_attentions}, "
                   f"use_gated_goal_residual={use_gated_goal_residual}, "

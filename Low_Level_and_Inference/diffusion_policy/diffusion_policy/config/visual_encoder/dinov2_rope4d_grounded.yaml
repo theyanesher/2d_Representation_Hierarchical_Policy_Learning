@@ -1,0 +1,55 @@
+# @package policy
+#
+# DINOv2 + RoPE4D grounded visual encoder.
+#
+# Drop-in replacement for visual_encoder=dinov2: same VisualTokenEncoder
+# interface, same output shape (B, To*n_cams*N_tok, embed_dim). The difference is
+# that each patch token first gets a world-frame 3D anchor (unprojected from
+# depth) and is then fused with the gripper keypoints through a short stack of
+# 4D-RoPE self-attention layers, so attention between tokens depends on their
+# real metric offset rather than on content alone.
+#
+# REQUIRES a task whose shape_meta supplies cam{i}_depth / _intrinsic /
+# _extrinsic plus present_gripper_pts, and whose dataset sets
+# identity_normalize_depth: true (the encoder unprojects depth through the
+# standard encode(nobs) path, so it must arrive in METRES).
+# See task/MimicGen_Tasks/coffee_preperation_gmm_goal_gt_mix_rope.yaml.
+#
+# Nothing about the policy changes — only what lands in the DiT's
+# encoder_hidden_states.
+visual_encoder_type: dinov2_rope4d_grounded
+use_separate_wrist_encoder: False
+visual_encoder_cfg:
+  model_name: facebook/dinov2-base
+  frozen: true
+  patch_size: 14
+
+  # Trunk depth. 2 keeps the added capacity modest (~25M params); note this is
+  # also the confound to be aware of when comparing against a non-grounded run.
+  n_trunk_layers: 2
+
+  # base_frequency=100 makes the fastest RoPE channel 1 rad/m, and the MimicGen
+  # workspace spans ~0.6 m, so xyz_scale=5 gives ~3 rad across the scene.
+  # Re-check with anchor_diagnostic.py if you move to a task with a different
+  # workspace extent.
+  xyz_scale: 5.0
+  base_frequency: 100.0
+
+  # With only 2 obs steps, t = obs_step/n_total_steps is a mild ordering hint
+  # rather than a separator — deliberately weak so co-located tokens across time
+  # stay free to attend to each other. Step identity rides in the additive
+  # temporal embedding instead.
+  time_scale: 1.0
+  n_total_steps: ${eval:'${n_obs_steps}+${horizon}'}
+
+  # 4 gripper keypoints become extra grounded tokens, each at its own XYZ.
+  # They subsume the 10-D state (position, orientation, aperture), which is why
+  # the high-level ArticuBot model uses gripper_pcd and no state vector. The
+  # policy's own 10-D state token is untouched and still goes to the DiT.
+  gripper_key: present_gripper_pts
+  n_keypoints: 4
+
+  # Must satisfy embed_dim == num_heads * head_dim; tied to the DiT's config so
+  # they cannot drift apart.
+  num_heads: ${eval:'${policy.hidden_size} // ${policy.diffusion_model_cfg.attention_head_dim}'}
+  head_dim: ${policy.diffusion_model_cfg.attention_head_dim}

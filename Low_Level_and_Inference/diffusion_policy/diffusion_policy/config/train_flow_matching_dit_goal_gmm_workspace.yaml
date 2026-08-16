@@ -1,10 +1,17 @@
+# Approach 2 workspace: goal removed from the low-level policy input, reintroduced
+# as an auxiliary goal-GMM loss on a 3D-grounded visual representation.
+#
+# Arms:
+#   D (treatment) : policy.aux_gmm_loss_weight=0.01   (default here)
+#   B (control)   : policy.aux_gmm_loss_weight=null   — same architecture,
+#                   flow-matching loss only. This is what makes D interpretable.
 defaults:
   - _self_
-  - task: articubot
-  - visual_encoder: resnet  # override with visual_encoder=resnet_prope|dinov2|dinov3
+  - task: MimicGen_Tasks/coffee_preperation_goal_gmm_aux
+  - visual_encoder: dinov2
 
-name: flow_matching_dit
-_target_: diffusion_policy.workspace.train_ddp_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
+name: flow_matching_dit_goal_gmm
+_target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
@@ -17,12 +24,12 @@ n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 past_action_visible: False
 keypoint_visible_rate: 1.0
-obs_as_global_cond: True   # kept for dataset/dataloader compat; not used by this policy
-observation_mode: "image"  # change to "plucker_early_fusion" etc. if needed
+obs_as_global_cond: True
+observation_mode: "image"
 action_mode: "hybrid_delta"
 
 policy:
-  _target_: diffusion_policy.policy.flow_matching_dit_image_policy.FlowMatchingDiTImagePolicy
+  _target_: diffusion_policy.policy.flow_matching_dit_goal_gmm_policy.FlowMatchingDiTGoalGMMPolicy
 
   shape_meta: ${shape_meta}
   horizon: ${horizon}
@@ -30,56 +37,62 @@ policy:
   n_obs_steps: ${n_obs_steps}
   observation_mode: ${observation_mode}
 
-  # ---- crop augmentation ----
-  # Random crop during training, center crop at eval. Input images are 256×256.
   crop_shape: [224, 224]
 
-  # ---- visual token encoder ----
-  # Configured via the visual_encoder config group (defaults to resnet).
-  # Override at launch: visual_encoder=resnet_prope|dinov2|dinov3
-
-  # ---- flow matching noise schedule ----
-  # Flow matching converges in far fewer steps than DDPM; 10-50 is typical.
+  # ---- flow matching (unchanged from the baseline) ----
   num_inference_timesteps: 10
   noise_beta_alpha: 1.5
   noise_beta_beta: 1.0
   noise_s: 0.999
   num_timestep_buckets: 1000
 
-  # ---- architecture ----
-  # CONSTRAINT: input_embedding_dim == num_attention_heads * attention_head_dim
-  # CONSTRAINT: hidden_size         == diffusion_model_cfg.output_dim
-  hidden_size: 1024 # 512,768,1024
+  # ---- architecture (unchanged from the baseline) ----
+  hidden_size: 1024
   input_embedding_dim: ${policy.hidden_size}
   add_pos_embed: False
-  max_seq_len: 64   # must be >= action_horizon (16 is safe with 64)
+  max_seq_len: 64
 
-  # Set to true to route goal tokens through dedicated DiT cross-attention layers
-  # (one cross-attn to goals before every visual cross-attn block).
+  # ---- auxiliary goal-GMM head ----
+  # null => control arm B (no auxiliary loss, identical architecture).
+  # At init the head is zero-init so mu_n == anchor_n, putting the NLL around
+  # 5-7 per rung (~30 across the ten terms) against a flow-matching MSE of ~1;
+  # 0.01 lands the auxiliary contribution in the same order of magnitude.
+  aux_gmm_loss_weight: 0.01
+  aux_gmm_hidden_dim: 512
+  aux_goal_key: goal_gripper_pts
+  gripper_key: present_gripper_pts
+
+  # ---- grounded encoder / RoPE4D trunk ----
+  patch_size: 14
+  n_trunk_layers: 2
+  # Workspace spans ~0.6 m; base_frequency=100 makes the fastest RoPE channel
+  # 1 rad/m, so xyz_scale=5 gives ~3 rad across the scene.
+  xyz_scale: 5.0
+  # Only 2 obs steps, and t = obs_step/18, so t is a mild ordering hint rather
+  # than a separator — step identity rides in the additive temporal embedding.
+  time_scale: 1.0
+  base_frequency: 100.0
+
+  # Goal-routing flags from the baseline policy; all off. The goal never enters
+  # the DiT in this approach.
   use_goal_cross_attention: false
-
-  # Set to true to use GMM probabilities as a log-prior bias on goal cross-attention logits:
-  #   logits += log(w_j)  — requires use_goal_cross_attention=true and GMM obs keys.
   use_weighted_cross_attention: false
-
-  # Ablation: scale ONLY the WeightedCrossAttention content logits by wca_alpha —
-  #   logits = wca_alpha * QK^T/sqrt(d) + wca_beta * log(w_j)
-  # Requires use_weighted_cross_attention=true. See train_flow_matching_dit_workspace.yaml.
   use_alpha: false
   wca_alpha: 1.0
-  # Prior temperature on the log-weight term (1.0 = original formula, no-op).
   wca_beta: 1.0
-
-  # Keep only the top-K GMM candidates by weight before encoding.
-  # Useful with use_goal_cross_attention=false (self-attention) to bound sequence length.
-  # null = use all candidates.
+  use_parallel_cross_attentions: false
+  use_gated_goal_residual: false
+  use_goal_adaln_modulation: false
+  use_goal_auxiliary_stream: false
+  use_per_component_state: false
+  use_state_adaln: false
+  use_gate_on_state_adaln: false
+  log_attention_grad_norms: false
   gmm_top_k: null
 
   diffusion_model_cfg:
-    # inner_dim = num_attention_heads * attention_head_dim = 8 * 64 = 512
     num_attention_heads: ${eval:'${policy.hidden_size} // ${policy.diffusion_model_cfg.attention_head_dim}'}
     attention_head_dim: 64
-    # output_dim MUST equal hidden_size above (512)
     output_dim: ${policy.hidden_size}
     num_layers: 12
     dropout: 0.1
@@ -96,6 +109,13 @@ policy:
     use_alpha: ${policy.use_alpha}
     wca_alpha: ${policy.wca_alpha}
     wca_beta: ${policy.wca_beta}
+    use_parallel_cross_attentions: ${policy.use_parallel_cross_attentions}
+    use_gated_goal_residual: ${policy.use_gated_goal_residual}
+    use_goal_adaln_modulation: ${policy.use_goal_adaln_modulation}
+    use_goal_auxiliary_stream: ${policy.use_goal_auxiliary_stream}
+    use_state_adaln: ${policy.use_state_adaln}
+    use_gate_on_state_adaln: ${policy.use_gate_on_state_adaln}
+    log_attention_grad_norms: ${policy.log_attention_grad_norms}
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
@@ -130,29 +150,26 @@ training:
   device: "cuda:0"
   seed: 42
   debug: False
-  resume: True
-  # optimization
+  resume: False
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 400
+  num_epochs: 100
   gradient_accumulate_every: 1
   use_ema: True
-  # training loop control (epochs)
   rollout_every: 50
-  checkpoint_every: 5
+  checkpoint_every: 10
   val_every: 1
   sample_every: 5
-  # steps per epoch (null = full epoch)
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
 
 logging:
   project: diffusion_policy
-  resume: True
+  resume: False
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
-  tags: ["${name}", "${task_name}", "${exp_name}"]
+  tags: ["${task_name}", "${exp_name}"]
   id: null
   group: null
 

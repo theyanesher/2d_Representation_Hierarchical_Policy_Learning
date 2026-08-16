@@ -35,7 +35,7 @@ NUM_DEMOS="${NUM_DEMOS:-100}"
 echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
 
 # --- paths ---------------------------------------------------------------
-SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/HAMMER_CLEANUP_D1"
+SRC_DATA_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/LOW_LEVEL_WITH_GMM_DATASET_GROOT_STYLE_DATASET/D2/HAMMER_CLEANUP_D1_GOAL_SWAP"  # plain HAMMER_CLEANUP_D1 h5 dir was deleted (July cleanup); GOAL_SWAP copy has identical obs/actions and its embedded gmm keys are never read here
 PRED_SRC_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/D2/EXTRA_KEYPOINTS/HAMMER_CLEANUP_D1_GMM_PRED"
 REPO_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 
