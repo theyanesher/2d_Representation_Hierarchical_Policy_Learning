@@ -123,6 +123,7 @@ run_one_ckpt() {
 # run_one_ckpt "epoch_10.ckpt" "EPOCH10"  # already ran, seed 100000
 # run_one_ckpt "epoch_99.ckpt" "EPOCH99"  # already ran, seed 100000
 # Remaining two seeds of the ALL_SEEDS sweep (100000/150000/250000), EPOCH99 only.
+run_one_ckpt "epoch_99.ckpt" "EPOCH99_100000_SEED" "100000"
 run_one_ckpt "epoch_99.ckpt" "EPOCH99_150000_SEED" "150000"
 run_one_ckpt "epoch_99.ckpt" "EPOCH99_250000_SEED" "250000"
 
