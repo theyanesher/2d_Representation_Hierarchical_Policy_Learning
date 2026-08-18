@@ -469,6 +469,20 @@ install-uvd = """
 pip install -r external/UVD/requirements.txt "mujoco==2.3.7" && \
 pip install --no-build-isolation -e external/UVD
 """
+# vip (facebookresearch/vip) is UVD's own upstream default preprocessor and is
+# this repo's default too (third_party/robogen/uvd_subgoal_decomp.py::
+# DEFAULT_PREPROCESSOR). Its setup.py hard-pins old exact versions of
+# gdown/hydra-core/omegaconf/pillow that conflict with what UVD itself needs
+# (gdown==4.7.1, hydra-core==1.3.1) -- install vip's own deps first, then
+# reinstall UVD's pinned versions on top. Both `import vip` and UVD's
+# get_preprocessor("vip") were verified to work fine under the newer
+# hydra-core/omegaconf/gdown, despite vip's pip conflict warnings at install
+# time (harmless -- vip's pins are just overly conservative).
+install-vip = """
+[ -d external/vip ] || git clone https://github.com/facebookresearch/vip.git external/vip && \
+pip install -e external/vip && \
+pip install "gdown==4.7.1" "hydra-core==1.3.1" "omegaconf~=2.2"
+"""
 
 [tasks]
 install-mino-utils = """

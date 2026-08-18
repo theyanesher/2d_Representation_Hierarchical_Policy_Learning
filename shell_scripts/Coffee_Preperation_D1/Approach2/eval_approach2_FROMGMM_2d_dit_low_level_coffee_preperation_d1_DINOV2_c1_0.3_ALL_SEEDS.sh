@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# APPROACH 2 eval on Coffee_Preperation_D1 -- FROM-GMM VARIANT.
+# APPROACH 2 eval on Coffee_Preperation_D1 -- FROM-GMM VARIANT, c1 = 0.3.
 #
 # Uses eval_approach2_from_gmm_2d_dit_low_level.py, which is a stripped COPY of
 # the proven eval_gmm_high_level_2d_dit_low_level.py rather than a from-scratch
@@ -7,8 +7,8 @@
 # TILING one observation across n_obs_steps (instead of a real t-1/t history)
 # and seeding torch as well as numpy.
 #
-# Runs side by side with the original script in this folder; outputs go to a
-# separate APPROACH2_FROMGMM_* tree so the two are directly comparable.
+# This checkpoint has aux_gmm_loss_weight=0.3 -- the c1 weight ablation sibling
+# of the c1=0.1 run and the c1=null (no-GMM) ablation.
 #
 # There is NO high-level policy here. The Approach 2 LL is never given a goal —
 # goal_gripper_pts only supervised its visual representation during training via
@@ -16,7 +16,7 @@
 #
 # Single script, runs seeds 100000 / 150000 / 250000 SEQUENTIALLY.
 # Per-seed outputs land in:
-#   ${SCRIPT_DIR}/APPROACH2_FROMGMM_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2_c1_0.1_<NTH>_SEED/
+#   ${SCRIPT_DIR}/APPROACH2_FROMGMM_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2_c1_0.3_<NTH>_SEED/
 # Each seed has its own auto-resume bookkeeping (do_merge below); an interrupted
 # run can be re-launched and continues from where it left off.
 #
@@ -28,21 +28,20 @@
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
-# Paths (all on PSC)
+# Paths (all LOCAL — this runs on this machine, not PSC.)
 # --------------------------------------------------------------------------- #
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-INFERENCE_ROOT="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Mimicgen_Inference/2d_Representation_Hierarchical_Policy_Learning"
-LL_REPO="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
+INFERENCE_ROOT="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning"
+LL_REPO="/home/theyanesh/Pratik_Low_Level/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 DIT_2D_REPO="${LL_REPO}/diffusion_policy"
 
-ENV_PY="${INFERENCE_ROOT}/.pixi/envs/default/bin/python"
+ENV_PY="${INFERENCE_ROOT}/.pixi/envs/eval/bin/python"
 
-# NOTE: the directory spells "Preperation", the hdf5 spells "preparation".
-DATASET_PATH="${INFERENCE_ROOT}/DATASET/Coffee_Preperation_D1_Dataset/core/coffee_preparation_d1.hdf5"
+DATASET_PATH="/data/theya/data/uncertainity_subgoal/D1/env_hdf5/core/coffee_preparation_d1.hdf5"
 
-# LL: 100-demo Approach 2 run on Coffee_Preperation_D1, c1 = 0.1.
-LL_EXP_DIR="${LL_REPO}/outputs/2026.08.10/04.19.57_coffee_prep_D1_approach2_c1_0.1_100demo_coffee_preperation_goal_gmm_aux"
+# LL: Approach 2 run on Coffee_Preperation_D1, c1 = 0.3 weight ablation.
+LL_EXP_DIR="${INFERENCE_ROOT}/APPROACH2_POLICIES/Coffee_Preperation_D1/c03_GMM_Weight_Ablation"
 LL_CKPT="epoch_99.ckpt"
 
 # robosuite / mimicgen / robosuite-task-zoo are installed into the inference
@@ -56,16 +55,13 @@ N_EPISODES=50
 MAX_STEPS=800
 N_OBS_STEPS=2
 N_ACTION_STEPS=8
-NUM_ENVS="${NUM_ENVS:-8}"
-INFERENCE_DTYPE="${INFERENCE_DTYPE:-fp32}"
 CAMERA_H=256
 CAMERA_W=256
 
 SAVE_VIDEOS=1
-NUM_VIDEO_EPISODES="${NUM_VIDEO_EPISODES:-4}"
 VIDEO_FPS=10
 
-OUTPUT_BASE="APPROACH2_FROMGMM_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2_c1_0.1"
+OUTPUT_BASE="APPROACH2_FROMGMM_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2_c1_0.3"
 
 # --------------------------------------------------------------------------- #
 # do_merge SRC DST ORIG_SEED  — folds a sibling _RESUME_<N> dir into the main per-seed dir.
@@ -145,9 +141,9 @@ export MUJOCO_GL=${MUJOCO_GL:-egl}
 export DISPLAY=${DISPLAY:-:99}
 # $HOME is quota-tight; keep scratch off it so mujoco/ffmpeg temp writes can't fail.
 # Distinct scratch even when TMPDIR is already exported (sbatch/interact do
-# that), so this run cannot share a temp dir with the sibling non-FROMGMM
-# eval running in parallel.
-export TMPDIR="${TMPDIR:-/tmp}/approach2_fromgmm_eval_$$"
+# that), so this run cannot share a temp dir with a sibling eval running in
+# parallel.
+export TMPDIR="${TMPDIR:-/tmp}/approach2_fromgmm_c03_eval_$$"
 mkdir -p "${TMPDIR}"
 # INFERENCE_ROOT: eval_smith_utils + third_party.robogen
 # LL_REPO       : manipulation.utils (imported by robogen_utils)
@@ -219,11 +215,8 @@ run_one_seed() {
       --seed                 "${CUR_SEED}"       \
       --n_obs_steps          "${N_OBS_STEPS}"    \
       --n_action_steps       "${N_ACTION_STEPS}" \
-      --num_envs             "${NUM_ENVS}"       \
-      --inference_dtype      "${INFERENCE_DTYPE}" \
       --camera_h             "${CAMERA_H}"       \
       --camera_w             "${CAMERA_W}"       \
-      --num_video_episodes   "${NUM_VIDEO_EPISODES}" \
       "${VIDEO_FLAG[@]}"                         \
       --output_dir           "${PY_OUTPUT_DIR}"
 

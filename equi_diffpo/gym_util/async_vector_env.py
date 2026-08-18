@@ -121,7 +121,7 @@ class AsyncVectorEnv(VectorEnv):
                     self.single_observation_space, n=self.num_envs, ctx=ctx
                 )
                 self.observations = read_from_shared_memory(
-                    _obs_buffer, self.single_observation_space, n=self.num_envs
+                    self.single_observation_space, _obs_buffer, n=self.num_envs
                 )
             except CustomSpaceError:
                 raise ValueError(
@@ -188,7 +188,7 @@ class AsyncVectorEnv(VectorEnv):
         _, successes = zip(*[pipe.recv() for pipe in self.parent_pipes])
         self._raise_if_errors(successes)
 
-    def reset_async(self):
+    def reset_async(self, seed=None, options=None):
         self._assert_is_running()
         if self._state != AsyncState.DEFAULT:
             raise AlreadyPendingCallError(
@@ -197,11 +197,16 @@ class AsyncVectorEnv(VectorEnv):
                 self._state.value,
             )
 
+        if seed is not None:
+            self.seed(seed)
+        if options is not None:
+            logger.warn("AsyncVectorEnv ignores reset options for legacy Gym envs")
+
         for pipe in self.parent_pipes:
             pipe.send(("reset", None))
         self._state = AsyncState.WAITING_RESET
 
-    def reset_wait(self, timeout=None):
+    def reset_wait(self, timeout=None, seed=None, options=None):
         """
         Parameters
         ----------
@@ -625,7 +630,7 @@ def _worker_shared_memory(index, env_fn, pipe, parent_pipe, shared_memory, error
             if command == "reset":
                 observation = env.reset()
                 write_to_shared_memory(
-                    index, observation, shared_memory, observation_space
+                    observation_space, index, observation, shared_memory
                 )
                 pipe.send((None, True))
             elif command == "step":
@@ -633,7 +638,7 @@ def _worker_shared_memory(index, env_fn, pipe, parent_pipe, shared_memory, error
                 # if done:
                 #     observation = env.reset()
                 write_to_shared_memory(
-                    index, observation, shared_memory, observation_space
+                    observation_space, index, observation, shared_memory
                 )
                 pipe.send(((None, reward, done, info), True))
             elif command == "seed":

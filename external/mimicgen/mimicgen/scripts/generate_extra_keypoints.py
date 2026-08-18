@@ -198,10 +198,23 @@ def _merge_switch_idxs(idx_lists, window):
     kept; for each subsequent (lower-priority) list, an index is kept only
     if it is NOT within `window` frames of an index already kept, so a
     near-duplicate boundary from a lower-priority method collapses onto the
-    higher-priority one instead of adding a redundant extra subgoal."""
+    higher-priority one instead of adding a redundant extra subgoal.
+
+    The window check only ever applies ACROSS lists, never within one list:
+    the first (highest-priority) list is taken in full, unfiltered, before
+    any window check runs -- checking a list's own entries against `kept`
+    while `kept` is still being populated FROM that same list would silently
+    drop that list's own close-together boundaries too, breaking "every one
+    of idx_lists[0]'s indices is kept" whenever it has any two boundaries
+    within `window` frames of each other (common in practice: e.g. bspline's
+    knots are frequently only a few frames apart)."""
     kept = []
-    for idxs in idx_lists:
-        for idx in sorted(int(x) for x in idxs):
+    for list_idx, idxs in enumerate(idx_lists):
+        sorted_idxs = sorted(int(x) for x in idxs)
+        if list_idx == 0:
+            kept.extend(sorted_idxs)
+            continue
+        for idx in sorted_idxs:
             if all(abs(idx - k) > window for k in kept):
                 kept.append(idx)
     return np.asarray(sorted(kept), dtype=int)
@@ -498,7 +511,7 @@ def main():
     ap.add_argument("--influence_threshold", type=float, default=None,
                     help="bspline_greville: min control-polygon deviation (metres) for a "
                          "control point to become a subgoal boundary; default: --max_error")
-    ap.add_argument("--awe_err_threshold", type=float, default=0.2,
+    ap.add_argument("--awe_err_threshold", type=float, default=0.35,
                     help="awe: max reconstruction error (position in metres, "
                          "+ rotation in radians) before AWE adds another waypoint")
     ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="dp",
@@ -550,7 +563,7 @@ def main():
     ap.add_argument("--vlm_logs_dir", default=os.path.join("logs", "subtask_boundaries"),
                     help="vlm: root directory for per-demo sparse input/output logs "
                          "(default: logs/subtask_boundaries)")
-    ap.add_argument("--orientation_threshold", type=float, default=np.pi / 6,
+    ap.add_argument("--orientation_threshold", type=float, default=np.pi / 4,
                     help="orientation_heuristic: radians of gripper-orientation drift, "
                          "combined across all 3 axes as one geodesic angle, from the "
                          "last subgoal before a new one is placed (default: pi/6)")
@@ -573,9 +586,9 @@ def main():
                     help="uvd: which rgb_<camera> key to decompose (default: agentview)")
     ap.add_argument("--uvd_preprocessor", default=UVD_DEFAULT_PREPROCESSOR,
                     choices=["vip", "r3m", "liv", "clip", "vc1", "dinov2", "resnet"],
-                    help="uvd: frozen visual encoder (default: {}; vip/r3m/liv/vc1 need "
-                         "a manual install first, see external/UVD/README.md)".format(
-                             UVD_DEFAULT_PREPROCESSOR))
+                    help="uvd: frozen visual encoder (default: {}, installed at external/vip; "
+                         "r3m/liv/vc1 still need a manual install first, see "
+                         "external/UVD/README.md)".format(UVD_DEFAULT_PREPROCESSOR))
     ap.add_argument("--uvd_device", default=None,
                     help="uvd: e.g. cuda, cuda:0, cpu (default: auto-detect inside the "
                          "uvd subprocess)")

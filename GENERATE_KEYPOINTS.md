@@ -507,7 +507,9 @@ pixi run python \
 ```
 
 Available preprocessors are `vip`, `r3m`, `liv`, `clip`, `vc1`, `dinov2`, and
-`resnet`. Some require manual installation; consult `external/UVD/README.md`.
+`resnet`. `vip` is the default (installed at `external/vip`, matching UVD's own
+upstream default). `r3m`/`liv`/`vc1` still require manual installation; consult
+`external/UVD/README.md`.
 
 ## Resume, recompute, and parallelism
 

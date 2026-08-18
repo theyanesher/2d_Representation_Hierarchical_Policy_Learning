@@ -328,7 +328,15 @@ class EnvRobosuite(EB.EnvBase):
         # "object" key contains object information
         ret["object"] = np.array(di["object-state"])
 
-        if self.env.use_camera_obs:
+        # Point-cloud construction is one of the most expensive parts of image
+        # evaluation (segmentation renders, Open3D fusion, then 4,500-point
+        # farthest-point sampling). Image-only policies do not consume it, so
+        # only build it when the active shape metadata registered that key.
+        point_cloud_requested = (
+            ObsUtils.OBS_KEYS_TO_MODALITIES is None
+            or "point_cloud" in ObsUtils.OBS_KEYS_TO_MODALITIES
+        )
+        if self.env.use_camera_obs and point_cloud_requested:
             workspace = self.voxel_workspace
 
             # voxel_bound = np.array([

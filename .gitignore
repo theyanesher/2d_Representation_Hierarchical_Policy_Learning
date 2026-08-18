@@ -19,6 +19,7 @@ results/
 ckpts/
 ray/auth.json
 external/UVD/
+external/vip/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -72,7 +73,9 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
-
+APPROACH1_POLICIES/
+APPROACH2_POLICIES/
+theya_approach2_policies/
 # Translations
 *.mo
 *.pot
@@ -171,7 +174,7 @@ GMM_HIGH_LEVEL_*/
 GHOST_HIGH_LEVEL_*/
 GHOST_HL_*/
 GMM_HIGH_LEVEL_*/
-
+shell_scripts/*.mp4
 # BOCPD / segmentation test output directories
 test_*output*/
 

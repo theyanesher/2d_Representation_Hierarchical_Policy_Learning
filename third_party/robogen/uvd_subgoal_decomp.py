@@ -51,10 +51,20 @@ VALID_METHODS = ("uvd",)
 # repo's `pixi run -e uvd install-uvd` task deliberately does NOT do (see
 # pixi.toml [feature.uvd.tasks]) -- only external/UVD/requirements.txt
 # itself is installed. "resnet" (torchvision, ImageNet-pretrained) and
-# "dinov2" (torch.hub) work with nothing beyond that, so "resnet" is the
-# default here; pass --preprocessor_name explicitly for the others once
-# you've installed them per external/UVD/README.md.
-DEFAULT_PREPROCESSOR = "resnet"
+# "dinov2" (torch.hub) work with nothing beyond that.
+#
+# vip IS now installed (external/vip, `pip install -e` into the uvd pixi env
+# -- see external/UVD/README.md for the same steps) and is UVD's own upstream
+# default, so it's the default here too. Its pinned installs_requires
+# (gdown==4.4.0, hydra-core==1.1.1, omegaconf==2.1.1, pillow==9.0.1) are
+# overly conservative and were NOT kept -- gdown/hydra-core/omegaconf were
+# reinstalled back to the versions external/UVD/requirements.txt actually
+# needs (gdown==4.7.1, hydra-core==1.3.1, omegaconf~=2.2) right after, and
+# both `import vip` and UVD's own get_preprocessor("vip") were verified to
+# still work under those versions. r3m/liv/vc1 remain uninstalled; pass
+# --preprocessor_name explicitly for those once you've installed them per
+# external/UVD/README.md.
+DEFAULT_PREPROCESSOR = "vip"
 
 
 def _finalize_indices(idxs: np.ndarray, T: int) -> np.ndarray:

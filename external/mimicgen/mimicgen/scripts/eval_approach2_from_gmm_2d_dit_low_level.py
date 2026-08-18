@@ -27,22 +27,30 @@ Differences from the parent script, and ONLY these:
 Per step: env obs -> LL(cam0/cam1 image+depth+intrinsic+extrinsic, state,
           present_gripper_pts) -> hybrid_delta
           -> policy_action_batch_to_env_action -> env.step
+
+Evaluation runs multiple MuJoCo environments in spawned subprocesses and sends
+their active observations through one batched policy call. This keeps CPU-bound
+simulation parallel while giving the GPU a useful inference batch.
 """
 
 import argparse
 import collections
 import copy
+import functools
 import os
 import sys
+import time
 import types
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
 
 # MUST run before any direct or transitive `import mujoco` / robosuite import.
-# Populates `OpenGL.EGL.EGLDeviceEXT` at top level so mujoco's egl_ext.py:34 finds it.
-# Also requires PYOPENGL_PLATFORM=egl in the env (set by the shell wrapper).
-import OpenGL.EGL.EXT.device_base  # noqa: F401  (side-effect import only)
+# Kept lazy so CPU-only unit tests can import the batching helpers without an
+# installed EGL stack. The shell wrappers set PYOPENGL_PLATFORM=egl.
+def _prepare_egl_import():
+    import OpenGL.EGL.EXT.device_base  # noqa: F401  (side-effect import only)
 
 
 # -----------------------------------------------------------------------------
@@ -192,11 +200,9 @@ def _stub_unused_lfd3d_deps():
 
 
 # -----------------------------------------------------------------------------
-# Shape meta describing the obs dict the env populates and the LL/HL paths consume.
-# Identical to the ghost eval (the env emits the same keys regardless of which
-# LL we plug in). gmm_all_goals / gmm_all_weights are NOT registered here — same
-# pattern goal_gripper_pts uses in the ghost script: those keys are not produced
-# by the env, they are injected by us in build_ll_obs_dict.
+# Shape meta describing only the observations consumed by the Approach 2 LL.
+# In particular, point_cloud is intentionally absent: generating it requires
+# segmentation, Open3D fusion, and CPU farthest-point sampling every env step.
 # -----------------------------------------------------------------------------
 def get_shape_meta(camera_h: int, camera_w: int):
     return {
@@ -208,9 +214,12 @@ def get_shape_meta(camera_h: int, camera_w: int):
             "agentview_depth":          {"shape": [1, camera_h, camera_w], "type": "depth"},
             "robot0_eye_in_hand_depth": {"shape": [1, camera_h, camera_w], "type": "depth"},
             "state":                    {"shape": [10],                    "type": "low_dim"},
-            "point_cloud":              {"shape": [4500, 3],               "type": "point_cloud"},
             "gripper_pcd":              {"shape": [4, 3],                  "type": "low_dim"},
             "robot0_eef_quat":          {"shape": [4],                     "type": "low_dim"},
+            "agentview_intrinsics":     {"shape": [3, 3],                  "type": "low_dim"},
+            "robot0_eye_in_hand_intrinsics": {"shape": [3, 3],             "type": "low_dim"},
+            "agentview_extrinsics":     {"shape": [4, 4],                  "type": "low_dim"},
+            "robot0_eye_in_hand_extrinsics": {"shape": [4, 4],             "type": "low_dim"},
         },
         "action": {"shape": [10]},
     }
@@ -218,7 +227,7 @@ def get_shape_meta(camera_h: int, camera_w: int):
 
 # -----------------------------------------------------------------------------
 # Build a MimicGen robosuite env at the requested camera resolution.
-# Mirrors the ghost eval (camera set must match training distribution).
+# Only the two camera streams consumed by the policy are enabled.
 # -----------------------------------------------------------------------------
 def create_mimicgen_env(dataset_path: str, shape_meta: dict, camera_h: int, camera_w: int):
     import robomimic.utils.env_utils as EnvUtils
@@ -228,10 +237,9 @@ def create_mimicgen_env(dataset_path: str, shape_meta: dict, camera_h: int, came
     env_meta = FileUtils.get_env_metadata_from_dataset(os.path.expanduser(dataset_path))
 
     env_name = env_meta["env_name"]
-    if env_name.startswith("PickPlace"):
-        camera_names = ["birdview", "agentview", "robot0_eye_in_hand"]
-    else:
-        camera_names = ["birdview", "agentview", "sideview", "robot0_eye_in_hand"]
+    # Approach 2 consumes only these two views. Birdview / sideview existed to
+    # construct the high-level point cloud and otherwise add unused renders.
+    camera_names = ["agentview", "robot0_eye_in_hand"]
 
     env_kwargs = dict(env_meta["env_kwargs"])
     env_kwargs.pop("env_name", None)
@@ -517,11 +525,272 @@ def build_ll_obs_dict(obs, n_obs_steps: int, device):
     return {k: torch.from_numpy(v).float().to(device) for k, v in out.items()}
 
 
+def build_batched_ll_obs_dict(obs, active_indices, n_obs_steps: int, device):
+    """Build the policy input for active vector-env slots without NumPy tiling.
+
+    The policy was evaluated historically with one current observation repeated
+    over its observation horizon. ``expand`` preserves that exact convention
+    while avoiding a materialized copy for every history step.
+    """
+    import torch
+
+    key_map = {
+        "cam0_image": "agentview_image",
+        "cam1_image": "robot0_eye_in_hand_image",
+        "cam0_depth": "agentview_depth",
+        "cam1_depth": "robot0_eye_in_hand_depth",
+        "cam0_intrinsic": "agentview_intrinsics",
+        "cam1_intrinsic": "robot0_eye_in_hand_intrinsics",
+        "cam0_extrinsic": "agentview_extrinsics",
+        "cam1_extrinsic": "robot0_eye_in_hand_extrinsics",
+        "state": "state",
+        "present_gripper_pts": "gripper_pcd",
+    }
+    active_indices = np.asarray(active_indices, dtype=np.int64)
+    result = {}
+    for policy_key, env_key in key_map.items():
+        value = np.asarray(obs[env_key])[active_indices]
+        if env_key == "gripper_pcd":
+            value = value[..., :3]
+        tensor = torch.from_numpy(np.ascontiguousarray(value)).to(
+            device=device, dtype=torch.float32
+        )
+        result[policy_key] = tensor.unsqueeze(1).expand(
+            (-1, n_obs_steps) + tuple(tensor.shape[1:])
+        )
+    return result
+
+
 def _agentview_to_uint8_rgb(obs):
     img = np.asarray(obs["agentview_image"])
     frame = np.transpose(img, (1, 2, 0))
     frame = (frame * 255.0).clip(0, 255).astype(np.uint8)
     return np.ascontiguousarray(frame)
+
+
+def policy_action_batch_to_env_action_vectorized(
+    action_batch: np.ndarray,
+    cur_eef_quats: np.ndarray,
+    max_dpos: float,
+    max_drot: float,
+) -> np.ndarray:
+    """Vectorized equivalent of eval_smith_utils' action conversion.
+
+    Rotation conversion uses SciPy's batched Rotation implementation instead
+    of the old Python loop over every environment and action timestep.
+    """
+    from scipy.spatial.transform import Rotation
+
+    action_batch = np.asarray(action_batch, dtype=np.float64)
+    cur_eef_quats = np.asarray(cur_eef_quats, dtype=np.float64)
+    if action_batch.ndim != 3 or action_batch.shape[-1] != 10:
+        raise ValueError(f"expected action_batch (B,T,10), got {action_batch.shape}")
+    if cur_eef_quats.shape != (action_batch.shape[0], 4):
+        raise ValueError(
+            f"expected cur_eef_quats ({action_batch.shape[0]},4), got {cur_eef_quats.shape}"
+        )
+
+    # Policy 6D rotations store the first two rotation-matrix columns.
+    rot6d = action_batch[..., 3:9].reshape(*action_batch.shape[:2], 2, 3)
+    a1, a2 = rot6d[..., 0, :], rot6d[..., 1, :]
+    eps = np.finfo(np.float64).eps
+    b1 = a1 / np.maximum(np.linalg.norm(a1, axis=-1, keepdims=True), eps)
+    b2 = a2 - np.sum(a2 * b1, axis=-1, keepdims=True) * b1
+    b2 = b2 / np.maximum(np.linalg.norm(b2, axis=-1, keepdims=True), eps)
+    b3 = np.cross(b1, b2)
+    delta_rot_gripper = np.stack((b1, b2, b3), axis=-1)
+
+    cur_rot = Rotation.from_quat(cur_eef_quats).as_matrix()
+    delta_rot_world = (
+        cur_rot[:, None] @ delta_rot_gripper @ np.swapaxes(cur_rot[:, None], -1, -2)
+    )
+    delta_axisangle_world = Rotation.from_matrix(
+        delta_rot_world.reshape(-1, 3, 3)
+    ).as_rotvec().reshape(*action_batch.shape[:2], 3)
+
+    result = np.empty(action_batch.shape[:2] + (7,), dtype=np.float32)
+    result[..., :3] = np.clip(action_batch[..., :3] / max_dpos, -1.0, 1.0)
+    result[..., 3:6] = np.clip(delta_axisangle_world / max_drot, -1.0, 1.0)
+    result[..., 6] = np.clip(action_batch[..., 9] / -0.01, -1.0, 1.0)
+    return result
+
+
+def _make_observation_space(shape_meta):
+    from gym import spaces
+
+    result = spaces.Dict()
+    for key, value in shape_meta["obs"].items():
+        low, high = -np.inf, np.inf
+        if key.endswith("image"):
+            low, high = 0.0, 1.0
+        result[key] = spaces.Box(
+            low=low, high=high, shape=tuple(value["shape"]), dtype=np.float32
+        )
+    return result
+
+
+class _SpaceOnlyEnv:
+    """OpenGL-free env used only for AsyncVectorEnv space discovery."""
+
+    metadata = {}
+
+    def __init__(self, shape_meta, n_action_steps):
+        from gym import spaces
+
+        self.observation_space = _make_observation_space(shape_meta)
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(n_action_steps, 7), dtype=np.float32
+        )
+
+    def close(self):
+        return None
+
+
+class _ParallelMimicGenEpisodeEnv:
+    """One worker-owned MuJoCo env that consumes an action chunk per step."""
+
+    metadata = {}
+
+    def __init__(
+        self,
+        dataset_path,
+        shape_meta,
+        camera_h,
+        camera_w,
+        n_action_steps,
+        max_steps,
+        video_fps,
+    ):
+        from gym import spaces
+
+        _prepare_egl_import()
+        self.observation_space = _make_observation_space(shape_meta)
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(n_action_steps, 7), dtype=np.float32
+        )
+        self.env, _ = create_mimicgen_env(
+            dataset_path, shape_meta, camera_h, camera_w
+        )
+        inner = self.env.env if hasattr(self.env, "env") else self.env
+        controller = inner.robots[0].controller
+        self.controller_limits = (
+            float(controller.output_max[0]),
+            float(controller.output_max[3]),
+        )
+        self.max_steps = int(max_steps)
+        self.video_fps = int(video_fps)
+        self.pending_seed = None
+        self.pending_video_path = None
+        self.active = True
+        self.done = False
+        self.success = False
+        self.steps = 0
+        self.total_reward = 0.0
+        self.video_seconds = 0.0
+        self.last_obs = None
+        self.video_recorder = None
+
+    def seed(self, seed=None):
+        self.pending_seed = seed
+
+    def configure_episode(self, seed, video_path=None, active=True):
+        self._stop_video()
+        self.pending_seed = int(seed)
+        self.pending_video_path = video_path
+        self.active = bool(active)
+
+    def reset(self):
+        if self.pending_seed is not None:
+            # Robosuite task randomization uses NumPy's process-global RNG.
+            np.random.seed(self.pending_seed)
+        self.last_obs = _maybe_unwrap(self.env.reset())
+        self.done = not self.active
+        self.success = False
+        self.steps = 0
+        self.total_reward = 0.0
+        self.video_seconds = 0.0
+        if self.active and self.pending_video_path:
+            from equi_diffpo.gym_util.video_recording_wrapper import VideoRecorder
+
+            video_start = time.perf_counter()
+            self.video_recorder = VideoRecorder.create_h264(
+                fps=self.video_fps, crf=22, thread_type="FRAME", thread_count=1
+            )
+            self.video_recorder.start(str(self.pending_video_path))
+            self.video_recorder.write_frame(_agentview_to_uint8_rgb(self.last_obs))
+            self.video_seconds += time.perf_counter() - video_start
+        return self._filtered_obs(self.last_obs)
+
+    def step(self, action_sequence):
+        if self.done:
+            return self._filtered_obs(self.last_obs), 0.0, True, self._info()
+
+        chunk_reward = 0.0
+        for action in np.asarray(action_sequence, dtype=np.float32):
+            obs, reward, _done, _info = self.env.step(action)
+            self.last_obs = _maybe_unwrap(obs)
+            reward = float(reward)
+            chunk_reward += reward
+            self.total_reward += reward
+            self.steps += 1
+            if self.video_recorder is not None:
+                video_start = time.perf_counter()
+                self.video_recorder.write_frame(_agentview_to_uint8_rgb(self.last_obs))
+                self.video_seconds += time.perf_counter() - video_start
+            if self.env.is_success().get("task", False):
+                self.success = True
+                self.done = True
+            if self.steps >= self.max_steps:
+                self.done = True
+            if self.done:
+                break
+        return self._filtered_obs(self.last_obs), chunk_reward, self.done, self._info()
+
+    def get_controller_limits(self):
+        return self.controller_limits
+
+    def get_episode_result(self):
+        self._stop_video()
+        return {
+            "reward": self.total_reward,
+            "success": self.success,
+            "steps": self.steps,
+            "video": self.pending_video_path,
+            "video_seconds": self.video_seconds,
+        }
+
+    def close(self):
+        self._stop_video()
+        close = getattr(self.env, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    def _filtered_obs(self, obs):
+        return {
+            key: np.asarray(obs[key], dtype=np.float32)
+            for key in self.observation_space.keys()
+        }
+
+    def _info(self):
+        return {"success": self.success, "steps": self.steps}
+
+    def _stop_video(self):
+        if self.video_recorder is not None:
+            video_start = time.perf_counter()
+            self.video_recorder.stop()
+            self.video_seconds += time.perf_counter() - video_start
+            self.video_recorder = None
+
+
+def _make_parallel_env(**kwargs):
+    return _ParallelMimicGenEpisodeEnv(**kwargs)
+
+
+def _make_space_only_env(shape_meta, n_action_steps):
+    return _SpaceOnlyEnv(shape_meta, n_action_steps)
 
 
 # -----------------------------------------------------------------------------
@@ -689,6 +958,221 @@ def run_episode(
     return total_reward, success, frames
 
 
+def _inference_autocast_context(device, inference_dtype):
+    import torch
+
+    if inference_dtype == "fp32":
+        return nullcontext()
+    if not str(device).startswith("cuda"):
+        raise RuntimeError(
+            f"--inference_dtype={inference_dtype} requires CUDA; current device is {device}"
+        )
+    if inference_dtype == "bfloat16":
+        if not torch.cuda.is_bf16_supported():
+            raise RuntimeError("bfloat16 inference is not supported by this CUDA device")
+        dtype = torch.bfloat16
+    elif inference_dtype == "float16":
+        dtype = torch.float16
+    else:
+        raise ValueError(f"unknown inference dtype: {inference_dtype}")
+    return torch.autocast(device_type="cuda", dtype=dtype)
+
+
+def _make_episode_generators(episode_seeds, device):
+    """Create independent policy RNG streams, one per episode.
+
+    Keeping these generators separate makes an episode's flow-matching noise
+    independent of vector-env batch size, slot order, and when sibling episodes
+    finish. Drawing ``(1, H, D)`` also matches the serial evaluator's original
+    per-call random-tensor shape.
+    """
+    import torch
+
+    generators = []
+    for episode_seed in episode_seeds:
+        generator = torch.Generator(device=device)
+        generator.manual_seed(int(episode_seed))
+        generators.append(generator)
+    return generators
+
+
+def _sample_episode_initial_noise(ll_model, generators, active_indices, device):
+    """Draw one serial-equivalent initial-noise tensor per active episode."""
+    import torch
+
+    samples = [
+        torch.randn(
+            (1, ll_model.action_horizon, ll_model.action_dim),
+            dtype=ll_model.dtype,
+            device=device,
+            generator=generators[int(slot)],
+        )[0]
+        for slot in active_indices
+    ]
+    return torch.stack(samples, dim=0)
+
+
+def run_parallel_episodes(
+    vector_env,
+    ll_model,
+    *,
+    n_episodes,
+    seed,
+    n_obs_steps,
+    n_action_steps,
+    device,
+    inference_dtype,
+    save_videos,
+    num_video_episodes,
+    videos_dir,
+    video_fps,
+    results_f,
+):
+    """Evaluate episodes in worker chunks and batch policy inference on GPU."""
+    import json
+    import torch
+
+    n_envs = vector_env.num_envs
+    controller_limits = vector_env.call("get_controller_limits")
+    max_dpos, max_drot = controller_limits[0]
+    if not all(np.allclose(x, controller_limits[0]) for x in controller_limits[1:]):
+        raise RuntimeError(f"worker controller limits differ: {controller_limits}")
+
+    rewards, successes = [], []
+    timing = collections.defaultdict(float)
+    eval_start = time.perf_counter()
+
+    for chunk_start in range(0, n_episodes, n_envs):
+        chunk_stop = min(chunk_start + n_envs, n_episodes)
+        n_active = chunk_stop - chunk_start
+        episode_indices = list(range(chunk_start, chunk_stop))
+
+        configure_args = []
+        for slot in range(n_envs):
+            active = slot < n_active
+            episode_index = episode_indices[slot] if active else chunk_start
+            episode_seed = seed + episode_index
+            video_path = None
+            if active and save_videos and episode_index < num_video_episodes:
+                video_path = str(
+                    videos_dir
+                    / f"episode_{episode_index + 1:03d}_seed_{episode_seed}_pending.mp4"
+                )
+            configure_args.append((episode_seed, video_path, active))
+
+        t0 = time.perf_counter()
+        vector_env.call_each("configure_episode", args_list=configure_args)
+        obs = vector_env.reset()
+        timing["environment_seconds"] += time.perf_counter() - t0
+
+        episode_generators = _make_episode_generators(
+            (seed + episode_index for episode_index in episode_indices), device
+        )
+        active = np.zeros(n_envs, dtype=bool)
+        active[:n_active] = True
+
+        while np.any(active):
+            active_indices = np.flatnonzero(active)
+            timing["policy_calls"] += 1
+            timing["policy_batch_samples"] += len(active_indices)
+            t0 = time.perf_counter()
+            ll_obs = build_batched_ll_obs_dict(
+                obs, active_indices, n_obs_steps, device
+            )
+            timing["preprocess_transfer_seconds"] += time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            with torch.inference_mode(), _inference_autocast_context(
+                device, inference_dtype
+            ):
+                initial_noise = _sample_episode_initial_noise(
+                    ll_model, episode_generators, active_indices, device
+                )
+                action_dict = ll_model.predict_action(
+                    ll_obs, initial_noise=initial_noise
+                )
+            action_tensor = (
+                action_dict["action_pred"]
+                if "action_pred" in action_dict
+                else action_dict["action"]
+            )
+            action_raw = action_tensor.detach().to("cpu", dtype=torch.float32).numpy()
+            timing["policy_seconds"] += time.perf_counter() - t0
+
+            if action_raw.shape[1] < n_action_steps:
+                raise RuntimeError(
+                    f"policy returned {action_raw.shape[1]} action steps, "
+                    f"but --n_action_steps={n_action_steps}"
+                )
+
+            t0 = time.perf_counter()
+            eef_quats = np.asarray(obs["robot0_eef_quat"])[active_indices]
+            converted = policy_action_batch_to_env_action_vectorized(
+                action_raw[:, :n_action_steps], eef_quats, max_dpos, max_drot
+            )
+            env_actions = np.zeros(
+                (n_envs, n_action_steps, 7), dtype=np.float32
+            )
+            env_actions[active_indices] = converted
+            timing["action_conversion_seconds"] += time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            obs, _reward, done, _info = vector_env.step(env_actions)
+            timing["environment_seconds"] += time.perf_counter() - t0
+            active &= ~done
+
+        t0 = time.perf_counter()
+        worker_results = vector_env.call("get_episode_result")
+        timing["video_finalize_seconds"] += time.perf_counter() - t0
+
+        for slot, episode_index in enumerate(episode_indices):
+            episode_seed = seed + episode_index
+            result = worker_results[slot]
+            timing["video_worker_seconds"] += float(result.get("video_seconds", 0.0))
+            reward = float(result["reward"])
+            success = bool(result["success"])
+            video_path = result["video"]
+            if video_path is not None:
+                pending_path = Path(video_path)
+                outcome = "success" if success else "failure"
+                final_path = pending_path.with_name(
+                    pending_path.name.replace("_pending.mp4", f"_{outcome}.mp4")
+                )
+                pending_path.replace(final_path)
+                video_path = str(final_path)
+
+            rewards.append(reward)
+            successes.append(success)
+            video_tag = f"  video={Path(video_path).name}" if video_path else ""
+            print(
+                f"Episode {episode_index + 1}/{n_episodes}  seed={episode_seed}  "
+                f"reward={reward:.2f}  success={success}{video_tag}"
+            )
+            results_f.write(
+                json.dumps(
+                    {
+                        "episode": episode_index + 1,
+                        "seed": episode_seed,
+                        "reward": reward,
+                        "success": success,
+                        "video": video_path,
+                        "video_with_goal_overlay": None,
+                    }
+                )
+                + "\n"
+            )
+            results_f.flush()
+
+    timing["total_seconds"] = time.perf_counter() - eval_start
+    timing["episodes_per_hour"] = (
+        3600.0 * n_episodes / max(timing["total_seconds"], 1e-9)
+    )
+    timing["mean_policy_batch_size"] = (
+        timing["policy_batch_samples"] / max(timing["policy_calls"], 1)
+    )
+    return rewards, successes, dict(timing)
+
+
 # -----------------------------------------------------------------------------
 # Entrypoint.
 # -----------------------------------------------------------------------------
@@ -711,17 +1195,36 @@ def main():
     parser.add_argument("--seed",           type=int, default=100000)
     parser.add_argument("--n_obs_steps",    type=int, default=2)
     parser.add_argument("--n_action_steps", type=int, default=8)
+    parser.add_argument("--num_envs",       type=int, default=8,
+        help="Number of subprocess MuJoCo environments evaluated concurrently. "
+             "The effective value is capped at n_episodes; use 1 for serial debugging.")
     parser.add_argument("--camera_h",       type=int, default=256)
     parser.add_argument("--camera_w",       type=int, default=256)
     parser.add_argument("--output_dir",     type=str, default=None,
         help="Where to save args.json / results.jsonl / summary.json. "
              "Default: outputs_eval_gmm/<HL_dir>__<LL_dir>_<ckpt>/<timestamp>/.")
     parser.add_argument("--save_videos", action=argparse.BooleanOptionalAction, default=True,
-        help="Write an mp4 of every episode to <output_dir>/media/. "
-             "Filenames carry the outcome (..._success.mp4 / ..._failure.mp4). Pass --no-save-videos to disable.")
+        help="Write selected episode mp4s to <output_dir>/media/. Pass --no-save_videos to disable.")
+    parser.add_argument("--num_video_episodes", type=int, default=4,
+        help="Record only the first N episodes (default: 4) to limit CPU encoding cost.")
     parser.add_argument("--video_fps", type=int, default=10,
         help="Frame rate for saved mp4s.")
+    parser.add_argument(
+        "--inference_dtype",
+        choices=("fp32", "bfloat16", "float16"),
+        default="fp32",
+        help="Policy autocast precision. FP32 is the benchmark-compatible default.",
+    )
     args = parser.parse_args()
+
+    if args.n_episodes <= 0:
+        parser.error("--n_episodes must be positive")
+    if args.num_envs <= 0:
+        parser.error("--num_envs must be positive")
+    if args.num_video_episodes < 0:
+        parser.error("--num_video_episodes cannot be negative")
+
+    _prepare_egl_import()
 
     import json
     from datetime import datetime
@@ -747,103 +1250,109 @@ def main():
     import torch
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if args.inference_dtype != "fp32" and device == "cpu":
+        raise RuntimeError(
+            f"--inference_dtype={args.inference_dtype} requires CUDA, but CUDA is unavailable"
+        )
 
-    # Build env and grab the controller (for max_dpos / max_drot during action conversion).
+    # Start subprocess environments before loading the CUDA policy. The custom
+    # dummy env supplies Gym spaces without creating an OpenGL context in the
+    # parent process.
     shape_meta = get_shape_meta(args.camera_h, args.camera_w)
-    env, env_meta = create_mimicgen_env(
-        args.dataset_path, shape_meta, args.camera_h, args.camera_w)
-    inner = env.env if hasattr(env, "env") else env
-    controller = inner.robots[0].controller
+    effective_num_envs = min(args.num_envs, args.n_episodes)
+    from equi_diffpo.gym_util.async_vector_env import AsyncVectorEnv
+
+    env_kwargs = {
+        "dataset_path": args.dataset_path,
+        "shape_meta": shape_meta,
+        "camera_h": args.camera_h,
+        "camera_w": args.camera_w,
+        "n_action_steps": args.n_action_steps,
+        "max_steps": args.max_steps,
+        "video_fps": args.video_fps,
+    }
+    env_fn = functools.partial(_make_parallel_env, **env_kwargs)
+    dummy_env_fn = functools.partial(
+        _make_space_only_env, shape_meta, args.n_action_steps
+    )
+    print(
+        f"[env] starting {effective_num_envs} parallel MimicGen worker(s); "
+        f"policy device={device}, dtype={args.inference_dtype}"
+    )
+    env = AsyncVectorEnv(
+        [env_fn] * effective_num_envs,
+        dummy_env_fn=dummy_env_fn,
+        shared_memory=True,
+        copy=False,
+        context="spawn",
+    )
 
     # Load LL (2D DiT GMM-conditioned).
     print(f"[LL] loading 2D DiT GMM-LL from {args.low_level_exp_dir}/{args.low_level_checkpoint}")
-    ll_model, ll_cfg = load_low_level_2d_dit(
-        args.low_level_exp_dir, args.low_level_checkpoint, device=device)
+    try:
+        ll_model, ll_cfg = load_low_level_2d_dit(
+            args.low_level_exp_dir, args.low_level_checkpoint, device=device)
 
     # Sanity-check the LL config. Approach 2 expects the OPPOSITE of the parent
     # script: the goal must NOT be an input, and the auxiliary GMM head must have
     # been trained (aux_gmm_loss_weight > 0). Warn loudly rather than fail, since
     # a c1=0 ablation is a legitimate thing to evaluate.
-    from omegaconf import OmegaConf
-    ll_use_gca = OmegaConf.select(ll_cfg, "policy.use_goal_cross_attention", default=False)
-    ll_c1      = OmegaConf.select(ll_cfg, "policy.aux_gmm_loss_weight",      default=None)
-    ll_vis     = OmegaConf.select(ll_cfg, "policy.visual_encoder_type",      default=None)
-    print(f"[LL] visual_encoder_type={ll_vis}, aux_gmm_loss_weight={ll_c1}, "
-          f"use_goal_cross_attention={ll_use_gca}")
-    if ll_use_gca:
-        print("[LL][WARN] this LL was trained WITH goal cross-attention, i.e. it expects a "
-              "goal at its input. That is Approach 1, not Approach 2 — use "
-              "eval_gmm_high_level_2d_dit_low_level.py instead.")
-    if ll_c1 in (None, 0):
-        print(f"[LL][WARN] aux_gmm_loss_weight={ll_c1}: this checkpoint had no auxiliary GMM "
-              "loss, so nothing shaped its visual representation toward the goal.")
+        from omegaconf import OmegaConf
+        ll_use_gca = OmegaConf.select(ll_cfg, "policy.use_goal_cross_attention", default=False)
+        ll_c1      = OmegaConf.select(ll_cfg, "policy.aux_gmm_loss_weight",      default=None)
+        ll_vis     = OmegaConf.select(ll_cfg, "policy.visual_encoder_type",      default=None)
+        print(f"[LL] visual_encoder_type={ll_vis}, aux_gmm_loss_weight={ll_c1}, "
+              f"use_goal_cross_attention={ll_use_gca}")
+        if ll_use_gca:
+            print("[LL][WARN] this LL was trained WITH goal cross-attention, i.e. it expects a "
+                  "goal at its input. That is Approach 1, not Approach 2 — use "
+                  "eval_gmm_high_level_2d_dit_low_level.py instead.")
+        if ll_c1 in (None, 0):
+            print(f"[LL][WARN] aux_gmm_loss_weight={ll_c1}: this checkpoint had no auxiliary GMM "
+                  "loss, so nothing shaped its visual representation toward the goal.")
 
     # Video setup.
-    video_recorder_cls = None
-    videos_dir = None
-    if args.save_videos:
-        from equi_diffpo.gym_util.video_recording_wrapper import VideoRecorder as video_recorder_cls
         videos_dir = output_dir / "media"
-        videos_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[video] all rollouts -> {videos_dir.resolve()} (fps={args.video_fps}, h264 crf=22)")
-        # No media_with_goal_overlay/: Approach 2 has no goal to project. The
-        # shell wrapper's do_merge creates that directory itself and tolerates it
-        # being empty, so the on-disk layout stays compatible with the A1 evals.
-
-    # Roll out — stream per-episode results to results.jsonl.
-    rewards, successes = [], []
-    results_path = output_dir / "results.jsonl"
-    with open(results_path, "w") as results_f:
-        for ep in range(args.n_episodes):
-            seed = args.seed + ep
-            np.random.seed(seed)
-            torch.manual_seed(seed)
-            r, succ, frames = run_episode(
-                env, ll_model, controller,
-                args.n_obs_steps, args.n_action_steps, args.max_steps,
-                device=device,
+        if args.save_videos and args.num_video_episodes > 0:
+            videos_dir.mkdir(parents=True, exist_ok=True)
+            n_videos = min(args.num_video_episodes, args.n_episodes)
+            print(
+                f"[video] recording first {n_videos} episode(s) -> "
+                f"{videos_dir.resolve()} (fps={args.video_fps}, h264 crf=22)"
             )
 
-            video_path = None
-            if args.save_videos:
-                outcome_tag = "success" if succ else "failure"
-                video_path = videos_dir / f"episode_{ep + 1:03d}_seed_{seed}_{outcome_tag}.mp4"
-                recorder = video_recorder_cls.create_h264(fps=args.video_fps, crf=22)
-                recorder.start(str(video_path))
-                for frame in frames:
-                    recorder.write_frame(frame)
-                recorder.stop()
-
-            rewards.append(r)
-            successes.append(succ)
-            video_tag = f"  video={video_path.name}" if video_path is not None else ""
-            print(f"Episode {ep + 1}/{args.n_episodes}  seed={seed}  reward={r:.2f}  success={succ}{video_tag}")
-            results_f.write(json.dumps({
-                "episode": ep + 1, "seed": seed,
-                "reward": float(r), "success": bool(succ),
-                "video": str(video_path) if video_path is not None else None,
-                # Kept (always null) so results.jsonl stays schema-compatible with
-                # the A1 evals and the shell do_merge helper.
-                "video_with_goal_overlay": None,
-            }) + "\n")
-            results_f.flush()
-
-    # EnvRobosuite doesn't implement close(); guard so a cleanup error never
-    # aborts the run. Without this the AttributeError propagates out of main(),
-    # skips summary.json below, and (under `set -e`) kills a multi-seed shell
-    # loop before later seeds run.
-    _close = getattr(env, "close", None)
-    if callable(_close):
+    # Roll out — stream per-episode results to results.jsonl.
+        results_path = output_dir / "results.jsonl"
+        with open(results_path, "w") as results_f:
+            rewards, successes, timing = run_parallel_episodes(
+                env,
+                ll_model,
+                n_episodes=args.n_episodes,
+                seed=args.seed,
+                n_obs_steps=args.n_obs_steps,
+                n_action_steps=args.n_action_steps,
+                device=device,
+                inference_dtype=args.inference_dtype,
+                save_videos=args.save_videos,
+                num_video_episodes=args.num_video_episodes,
+                videos_dir=videos_dir,
+                video_fps=args.video_fps,
+                results_f=results_f,
+            )
+    finally:
         try:
-            _close()
+            env.close()
         except Exception as e:
-            print(f"[warn] env.close() failed, ignoring: {e}")
+            print(f"[warn] parallel env close failed, ignoring: {e}")
+
     summary = {
         "n_episodes":   args.n_episodes,
+        "num_envs":     effective_num_envs,
         "mean_reward":  float(np.mean(rewards)),
         "std_reward":   float(np.std(rewards)),
         "success_rate": float(np.mean(successes)),
         "successes":    int(sum(successes)),
+        "timing":       timing,
         "args":         vars(args),
     }
     with open(output_dir / "summary.json", "w") as f:
@@ -852,6 +1361,7 @@ def main():
     print("\n--- Summary ---")
     print(f"Mean reward:  {summary['mean_reward']:.2f} ± {summary['std_reward']:.2f}")
     print(f"Success rate: {summary['success_rate']:.2%} ({summary['successes']}/{args.n_episodes})")
+    print(f"Throughput:   {timing['episodes_per_hour']:.2f} episodes/hour")
     print(f"\nSaved: {output_dir.resolve()}")
     print(f"  - args.json")
     print(f"  - results.jsonl")
