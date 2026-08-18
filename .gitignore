@@ -79,6 +79,7 @@ theya_approach2_policies/
 # Translations
 *.mo
 *.pot
+checkpoints/sam_vit_b_01ec64.pth
 
 # Django stuff:
 *.log
