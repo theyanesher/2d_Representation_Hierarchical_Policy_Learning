@@ -37,6 +37,15 @@ WRIST_CALIBRATION="${WRIST_CALIBRATION:-${REPO_ROOT}/wrist_calibration.json}"
 
 CAMERA_H="${CAMERA_H:-256}"
 CAMERA_W="${CAMERA_W:-256}"
+
+# Columns trimmed from BOTH the left and right edge of each undistorted full-res
+# image before the resize to 256x256, with the principal point following the
+# crop. The source is 1280x720 (16:9); squashing that straight into a square
+# gives fx/fy = 0.56. Cropping 100 per side -> 1080x720 raises it to 0.67.
+# (--crop_lr 280 -> 720x720 would be exactly 1.0, at the cost of 43% of the
+# horizontal FOV.) Images only: point_cloud is built from the uncropped
+# native-resolution depth regardless.
+CROP_LR="${CROP_LR:-100}"
 NUM_SCENE_POINTS="${NUM_SCENE_POINTS:-4500}"
 PCD_STRIDE="${PCD_STRIDE:-4}"
 
@@ -51,6 +60,7 @@ python "${REPO_ROOT}/scripts/convert_lerobot_franka_to_mimicgen.py" \
     --wrist_calibration "${WRIST_CALIBRATION}" \
     --camera_h "${CAMERA_H}" \
     --camera_w "${CAMERA_W}" \
+    --crop_lr "${CROP_LR}" \
     --num_scene_points "${NUM_SCENE_POINTS}" \
     --pcd_stride "${PCD_STRIDE}" \
     --workspace_bounds ${WORKSPACE_BOUNDS} \
