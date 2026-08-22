@@ -35,17 +35,18 @@ CALIBRATION="${CALIBRATION:-/home/madhavan/uncertain_subgoal/calibration_2026-08
 CAM1="${CAM1:-wrist}"
 WRIST_CALIBRATION="${WRIST_CALIBRATION:-${REPO_ROOT}/wrist_calibration.json}"
 
-CAMERA_H="${CAMERA_H:-256}"
-CAMERA_W="${CAMERA_W:-256}"
+# 448x252 is exactly 16:9, matching the 1280x720 source, so the emitted
+# intrinsics come out isotropic (fx/fy = 1.000 instead of the 0.563 a square
+# 256x256 target produces). Both dims are divisible by 14, so a DINOv2 patch-14
+# backbone tiles the frame as 32x18 patches and a 224x224 crop as 16x16.
+CAMERA_H="${CAMERA_H:-252}"
+CAMERA_W="${CAMERA_W:-448}"
 
-# Columns trimmed from BOTH the left and right edge of each undistorted full-res
-# image before the resize to 256x256, with the principal point following the
-# crop. The source is 1280x720 (16:9); squashing that straight into a square
-# gives fx/fy = 0.56. Cropping 100 per side -> 1080x720 raises it to 0.67.
-# (--crop_lr 280 -> 720x720 would be exactly 1.0, at the cost of 43% of the
-# horizontal FOV.) Images only: point_cloud is built from the uncropped
-# native-resolution depth regardless.
-CROP_LR="${CROP_LR:-100}"
+# Symmetric width crop applied before the resize (principal point follows it).
+# Left at 0: the 16:9 output above already fixes the aspect, so nothing needs
+# to be thrown away. Only useful when forcing a square output -- see --crop_lr
+# in the converter. Images only; point_cloud ignores it either way.
+CROP_LR="${CROP_LR:-0}"
 NUM_SCENE_POINTS="${NUM_SCENE_POINTS:-4500}"
 PCD_STRIDE="${PCD_STRIDE:-4}"
 
