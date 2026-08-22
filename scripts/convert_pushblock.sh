@@ -42,11 +42,11 @@ WRIST_CALIBRATION="${WRIST_CALIBRATION:-${REPO_ROOT}/wrist_calibration.json}"
 CAMERA_H="${CAMERA_H:-252}"
 CAMERA_W="${CAMERA_W:-448}"
 
-# Symmetric width crop applied before the resize (principal point follows it).
-# Left at 0: the 16:9 output above already fixes the aspect, so nothing needs
-# to be thrown away. Only useful when forcing a square output -- see --crop_lr
-# in the converter. Images only; point_cloud ignores it either way.
-CROP_LR="${CROP_LR:-0}"
+# NO CROPPING HAPPENS HERE. This script only downsamples, full frame, correct
+# aspect. Squaring the frame for DINO is a separate downstream step -- keep it
+# there so nothing can crop twice. A downstream crop must also shift the
+# principal point (cx -= x0, cy -= y0) in agentview_intrinsics /
+# wrist_intrinsics; the extrinsics stay untouched.
 NUM_SCENE_POINTS="${NUM_SCENE_POINTS:-4500}"
 PCD_STRIDE="${PCD_STRIDE:-4}"
 
@@ -61,7 +61,6 @@ python "${REPO_ROOT}/scripts/convert_lerobot_franka_to_mimicgen.py" \
     --wrist_calibration "${WRIST_CALIBRATION}" \
     --camera_h "${CAMERA_H}" \
     --camera_w "${CAMERA_W}" \
-    --crop_lr "${CROP_LR}" \
     --num_scene_points "${NUM_SCENE_POINTS}" \
     --pcd_stride "${PCD_STRIDE}" \
     --workspace_bounds ${WORKSPACE_BOUNDS} \

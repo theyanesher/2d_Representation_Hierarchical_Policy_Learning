@@ -569,41 +569,14 @@ def T_base_eef_from(quat_xyzw, pos):
     return T
 
 
-def prepare_camera(cam_calib, camera_w, camera_h, crop_lr=0):
-    """Undistort maps + the intrinsics valid for the final (camera_w, camera_h).
-
-    crop_lr trims that many columns off BOTH the left and right edge of the
-    undistorted full-res image before the resize. That is a translation of the
-    image origin, so the principal point moves with it (cx -= crop_lr) and the
-    subsequent scaling runs from the CROPPED width, not the native one --
-    scale_intrinsics only scales, it knows nothing about a crop offset.
-    """
+def prepare_camera(cam_calib, camera_w, camera_h):
+    """Undistort maps + the intrinsics valid for the final (camera_w, camera_h)."""
     map1, map2, new_K = build_undistort_maps(
         cam_calib["K"], cam_calib["dist"], cam_calib["resolution"]
     )
-    native_w, native_h = tuple(cam_calib["resolution"])
-    if crop_lr:
-        if 2 * crop_lr >= native_w:
-            raise ValueError(
-                f"--crop_lr {crop_lr} removes {2 * crop_lr}px from a {native_w}px-wide "
-                "image, leaving nothing."
-            )
-        new_K = new_K.copy()
-        new_K[0, 2] -= crop_lr
-    K_out = scale_intrinsics(new_K, (native_w - 2 * crop_lr, native_h), (camera_w, camera_h))
+    native_wh = tuple(cam_calib["resolution"])
+    K_out = scale_intrinsics(new_K, native_wh, (camera_w, camera_h))
     return map1, map2, K_out
-
-
-def crop_lr_pair(rgb, depth_m, crop_lr):
-    """Symmetric width crop of an undistorted full-res (rgb, depth) pair.
-
-    Applied to the camera IMAGES only. The fused `point_cloud` is backprojected
-    from the uncropped native-resolution depth with its own full-res intrinsics,
-    so it keeps the full horizontal field of view regardless of this setting.
-    """
-    if not crop_lr:
-        return rgb, depth_m
-    return rgb[:, crop_lr:-crop_lr], depth_m[:, crop_lr:-crop_lr]
 
 
 def resize_pair(rgb, depth_m, camera_w, camera_h):
@@ -626,7 +599,6 @@ def convert_episode(
     lang_goal: str,
     camera_h: int,
     camera_w: int,
-    crop_lr: int,
     cam1_mode: str,
     wrist_calib,
     num_scene_points: int,
@@ -692,7 +664,7 @@ def convert_episode(
 
     # --- agentview (front Kinect) ---
     front = AGENTVIEW_CAM
-    map1_a, map2_a, agentview_K = prepare_camera(cams[front], camera_w, camera_h, crop_lr)
+    map1_a, map2_a, agentview_K = prepare_camera(cams[front], camera_w, camera_h)
     color_a = decode_video_frames(
         videos / f"observation.images.{front}.color" / f"episode_{ep_idx:06d}.mp4", T)
     depth_a = decode_video_frames(
@@ -729,7 +701,7 @@ def convert_episode(
 
     if cam1_mode == "kinect_left":
         left = "cam_azure_kinect_left"
-        map1_1, map2_1, cam1_K = prepare_camera(cams[left], camera_w, camera_h, crop_lr)
+        map1_1, map2_1, cam1_K = prepare_camera(cams[left], camera_w, camera_h)
         color_1 = decode_video_frames(
             videos / f"observation.images.{left}.color" / f"episode_{ep_idx:06d}.mp4", T)
         depth_1 = decode_video_frames(
@@ -746,7 +718,7 @@ def convert_episode(
                 "(ZedCameraConfig use_depth=False). Re-record with use_depth=True, "
                 "or use --cam1 kinect_left."
             )
-        map1_1, map2_1, cam1_K = prepare_camera(wrist_calib, camera_w, camera_h, crop_lr)
+        map1_1, map2_1, cam1_K = prepare_camera(wrist_calib, camera_w, camera_h)
         color_1 = decode_video_frames(
             find_wrist_color_dir(lerobot_dir) / f"episode_{ep_idx:06d}.mp4", T)
         depth_1 = decode_video_frames(depth_dir / f"episode_{ep_idx:06d}.mkv", T, gray16=True)
@@ -765,7 +737,6 @@ def convert_episode(
 
         rgb_a = cv2.remap(color_a[t], map1_a, map2_a, cv2.INTER_LINEAR)
         dep_a = cv2.remap(depth_a[t], map1_a, map2_a, cv2.INTER_NEAREST).astype(np.float32) / 1000.0
-        rgb_a, dep_a = crop_lr_pair(rgb_a, dep_a, crop_lr)
         rgb_a, dep_a = resize_pair(rgb_a, dep_a, camera_w, camera_h)
 
         if cam1_mode == "none":
@@ -775,7 +746,6 @@ def convert_episode(
         else:
             rgb_1 = cv2.remap(color_1[t], map1_1, map2_1, cv2.INTER_LINEAR)
             dep_1 = cv2.remap(depth_1[t], map1_1, map2_1, cv2.INTER_NEAREST).astype(np.float32) / 1000.0
-            rgb_1, dep_1 = crop_lr_pair(rgb_1, dep_1, crop_lr)
             rgb_1, dep_1 = resize_pair(rgb_1, dep_1, camera_w, camera_h)
             if cam1_T_eef_cam is None:
                 cam1_extrinsics = cam1_static_extrinsics
@@ -823,15 +793,6 @@ def main():
                         help="subset of episode indices to convert (default: all)")
     parser.add_argument("--camera_h", type=int, default=256)
     parser.add_argument("--camera_w", type=int, default=256)
-    parser.add_argument("--crop_lr", type=int, default=0,
-                        help="columns trimmed from BOTH the left and right edge of each "
-                             "undistorted full-res camera image before it is resized to "
-                             "(camera_w, camera_h). The principal point follows the crop. "
-                             "Use it to cut the 16:9 source down toward the square output "
-                             "aspect: 1280x720 -> --crop_lr 280 is exactly 1:1, less than "
-                             "that leaves a residual horizontal squash. Affects the camera "
-                             "IMAGES only -- point_cloud is backprojected from the "
-                             "uncropped native-resolution depth either way.")
     parser.add_argument("--cam1", choices=["kinect_left", "wrist", "none"],
                         default="kinect_left",
                         help="which physical camera fills the rgb_wrist/depth_wrist/"
@@ -914,7 +875,6 @@ def main():
             lang_goal=lang_goal,
             camera_h=args.camera_h,
             camera_w=args.camera_w,
-            crop_lr=args.crop_lr,
             cam1_mode=args.cam1,
             wrist_calib=wrist_calib,
             num_scene_points=args.num_scene_points,
