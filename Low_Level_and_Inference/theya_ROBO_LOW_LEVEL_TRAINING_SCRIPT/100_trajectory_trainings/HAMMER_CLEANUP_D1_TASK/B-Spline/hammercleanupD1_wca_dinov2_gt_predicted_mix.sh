@@ -130,7 +130,6 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 WANDB_CACHE_DIR=/jet/home/eswaramo/logs/wandb_cache \
 WANDB_DATA_DIR=/jet/home/eswaramo/logs/wandb_data \
 PYTHONNOUSERSITE=1 \
-# PIXI_CACHE_DIR=/home/theyanesh/.cache/pixi_cache \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_workspace.yaml \
     task=MimicGen_Tasks/hammercleanup_D1_gmm_goal_gt_mix \

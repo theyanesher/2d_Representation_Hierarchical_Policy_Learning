@@ -5,26 +5,31 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 24:00:00 # 24-hour budget
-#SBATCH --job-name hammer-cleanup-d1-goal-gripper-100demo-dinov2
+#SBATCH --job-name franka-push-block-goal-gripper-dinov2
 #SBATCH -o /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.out
 #SBATCH -e /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/job_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
-# 100-demo version of the non-GMM goal_gripper baseline, on HAMMER_CLEANUP_D1.
+# Non-GMM goal_gripper baseline on the real-world Franka push-block task
+# (tag: franka_push_block). Push-block-to-marked-orientation, PushT-style,
+# but collected on a real Franka with the standard MimicGen per-frame npz
+# schema (point_cloud, gripper_pcd, goal_gripper_pcd, rgb/depth_agentview,
+# rgb/depth_wrist, state(10), action(10)) — same layout as HAMMER_CLEANUP_D1,
+# NOT the PushT-specific 2-D npz schema, so we do NOT pass --push_t to the
+# converter.
 #
-# Train flow-matching DiT low-level policy on HAMMER_CLEANUP_D1 conditioned on
-# the single ground-truth goal_gripper_pts (4 keypoints) — NO GMM distribution.
-# Uses the FIRST NUM_DEMOS demos from the NO_GMM h5 dataset.
+# Train flow-matching DiT low-level policy conditioned on the single
+# ground-truth goal_gripper_pts (4 keypoints) — NO GMM distribution.
 #
-# Source on /ocean is the GROOT-style demo_N/ npz tree, so we first consolidate
-# it into h5 (idempotent — skips already-converted demos). If the NO_GMM h5 dir
-# already has at least NUM_DEMOS converted files we skip the python startup
-# entirely. Then we stage only the first NUM_DEMOS h5 files to node-local
-# scratch before training.
-#
-# NUM_DEMOS defaults to 100. Override at submission time:
-#   NUM_DEMOS=200 sbatch this_script.sh
+# Source on /jet is the per-frame demo_N/ npz tree, so we first consolidate
+# it into h5 (idempotent — skips already-converted demos). Demo indices in
+# the source tree are NOT guaranteed contiguous from 0 (data may still be
+# transferring in), so unlike the fixed-NUM_DEMOS MimicGen scripts, this uses
+# ALL demo_*/ dirs present at run time (same recipe as pusht_goal_gripper.sh)
+# rather than assuming demo_0..demo_(N-1) exist. Re-run this script later
+# (h5 generation + staging are both idempotent / additive) once more demos
+# have landed to pick them up.
 
 set -euo pipefail
 set -x
@@ -32,17 +37,9 @@ set -x
 export PIXI_HOME="/jet/home/eswaramo/data/pixi"
 export PATH="$PIXI_HOME/bin:$PATH"
 
-# --- demo selection ------------------------------------------------------
-NUM_DEMOS="${NUM_DEMOS:-100}"
-echo "[demo_limit] using first NUM_DEMOS=${NUM_DEMOS} demos (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
-
 # --- paths ---------------------------------------------------------------
-SRC_NPZ_DIR="/jet/home/eswaramo/data/D2/HAMMER_CLEANUP_D1"
-# Pratik's already-converted NO_GMM h5s — read-only, so we only ever stage
-# (read) from here. LOCAL_NO_GMM_H5_DIR is the fallback generation target
-# used only if this shared dataset lacks enough demos (e.g. NUM_DEMOS>100).
-NO_GMM_H5_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/LOW_LEVEL_GROOT_TRAINING_DATASET/NO_GMM_DATASET/HAMMER_CLEANUP_D1"
-LOCAL_NO_GMM_H5_DIR="/jet/home/eswaramo/data/D2/NO_GMM_preds/HAMMER_CLEANUP_D1"
+SRC_NPZ_DIR="/jet/home/eswaramo/data/D2/franka_push_block_mimicgen_npz"
+NO_GMM_H5_DIR="/jet/home/eswaramo/data/D2/NO_GMM_preds/franka_push_block_mimicgen"
 REPO_DIR="/jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/"
 
 # --- resume from checkpoint ----------------------------------------------
@@ -54,11 +51,9 @@ REPO_DIR="/jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hier
 RESUME_CKPT="${RESUME_CKPT:-}"
 
 # --- generate npz -> h5 if missing ---------------------------------------
-# Conversion is per-demo idempotent. We trigger it only if the NO_GMM h5 dir
-# doesn't already have at least NUM_DEMOS files (demo_0.h5 .. demo_(N-1).h5
-# need to exist for the staging step to succeed). --max_files limits the
-# conversion to the first NUM_DEMOS demos (numeric order), so the first run
-# doesn't convert all 909 demos just to train on 100.
+# Conversion is per-demo idempotent (skips demo dirs whose h5 already
+# exists). We (re)run it every time so newly-arrived demos get picked up;
+# already-converted demos are skipped fast.
 src_demo_count=$(find "${SRC_NPZ_DIR}" -mindepth 1 -maxdepth 1 -type d -name "demo_*" 2>/dev/null | wc -l)
 existing_h5_count=0
 if [ -d "${NO_GMM_H5_DIR}" ]; then
@@ -67,33 +62,22 @@ fi
 echo "[gen] src demo_*/ in ${SRC_NPZ_DIR}: ${src_demo_count}"
 echo "[gen] existing *.h5 in ${NO_GMM_H5_DIR}: ${existing_h5_count}"
 
-if [ "${existing_h5_count}" -ge "${NUM_DEMOS}" ]; then
-    echo "[gen] already have ${existing_h5_count} h5 files (≥ NUM_DEMOS=${NUM_DEMOS}) → skipping h5 generation"
+if [ "${existing_h5_count}" -ge "${src_demo_count}" ] && [ "${src_demo_count}" -gt 0 ]; then
+    echo "[gen] already have ${existing_h5_count} h5 files (≥ ${src_demo_count} src demos) → skipping h5 generation"
 else
-    echo "[gen] shared dataset insufficient (${existing_h5_count} < ${NUM_DEMOS}) -> falling back to local generation"
-    existing_local_h5_count=0
-    if [ -d "${LOCAL_NO_GMM_H5_DIR}" ]; then
-        existing_local_h5_count=$(find "${LOCAL_NO_GMM_H5_DIR}" -maxdepth 1 -name "*.h5" 2>/dev/null | wc -l)
-    fi
-    if [ "${existing_local_h5_count}" -ge "${NUM_DEMOS}" ]; then
-        echo "[gen] already have ${existing_local_h5_count} local h5 files (≥ NUM_DEMOS=${NUM_DEMOS}) → skipping h5 generation"
-    else
-        echo "[gen] converting demo_*/ → demo_*.h5 (need at least NUM_DEMOS=${NUM_DEMOS}; have ${existing_local_h5_count})"
-        mkdir -p "${LOCAL_NO_GMM_H5_DIR}"
-        (
-            cd "${REPO_DIR}"
-            USE_TF=0 \
-            GIT_LFS_SKIP_SMUDGE=1 \
-            PYTHONNOUSERSITE=1 \
-            pixi run python generate_non_gmm_goals_for_low_level.py \
-                --dataset_dir "${SRC_NPZ_DIR}" \
-                --no_gmm \
-                --no_gmm_output_dir "${LOCAL_NO_GMM_H5_DIR}" \
-                --max_files "${NUM_DEMOS}"
-        )
-        echo "[gen] done. *.h5 count now: $(find "${LOCAL_NO_GMM_H5_DIR}" -maxdepth 1 -name "*.h5" | wc -l)"
-    fi
-    NO_GMM_H5_DIR="${LOCAL_NO_GMM_H5_DIR}"
+    echo "[gen] converting demo_*/ → demo_*.h5 (${existing_h5_count}/${src_demo_count} present)"
+    mkdir -p "${NO_GMM_H5_DIR}"
+    (
+        cd "${REPO_DIR}"
+        USE_TF=0 \
+        GIT_LFS_SKIP_SMUDGE=1 \
+        PYTHONNOUSERSITE=1 \
+        pixi run python generate_non_gmm_goals_for_low_level.py \
+            --dataset_dir "${SRC_NPZ_DIR}" \
+            --no_gmm \
+            --no_gmm_output_dir "${NO_GMM_H5_DIR}"
+    )
+    echo "[gen] done. *.h5 count now: $(find "${NO_GMM_H5_DIR}" -maxdepth 1 -name "*.h5" | wc -l)"
 fi
 
 # --- node-local scratch --------------------------------------------------
@@ -111,15 +95,14 @@ else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
 SRC_DATA_DIR="${NO_GMM_H5_DIR}"
-DEST_DATA_DIR="${SCRATCH_ROOT}/Hammer_Cleanup_D1_Low_Level_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Franka_Push_Block_Low_Level"
 
-# --- stage dataset (only NUM_DEMOS files) --------------------------------
+# --- stage dataset (all h5 files present) ---------------------------------
 THREADS="${RSYNC_THREADS:-32}"
 
 echo "[stage] source : ${SRC_DATA_DIR}"
 echo "[stage] dest   : ${DEST_DATA_DIR}"
 echo "[stage] threads: ${THREADS}"
-echo "[stage] files  : demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5  (${NUM_DEMOS} files)"
 mkdir -p "${DEST_DATA_DIR}"
 
 stage_start=$(date +%s)
@@ -134,17 +117,15 @@ copy_one() {
 export -f copy_one
 export SRC_DATA_DIR DEST_DATA_DIR
 
-# Generate exactly the demo filenames we want and feed to xargs.
-seq 0 $((NUM_DEMOS - 1)) \
-    | awk '{print "demo_" $1 ".h5"}' \
+find "${SRC_DATA_DIR}" -mindepth 1 -maxdepth 1 -name '*.h5' -printf '%f\n' \
     | xargs -P "${THREADS}" -I {} \
         bash -c 'copy_one "${SRC_DATA_DIR}/$1" "${DEST_DATA_DIR}/"' _ {}
 
 staged_count=$(find "${DEST_DATA_DIR}" -maxdepth 1 -name '*.h5' | wc -l)
 stage_elapsed=$(( $(date +%s) - stage_start ))
 echo "[stage] done in ${stage_elapsed}s. ${staged_count} files, $(du -sh "${DEST_DATA_DIR}" | cut -f1) staged."
-if [ "${staged_count}" -ne "${NUM_DEMOS}" ]; then
-    echo "[stage] ERROR: expected ${NUM_DEMOS} files staged, got ${staged_count}." >&2
+if [ "${staged_count}" -eq 0 ]; then
+    echo "[stage] ERROR: no h5 files staged." >&2
     exit 1
 fi
 
@@ -173,12 +154,12 @@ WANDB_DATA_DIR=/jet/home/eswaramo/logs/wandb_data \
 PYTHONNOUSERSITE=1 \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_workspace.yaml \
-    task=MimicGen_Tasks/hammercleanup_D1_goal_gripper \
+    task=MimicGen_Tasks/franka_push_block_goal_gripper \
     task.dataset.data_dir="${DEST_DATA_DIR}" \
     visual_encoder=dinov2 \
     logging.project=mimicgen_tasks \
-    logging.name=hammercleanup_D1_goal_gripper_${NUM_DEMOS}demo_dinov2_DIT \
-    name=hammercleanup_D1_goal_gripper_${NUM_DEMOS}demo_dinov2_DIT \
+    logging.name=franka_push_block_goal_gripper_${staged_count}demo_dinov2_DIT \
+    name=franka_push_block_goal_gripper_${staged_count}demo_dinov2_DIT \
     dataloader.batch_size=128 \
     dataloader.num_workers=16 \
     training.checkpoint_every=5 \

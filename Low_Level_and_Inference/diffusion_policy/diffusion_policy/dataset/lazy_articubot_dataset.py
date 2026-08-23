@@ -71,8 +71,14 @@ class LazyArticuBotDataset(BaseImageDataset):
         # The other sources read obs/goal_gripper_pts_<source> — alternative
         # goals injected into the h5 files by generate_non_gmm_goals_for_low_level.py
         # --inject_extra_goals. Only the h5 path is remapped; the model-facing
-        # obs key (and shape_meta / normalizers) are unchanged.
-        VALID_GOAL_SOURCES = ('default', 'rdp', 'rdp_gripper', 'random', 'fixed_interval')
+        # obs key (and shape_meta / normalizers) are unchanged. Only the literal
+        # 'goal_gripper_pts' key is affected — any other goal_gripper-typed key
+        # (e.g. present_gripper_pts) keeps reading its default h5 path.
+        VALID_GOAL_SOURCES = (
+            'default', 'rdp', 'rdp_gripper', 'random', 'fixed_interval', 'uvd',
+            'awe', 'mix_bspline_bspline_greville', 'mix_gripper_heuristic_orientation_heuristic',
+            'vlm',
+        )
         if goal_source not in VALID_GOAL_SOURCES:
             raise ValueError(
                 f"Invalid goal_source '{goal_source}'. Expected one of {VALID_GOAL_SOURCES}"
@@ -203,11 +209,20 @@ class LazyArticuBotDataset(BaseImageDataset):
                 # the buffer never loads the (stale) h5 copies of these keys.
                 continue
             key_to_h5path[key] = f'obs/{key}'
+        # Only the literal 'goal_gripper_pts' key is remapped — it is the only
+        # goal_gripper-typed key generate_non_gmm_goals_for_low_level.py
+        # --inject_extra_goals ever writes alternates for. Configs with a
+        # second goal_gripper-typed key (e.g. present_gripper_pts, the CURRENT
+        # gripper position used as an auxiliary anchor in the goal_gmm_aux
+        # tasks) must keep reading their default h5 path — there is no
+        # present_gripper_pts_<source> variant, and there shouldn't be one:
+        # it isn't a goal.
+        self._goal_source_keys = [k for k in self.goal_gripper_keys if k == 'goal_gripper_pts']
         if self.goal_source != 'default':
-            for key in self.goal_gripper_keys:
+            for key in self._goal_source_keys:
                 key_to_h5path[key] = f'obs/{key}_{self.goal_source}'
             print(f"[LazyArticuBotDataset] goal_source={self.goal_source}: "
-                  f"{ {k: key_to_h5path[k] for k in self.goal_gripper_keys} }")
+                  f"{ {k: key_to_h5path[k] for k in self._goal_source_keys} }")
 
         print(f"Indexing {len(h5_paths)} trajectories from {data_dir} (lazy)...")
         self.replay_buffer = LazyH5Buffer(
@@ -245,7 +260,7 @@ class LazyArticuBotDataset(BaseImageDataset):
         # LazyH5Buffer silently drops keys absent from every file — fail loudly
         # here instead of with an opaque KeyError mid-training.
         if self.goal_source != 'default':
-            for key in self.goal_gripper_keys:
+            for key in self._goal_source_keys:
                 if key not in self.replay_buffer:
                     raise KeyError(
                         f"goal_source='{self.goal_source}' but '{key_to_h5path[key]}' "

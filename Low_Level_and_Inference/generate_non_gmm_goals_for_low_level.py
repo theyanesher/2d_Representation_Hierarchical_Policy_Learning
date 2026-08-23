@@ -612,9 +612,18 @@ def process_demo_dir_push_t(demo_dir, args):
             f.create_dataset(f'obs/{key}', data=np.stack(buf, axis=0))
 
 
-# Alternative goal sources produced by the RDP keypoint pipeline. Each per-frame
-# npz in the EXTRA_KEYPOINTS tree holds goal_gripper_pcd_<source> (1, 4, 3).
-EXTRA_GOAL_SOURCES = ['rdp', 'rdp_gripper', 'random', 'fixed_interval']
+# Alternative goal sources produced by the RDP keypoint pipeline, plus 'uvd'
+# (pixel-space u,v,depth goal representation from the 2D-representation
+# pipeline), the Approach2 EXTRA_KEYPOINTS sources ('awe',
+# 'mix_bspline_bspline_greville', 'mix_gripper_heuristic_orientation_heuristic'),
+# and 'vlm' (VLM-predicted subgoal keypoints, EXTRA_KEYPOINTS_vlm_v3 tree).
+# Each per-frame npz in the EXTRA_KEYPOINTS tree holds
+# goal_gripper_pcd_<source> (1, 4, 3).
+EXTRA_GOAL_SOURCES = [
+    'rdp', 'rdp_gripper', 'random', 'fixed_interval', 'uvd',
+    'awe', 'mix_bspline_bspline_greville', 'mix_gripper_heuristic_orientation_heuristic',
+    'vlm',
+]
 
 
 def inject_extra_goals_into_h5(h5_dir, extra_goals_dir, max_files=None):
@@ -663,6 +672,19 @@ def inject_extra_goals_into_h5(h5_dir, extra_goals_dir, max_files=None):
                 f"files in {demo_npz_dir} — refusing to inject misaligned goals."
             )
         npz_files = npz_files[:T]
+
+        # Different EXTRA_KEYPOINTS trees may supply different subsets of
+        # EXTRA_GOAL_SOURCES (e.g. a uvd-only tree has no rdp/*). Only inject
+        # sources actually present in this tree's npz files.
+        first_data = np.load(os.path.join(demo_npz_dir, npz_files[0]))
+        available = [s for s in missing if f'goal_gripper_pcd_{s}' in first_data.files]
+        unavailable = [s for s in missing if s not in available]
+        if unavailable:
+            print(f"  {demo_name}: {unavailable} not present in {demo_npz_dir}, skipping those")
+        missing = available
+        if not missing:
+            n_skipped += 1
+            continue
 
         bufs = {s: np.zeros((T, 4, 3), dtype=np.float32) for s in missing}
         for t, nf in enumerate(npz_files):
@@ -781,7 +803,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_gmm_output_dir',     type=str, default=None, help='Output directory for h5 files when --no_gmm is used (required with --no_gmm)')
     parser.add_argument('--rl_bench',              action='store_true',    help='RL Bench npz variant: 4 cameras (front/left_shoulder/right_shoulder/wrist) + native 8-D state/action. Requires --no_gmm.')
     parser.add_argument('--push_t',                action='store_true',    help='PushT npz variant: single agentview camera, native 2-D state/action (absolute target xy). Depth is all zeros and there are no camera intrinsics/extrinsics, so none are written. Requires --no_gmm.')
-    parser.add_argument('--inject_extra_goals',    action='store_true',    help='Backfill obs/goal_gripper_pts_{rdp,rdp_gripper,random,fixed_interval} into existing h5 files in --dataset_dir from the --extra_goals_dir npz tree, then exit. Idempotent.')
+    parser.add_argument('--inject_extra_goals',    action='store_true',    help='Backfill obs/goal_gripper_pts_{source} for each source in EXTRA_GOAL_SOURCES (rdp, rdp_gripper, random, fixed_interval, uvd, awe, mix_bspline_bspline_greville, mix_gripper_heuristic_orientation_heuristic, vlm) into existing h5 files in --dataset_dir from the --extra_goals_dir npz tree, then exit. Idempotent.')
     parser.add_argument('--extra_goals_dir',       type=str, default=None, help='EXTRA_KEYPOINTS npz tree (demo_N/t.npz with goal_gripper_pcd_<source> keys). Required with --inject_extra_goals.')
     args = parser.parse_args()
 
