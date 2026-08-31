@@ -38,11 +38,12 @@ import robomimic.utils.env_utils as EnvUtils
 from robomimic.envs.env_base import EnvBase
 import multiprocessing
 from mimicgen.utils.articubot_util import rotation_transfer_matrix_to_6D
-from third_party.robogen.robogen_utils import (
-    compute_new_goal_gripper_pcd
-)
-from third_party.robogen.subgoal_decomp import compute_subgoal_gripper_pcd
-from third_party.robogen.bayesian_subgoal_decomp import compute_bayesian_subgoal_gripper_pcd
+# Subgoal decomposition backends are imported LAZILY, inside the branch that
+# actually uses them (see extract_trajectory). They used to be module-level, but
+# that made the whole script unimportable when any one of them was unavailable --
+# e.g. this checkout's third_party/robogen/robogen_utils.py has no
+# compute_new_goal_gripper_pcd, so `import convert_dataset` failed outright even
+# for runs that never touch subgoals. With --no_subgoal none of them are needed.
 
 try:
     from robosuite.utils import transform_utils as T
@@ -77,6 +78,16 @@ def _init_worker(env_meta, args):
         reward_shaping=args.shaped,
         save_image_keys=['agentview', 'robot0_eye_in_hand'],
     )
+    # env_robosuite.get_observation() only builds the fused point cloud when
+    # "point_cloud" appears in ObsUtils.OBS_KEYS_TO_MODALITIES -- an optimization
+    # so image-only evaluation skips the segmentation renders, Open3D fusion and
+    # 4,500-point FPS. But create_env_for_data_processing registers only
+    # rgb/depth/low_dim, so without this the block is skipped and the npz write
+    # below dies with KeyError: 'point_cloud'. Register it explicitly.
+    import robomimic.utils.obs_utils as ObsUtils
+    if ObsUtils.OBS_KEYS_TO_MODALITIES is not None:
+        ObsUtils.OBS_KEYS_TO_MODALITIES.setdefault("point_cloud", "point_cloud")
+
     _WORKER_ENV_META = env_meta
     _WORKER_ARGS = args
 
@@ -136,10 +147,26 @@ def extract_trajectory(
 
     np_gripper_pcd = np.asarray(traj["obs"]["gripper_pcd"])
 
-    if args.gripper_only_subgoal:
+    if getattr(args, 'no_subgoal', False):
+        # Skip subgoal decomposition entirely. Note that simply omitting
+        # --use_bayesian_decomp does NOT do this: the else-branch below still
+        # runs the curvature heuristic. Used by the sampling-rate ablation, where
+        # keypoints must be detected per rate arm AFTERWARDS (that is the thing
+        # being measured), so baking a keypoint set in here would be both wasted
+        # work and the wrong keypoints.
+        #
+        # Zeros rather than omitting the key: the npz schema stays identical, so
+        # generate_extra_keypoints.py can add the real keypoint sets later and
+        # every downstream reader keeps working.
+        goal_gripper_pcd = np.zeros_like(np_gripper_pcd)
+        switch_idxs = np.array([], dtype=int)
+    elif args.gripper_only_subgoal:
+        from third_party.robogen.robogen_utils import compute_new_goal_gripper_pcd
         goal_gripper_pcd, switch_idxs = compute_new_goal_gripper_pcd(
             np_gripper_pcd, robot0_gripper_qpos, actions, return_switch_idxs=True)
     elif getattr(args, 'use_bayesian_decomp', False):
+        from third_party.robogen.bayesian_subgoal_decomp import (
+            compute_bayesian_subgoal_gripper_pcd)
         eef_vel_lin = np.asarray(traj["obs"]["robot0_eef_vel_lin"])
         eef_pos     = np.asarray(traj["obs"]["robot0_eef_pos"])
         eef_quat    = np.asarray(traj["obs"]["robot0_eef_quat"])
@@ -154,6 +181,7 @@ def extract_trajectory(
             return_switch_idxs=True,
         )
     else:
+        from third_party.robogen.subgoal_decomp import compute_subgoal_gripper_pcd
         eef_vel_lin = np.asarray(traj["obs"]["robot0_eef_vel_lin"])
         goal_gripper_pcd, switch_idxs = compute_subgoal_gripper_pcd(
             gripper_pcd=np_gripper_pcd,
@@ -387,6 +415,12 @@ if __name__ == "__main__":
                         help="path to BOCPD hyperparameter yaml (with --use_bayesian_decomp)")
     parser.add_argument("--gripper_only_subgoal", action='store_true',
                         help="use original gripper open/close only subgoal decomposition")
+    parser.add_argument("--no_subgoal", action='store_true',
+                        help="skip subgoal decomposition entirely and write zeros for "
+                             "goal_gripper_pcd. Dropping --use_bayesian_decomp is NOT "
+                             "enough: the default branch still runs the curvature "
+                             "heuristic. Use when keypoints are computed separately "
+                             "afterwards (e.g. the sampling-rate ablation).")
     parser.add_argument("--curvature_threshold", type=float, default=0.5)
     parser.add_argument("--min_segment_len", type=int, default=10)
     parser.add_argument("--warmup_steps", type=int, default=20)

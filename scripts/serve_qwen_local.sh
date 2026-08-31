@@ -20,6 +20,9 @@ if [[ -z "${QWEN_PYTHON_INCLUDE}" ]]; then
     exit 1
 fi
 export CPATH="${QWEN_PYTHON_INCLUDE}${CPATH:+:${CPATH}}"
+# FlashInfer JIT-compiles kernels in a subprocess and looks up ninja on PATH.
+# The venv is never activated (we exec its vllm directly), so add its bin dir.
+export PATH="${QWEN_RUNTIME_DIR}/.venv/bin:${PATH}"
 
 VLLM_BIN="${QWEN_RUNTIME_DIR}/.venv/bin/vllm"
 if [[ ! -x "${VLLM_BIN}" ]]; then

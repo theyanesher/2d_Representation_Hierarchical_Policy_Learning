@@ -1012,6 +1012,51 @@ def _sample_episode_initial_noise(ll_model, generators, active_indices, device):
     return torch.stack(samples, dim=0)
 
 
+
+
+# ---------------------------------------------------------------------------
+# Episode progress bar.
+#
+# Launchers pipe stdout/stderr through `tee` into eval.log, so a bar written to
+# either stream would fill the log with carriage-return frames. Draw it on
+# /dev/tty instead: interactive runs get a live bar, while nohup/cron runs (no
+# controlling terminal) silently fall back to the per-episode log lines.
+# ---------------------------------------------------------------------------
+def _progress_bar(total, desc, enabled=True):
+    class _Null:
+        def update(self, n=1): pass
+        def set_postfix(self, *a, **k): pass
+        def close(self): pass
+
+    if not enabled:
+        return _Null()
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        return _Null()
+
+    stream = None
+    try:
+        stream = open("/dev/tty", "w")
+    except OSError:
+        for candidate in (sys.stderr, sys.stdout):
+            if candidate is not None and candidate.isatty():
+                stream = candidate
+                break
+    if stream is None:
+        return _Null()
+
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit="ep",
+        file=stream,
+        dynamic_ncols=True,
+        leave=True,
+        mininterval=0.5,
+    )
+
+
 def run_parallel_episodes(
     vector_env,
     ll_model,
@@ -1027,6 +1072,7 @@ def run_parallel_episodes(
     videos_dir,
     video_fps,
     results_f,
+    show_progress=True,
 ):
     """Evaluate episodes in worker chunks and batch policy inference on GPU."""
     import json
@@ -1041,6 +1087,7 @@ def run_parallel_episodes(
     rewards, successes = [], []
     timing = collections.defaultdict(float)
     eval_start = time.perf_counter()
+    progress = _progress_bar(n_episodes, f"eval seed={seed}", show_progress)
 
     for chunk_start in range(0, n_episodes, n_envs):
         chunk_stop = min(chunk_start + n_envs, n_episodes)
@@ -1162,7 +1209,13 @@ def run_parallel_episodes(
                 + "\n"
             )
             results_f.flush()
+            progress.update(1)
+            progress.set_postfix(
+                success=f"{sum(successes)}/{len(successes)}",
+                rate=f"{sum(successes) / max(len(successes), 1):.0%}",
+            )
 
+    progress.close()
     timing["total_seconds"] = time.perf_counter() - eval_start
     timing["episodes_per_hour"] = (
         3600.0 * n_episodes / max(timing["total_seconds"], 1e-9)
@@ -1191,6 +1244,10 @@ def main():
     parser.add_argument("--robosuite_root", type=str, default="",
         help="Optional path to a complete robosuite checkout (parent dir of the robosuite/ package)")
     parser.add_argument("--n_episodes",     type=int, default=10)
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show a tqdm episode progress bar on the terminal (/dev/tty). "
+             "Disabled automatically when there is no controlling terminal.")
     parser.add_argument("--max_steps",      type=int, default=400)
     parser.add_argument("--seed",           type=int, default=100000)
     parser.add_argument("--n_obs_steps",    type=int, default=2)
@@ -1338,6 +1395,7 @@ def main():
                 videos_dir=videos_dir,
                 video_fps=args.video_fps,
                 results_f=results_f,
+                show_progress=args.progress,
             )
     finally:
         try:

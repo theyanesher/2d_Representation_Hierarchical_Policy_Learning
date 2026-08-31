@@ -59,6 +59,11 @@ ENV_PY="${INFERENCE_ROOT}/.pixi/envs/eval/bin/python"
 LL_EXP_DIR="${INFERENCE_ROOT}/theya_approach2_policies/${LL_RUN_NAME}"
 OUTPUT_BASE="APPROACH2_FROMGMM_${VARIANT_LABEL}_2D_DIT_LOW_LEVEL_${TASK_LABEL}_50_SAMPLES_D1_DINOV2_c1_0.1"
 
+# Keep this launcher, its logs, and results beside the policy, grouped by epoch.
+source "${INFERENCE_ROOT}/shell_scripts/approach2_eval_utils.sh"
+approach2_prepare_eval_layout "${LL_EXP_DIR}" "${CKPT_NAME}" "${BASH_SOURCE[0]}" "${OUTPUT_BASE}"
+approach2_start_eval_logging
+
 for f in "${DATASET_PATH}" \
          "${LL_EXP_DIR}/.hydra/config.yaml" \
          "${LL_EXP_DIR}/checkpoints/${CKPT_NAME}" \
@@ -134,3 +139,5 @@ echo "All ${#SEEDS[@]} seed(s) done. Outputs:"
 for seed in "${SEEDS[@]}"; do
   echo "  ${SCRIPT_DIR}/${OUTPUT_BASE}_${CKPT_TAG}_${seed}_SEED"
 done
+
+approach2_write_combined_summary

@@ -60,6 +60,51 @@ except Exception:
 # -----------------------------------------------------------------------------
 # sys.path bootstrap
 # -----------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Episode progress bar.
+#
+# Launchers pipe stdout/stderr through `tee` into eval.log, so a bar written to
+# either stream would fill the log with carriage-return frames. Draw it on
+# /dev/tty instead: interactive runs get a live bar, while nohup/cron runs (no
+# controlling terminal) silently fall back to the per-episode log lines.
+# ---------------------------------------------------------------------------
+def _progress_bar(total, desc, enabled=True):
+    class _Null:
+        def update(self, n=1): pass
+        def set_postfix(self, *a, **k): pass
+        def close(self): pass
+
+    if not enabled:
+        return _Null()
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        return _Null()
+
+    stream = None
+    try:
+        stream = open("/dev/tty", "w")
+    except OSError:
+        for candidate in (sys.stderr, sys.stdout):
+            if candidate is not None and candidate.isatty():
+                stream = candidate
+                break
+    if stream is None:
+        return _Null()
+
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit="ep",
+        file=stream,
+        dynamic_ncols=True,
+        leave=True,
+        mininterval=0.5,
+    )
+
+
 def _prepend_sys_path(*roots):
     for r in roots:
         if r and os.path.isdir(r) and r not in sys.path:
@@ -338,6 +383,10 @@ def main():
         help="<Low_Level_and_Inference>/diffusion_policy")
     parser.add_argument("--robosuite_root", type=str, default="")
     parser.add_argument("--n_episodes",     type=int, default=50)
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show a tqdm episode progress bar on the terminal (/dev/tty). "
+             "Disabled automatically when there is no controlling terminal.")
     parser.add_argument("--max_steps",      type=int, default=800)
     parser.add_argument("--seed",           type=int, default=100000)
     parser.add_argument("--n_obs_steps",    type=int, default=2)
@@ -396,6 +445,7 @@ def main():
         print(f"[video] rollouts -> {videos_dir.resolve()} (fps={args.video_fps}, h264 crf=22)")
 
     rewards, successes = [], []
+    progress = _progress_bar(args.n_episodes, f"eval seed={args.seed}", args.progress)
     with open(output_dir / "results.jsonl", "w") as results_f:
         for ep in range(args.n_episodes):
             seed = args.seed + ep
@@ -424,6 +474,12 @@ def main():
                 "video_with_goal_overlay": None,
             }) + "\n")
             results_f.flush()
+            progress.update(1)
+            progress.set_postfix(
+                success=f"{sum(successes)}/{len(successes)}",
+                rate=f"{sum(successes) / max(len(successes), 1):.0%}",
+            )
+    progress.close()
 
     _close = getattr(env, "close", None)
     if callable(_close):

@@ -46,6 +46,12 @@ a list of {"robot0_eef_pos", "robot0_eef_quat"} dicts. Passing pos_only=True
 therefore raises a TypeError inside the library -- not something fixable
 from this side without forking the package.
 
+The package's point-to-segment distance also divides by the squared segment
+length without handling coincident endpoints. Stationary spans can therefore
+produce 0/0, NaN reconstruction errors, and pathological greedy selections.
+This module replaces that helper at import time with the mathematically
+correct degenerate-segment behavior (distance to the sole endpoint).
+
 Second packaging quirk: waypoint_extraction.traj_reconstruction does
 `from utils import put_text, remove_object` -- an ABSOLUTE import of a
 top-level `utils` module that the pip package does not itself ship (it
@@ -67,6 +73,23 @@ import sys
 import types
 
 import numpy as np
+
+
+def _safe_point_line_distance(point, line_start, line_end):
+    """Distance to a segment, including the zero-length segment case.
+
+    This is a guarded equivalent of waypoint_extraction's implementation.
+    When both endpoints coincide, the segment is a single point, so its
+    distance is simply ``||point - line_start||``.
+    """
+    line_vector = line_end - line_start
+    point_vector = point - line_start
+    squared_length = np.dot(line_vector, line_vector)
+    if squared_length == 0.0:
+        return np.linalg.norm(point_vector)
+    t = np.clip(np.dot(point_vector, line_vector) / squared_length, 0.0, 1.0)
+    projection = line_start + t * line_vector
+    return np.linalg.norm(point - projection)
 
 
 def _stub_utils_module():
@@ -100,6 +123,12 @@ def _import_waypoint_extraction():
     _stub_utils_module()
 
     from waypoint_extraction import dp_waypoint_selection, greedy_waypoint_selection
+    from waypoint_extraction import traj_reconstruction
+
+    # Both selection functions ultimately call geometric_waypoint_trajectory,
+    # whose globals live in traj_reconstruction. Patch that module rather than
+    # site-packages so the fix persists when the Pixi environment is rebuilt.
+    traj_reconstruction.point_line_distance = _safe_point_line_distance
 
     return dp_waypoint_selection, greedy_waypoint_selection
 
@@ -111,11 +140,32 @@ VALID_METHODS = ("greedy", "dp")
 
 
 def _select_waypoints(  # noqa: PLR0913, PLR0917
-    eef_pos, eef_quat, gripper_cmd, err_threshold, method, pos_only
+    eef_pos, eef_quat, gripper_cmd, err_threshold, method, pos_only,
+    use_gripper_seeding=False,
 ):
     """Run AWE over one demo's trajectory and return a sorted list of
     frame indices (0-indexed, always including the last frame)."""
     num_frames = eef_pos.shape[0]
+
+    # Gripper-transition seeding is OPT-IN (default off). Upstream AWE forces a
+    # waypoint at every change of actions[:, -1], BEFORE any geometric
+    # refinement runs, in both solvers:
+    #   greedy_waypoint_selection: waypoints.append(i); waypoints.append(i + 1)
+    #   dp_waypoint_selection:     initial_waypoints.append(i)   [i+1 commented
+    #                              out upstream], then `waypoints +=
+    #                              initial_waypoints` force-unions them into the
+    #                              final answer regardless of what the DP chose.
+    # That makes a chunk of AWE's output a gripper-transition detector rather
+    # than a trajectory-geometry decomposition (on KITCHEN_D1, 80% of greedy's
+    # waypoints at err_threshold=0.35), and the counts stop being comparable
+    # across tasks -- greedy's doubled (i, i+1) pairs are half redundant, and
+    # embodiments without a gripper have no such signal at all. Feeding a
+    # constant-zero column makes the comparison never unequal, so the block
+    # contributes nothing and every waypoint comes from geometry. Zeroing is
+    # used rather than the library's own `pos_only=True` switch because that
+    # path raises a TypeError inside the package (see the module docstring).
+    if not use_gripper_seeding:
+        gripper_cmd = np.zeros(num_frames, dtype=np.float64)
 
     # `actions[:, :3]` supplies the waypoint positions for geometric interpolation;
     # `actions[:, -1]` supplies the gripper open/close toggle signal. Passing the
@@ -179,10 +229,17 @@ def compute_awe_subgoal_gripper_pcd(  # noqa: PLR0913, PLR0917
     err_threshold: float = 0.01,
     method: str = "greedy",  # "greedy" | "dp"
     pos_only: bool = False,
+    use_gripper_seeding: bool = False,
     return_switch_idxs: bool = False,
 ):
     """
     Compute a goal_gripper_pcd via AWE (Automatic Waypoint Extraction).
+
+    `use_gripper_seeding` (default False) controls whether upstream AWE's
+    gripper open/close block may force waypoints at every change of
+    `actions[:, -1]`; see _select_waypoints for why it is off by default. With
+    it off, `actions` is used only for its gripper column -- which is then
+    ignored -- so a caller with no gripper signal can pass zeros.
 
     Returns:
         expanded_goal_gripper_pcd: (T, 4, 3) float32
@@ -196,6 +253,7 @@ def compute_awe_subgoal_gripper_pcd(  # noqa: PLR0913, PLR0917
         err_threshold,
         method,
         pos_only,
+        use_gripper_seeding,
     )
     expanded = _assign_subgoals(waypoints, gripper_pcd)
 

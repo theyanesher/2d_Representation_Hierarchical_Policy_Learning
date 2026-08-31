@@ -67,6 +67,11 @@ VIDEO_FPS=10
 
 OUTPUT_BASE="APPROACH2_NO_GMM_ABLATION_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2"
 
+# Keep this launcher, its logs, and results beside the policy, grouped by epoch.
+source "${INFERENCE_ROOT}/shell_scripts/approach2_eval_utils.sh"
+approach2_prepare_eval_layout "${LL_EXP_DIR}" "${LL_CKPT}" "${BASH_SOURCE[0]}" "${OUTPUT_BASE}"
+approach2_start_eval_logging
+
 # --------------------------------------------------------------------------- #
 # do_merge SRC DST ORIG_SEED  — folds a sibling _RESUME_<N> dir into the main per-seed dir.
 # --------------------------------------------------------------------------- #
@@ -242,3 +247,5 @@ echo "All seeds done. Outputs:"
 for s in 1ST 2ND 3RD; do
   echo "  ${SCRIPT_DIR}/${OUTPUT_BASE}_${s}_SEED"
 done
+
+approach2_write_combined_summary

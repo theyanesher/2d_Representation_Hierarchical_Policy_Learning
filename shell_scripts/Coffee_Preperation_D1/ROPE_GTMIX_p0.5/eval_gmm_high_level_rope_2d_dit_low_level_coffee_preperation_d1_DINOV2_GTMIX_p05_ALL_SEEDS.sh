@@ -7,8 +7,8 @@
 # keys a visual_encoder=dinov2_rope4d_grounded low-level needs:
 #     cam0_depth cam1_depth cam0_intrinsic cam1_intrinsic
 #     cam0_extrinsic cam1_extrinsic present_gripper_pts
-# The HL path, GMM injection, WCA and rollout loop are byte-identical to the
-# standard eval, so ROPE-vs-non-ROPE is a pure encoder swap.
+# The HL math, GMM injection, WCA, action conversion and termination rules match
+# the standard eval; the rollout scheduler batches multiple environments.
 #
 # LL run knobs (from its saved .hydra/config.yaml, NOT set here):
 #     visual_encoder            dinov2_rope4d_grounded
@@ -21,7 +21,8 @@
 # HL: epoch=54 matches the checkpoint the original /project_data Coffee script
 # referenced, so results should be comparable to that experiment.
 #
-# Single script, runs seeds 100000 / 150000 / 250000 SEQUENTIALLY.
+# Single script, runs seeds 100000 / 150000 / 250000 sequentially. Within each
+# seed, one shared HL+LL model evaluates NUM_ENVS MuJoCo workers concurrently.
 # Per-seed outputs land in:
 #   ${SCRIPT_DIR}/GMM_HIGH_LEVEL_ROPE_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2_GTMIX_p05_<NTH>_SEED/
 # Each seed has its own auto-resume bookkeeping (do_merge below); an interrupted
@@ -30,31 +31,33 @@
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
-# Paths (all on PSC)
+# Paths (all LOCAL — this runs on this machine, not PSC.)
 # --------------------------------------------------------------------------- #
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Inference repo (this codebase) — holds external/mimicgen/.../scripts, eval_smith_utils,
 # third_party/robogen, and the pixi env everything runs in.
-SMITH_MIMICGEN="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Mimicgen_Inference/2d_Representation_Hierarchical_Policy_Learning"
+SMITH_MIMICGEN="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning"
 
-# High-level repo (lfd3d / ArticubotNetwork lives under src/).
-LFD3D_REPO="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
+# High-level repo (lfd3d / ArticubotNetwork lives under src/). The current
+# repo's own src/lfd3d is hollowed out (pycache only, no real .py sources) --
+# this worktree carries the full lfd3d package instead.
+LFD3D_REPO="/home/theyanesh/worktrees/theya_high_level_lfd3d"
 
 # Low-level repo. DIT_2D_REPO is the dir CONTAINING the diffusion_policy package;
 # LL_REPO itself is needed for `manipulation`, imported by third_party.robogen.
-LL_REPO="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
+LL_REPO="/home/theyanesh/Pratik_Low_Level/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 DIT_2D_REPO="${LL_REPO}/diffusion_policy"
 
-ENV_PY="${SMITH_MIMICGEN}/.pixi/envs/default/bin/python"
+ENV_PY="${SMITH_MIMICGEN}/.pixi/envs/eval/bin/python"
 
-DATASET_PATH="${SMITH_MIMICGEN}/DATASET/Coffee_Preperation_D1_Dataset/core/coffee_preparation_d1.hdf5"
+DATASET_PATH="/data/theya/data/uncertainity_subgoal/D1/env_hdf5/core/coffee_preparation_d1.hdf5"
 
 # HL: Articubot ckpt trained on Coffee_Preperation_D1 (goal-swap, 100 demo).
-HL_CKPT="${LFD3D_REPO}/logs/train_COFFEE_PREPERATION_D1_GOAL_SWAP_100demo/2026-06-04/18-45-30/checkpoints/periodic-epoch=epoch=54.ckpt"
+HL_CKPT="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning/APPROACH1_POLICIES/High_Level_Policy/Coffee_Preperation_D1/periodic-epoch=epoch=54.ckpt"
 
 # LL: 100-demo GTMIX_p0.5 WCA + RoPE4D-grounded encoder on Coffee_Preperation_D1.
-LL_EXP_DIR="${LL_REPO}/outputs/2026.08.12/17.46.46_groot_GMM_WCA_ROPE_100demo_dinov2_Coffee_Preperation_D1_GTMIX_p0.5_coffee_preperation_gmm_goal_gt_mix_rope"
+LL_EXP_DIR="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning/APPROACH1_POLICIES/Low_Level_Policy/Coffee_Preperation_D1/ROPE_GTMIX_p0.5"
 LL_CKPT="epoch_99.ckpt"
 
 # Optional .npy with a (1152,) text embedding for the HL FiLM block.
@@ -71,11 +74,14 @@ N_EPISODES=50
 MAX_STEPS=800
 N_OBS_STEPS=2
 N_ACTION_STEPS=8
+NUM_ENVS="${NUM_ENVS:-4}"
+INFERENCE_DTYPE="${INFERENCE_DTYPE:-fp32}"
 CAMERA_H=256
 CAMERA_W=256
 HL_IN_CHANNELS=4
 
-SAVE_VIDEOS=1
+SAVE_VIDEOS="${SAVE_VIDEOS:-1}"
+NUM_VIDEO_EPISODES="${NUM_VIDEO_EPISODES:-4}"
 VIDEO_FPS=10
 
 OUTPUT_BASE="GMM_HIGH_LEVEL_ROPE_2D_DIT_LOW_LEVEL_COFFEE_PREPERATION_50_SAMPLES_D1_DINOV2_GTMIX_p05"
@@ -212,9 +218,9 @@ run_one_seed() {
   local OUTPUT_DIR_FLAG=(--output_dir "${PY_OUTPUT_DIR}")
   local VIDEO_FLAG
   if [[ "${SAVE_VIDEOS}" == "0" ]]; then
-    VIDEO_FLAG=(--no-save-videos)
+    VIDEO_FLAG=(--no-save_videos)
   else
-    VIDEO_FLAG=(--save_videos --video_fps "${VIDEO_FPS}")
+    VIDEO_FLAG=(--save_videos --no-save_goal_overlay_videos --video_fps "${VIDEO_FPS}")
   fi
   local TEXT_EMBED_FLAG=()
   if [[ -n "${TEXT_EMBED_CACHE}" ]]; then
@@ -239,8 +245,11 @@ run_one_seed() {
       --seed                 "${CUR_SEED}"      \
       --n_obs_steps          "${N_OBS_STEPS}"   \
       --n_action_steps       "${N_ACTION_STEPS}" \
+      --num_envs             "${NUM_ENVS}"       \
+      --inference_dtype      "${INFERENCE_DTYPE}" \
       --camera_h             "${CAMERA_H}"      \
       --camera_w             "${CAMERA_W}"      \
+      --num_video_episodes   "${NUM_VIDEO_EPISODES}" \
       "${TEXT_EMBED_FLAG[@]}"                   \
       "${VIDEO_FLAG[@]}"                        \
       "${OUTPUT_DIR_FLAG[@]}"
@@ -252,7 +261,9 @@ run_one_seed() {
 }
 
 # --------------------------------------------------------------------------- #
-# Run all three seeds sequentially
+# Run seeds sequentially: each seed already fills the GPU with a batched policy
+# and uses NUM_ENVS CPU workers. Parallel seed processes would duplicate both
+# models and contend for the same GPU.
 # --------------------------------------------------------------------------- #
 run_one_seed 1ST 100000
 run_one_seed 2ND 150000

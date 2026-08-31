@@ -21,7 +21,10 @@
 # The high-level checkpoint and the dataset are IDENTICAL to the GTMIX eval, so
 # results are comparable across the beta sweep and against that baseline.
 #
-# Single script, runs seeds 100000 / 150000 / 250000 SEQUENTIALLY.
+# Single script, runs seeds 100000 / 150000 / 250000 sequentially. Within each
+# seed, one shared HL+LL model evaluates NUM_ENVS MuJoCo workers concurrently
+# (eval_gmm_high_level_parallel_2d_dit_low_level.py). Only the first
+# NUM_VIDEO_EPISODES episodes are recorded.
 # Per-seed outputs land in:
 #   ${SCRIPT_DIR}/GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_KITCHEN_50_SAMPLES_D1_DINOV2_BETA4_<NTH>_SEED/
 # Each seed has its own auto-resume bookkeeping (do_merge below); an interrupted
@@ -30,32 +33,34 @@
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
-# Paths (all on PSC)
+# Paths (all LOCAL — this runs on this machine, not PSC.)
 # --------------------------------------------------------------------------- #
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Inference repo (this codebase) — holds external/mimicgen/.../scripts, eval_smith_utils,
 # third_party/robogen, and the pixi env everything runs in.
-SMITH_MIMICGEN="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Mimicgen_Inference/2d_Representation_Hierarchical_Policy_Learning"
+SMITH_MIMICGEN="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning"
 
-# High-level repo (lfd3d / ArticubotNetwork lives under src/).
-LFD3D_REPO="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/2d_Representation_Hierarchical_Policy_Learning"
+# High-level repo (lfd3d / ArticubotNetwork lives under src/). The current
+# repo's own src/lfd3d is hollowed out (pycache only, no real .py sources) --
+# this worktree carries the full lfd3d package instead.
+LFD3D_REPO="/home/theyanesh/worktrees/theya_high_level_lfd3d"
 
 # Low-level repo. DIT_2D_REPO is the dir CONTAINING the diffusion_policy package;
 # LL_REPO itself is needed for `manipulation`, imported by third_party.robogen.
-LL_REPO="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Code/Low_Level_Policy/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
+LL_REPO="/home/theyanesh/Pratik_Low_Level/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference"
 DIT_2D_REPO="${LL_REPO}/diffusion_policy"
 
-ENV_PY="${SMITH_MIMICGEN}/.pixi/envs/default/bin/python"
+ENV_PY="${SMITH_MIMICGEN}/.pixi/envs/eval/bin/python"
 
-DATASET_PATH="${SMITH_MIMICGEN}/DATASET/Kitchen_D1_Dataset/core/kitchen_d1.hdf5"
+DATASET_PATH="/data/theya/data/uncertainity_subgoal/D1/env_hdf5/core/kitchen_d1.hdf5"
 
 # HL: multimodal Articubot ckpt trained on Kitchen_D1 (goal-swap, 100 demo).
-HL_CKPT="${LFD3D_REPO}/logs/train_KITCHEN_D1_GOAL_SWAP_100demo/2026-06-29/02-27-21/checkpoints/periodic-epoch=epoch=74.ckpt"
+HL_CKPT="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning/APPROACH1_POLICIES/High_Level_Policy/Kitchen_D1/periodic-epoch=epoch=74.ckpt"
 
 # LL: 100-demo WCA run on Kitchen_D1, top-2500 / alpha 1.0 / BETA 4, bs64,
 # resumed from epoch 80 of the parent run.
-LL_EXP_DIR="${LL_REPO}/outputs/2026.08.16/17.35.33_groot_GMM_WCA_100demo_dinov2_Kitchen_D1_top2500_alpha1.0_beta4_bs64_resumeE80_kitchen_D1_gmm_goal"
+LL_EXP_DIR="/home/theyanesh/2d_Representation_Hierarchical_Policy_Learning/APPROACH1_POLICIES/Beta_Experiments/Kitchen_Policies/beta4"
 LL_CKPT="epoch_99.ckpt"
 
 # Optional .npy with a (1152,) text embedding for the HL FiLM block.
@@ -72,11 +77,14 @@ N_EPISODES=50
 MAX_STEPS=800
 N_OBS_STEPS=2
 N_ACTION_STEPS=8
+NUM_ENVS="${NUM_ENVS:-4}"
+INFERENCE_DTYPE="${INFERENCE_DTYPE:-fp32}"
 CAMERA_H=256
 CAMERA_W=256
 HL_IN_CHANNELS=4
 
-SAVE_VIDEOS=1
+SAVE_VIDEOS="${SAVE_VIDEOS:-1}"
+NUM_VIDEO_EPISODES="${NUM_VIDEO_EPISODES:-4}"
 VIDEO_FPS=10
 
 OUTPUT_BASE="GMM_HIGH_LEVEL_2D_DIT_LOW_LEVEL_KITCHEN_50_SAMPLES_D1_DINOV2_BETA4"
@@ -213,9 +221,9 @@ run_one_seed() {
   local OUTPUT_DIR_FLAG=(--output_dir "${PY_OUTPUT_DIR}")
   local VIDEO_FLAG
   if [[ "${SAVE_VIDEOS}" == "0" ]]; then
-    VIDEO_FLAG=(--no-save-videos)
+    VIDEO_FLAG=(--no-save_videos)
   else
-    VIDEO_FLAG=(--save_videos --video_fps "${VIDEO_FPS}")
+    VIDEO_FLAG=(--save_videos --no-save_goal_overlay_videos --video_fps "${VIDEO_FPS}")
   fi
   local TEXT_EMBED_FLAG=()
   if [[ -n "${TEXT_EMBED_CACHE}" ]]; then
@@ -226,7 +234,7 @@ run_one_seed() {
     ROBOSUITE_FLAG=(--robosuite_root "${ROBOSUITE_ROOT}")
   fi
 
-  "${ENV_PY}" external/mimicgen/mimicgen/scripts/eval_gmm_high_level_2d_dit_low_level.py \
+  "${ENV_PY}" external/mimicgen/mimicgen/scripts/eval_gmm_high_level_parallel_2d_dit_low_level.py \
       --dataset_path         "${DATASET_PATH}"  \
       --high_level_ckpt      "${HL_CKPT}"       \
       --low_level_exp_dir    "${LL_EXP_DIR}"    \
@@ -240,8 +248,11 @@ run_one_seed() {
       --seed                 "${CUR_SEED}"      \
       --n_obs_steps          "${N_OBS_STEPS}"   \
       --n_action_steps       "${N_ACTION_STEPS}" \
+      --num_envs             "${NUM_ENVS}"       \
+      --inference_dtype      "${INFERENCE_DTYPE}" \
       --camera_h             "${CAMERA_H}"      \
       --camera_w             "${CAMERA_W}"      \
+      --num_video_episodes   "${NUM_VIDEO_EPISODES}" \
       "${TEXT_EMBED_FLAG[@]}"                   \
       "${VIDEO_FLAG[@]}"                        \
       "${OUTPUT_DIR_FLAG[@]}"
@@ -253,14 +264,18 @@ run_one_seed() {
 }
 
 # --------------------------------------------------------------------------- #
-# Run all three seeds sequentially
+# Run seeds sequentially: each seed already fills the GPU with a batched policy
+# and uses NUM_ENVS CPU workers. Parallel seed processes would duplicate both
+# models and contend for the same GPU.
 # --------------------------------------------------------------------------- #
-run_one_seed 1ST 100000
-run_one_seed 2ND 150000
+# 1ST and 2ND already completed elsewhere -- only the 3RD seed is run here.
+# Re-enable these two lines to restore the full three-seed sweep.
+# run_one_seed 1ST 100000
+# run_one_seed 2ND 150000
 run_one_seed 3RD 250000
 
 echo
 echo "All seeds done. Outputs:"
-for s in 1ST 2ND 3RD; do
+for s in 3RD; do
   echo "  ${SCRIPT_DIR}/${OUTPUT_BASE}_${s}_SEED"
 done

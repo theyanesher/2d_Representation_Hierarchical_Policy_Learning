@@ -198,7 +198,10 @@ class QwenBoundaryVLM:
             model=self.model,
             messages=[{"role": "user", "content": content}],
             response_format=schema,
-            max_completion_tokens=256,
+            # The reworked coarse prompt returns more boundaries than V1 did;
+            # at 256 the structured list can run out mid-JSON and openai
+            # raises LengthFinishReasonError instead of returning boundaries.
+            max_completion_tokens=1024,
             temperature=0,
             # Qwen's local API uses chat-template kwargs for non-thinking mode.
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -319,7 +322,7 @@ def detect_coarse_boundaries(
         columns=columns,
         sheet_overlap_frames=sheet_overlap_frames,
     )
-    prompt = coarse_prompt(instruction)
+    prompt = coarse_prompt(instruction, sample_every_n_frames=sample_every_n_frames)
     coarse_log_dir = Path(logs_dir) if logs_dir is not None else None
     if coarse_log_dir is not None:
         coarse_log_dir.mkdir(parents=True, exist_ok=True)

@@ -50,6 +50,8 @@ NUM_VIDEO_EPISODES="${NUM_VIDEO_EPISODES:-4}"
 VIDEO_FPS=10
 
 OUTPUT_BASE="APPROACH2_FROMGMM_UVD_2D_DIT_LOW_LEVEL_HAMMER_CLEANUP_50_SAMPLES_D1_DINOV2_c1_0.1"
+SOURCE_EVAL_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+source "${INFERENCE_ROOT}/shell_scripts/approach2_eval_utils.sh"
 
 for f in "${DATASET_PATH}" \
          "${LL_EXP_DIR}/.hydra/config.yaml" \
@@ -74,7 +76,9 @@ export PYTHONPATH="${INFERENCE_ROOT}:${LL_REPO}:${PYTHONPATH:-}"
 
 run_one_ckpt() {
   local ckpt="$1" tag="$2" seed="${3:-${SEED}}"
-  local OUTPUT_DIR="${SCRIPT_DIR}/${OUTPUT_BASE}_${tag}"
+  approach2_prepare_eval_layout \
+    "${LL_EXP_DIR}" "${ckpt}" "${SOURCE_EVAL_SCRIPT}" "${OUTPUT_BASE}"
+  local OUTPUT_DIR="${APPROACH2_EVAL_ROOT}/${OUTPUT_BASE}_${tag}"
 
   if [[ ! -e "${LL_EXP_DIR}/checkpoints/${ckpt}" ]]; then
     echo "[ERROR] missing checkpoint: ${LL_EXP_DIR}/checkpoints/${ckpt}" >&2
@@ -117,7 +121,10 @@ run_one_ckpt() {
       --camera_w             "${CAMERA_W}"       \
       --num_video_episodes   "${NUM_VIDEO_EPISODES}" \
       "${VIDEO_FLAG[@]}"                         \
-      --output_dir           "${OUTPUT_DIR}"
+      --output_dir           "${OUTPUT_DIR}" \
+      2>&1 | tee -a "${APPROACH2_EVAL_LOG}"
+
+  approach2_write_combined_summary
 }
 
 # run_one_ckpt "epoch_10.ckpt" "EPOCH10"  # already ran, seed 100000

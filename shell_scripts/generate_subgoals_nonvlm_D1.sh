@@ -73,6 +73,7 @@ for TASK in "${TASKS[@]}"; do
     --mix_methods gripper_heuristic orientation_heuristic \
     --mix_window 10 \
     --awe_solver greedy \
+    --awe_err_threshold 0.35 \
     --uvd_preprocessor vip \
     --uvd_device cuda:0 \
     --dump_indices

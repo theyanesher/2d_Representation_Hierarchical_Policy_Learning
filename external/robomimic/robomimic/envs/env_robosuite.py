@@ -165,6 +165,10 @@ class EnvRobosuite(EB.EnvBase):
         ])
         self.data_gen = data_gen
         self.save_image_keys = save_image_keys
+        # Hierarchical rollout workers can disable point-cloud reconstruction
+        # for intermediate actions and re-enable it at the next policy boundary.
+        # Default True preserves all existing callers and dataset generation.
+        self._point_cloud_enabled = True
         print(f"save_image_keys in init: {save_image_keys}")
         # import pdb; pdb.set_trace()
 
@@ -292,6 +296,15 @@ class EnvRobosuite(EB.EnvBase):
         else:
             raise NotImplementedError("mode={} is not implemented".format(mode))
 
+    def set_point_cloud_enabled(self, enabled=True):
+        """Control expensive point-cloud construction for subsequent observations.
+
+        RGB, depth, state and camera geometry remain available while disabled.
+        The optimized hierarchical evaluator turns this back on for the final
+        action in each action chunk, immediately before its next HL forward.
+        """
+        self._point_cloud_enabled = bool(enabled)
+
     def get_observation(self, di=None):
         """
         Get current environment observation dictionary.
@@ -336,7 +349,7 @@ class EnvRobosuite(EB.EnvBase):
             ObsUtils.OBS_KEYS_TO_MODALITIES is None
             or "point_cloud" in ObsUtils.OBS_KEYS_TO_MODALITIES
         )
-        if self.env.use_camera_obs and point_cloud_requested:
+        if self.env.use_camera_obs and point_cloud_requested and self._point_cloud_enabled:
             workspace = self.voxel_workspace
 
             # voxel_bound = np.array([

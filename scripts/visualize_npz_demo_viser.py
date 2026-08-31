@@ -40,6 +40,7 @@ Example:
 import argparse
 import os
 import sys
+import threading
 import time
 
 import numpy as np
@@ -246,6 +247,14 @@ def main():  # noqa: PLR0915
     info_md = server.gui.add_markdown("")
 
     state = {}  # populated by load_current_demo()
+    # viser dispatches GUI callbacks on a worker thread pool, so they can fire
+    # while `state` is still empty -- a browser that connects during startup
+    # replays the GUI state, echoing back checkbox/slider updates before the
+    # first refresh_all() has run -- or mid-swap during a demo change. The lock
+    # serializes load/render; `state` being empty is the "not ready yet" flag.
+    # RLock, not Lock: assigning to a GUI element inside a callback can re-enter
+    # on the same thread, which would self-deadlock a plain Lock.
+    render_lock = threading.RLock()
 
     def load_current_demo():
         demo = demo_dropdown.value
@@ -269,9 +278,12 @@ def main():  # noqa: PLR0915
                 "uniq": uniq,
             }
         )
-        timestep_slider.max = len(path) - 1
-        if timestep_slider.value > timestep_slider.max:
+        # Clamp the slider BEFORE resizing its range: assigning .max echoes an
+        # update back from the client, and a stale value past the new demo's
+        # last frame would index off the end of the freshly loaded arrays.
+        if timestep_slider.value > len(path) - 1:
             timestep_slider.value = 0
+        timestep_slider.max = len(path) - 1
 
     def update_scene(t):
         """Re-read this frame's own point_cloud + camera image and recolorize --
@@ -332,6 +344,8 @@ def main():  # noqa: PLR0915
             )
 
     def render_dynamic(t):
+        # A slider echo queued before a demo swap can outrun the new load.
+        t = min(t, len(state["path"]) - 1)
         update_scene(t)
 
         if not gripper_checkbox.value:
@@ -384,29 +398,50 @@ def main():  # noqa: PLR0915
         render_static()
         render_dynamic(timestep_slider.value)
 
-    @demo_dropdown.on_update
-    def _(_):
+    def register_callbacks():
+        """Wire up the GUI handlers. Called only AFTER the first refresh_all(),
+        so a client connecting during startup can't drive a render against an
+        unpopulated `state`. The `if not state` guards keep that safe even if a
+        future edit moves this call back before the initial load."""
+
+        @demo_dropdown.on_update
+        def _(_):
+            with render_lock:
+                refresh_all()
+
+        @timestep_slider.on_update
+        def _(_):
+            with render_lock:
+                if not state:
+                    return
+                render_dynamic(timestep_slider.value)
+
+        @scene_checkbox.on_update
+        def _(_):
+            with render_lock:
+                if not state:
+                    return
+                render_static()
+                render_dynamic(timestep_slider.value)
+
+        @gripper_checkbox.on_update
+        def _(_):
+            with render_lock:
+                if not state:
+                    return
+                render_dynamic(timestep_slider.value)
+
+        @all_points_checkbox.on_update
+        def _(_):
+            with render_lock:
+                if not state:
+                    return
+                render_static()
+                render_dynamic(timestep_slider.value)
+
+    with render_lock:
         refresh_all()
-
-    @timestep_slider.on_update
-    def _(_):
-        render_dynamic(timestep_slider.value)
-
-    @scene_checkbox.on_update
-    def _(_):
-        render_static()
-        render_dynamic(timestep_slider.value)
-
-    @gripper_checkbox.on_update
-    def _(_):
-        render_dynamic(timestep_slider.value)
-
-    @all_points_checkbox.on_update
-    def _(_):
-        render_static()
-        render_dynamic(timestep_slider.value)
-
-    refresh_all()
+    register_callbacks()
     print("[viser] Use the Demo dropdown / Timestep slider. Ctrl+C to exit.")
     try:
         while True:

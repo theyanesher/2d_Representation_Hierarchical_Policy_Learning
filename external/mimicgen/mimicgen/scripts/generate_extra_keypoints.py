@@ -20,6 +20,10 @@ collide or overwrite each other:
     <DATA_ROOT>/<TASK>/<demo>/<t>.npz                                (original, untouched)
     <DATA_ROOT>/EXTRA_KEYPOINTS_<method1>_<method2>/<TASK>/<demo>/<t>.npz   (new keys, this script)
 
+'awe' appears in that directory name as awe-<solver>-th<err_threshold> (e.g.
+EXTRA_KEYPOINTS_awe-greedy-th0.3), since --awe_solver/--awe_err_threshold change
+its keypoints without changing its key name; every other method is named plainly.
+
 Each new .npz holds one key per method, saved IDENTICALLY to the original
 `goal_gripper_pcd` ((1, 4, 3) float32) so they are drop-in interchangeable:
 
@@ -135,6 +139,12 @@ VALID_METHODS = (
     RDP_METHODS + BSPLINE_METHODS + AWE_METHODS + VLM_METHODS
     + HEURISTIC_METHODS + UVD_METHODS
 )
+# Methods that read a real gripper open/close signal (gripper_qpos and/or the
+# action's gripper channel) and are therefore meaningless -- not merely
+# degenerate -- on a gripperless embodiment. --gripperless rejects these
+# instead of running them against synthesized zeros, which would silently
+# yield "0 keypoints everywhere" results that look like a tuning problem.
+GRIPPER_DEPENDENT_METHODS = ("rdp_gripper", "gripper_heuristic")
 METHOD_KEY = {m: "goal_gripper_pcd_{}".format(m) for m in VALID_METHODS}
 
 
@@ -160,6 +170,18 @@ def _gripper_heuristic_keypoints(gripper_qpos, actions):
 def _fixed_interval_const_keypoints(T, interval):
     """A subgoal boundary every `interval` timesteps, unconditionally."""
     return np.arange(0, T, interval, dtype=int)
+
+
+def _exact_count_keypoints(T, n_keypoints):
+    """Exactly `n_keypoints` evenly spaced boundaries, ending at T-1.
+
+    fixed_interval's default (interval = T//K) does NOT give K subgoals: the
+    integer floor leaves a remainder that _finalize_indices turns into extra
+    boundaries, and the overshoot grows with K and varies demo to demo
+    (K=60 on hammer_cleanup yields 64-73). That makes 'number of keypoints'
+    unusable as a swept x-axis, so parameterise by the count directly and let
+    the spacing fall out of it."""
+    return np.unique(np.linspace(0, T - 1, int(n_keypoints) + 1).astype(int))
 
 
 def _quat_angle(q1, q2):
@@ -220,11 +242,36 @@ def _merge_switch_idxs(idx_lists, window):
     return np.asarray(sorted(kept), dtype=int)
 
 
-def _extra_dirname(methods):
+def _awe_token(opts):
+    """awe-<solver>-th<err_threshold>, e.g. awe-greedy-th0.3.
+
+    awe is the one method whose output depends on flags outside --methods:
+    --awe_solver and --awe_err_threshold change the keypoints but not the
+    key name (always goal_gripper_pcd_awe). Without those flags in the
+    directory name, a second run with different settings would resolve to
+    the same mirror tree, be judged 'already complete' by the resume check,
+    and silently either skip or (with --force) overwrite the earlier
+    settings' results. Every other method is fully described by its name."""
+    tok = "awe-{}-th{:g}".format(opts.awe_solver, opts.awe_err_threshold)
+    # --awe_use_gripper changes the keypoints the same way solver/threshold do,
+    # so it belongs in the tree name too. Absent from the name for the default
+    # (off) case, so existing geometric-only trees keep resolving as before.
+    if getattr(opts, "awe_use_gripper", False):
+        tok += "-grip"
+    return tok
+
+
+def _extra_dirname(methods, opts):
     """EXTRA_KEYPOINTS_<method1>_<method2>_... -- keeps different --methods
     runs (e.g. rdp-only vs. bspline-only vs. all) in separate mirror trees so
-    they never collide or partially overwrite each other."""
-    return "_".join([EXTRA_DIRNAME_PREFIX] + list(methods))
+    they never collide or partially overwrite each other. 'awe' expands to
+    _awe_token(opts) so its solver/threshold variants separate too, and
+    --dirname_suffix separates runs that differ in something the name cannot
+    otherwise express (a reworked vlm prompt, a different sampling stride)."""
+    toks = [_awe_token(opts) if m == "awe" else m for m in methods]
+    name = "_".join([EXTRA_DIRNAME_PREFIX] + toks)
+    suffix = getattr(opts, "dirname_suffix", "") or ""
+    return "{}_{}".format(name, suffix.strip("_")) if suffix.strip("_") else name
 
 
 def _sorted_step_files(demo_dir):
@@ -232,15 +279,30 @@ def _sorted_step_files(demo_dir):
     return sorted(files, key=lambda p: int(os.path.basename(p)[:-4]))
 
 
-def _load_demo_arrays(step_files):
-    """Stack the per-step keys this generator needs into (T, ...) arrays."""
+def _load_demo_arrays(step_files, gripperless=False):
+    """Stack the per-step keys this generator needs into (T, ...) arrays.
+
+    `gripperless` is for datasets whose end-effector has no fingers at all --
+    PushT, a planar pusher, is the case this was added for: its .npz carries
+    no `gripper_qpos` key, and its `action` is a bare (x, y) target with no
+    gripper channel appended. Both are synthesized here as constant zeros so
+    every downstream consumer keeps its usual array shapes -- crucially AWE,
+    which reads `actions[:, -1]` as the gripper open/close command and would
+    otherwise treat PushT's y-target as a gripper signal flipping almost
+    every frame, forcing a waypoint at nearly every timestep. Constant zeros
+    make that term inert instead. Methods that genuinely *read* a gripper
+    signal are rejected up front in main() rather than quietly handed these
+    zeros (see GRIPPER_DEPENDENT_METHODS)."""
     eef_pos, eef_quat, gripper_qpos, action, gripper_pcd = [], [], [], [], []
     for f in step_files:
         d = np.load(f)
         eef_pos.append(d["eef_pos"][0])
         eef_quat.append(d["eef_quat"][0])
-        gripper_qpos.append(d["gripper_qpos"][0])
-        action.append(d["action"][0])
+        gripper_qpos.append(
+            np.zeros(1, dtype=np.float64) if gripperless else d["gripper_qpos"][0])
+        action.append(
+            np.concatenate([np.asarray(d["action"][0], dtype=np.float64), [0.0]])
+            if gripperless else d["action"][0])
         gripper_pcd.append(d["gripper_pcd"][0])
     return (np.asarray(eef_pos), np.asarray(eef_quat), np.asarray(gripper_qpos),
             np.asarray(action), np.asarray(gripper_pcd, dtype=np.float32))
@@ -380,7 +442,8 @@ def process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=False):
     T = len(step_files)
     if T == 0:
         return 0, {}
-    eef_pos, eef_quat, gripper_qpos, action, gripper_pcd = _load_demo_arrays(step_files)
+    eef_pos, eef_quat, gripper_qpos, action, gripper_pcd = _load_demo_arrays(
+        step_files, gripperless=getattr(opts, "gripperless", False))
     rgb_by_camera = {}
     if any(m in VLM_METHODS for m in methods):
         rgb_by_camera[opts.vlm_camera] = _load_rgb_frames(step_files, opts.vlm_camera)
@@ -437,8 +500,14 @@ def process_demo(demo_dir, out_demo_dir, methods, opts, dump_indices=False):
                 err_threshold=opts.awe_err_threshold,
                 method=opts.awe_solver,
                 pos_only=False,
+                use_gripper_seeding=opts.awe_use_gripper,
                 return_switch_idxs=True,
             )
+        elif m == "fixed_interval" and getattr(opts, "n_keypoints", None):
+            # Count-parameterised fixed interval (see _exact_count_keypoints).
+            switch_idxs = _finalize_indices(
+                _exact_count_keypoints(T, opts.n_keypoints), T)
+            goal = _expand_to_goal(gripper_pcd, switch_idxs).astype(np.float32)
         else:
             goal, switch_idxs = compute_rdp_subgoal_gripper_pcd(
                 gripper_pcd=gripper_pcd,
@@ -490,6 +559,13 @@ def main():
                          "/data/theya/data/uncertainity_subgoal/D1)")
     ap.add_argument("--task", required=True,
                     help="task folder name, e.g. COFFEE_PREPERATION_D1")
+    ap.add_argument("--gripperless", action="store_true",
+                    help="dataset has no gripper: its .npz carries no gripper_qpos "
+                         "and its action has no gripper channel (e.g. PushT, a planar "
+                         "pusher). Synthesizes both as constant zeros so AWE's "
+                         "actions[:, -1] gripper term stays inert, and rejects the "
+                         "methods needing a real gripper signal ({}).".format(
+                             ", ".join(GRIPPER_DEPENDENT_METHODS)))
     ap.add_argument("--methods", nargs="+", default=["rdp"],
                     help="any of {} or 'all'".format(list(VALID_METHODS)))
     ap.add_argument("--episodes", "-n", type=int, default=None,
@@ -497,6 +573,21 @@ def main():
     ap.add_argument("--epsilon", type=float, default=0.02, help="RDP tolerance (metres)")
     ap.add_argument("--interval", type=int, default=None,
                     help="fixed_interval step (default: T//20)")
+    ap.add_argument("--n_keypoints", type=int, default=None,
+                    help="fixed_interval: place EXACTLY this many evenly spaced "
+                         "subgoals per demo (overrides --interval). Use this when "
+                         "sweeping the keypoint count as an experimental variable -- "
+                         "--interval's T//K floor overshoots the requested count by a "
+                         "demo-dependent amount that grows with K.")
+    ap.add_argument("--out_root", default=None,
+                    help="root to write the EXTRA_KEYPOINTS_* mirror tree under "
+                         "(default: --data_root). Point this elsewhere to keep a "
+                         "sweep out of the main dataset tree.")
+    ap.add_argument("--out_suffix", default="",
+                    help="appended to the EXTRA_KEYPOINTS_<methods> directory name, so "
+                         "runs of the SAME method with different settings (e.g. one per "
+                         "--n_keypoints value) land in separate trees instead of "
+                         "overwriting each other.")
     ap.add_argument("--const_interval", type=int, default=50,
                     help="fixed_interval_const: timesteps between subgoals, "
                          "constant across demos/tasks (default: 50)")
@@ -511,9 +602,16 @@ def main():
     ap.add_argument("--influence_threshold", type=float, default=None,
                     help="bspline_greville: min control-polygon deviation (metres) for a "
                          "control point to become a subgoal boundary; default: --max_error")
-    ap.add_argument("--awe_err_threshold", type=float, default=0.35,
+    ap.add_argument("--awe_err_threshold", type=float, default=0.2, # 0.2 default
                     help="awe: max reconstruction error (position in metres, "
                          "+ rotation in radians) before AWE adds another waypoint")
+    ap.add_argument("--awe_use_gripper", action="store_true",
+                    help="awe: let upstream AWE force a waypoint at every gripper "
+                         "open/close transition (actions[:, -1] changing), on top of "
+                         "its geometric waypoints. OFF by default -- see "
+                         "awe_subgoal_decomp._select_waypoints. Both solvers seed "
+                         "this way, so the flag applies to greedy and dp alike. "
+                         "Trees built with it get a '-grip' suffix in the AWE token.")
     ap.add_argument("--awe_solver", choices=["greedy", "dp"], default="dp",
                     help="awe: greedy (fast, near-optimal) or dp (optimal, "
                          "O(T^3) -- short demos only, roughly <= a few hundred frames)")
@@ -599,6 +697,11 @@ def main():
                     help="uvd: path to the pixi.toml declaring --uvd_pixi_env")
     ap.add_argument("--dump_indices", action="store_true",
                     help="also write _keypoints.json per demo (for viser inspection)")
+    ap.add_argument("--dirname_suffix", default="",
+                    help="append this tag to the EXTRA_KEYPOINTS_<methods> directory "
+                         "name, so runs differing in something the name cannot express "
+                         "(vlm prompt revision, sampling stride) land in separate trees "
+                         "instead of resuming or overwriting each other")
     ap.add_argument("--force", action="store_true",
                     help="recompute every demo even if it looks complete (disable resume)")
     ap.add_argument("--num_workers", type=int, default=1,
@@ -612,6 +715,17 @@ def main():
     bad = [m for m in methods if m not in VALID_METHODS]
     if bad:
         raise SystemExit("Unknown method(s) {}. Valid: {}".format(bad, list(VALID_METHODS)))
+    if args.gripperless and args.awe_use_gripper:
+        raise SystemExit(
+            "--awe_use_gripper needs a gripper open/close signal, which a "
+            "--gripperless dataset does not have. Drop one of the two flags.")
+    if args.gripperless:
+        needs_gripper = [m for m in methods if m in GRIPPER_DEPENDENT_METHODS]
+        if needs_gripper:
+            raise SystemExit(
+                "--gripperless cannot run {}: they read a real gripper open/close "
+                "signal, which this dataset does not have. Drop them from --methods "
+                "(and from any --mix_methods group).".format(needs_gripper))
     # canonical order so e.g. --methods bspline rdp and --methods rdp bspline
     # land in the same mirror tree instead of silently forking into two.
     methods = sorted(methods, key=list(VALID_METHODS).index)
@@ -641,7 +755,11 @@ def main():
                   "window={} frames)".format(group, name, args.mix_window))
 
     task_dir = os.path.join(args.data_root, args.task)
-    out_task_dir = os.path.join(args.data_root, _extra_dirname(methods), args.task)
+    out_task_dir = os.path.join(
+        args.out_root or args.data_root,
+        _extra_dirname(methods, args) + args.out_suffix,
+        args.task,
+    )
     if not os.path.isdir(task_dir):
         raise SystemExit("Task dir not found: {}".format(task_dir))
 
