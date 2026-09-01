@@ -1,0 +1,107 @@
+# Approach 2 on the real-robot Franka POUR_BARLEY dataset.
+#
+# Direct counterpart of PushBlock_Tasks/pushblock_goal_gmm_aux.yaml —
+# every knob is identical (same shape_meta, same 256x256 crops) so a
+# comparison across the two says something about the task, not the config.
+# The low-level policy is NOT given the goal; goal_gripper_pts supervises a
+# GMM head that reads the same 3D-grounded visual tokens the DiT
+# cross-attends to:
+#
+#     total_loss = flow_loss + c1 * gmm_loss     (c1 = policy.aux_gmm_loss_weight)
+#
+# Key types are chosen for how LazyArticuBotDataset routes them:
+#   depth      -> process_depth (uint16 mm -> float metres), welford normalizer
+#                 (the policy reads RAW depth from batch["obs"], not nobs)
+#   intrinsic/extrinsic -> matrix_keys, identity normalizer
+#   goal_gripper        -> loaded raw, identity normalizer
+#
+# NOTE: identity_normalize_depth is deliberately NOT set. This policy calls
+# visual_encoder.encode_with_positions(nobs, batch["obs"]), so geometry already
+# comes from the raw obs dict in metres. Only the plain-encode() variants
+# need that flag.
+#
+# Data provenance: generate_non_gmm_goals_for_low_level.py --no_gmm --pour_barley
+#   (h5 attrs confirm preprocessing_mode='pour_barley')
+#   native 252x448 -> agentview crop x=[129,381), wrist crop x=[170,422),
+#   both resized to 256x256 (RGB bilinear, depth NEAREST), intrinsics updated by
+#   the corresponding homography — identical crop windows to pushblock_h5.
+#   state  = [xyz(3), rot6d(6), gripper(1)]  = 10
+#   action = [dxyz(3), drot6d(6), dgripper(1)] = 10, world-frame delta
+#            -> matches action_mode: hybrid_delta, which reads action/hybrid as-is.
+name: pour_barley_goal_gmm_aux
+
+image_shape: &image_shape [3, 256, 256]
+depth_shape: &depth_shape [1, 256, 256]
+shape_meta: &shape_meta
+  obs:
+    cam0_image:
+      shape: *image_shape
+      type: rgb
+    cam1_image:
+      shape: *image_shape
+      type: rgb
+    cam0_depth:
+      shape: *depth_shape
+      type: depth
+    cam1_depth:
+      shape: *depth_shape
+      type: depth
+    cam0_intrinsic:
+      shape: [3, 3]
+      type: intrinsic
+    cam1_intrinsic:
+      shape: [3, 3]
+      type: intrinsic
+    cam0_extrinsic:
+      shape: [4, 4]
+      type: extrinsic
+    cam1_extrinsic:
+      shape: [4, 4]
+      type: extrinsic
+    state:
+      shape: [10]
+      type: low_dim
+    # Auxiliary target only — never reaches the DiT.
+    goal_gripper_pts:
+      shape: [4, 3]
+      type: goal_gripper
+    # 4 gripper keypoints: extra grounded tokens + mixture anchors.
+    present_gripper_pts:
+      shape: [4, 3]
+      type: goal_gripper
+  action:
+    shape: [10]
+
+# Dead config. TrainDiffusionUnetHybridWorkspace never instantiates the
+# env_runner (the call is commented out at workspace lines 190-194 / 319-320),
+# and there is no simulator for this real-robot dataset. Kept only so the task
+# schema matches its MimicGen/PushBlock siblings.
+env_runner:
+  _target_: diffusion_policy.env_runner.articubot_image_runner.ArticubotImageRunner
+  n_train: 6
+  n_train_vis: 2
+  train_start_seed: 0
+  n_test: 50
+  n_test_vis: 4
+  legacy_test: True
+  test_start_seed: 100000
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  n_envs: null
+  observation_mode: image
+
+dataset:
+  _target_: diffusion_policy.dataset.lazy_articubot_dataset.LazyArticuBotDataset
+  shape_meta: *shape_meta
+  data_dir: /data/theya/data/uncertainity_subgoal/pour_barley_h5
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  action_mode: ${action_mode}

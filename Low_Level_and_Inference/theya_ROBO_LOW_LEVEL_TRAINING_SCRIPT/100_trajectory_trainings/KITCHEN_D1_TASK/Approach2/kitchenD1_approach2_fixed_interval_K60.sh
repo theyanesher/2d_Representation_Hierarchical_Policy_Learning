@@ -5,14 +5,14 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 48:00:00 # 48-hour budget
-#SBATCH --job-name kitchen-d1-approach2-awe
-#SBATCH -o /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/kitchen-d1-approach2-awe_job_%j.out
-#SBATCH -e /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/kitchen-d1-approach2-awe_job_%j.err
+#SBATCH --job-name kitchen-d1-approach2-fixed-interval-K60
+#SBATCH -o /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/kitchen-d1-approach2-fixed-interval-K60_job_%j.out
+#SBATCH -e /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/kitchen-d1-approach2-fixed-interval-K60_job_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
 # ===========================================================================
-# APPROACH 2 (GMM-as-auxiliary-loss) on KITCHEN_D1  —  goal_source=awe, c1=0.1
+# APPROACH 2 (GMM-as-auxiliary-loss) on KITCHEN_D1  —  goal_source=fixed_interval, K=60 extra keypoints, c1=0.1
 # ===========================================================================
 # The low-level policy is NOT given the goal. Instead goal_gripper_pts
 # supervises a GMM head that reads the same 3D-grounded visual tokens the DiT
@@ -21,30 +21,36 @@
 #
 #     total_loss = flow_loss + c1 * gmm_loss
 #
-# This variant supervises the GMM head with the awe keypoint field
-# from the EXTRA_KEYPOINTS tree (goal_gripper_pcd_awe) instead of
-# the ground-truth goal_gripper_pts — selected via +task.dataset.goal_source.
-# c1=0.1 is the established "start here" auxiliary-loss weight for Approach 2
-# (see the sibling *_c1_0.1.sh scripts in ROBO_LOW_LEVEL_TRAINING_SCRIPT/100_trajectory_trainings/Approach2/
-# for how it was chosen).
+# This variant supervises the GMM head with the fixed_interval keypoint field
+# (goal_gripper_pcd_fixed_interval) sourced from the K=60 tree of the
+# fixed_interval keypoint-count sweep
+# (EXTRA_KEYPOINTS_fixed_interval_K60/KITCHEN_D1) -- fixed_interval keypoints
+# spaced K frames apart along the trajectory, K=60 being the sparsest setting
+# in the sweep {5,10,30,60}. The npz key is goal_gripper_pcd_fixed_interval
+# regardless of K (K only changes which on-disk tree it's read from), so
+# GOAL_SOURCE stays "fixed_interval" for hydra -- only EXTRA_GOALS_DIR and
+# run/log naming vary across the K5/K10/K30/K60 sibling scripts.
+#
+# c1=0.1 is the established "start here" auxiliary-loss weight for
+# Approach 2.
 #
 # Pipeline:
 #   1. Stage the first NUM_DEMOS h5 files straight from Pratik's shared,
 #      read-only NO_GMM dataset to node-local scratch (falls back to
 #      consolidating the raw demo_N/ npz tree into a local h5 copy only if
 #      that shared dataset doesn't have enough demos for this task).
-#   2. Inject obs/goal_gripper_pts_<source> for every source in
-#      EXTRA_GOAL_SOURCES (generate_non_gmm_goals_for_low_level.py
-#      --inject_extra_goals) from the EXTRA_KEYPOINTS npz tree into the
-#      staged, node-local copy. Only appends small (T,4,3) arrays, so it's
-#      cheap to redo every job even though the staged copy is ephemeral.
+#   2. Inject obs/goal_gripper_pts_fixed_interval
+#      (generate_non_gmm_goals_for_low_level.py --inject_extra_goals) from
+#      the EXTRA_KEYPOINTS_fixed_interval_K60 npz tree into the staged,
+#      node-local copy.
 #   3. Train task=MimicGen_Tasks/kitchen_goal_gmm_aux with
-#      +task.dataset.goal_source=awe and policy.aux_gmm_loss_weight=0.1.
+#      +task.dataset.goal_source=fixed_interval and
+#      policy.aux_gmm_loss_weight=0.1.
 #
-# EXTRA_KEYPOINTS tree only covers demo_0..demo_99 (100 demos) for this task,
-# so NUM_DEMOS must stay <= 100 or the injection step will fail loudly.
-#
-# NUM_DEMOS defaults to 100. Override at submission time:
+# EXTRA_KEYPOINTS_fixed_interval_K60/KITCHEN_D1 covers demo_0..demo_100 (101
+# demos), so NUM_DEMOS must stay <= 101 or the injection step will fail
+# loudly. NUM_DEMOS defaults to 100 (matching the sibling awe/uvd/etc.
+# scripts' "100 trajectory" convention). Override at submission time:
 #   NUM_DEMOS=50 sbatch this_script.sh
 
 set -euo pipefail
@@ -54,16 +60,18 @@ export PIXI_HOME="/jet/home/eswaramo/data/pixi"
 export PATH="$PIXI_HOME/bin:$PATH"
 
 # --- the one knob these sibling scripts vary ------------------------------
-GOAL_SOURCE="awe"
+GOAL_SOURCE="fixed_interval"
+K=60
+SOURCE_TAG="fixed_interval_K${K}"
 C1=0.1
 
 # --- demo selection ------------------------------------------------------
 NUM_DEMOS="${NUM_DEMOS:-100}"
-echo "[config] goal_source=${GOAL_SOURCE}, c1=${C1}, NUM_DEMOS=${NUM_DEMOS} (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
+echo "[config] goal_source=${GOAL_SOURCE} (${SOURCE_TAG}), c1=${C1}, NUM_DEMOS=${NUM_DEMOS} (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
 
 # --- paths ---------------------------------------------------------------
 SRC_NPZ_DIR="/jet/home/eswaramo/data/D2/KITCHEN_D1"
-EXTRA_GOALS_DIR="/jet/home/eswaramo/data/D2/EXTRA_KEYPOINTS/EXTRA_KEYPOINTS_bspline_bspline_greville_awe_gripper_heuristic_orientation_heuristic_uvd_mix_bspline_bspline_greville_mix_gripper_heuristic_orientation_heuristic/KITCHEN_D1"
+EXTRA_GOALS_DIR="/jet/home/eswaramo/data/fixed_interval_sweep/EXTRA_KEYPOINTS_fixed_interval_K${K}/KITCHEN_D1"
 # Pratik's already-converted NO_GMM h5s — read-only, so we stage
 # straight from here to node-local scratch and inject the goal-source
 # keys into the staged copy (see below). LOCAL_NO_GMM_H5_DIR is only
@@ -72,14 +80,18 @@ NO_GMM_H5_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical
 LOCAL_NO_GMM_H5_DIR="/jet/home/eswaramo/data/D2/NO_GMM_preds/KITCHEN_D1"
 REPO_DIR="/jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/"
 
+echo "[config] EXTRA_GOALS_DIR=${EXTRA_GOALS_DIR}"
+
+if [ ! -d "${EXTRA_GOALS_DIR}" ]; then
+    echo "[error] EXTRA_GOALS_DIR not found: ${EXTRA_GOALS_DIR}" >&2
+    exit 1
+fi
+
 # --- resume from checkpoint ----------------------------------------------
-# The 2026-08-16 07:06 run (job 43679716) hit "OSError: disk quota exceeded"
-# and died. Its epoch_10.ckpt/latest.ckpt were corrupted by the failed write
-# (BadZipFile), but epoch_5.ckpt was written cleanly before that and verifies
-# as a valid checkpoint, so default to resuming from there. Override (e.g.
-# RESUME_CKPT= to force a fresh run, or a different path) at submission time:
+# Empty by default: a fresh goal-source variant should NOT resume from a
+# different variant's checkpoint. Override at submission time if resuming a
+# previous run OF THIS SAME VARIANT:
 #   RESUME_CKPT=/path/to/epoch_N.ckpt sbatch this_script.sh
-#   RESUME_CKPT= sbatch this_script.sh   # force training from scratch
 RESUME_CKPT="${RESUME_CKPT-}"
 
 # --- resolve NO_GMM h5 source: shared (read-only) or local (generate) ----
@@ -131,7 +143,7 @@ else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
 SRC_DATA_DIR="${NO_GMM_H5_DIR}"
-DEST_DATA_DIR="${SCRATCH_ROOT}/Kitchen_D1_Approach2_${GOAL_SOURCE}_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Kitchen_D1_Approach2_${SOURCE_TAG}_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS files) --------------------------------
 THREADS="${RSYNC_THREADS:-32}"
@@ -167,9 +179,9 @@ fi
 
 # --- inject extra goal keys into the staged, node-local copy -------------
 # Injecting here (not into NO_GMM_H5_DIR) because that may be Pratik's
-# shared read-only dataset. Only appends small (T,4,3) arrays, so redoing
+# shared read-only dataset. Only appends a small (T,4,3) array, so redoing
 # this every job (staging is ephemeral) is cheap.
-echo "[inject] ensuring extra goal keys exist in staged demos"
+echo "[inject] ensuring obs/goal_gripper_pts_fixed_interval exists in staged demos (from ${SOURCE_TAG})"
 (
     cd "${REPO_DIR}"
     USE_TF=0 \
@@ -197,7 +209,7 @@ else
     echo "[resume] RESUME_CKPT empty -> training from scratch"
 fi
 
-RUN_NAME="kitchen_D1_APPROACH2_${GOAL_SOURCE}_c1_${C1}_${NUM_DEMOS}demo_dinov2_DIT"
+RUN_NAME="kitchen_D1_APPROACH2_${SOURCE_TAG}_c1_${C1}_${NUM_DEMOS}demo_dinov2_DIT"
 
 # batch_size=128 matches the goal_gripper baseline. Measured scaling for this
 # architecture is ~0.24 GiB/sample over a ~2.75 GiB floor, i.e. ~34 GiB at 128

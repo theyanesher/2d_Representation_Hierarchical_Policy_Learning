@@ -5,14 +5,14 @@
 #SBATCH -p ROBO
 #SBATCH --gpus=h100:1 #GPU specification. H100
 #SBATCH -t 48:00:00 # 48-hour budget
-#SBATCH --job-name kitchen-d1-approach2-awe
-#SBATCH -o /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/kitchen-d1-approach2-awe_job_%j.out
-#SBATCH -e /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/kitchen-d1-approach2-awe_job_%j.err
+#SBATCH --job-name hammer-cleanup-d1-approach2-awe-greedy-th0.35_nogrip
+#SBATCH -o /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/hammer-cleanup-d1-approach2-awe-greedy-th0.35_nogrip_job_%j.out
+#SBATCH -e /jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/theya_ROBO_LOW_LEVEL_TRAINING_SCRIPT/logs/hammer-cleanup-d1-approach2-awe-greedy-th0.35_nogrip_job_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=teswaram@andrew.cmu.edu
 
 # ===========================================================================
-# APPROACH 2 (GMM-as-auxiliary-loss) on KITCHEN_D1  —  goal_source=awe, c1=0.1
+# APPROACH 2 (GMM-as-auxiliary-loss) on HAMMER_CLEANUP_D1  —  goal_source=awe (greedy, err_th=0.35, no-gripper), c1=0.1
 # ===========================================================================
 # The low-level policy is NOT given the goal. Instead goal_gripper_pts
 # supervises a GMM head that reads the same 3D-grounded visual tokens the DiT
@@ -22,27 +22,29 @@
 #     total_loss = flow_loss + c1 * gmm_loss
 #
 # This variant supervises the GMM head with the awe keypoint field
-# from the EXTRA_KEYPOINTS tree (goal_gripper_pcd_awe) instead of
-# the ground-truth goal_gripper_pts — selected via +task.dataset.goal_source.
-# c1=0.1 is the established "start here" auxiliary-loss weight for Approach 2
-# (see the sibling *_c1_0.1.sh scripts in ROBO_LOW_LEVEL_TRAINING_SCRIPT/100_trajectory_trainings/Approach2/
-# for how it was chosen).
+# (goal_gripper_pcd_awe) sourced from the standalone
+# EXTRA_KEYPOINTS_awe-greedy-th0.35_nogrip tree — the no-gripper counterpart
+# of the sibling hammercleanupD1_approach2_awe_greedy_th0.2.sh /
+# _th0.6.sh scripts (which use the with-gripper th0.2 / th0.6 trees). Not
+# numerically identical to those trees even though they share the same
+# npz key name. c1=0.1 is the established "start here" auxiliary-loss weight
+# for Approach 2.
 #
 # Pipeline:
 #   1. Stage the first NUM_DEMOS h5 files straight from Pratik's shared,
 #      read-only NO_GMM dataset to node-local scratch (falls back to
 #      consolidating the raw demo_N/ npz tree into a local h5 copy only if
 #      that shared dataset doesn't have enough demos for this task).
-#   2. Inject obs/goal_gripper_pts_<source> for every source in
-#      EXTRA_GOAL_SOURCES (generate_non_gmm_goals_for_low_level.py
-#      --inject_extra_goals) from the EXTRA_KEYPOINTS npz tree into the
-#      staged, node-local copy. Only appends small (T,4,3) arrays, so it's
-#      cheap to redo every job even though the staged copy is ephemeral.
-#   3. Train task=MimicGen_Tasks/kitchen_goal_gmm_aux with
+#   2. Inject obs/goal_gripper_pts_awe (generate_non_gmm_goals_for_low_level.py
+#      --inject_extra_goals) from the EXTRA_KEYPOINTS_awe-greedy-th0.35_nogrip
+#      npz tree into the staged, node-local copy. Only appends a small
+#      (T,4,3) array, so it's cheap to redo every job even though the staged
+#      copy is ephemeral.
+#   3. Train task=MimicGen_Tasks/hammercleanup_D1_goal_gmm_aux with
 #      +task.dataset.goal_source=awe and policy.aux_gmm_loss_weight=0.1.
 #
-# EXTRA_KEYPOINTS tree only covers demo_0..demo_99 (100 demos) for this task,
-# so NUM_DEMOS must stay <= 100 or the injection step will fail loudly.
+# EXTRA_KEYPOINTS_awe-greedy-th0.35_nogrip/HAMMER_CLEANUP_D1 has been verified
+# to cover demo_0..demo_99 (100/100, contiguous) as of 2026-08-26.
 #
 # NUM_DEMOS defaults to 100. Override at submission time:
 #   NUM_DEMOS=50 sbatch this_script.sh
@@ -55,32 +57,34 @@ export PATH="$PIXI_HOME/bin:$PATH"
 
 # --- the one knob these sibling scripts vary ------------------------------
 GOAL_SOURCE="awe"
+# SOURCE_TAG only distinguishes run/log/scratch naming from the sibling
+# combined-tree/DP-tree/with-gripper *_awe.sh / *_awe_dp.sh / *_awe_greedy_th*.sh
+# scripts — it is NOT passed to hydra (goal_source stays "awe" because that's
+# the npz/h5 key name in every tree).
+SOURCE_TAG="awe_greedy_th0.35_nogrip"
 C1=0.1
 
 # --- demo selection ------------------------------------------------------
 NUM_DEMOS="${NUM_DEMOS:-100}"
-echo "[config] goal_source=${GOAL_SOURCE}, c1=${C1}, NUM_DEMOS=${NUM_DEMOS} (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
+echo "[config] goal_source=${GOAL_SOURCE} (${SOURCE_TAG}), c1=${C1}, NUM_DEMOS=${NUM_DEMOS} (demo_0.h5 .. demo_$((NUM_DEMOS-1)).h5)"
 
 # --- paths ---------------------------------------------------------------
-SRC_NPZ_DIR="/jet/home/eswaramo/data/D2/KITCHEN_D1"
-EXTRA_GOALS_DIR="/jet/home/eswaramo/data/D2/EXTRA_KEYPOINTS/EXTRA_KEYPOINTS_bspline_bspline_greville_awe_gripper_heuristic_orientation_heuristic_uvd_mix_bspline_bspline_greville_mix_gripper_heuristic_orientation_heuristic/KITCHEN_D1"
+SRC_NPZ_DIR="/jet/home/eswaramo/data/D2/HAMMER_CLEANUP_D1"
+EXTRA_GOALS_DIR="/jet/home/eswaramo/data/D2/EXTRA_KEYPOINTS/EXTRA_KEYPOINTS_awe-greedy-th0.35_nogrip/HAMMER_CLEANUP_D1"
 # Pratik's already-converted NO_GMM h5s — read-only, so we stage
 # straight from here to node-local scratch and inject the goal-source
 # keys into the staged copy (see below). LOCAL_NO_GMM_H5_DIR is only
 # used as a fallback if this shared dataset lacks enough demos.
-NO_GMM_H5_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/LOW_LEVEL_GROOT_TRAINING_DATASET/NO_GMM_DATASET/Kitchen_D1"
-LOCAL_NO_GMM_H5_DIR="/jet/home/eswaramo/data/D2/NO_GMM_preds/KITCHEN_D1"
+NO_GMM_H5_DIR="/ocean/projects/cis240052p/pbhowal/2d_Representation_Hierarchical_Policy_Learning/MimicGen_Uncertainty_Dataset/LOW_LEVEL_GROOT_TRAINING_DATASET/NO_GMM_DATASET/HAMMER_CLEANUP_D1"
+LOCAL_NO_GMM_H5_DIR="/jet/home/eswaramo/data/D2/NO_GMM_preds/HAMMER_CLEANUP_D1"
 REPO_DIR="/jet/home/eswaramo/code/Low_Level_and_Inference/2d_Representation_Hierarchical_Policy_Learning/Low_Level_and_Inference/"
 
 # --- resume from checkpoint ----------------------------------------------
-# The 2026-08-16 07:06 run (job 43679716) hit "OSError: disk quota exceeded"
-# and died. Its epoch_10.ckpt/latest.ckpt were corrupted by the failed write
-# (BadZipFile), but epoch_5.ckpt was written cleanly before that and verifies
-# as a valid checkpoint, so default to resuming from there. Override (e.g.
-# RESUME_CKPT= to force a fresh run, or a different path) at submission time:
+# Empty by default: a fresh goal-source variant should NOT resume from a
+# different variant's checkpoint. Override at submission time if resuming a
+# previous run OF THIS SAME VARIANT:
 #   RESUME_CKPT=/path/to/epoch_N.ckpt sbatch this_script.sh
-#   RESUME_CKPT= sbatch this_script.sh   # force training from scratch
-RESUME_CKPT="${RESUME_CKPT-}"
+RESUME_CKPT="${RESUME_CKPT:-}"
 
 # --- resolve NO_GMM h5 source: shared (read-only) or local (generate) ----
 shared_h5_count=0
@@ -131,7 +135,7 @@ else
     SCRATCH_ROOT="${TMPDIR:-/tmp}"
 fi
 SRC_DATA_DIR="${NO_GMM_H5_DIR}"
-DEST_DATA_DIR="${SCRATCH_ROOT}/Kitchen_D1_Approach2_${GOAL_SOURCE}_${NUM_DEMOS}demo"
+DEST_DATA_DIR="${SCRATCH_ROOT}/Hammer_Cleanup_D1_Approach2_${SOURCE_TAG}_${NUM_DEMOS}demo"
 
 # --- stage dataset (only NUM_DEMOS files) --------------------------------
 THREADS="${RSYNC_THREADS:-32}"
@@ -167,9 +171,9 @@ fi
 
 # --- inject extra goal keys into the staged, node-local copy -------------
 # Injecting here (not into NO_GMM_H5_DIR) because that may be Pratik's
-# shared read-only dataset. Only appends small (T,4,3) arrays, so redoing
+# shared read-only dataset. Only appends a small (T,4,3) array, so redoing
 # this every job (staging is ephemeral) is cheap.
-echo "[inject] ensuring extra goal keys exist in staged demos"
+echo "[inject] ensuring obs/goal_gripper_pts_awe exists in staged demos (from EXTRA_KEYPOINTS_awe-greedy-th0.35_nogrip)"
 (
     cd "${REPO_DIR}"
     USE_TF=0 \
@@ -197,7 +201,7 @@ else
     echo "[resume] RESUME_CKPT empty -> training from scratch"
 fi
 
-RUN_NAME="kitchen_D1_APPROACH2_${GOAL_SOURCE}_c1_${C1}_${NUM_DEMOS}demo_dinov2_DIT"
+RUN_NAME="hammercleanup_D1_APPROACH2_${SOURCE_TAG}_c1_${C1}_${NUM_DEMOS}demo_dinov2_DIT"
 
 # batch_size=128 matches the goal_gripper baseline. Measured scaling for this
 # architecture is ~0.24 GiB/sample over a ~2.75 GiB floor, i.e. ~34 GiB at 128
@@ -210,7 +214,7 @@ WANDB_DATA_DIR=/jet/home/eswaramo/logs/wandb_data \
 PYTHONNOUSERSITE=1 \
 pixi run python diffusion_policy/train.py \
     --config-name=train_flow_matching_dit_goal_gmm_workspace.yaml \
-    task=MimicGen_Tasks/kitchen_goal_gmm_aux \
+    task=MimicGen_Tasks/hammercleanup_D1_goal_gmm_aux \
     task.dataset.data_dir="${DEST_DATA_DIR}" \
     +task.dataset.goal_source=${GOAL_SOURCE} \
     policy.aux_gmm_loss_weight=${C1} \
