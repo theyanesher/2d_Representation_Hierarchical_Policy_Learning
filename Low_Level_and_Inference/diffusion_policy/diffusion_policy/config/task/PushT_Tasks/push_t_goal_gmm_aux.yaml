@@ -1,0 +1,98 @@
+# Approach 2 on the real-world PushT task.
+#
+# Direct counterpart of PushBlock_Tasks/pushblock_goal_gmm_aux.yaml /
+# PourBarley_Tasks/pour_barley_goal_gmm_aux.yaml, adapted to PushT's schema:
+# single agentview camera (no wrist) and native 2-D state/action (no
+# MimicGen 10-D / 6D-rotation form). The low-level policy is NOT given the
+# goal. Instead goal_gripper_pts supervises a GMM head that reads the same
+# 3D-grounded visual tokens the DiT cross-attends to, so the goal shapes the
+# visual representation rather than being an input:
+#
+#     total_loss = flow_loss + c1 * gmm_loss     (c1 = policy.aux_gmm_loss_weight)
+#
+# Key types are chosen for how LazyArticuBotDataset routes them:
+#   depth      -> process_depth (uint16 mm -> float metres), welford normalizer
+#                 (the policy reads RAW depth from batch["obs"], not nobs)
+#   intrinsic/extrinsic -> matrix_keys, identity normalizer
+#   goal_gripper        -> loaded raw, identity normalizer
+#
+# NOTE: identity_normalize_depth is deliberately NOT set. This policy calls
+# visual_encoder.encode_with_positions(nobs, batch["obs"]), so geometry already
+# comes from the raw obs dict in metres. Only the plain-encode() variants
+# need that flag.
+#
+# Data provenance: generate_non_gmm_goals_for_low_level.py --no_gmm --push_t
+#   (PushT_Task_h5) — single cam0 (agentview), 256x256, with depth/intrinsic/
+#   extrinsic/point_cloud unlike the older D1-era push_t_task_goal_gripper.yaml
+#   tree, so the aux GMM head has 3D-grounded tokens to read.
+#   state  = pusher xy (2)
+#   action = ABSOLUTE target xy for the pusher's P-controller (2), written
+#            verbatim to action/hybrid -> matches action_mode: hybrid_delta,
+#            which reads action/hybrid as-is (no 10-D / 6D assumption, same
+#            recipe as the RL Bench tasks). Do NOT use action_mode 'absolute'.
+name: push_t_goal_gmm_aux
+
+image_shape: &image_shape [3, 256, 256]
+depth_shape: &depth_shape [1, 256, 256]
+shape_meta: &shape_meta
+  obs:
+    cam0_image:            # agentview (only camera)
+      shape: *image_shape
+      type: rgb
+    cam0_depth:
+      shape: *depth_shape
+      type: depth
+    cam0_intrinsic:
+      shape: [3, 3]
+      type: intrinsic
+    cam0_extrinsic:
+      shape: [4, 4]
+      type: extrinsic
+    state:
+      shape: [2]
+      type: low_dim
+    # Auxiliary target only — never reaches the DiT.
+    goal_gripper_pts:
+      shape: [4, 3]
+      type: goal_gripper
+    # 4 gripper keypoints: extra grounded tokens + mixture anchors.
+    present_gripper_pts:
+      shape: [4, 3]
+      type: goal_gripper
+  action:
+    shape: [2]
+
+# Dead config. TrainDiffusionUnetHybridWorkspace never instantiates the
+# env_runner (the call is commented out at workspace lines 190-194 / 319-320),
+# and there is no simulator for this real-robot dataset. Kept only so the task
+# schema matches its PushBlock/PourBarley siblings.
+env_runner:
+  _target_: diffusion_policy.env_runner.articubot_image_runner.ArticubotImageRunner
+  n_train: 6
+  n_train_vis: 2
+  train_start_seed: 0
+  n_test: 50
+  n_test_vis: 4
+  legacy_test: True
+  test_start_seed: 100000
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  n_envs: null
+  observation_mode: image
+
+dataset:
+  _target_: diffusion_policy.dataset.lazy_articubot_dataset.LazyArticuBotDataset
+  shape_meta: *shape_meta
+  # Overridden by the launch script (task.dataset.data_dir=<staged scratch dir>).
+  data_dir: /jet/home/eswaramo/data/D2/PushT_Task_h5
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  action_mode: ${action_mode}
