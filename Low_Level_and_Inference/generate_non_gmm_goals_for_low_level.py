@@ -27,6 +27,7 @@ import argparse
 import numpy as np
 import h5py
 import torch
+from PIL import Image
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -128,6 +129,126 @@ def infer_multitask_high_level_model(inputs, goal_prediction_model, cat_embeddin
 
 
 ARTICULATED_OBJECT_ID = 2  # objectId in PyBullet segmask for the articulated object
+
+PUSH_BLOCK_NATIVE_HEIGHT = 252
+PUSH_BLOCK_NATIVE_WIDTH = 448
+PUSH_BLOCK_CROP_SIDE = 252
+PUSH_BLOCK_OUTPUT_SIZE = 256
+PUSH_BLOCK_FRONT_CROP_LEFT = 129
+PUSH_BLOCK_WRIST_CROP_LEFT = 170
+PUSH_BLOCK_WRIST_MAX_DEPTH_M = 0.6
+
+# Real-robot Franka presets. Both tasks come off the same rig (identical native
+# resolution and intrinsics), so they share the crop/resize machinery and differ
+# only in where the square crop sits and how far depth is trusted.
+#
+# crop_left was chosen per camera by projecting gripper_pcd + goal_gripper_pcd
+# into each view and picking the window that retains the most in-frame
+# keypoints; max_depth_m zeroes (does NOT saturate) anything beyond the
+# workspace so a clipped pixel reads as invalid rather than as a real surface.
+CAMERA_PRESETS = {
+    'push_block': {
+        'native_hw': (252, 448),
+        'crop_side': 252,
+        'output_size': 256,
+        # agentview keypoints span u in [134.7, 365.8]; wrist centred on them.
+        'crop_left': {'agentview': 129, 'wrist': 170},
+        # Wrist sees only the near table here (measured p99.9 = 0.607 m).
+        'max_depth_m': {'wrist': 0.6},
+    },
+    'pour_barley': {
+        'native_hw': (252, 448),
+        'crop_side': 252,
+        'output_size': 256,
+        # Same offsets as push_block -- same rig, and measured to be the better
+        # choice here too. Re-centring on the keypoint envelope (179/145) was
+        # tried and rejected: over 829 sampled frames it dropped agentview valid
+        # patch anchors 85.6% -> 64.6%, because the extra right-hand strip is
+        # dark background the depth sensor gets no returns from. It bought only
+        # keypoint reprojection, which is a soft proxy -- goal/present gripper
+        # points are fed as raw 3D world points and never sampled from the image.
+        # Wrist was a dead heat (52.0% either way).
+        'crop_left': {'agentview': 129, 'wrist': 170},
+        # Workspace max z is 3 m for this task, and both streams carry a ~10 m
+        # "no return" sentinel that must be zeroed before unprojection.
+        'max_depth_m': {'agentview': 3.0, 'wrist': 3.0},
+    },
+}
+
+
+def transform_realrobot_camera(rgb, depth_m, intrinsic, camera_name, preset_name):
+    """Apply the validated crop/resize for a real-robot preset and update intrinsics."""
+    preset = CAMERA_PRESETS[preset_name]
+    native_h, native_w = preset['native_hw']
+    crop_side = preset['crop_side']
+    output_size = preset['output_size']
+
+    rgb = np.asarray(rgb)
+    depth = np.squeeze(depth_m).astype(np.float32)
+    intrinsic = np.asarray(intrinsic, dtype=np.float32)
+
+    expected_rgb_shape = (native_h, native_w, 3)
+    expected_depth_shape = (native_h, native_w)
+    if rgb.shape != expected_rgb_shape:
+        raise ValueError(
+            f"Expected {preset_name} {camera_name} RGB shape {expected_rgb_shape}, "
+            f"got {rgb.shape}"
+        )
+    if depth.shape != expected_depth_shape:
+        raise ValueError(
+            f"Expected {preset_name} {camera_name} depth shape {expected_depth_shape}, "
+            f"got {depth.shape}"
+        )
+    if intrinsic.shape != (3, 3):
+        raise ValueError(
+            f"Expected {preset_name} {camera_name} intrinsics shape (3, 3), "
+            f"got {intrinsic.shape}"
+        )
+    if camera_name not in preset['crop_left']:
+        raise ValueError(f"Unknown {preset_name} camera: {camera_name}")
+
+    crop_left = preset['crop_left'][camera_name]
+    max_depth = preset['max_depth_m'].get(camera_name)
+    if max_depth is not None:
+        depth = np.where(depth > max_depth, 0.0, depth)
+
+    depth = np.where(np.isfinite(depth) & (depth > 0), depth, 0.0).astype(np.float32)
+    crop_right = crop_left + crop_side
+    rgb_crop = rgb[:, crop_left:crop_right]
+    depth_crop = depth[:, crop_left:crop_right]
+
+    resampling = getattr(Image, 'Resampling', Image)
+    rgb_out = np.asarray(
+        Image.fromarray(rgb_crop.astype(np.uint8)).resize(
+            (output_size, output_size),
+            resampling.BILINEAR,
+        ),
+        dtype=np.uint8,
+    )
+    # NEAREST for depth: bilinear would interpolate across the zero/valid
+    # boundary and across depth discontinuities, inventing geometry exactly
+    # where the encoder samples its patch anchors.
+    depth_out = np.asarray(
+        Image.fromarray(depth_crop).resize(
+            (output_size, output_size),
+            resampling.NEAREST,
+        ),
+        dtype=np.float32,
+    )
+
+    scale = output_size / crop_side
+    image_transform = np.array([
+        [scale, 0.0, -scale * crop_left],
+        [0.0, scale, 0.0],
+        [0.0, 0.0, 1.0],
+    ], dtype=np.float32)
+    intrinsic_out = image_transform @ intrinsic
+    return rgb_out, depth_out, intrinsic_out.astype(np.float32)
+
+
+def transform_push_block_camera(rgb, depth_m, intrinsic, camera_name):
+    """Backwards-compatible wrapper for the PushBlock preset."""
+    return transform_realrobot_camera(rgb, depth_m, intrinsic, camera_name, 'push_block')
 
 
 def depth_to_pointcloud(depth_mm, segmask, K, extrinsic):
@@ -355,6 +476,7 @@ def process_demo_dir(demo_dir, goal_policy, cat_embedding, args):
         d = np.squeeze(d).astype(np.float32)
         return np.clip(d * 1000.0, 0, 65535).astype(np.uint16)
 
+    preset_name = 'push_block' if args.push_block else ('pour_barley' if args.pour_barley else None)
     for t, fname in enumerate(npz_files):
         data = np.load(os.path.join(demo_dir, fname))
         merged_pcd  = data['point_cloud'][0]      # (N, 3)
@@ -378,14 +500,37 @@ def process_demo_dir(demo_dir, goal_policy, cat_embedding, args):
             gmm_all_goals[t]   = gmm_components.squeeze(0).cpu().numpy()
             gmm_all_weights[t] = weights.squeeze(0).cpu().numpy()
 
-        obs_bufs['cam0_depth'].append(_depth_to_mm(data['depth_agentview'][0]))
+        if preset_name is not None:
+            cam0_image, cam0_depth_m, cam0_intrinsic = transform_realrobot_camera(
+                data['rgb_agentview'][0],
+                data['depth_agentview'][0],
+                data['agentview_intrinsics'][0],
+                'agentview',
+                preset_name,
+            )
+            cam1_image, cam1_depth_m, cam1_intrinsic = transform_realrobot_camera(
+                data['rgb_wrist'][0],
+                data['depth_wrist'][0],
+                data['wrist_intrinsics'][0],
+                'wrist',
+                preset_name,
+            )
+        else:
+            cam0_image = data['rgb_agentview'][0]
+            cam0_depth_m = data['depth_agentview'][0]
+            cam0_intrinsic = data['agentview_intrinsics'][0].astype(np.float32)
+            cam1_image = data['rgb_wrist'][0]
+            cam1_depth_m = data['depth_wrist'][0]
+            cam1_intrinsic = data['wrist_intrinsics'][0].astype(np.float32)
+
+        obs_bufs['cam0_depth'].append(_depth_to_mm(cam0_depth_m))
         obs_bufs['cam0_extrinsic'].append(data['agentview_extrinsics'][0].astype(np.float32))
-        obs_bufs['cam0_image'].append(data['rgb_agentview'][0])
-        obs_bufs['cam0_intrinsic'].append(data['agentview_intrinsics'][0].astype(np.float32))
-        obs_bufs['cam1_depth'].append(_depth_to_mm(data['depth_wrist'][0]))
+        obs_bufs['cam0_image'].append(cam0_image)
+        obs_bufs['cam0_intrinsic'].append(cam0_intrinsic)
+        obs_bufs['cam1_depth'].append(_depth_to_mm(cam1_depth_m))
         obs_bufs['cam1_extrinsic'].append(data['wrist_extrinsics'][0].astype(np.float32))
-        obs_bufs['cam1_image'].append(data['rgb_wrist'][0])
-        obs_bufs['cam1_intrinsic'].append(data['wrist_intrinsics'][0].astype(np.float32))
+        obs_bufs['cam1_image'].append(cam1_image)
+        obs_bufs['cam1_intrinsic'].append(cam1_intrinsic)
         obs_bufs['goal_gripper_pts'].append(gt_goal.astype(np.float32))
         obs_bufs['point_cloud'].append(merged_pcd.astype(np.float32))
         obs_bufs['present_gripper_pts'].append(gripper_pcd.astype(np.float32))
@@ -432,6 +577,24 @@ def process_demo_dir(demo_dir, goal_policy, cat_embedding, args):
         f.create_dataset('_physical/cam0_intrinsic', data=obs_bufs['cam0_intrinsic'][0])
         f.create_dataset('_physical/cam1_extrinsic', data=obs_bufs['cam1_extrinsic'][0])
         f.create_dataset('_physical/cam1_intrinsic', data=obs_bufs['cam1_intrinsic'][0])
+
+        # Provenance so an inference script can reproduce the crop/resize
+        # without hardcoding it. Read these instead of copying the numbers.
+        if preset_name is not None:
+            preset = CAMERA_PRESETS[preset_name]
+            side = preset['crop_side']
+            f.attrs['preprocessing_mode'] = preset_name
+            f.attrs['image_output_size'] = preset['output_size']
+            f.attrs['native_hw'] = preset['native_hw']
+            for cam_idx, cam_key in ((0, 'agentview'), (1, 'wrist')):
+                left = preset['crop_left'][cam_key]
+                f.attrs[f'cam{cam_idx}_crop_xyxy'] = (left, 0, left + side, side)
+                f.attrs[f'cam{cam_idx}_max_depth_m'] = float(
+                    preset['max_depth_m'].get(cam_key, np.inf)
+                )
+            # Retained for backwards compatibility with push_block readers.
+            if 'wrist' in preset['max_depth_m']:
+                f.attrs['wrist_depth_max_m'] = preset['max_depth_m']['wrist']
 
     if args.no_gmm:
         return None, None, None
@@ -781,6 +944,8 @@ if __name__ == '__main__':
     parser.add_argument('--no_gmm_output_dir',     type=str, default=None, help='Output directory for h5 files when --no_gmm is used (required with --no_gmm)')
     parser.add_argument('--rl_bench',              action='store_true',    help='RL Bench npz variant: 4 cameras (front/left_shoulder/right_shoulder/wrist) + native 8-D state/action. Requires --no_gmm.')
     parser.add_argument('--push_t',                action='store_true',    help='PushT npz variant: single agentview camera, native 2-D state/action (absolute target xy). Depth is all zeros and there are no camera intrinsics/extrinsics, so none are written. Requires --no_gmm.')
+    parser.add_argument('--push_block',            action='store_true',    help='PushBlock preprocessing: crop front x=129:381 and wrist x=170:422, resize both to 256x256, update intrinsics, and zero wrist depth above 0.6 m. Requires --no_gmm.')
+    parser.add_argument('--pour_barley',           action='store_true',    help='PourBarley preprocessing: same crops as --push_block (front x=129:381, wrist x=170:422) resized to 256x256 with updated intrinsics, but depth zeroed beyond 3.0 m on BOTH cameras instead of 0.6 m on the wrist. Requires --no_gmm.')
     parser.add_argument('--inject_extra_goals',    action='store_true',    help='Backfill obs/goal_gripper_pts_{rdp,rdp_gripper,random,fixed_interval} into existing h5 files in --dataset_dir from the --extra_goals_dir npz tree, then exit. Idempotent.')
     parser.add_argument('--extra_goals_dir',       type=str, default=None, help='EXTRA_KEYPOINTS npz tree (demo_N/t.npz with goal_gripper_pcd_<source> keys). Required with --inject_extra_goals.')
     args = parser.parse_args()
@@ -799,8 +964,12 @@ if __name__ == '__main__':
         parser.error("--no_gmm requires --no_gmm_output_dir")
     if args.push_t and not args.no_gmm:
         parser.error("--push_t requires --no_gmm")
-    if args.push_t and args.rl_bench:
-        parser.error("--push_t and --rl_bench are mutually exclusive")
+    if args.push_block and not args.no_gmm:
+        parser.error("--push_block requires --no_gmm")
+    if args.pour_barley and not args.no_gmm:
+        parser.error("--pour_barley requires --no_gmm")
+    if sum((args.push_t, args.push_block, args.pour_barley, args.rl_bench)) > 1:
+        parser.error("--push_t, --push_block, --pour_barley, and --rl_bench are mutually exclusive")
     if args.rl_bench and not args.no_gmm:
         parser.error("--rl_bench is an RL Bench variant of the --no_gmm consolidation; pass --no_gmm too")
 
@@ -855,6 +1024,10 @@ if __name__ == '__main__':
             if not args.no_gmm:
                 print(f"  {demo_name}: gmm_pred_goal {goals.shape}, "
                       f"gmm_all_goals {all_goals.shape}, gmm_all_weights {all_weights.shape}")
+            elif args.push_block:
+                print(f"  {demo_name}: consolidated to h5 (push_block, no GMM)")
+            elif args.pour_barley:
+                print(f"  {demo_name}: consolidated to h5 (pour_barley, no GMM)")
             else:
                 print(f"  {demo_name}: consolidated to h5 (no GMM)")
     else:
