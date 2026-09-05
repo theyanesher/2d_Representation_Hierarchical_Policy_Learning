@@ -52,7 +52,7 @@ policy:
   add_pos_embed: False
   max_seq_len: 64
 
-  # ---- auxiliary goal-GMM head ----
+  # ---- auxiliary goal head ----
   # null => control arm B (no auxiliary loss, identical architecture).
   # At init the head is zero-init so mu_n == anchor_n, putting the NLL around
   # 5-7 per rung (~30 across the ten terms) against a flow-matching MSE of ~1;
@@ -61,6 +61,11 @@ policy:
   aux_gmm_hidden_dim: 512
   aux_goal_key: goal_gripper_pts
   gripper_key: present_gripper_pts
+  # "gmm" (mixture NLL, default) or "regression" (single pooled subgoal, MSE).
+  aux_head_type: gmm
+  # only read when aux_head_type == regression: "absolute" (world-frame goal
+  # keypoints) or "relative_to_gripper" (goal - present_gripper_pts).
+  aux_regression_frame: absolute
 
   # ---- grounded encoder / RoPE4D trunk ----
   patch_size: 14
