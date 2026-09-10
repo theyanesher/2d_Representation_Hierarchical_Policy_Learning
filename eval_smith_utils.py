@@ -31,23 +31,63 @@ import robosuite.utils.transform_utils as T
 # _ROT6D_TO_MAT = RotationTransformer("rotation_6d", "matrix")
 
 
+def absolute_action_to_hybrid_delta(action: np.ndarray, cur_state: np.ndarray) -> np.ndarray:
+    """
+    Convert an action_mode='absolute' policy output into an equivalent
+    hybrid_delta 10-vector, by inverting LazyArticuBotDataset's
+    _build_absolute_action_target formula (lazy_articubot_dataset.py):
+        abs_xyz  = state_xyz + delta_xyz
+        abs_R    = state_R @ delta_R      (delta_R applied in state/gripper frame)
+        abs_grip = state_grip + delta_grip
+    so the result can be fed straight into policy_action_to_env_action's
+    existing (unmodified) hybrid_delta -> env-action conversion.
+
+    Args:
+        action:    (10,) absolute policy output [xyz(3), rot6d(6), gripper(1)]
+        cur_state: (10,) obs["state"] at the current step, same layout
+    Returns:
+        (10,) synthetic hybrid_delta vector
+    """
+    action = np.asarray(action, dtype=np.float64)
+    cur_state = np.asarray(cur_state, dtype=np.float64)
+
+    delta_xyz = action[:3] - cur_state[:3]
+
+    R_state = rotation_transfer_6D_to_matrix(cur_state[3:9])
+    R_target = rotation_transfer_6D_to_matrix(action[3:9])
+    R_delta = R_state.T @ R_target
+    delta_rot6d = rotation_transfer_matrix_to_6D(R_delta)
+
+    delta_grip = action[9] - cur_state[9]
+
+    return np.concatenate([delta_xyz, delta_rot6d, [delta_grip]])
+
+
 def policy_action_to_env_action(
     action: np.ndarray,
     cur_eef_quat: np.ndarray,
     max_dpos: float,
     max_drot: float,
+    action_mode: str = "hybrid_delta",
+    cur_state: np.ndarray = None,
 ) -> np.ndarray:
     """
     Convert a single policy action to env action.
 
     Args:
-        action: (10,) unnormalized policy output:
+        action: (10,) unnormalized policy output. For action_mode="hybrid_delta" (default):
             action[:3]   = delta position (world)
             action[3:9]  = delta rotation in 6D, **gripper frame** (next_R = cur_R @ delta_R_gripper)
             action[9]    = gripper (will be clipped to [-1, 1])
+            For action_mode="absolute": action is [abs_xyz(3), abs_rot6d(6), abs_gripper(1)]
+            (world frame) and `cur_state` (obs["state"], same 10-dim layout) MUST be
+            provided -- it is converted to an equivalent hybrid_delta vector via
+            absolute_action_to_hybrid_delta() before the logic below runs unchanged.
         cur_eef_quat: (4,) current eef quaternion (wxyz or xyzw as per robosuite)
         max_dpos: scalar, controller output_max[0] for position
         max_drot: scalar, controller output_max[3] for rotation
+        action_mode: "hybrid_delta" (default) or "absolute"
+        cur_state: (10,) obs["state"], required iff action_mode="absolute"
 
     Returns:
         env_action: (7,) normalized for robomimic:
@@ -55,6 +95,13 @@ def policy_action_to_env_action(
             env_action[3:6]  = delta rotation axis-angle in [-1, 1], **world frame**
             env_action[6]    = gripper in [-1, 1]
     """
+    if action_mode == "absolute":
+        if cur_state is None:
+            raise ValueError("action_mode='absolute' requires cur_state (obs['state'])")
+        action = absolute_action_to_hybrid_delta(action, cur_state)
+    elif action_mode != "hybrid_delta":
+        raise ValueError(f"Unsupported action_mode: {action_mode!r}")
+
     delta_pos = np.array(action[:3], dtype=np.float64)
     delta_rot_6d_gripper = np.array(action[3:9], dtype=np.float64)
     # gripper = float(action[9]) / 0.01 ### this is the panda gripper speed. This is the initial incorrect training that we forget to flip the gripper sign for square d2. 
@@ -81,6 +128,8 @@ def policy_action_batch_to_env_action(
     cur_eef_quats: np.ndarray,
     max_dpos: float,
     max_drot: float,
+    action_mode: str = "hybrid_delta",
+    cur_states: np.ndarray = None,
 ) -> np.ndarray:
     """
     Convert a batch of policy actions to env actions.
@@ -89,12 +138,18 @@ def policy_action_batch_to_env_action(
         action_batch: (B, T, 10) or (B, 10) - we use the last step along T
         cur_eef_quats: (B, 4) current eef quaternions
         max_dpos, max_drot: scalars
+        action_mode: "hybrid_delta" (default) or "absolute"
+        cur_states: (B, 10) obs["state"] per env, required iff action_mode="absolute".
+            The same real (pre-chunk) state is used to convert every step t within a
+            chunk, matching the existing approximation already used for cur_eef_quats
+            (one real observation converts the whole predicted chunk).
 
     Returns:
         env_actions: (B, 7) if input was (B, 10); else (B, T, 7)
     """
+    if action_mode == "absolute" and cur_states is None:
+        raise ValueError("action_mode='absolute' requires cur_states (obs['state'] per env)")
 
-    
     B, T, _ = action_batch.shape
     out = np.zeros((B, T, 7), dtype=np.float32)
     for i in range(B):
@@ -104,6 +159,8 @@ def policy_action_batch_to_env_action(
                 cur_eef_quats[i],
                 max_dpos,
                 max_drot,
+                action_mode=action_mode,
+                cur_state=(cur_states[i] if action_mode == "absolute" else None),
             )
    
     return out

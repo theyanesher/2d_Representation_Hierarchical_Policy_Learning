@@ -33,17 +33,27 @@ error anywhere to warn you. Nor can they simply be summed: position deltas add
 only approximately, and rotations compose multiplicatively (R_{k-1}...R_1 R_0),
 so summing axis-angles is wrong whenever the wrist changes axis mid-interval.
 
-So each arm's actions are RE-DERIVED from that arm's own strided eef poses:
+Nor may they be replaced by the ACHIEVED delta eef_pos[j+1] - eef_pos[j]
+(action_mode=achieved, the original implementation). OSC_POSE here is a
+critically-damped tracker (kp=150, no interpolator): a goal held for one
+control period T is only reached to 1-(1+wT)e^{-wT}, w=sqrt(kp) -- ~13% at
+20 Hz, ~1% at 100 Hz -- and the policy in the source data commands
+accordingly (measured achieved/commanded = 0.23 at 20 Hz). Labelling the
+achieved delta as the command under-commands by ~4x at 20 Hz and ~15x at
+100 Hz; policies trained that way crawl and score ~0 (5 Hz survives at
+~0.2 because it is ~1.3x). Same rate, same recipe, native data -> 0.59.
 
-    delta_pos   = eef_pos[j+1] - eef_pos[j]                  (world frame)
-    delta_local = R_j^T @ R_{j+1}                            (gripper frame)
+So each arm's actions are obtained by INVERTING THE CONTROLLER (action_mode=
+invert, the default): reset the sim to the arm's true state_j, and find the
+OSC command at that arm's control_freq which, held for one period, lands on
+the arm's true pose_{j+1}. Two probes fit the local affine response (which
+includes velocity carry-over), one Newton step refines it, one more step
+verifies it; the residual is stored per demo. Exact per step, no calibration
+constants, valid at any rate, and for the 20 Hz arm it recovers the source
+commands (validate_arm_actions.py checks this and replays every arm).
 
-which is exact for any k, needs no small-angle assumption, and uses ACHIEVED
-poses rather than commanded ones (OSC never fully reaches its setpoint, so the
-sum of commands drifts from the real displacement).
-
-They are written back normalised to the [-1, 1] OSC convention, because
-convert_dataset.py re-expands them by max_dpos / max_drot (lines 178-189). That
+Actions are written normalised to the [-1, 1] OSC convention, because
+convert_dataset.py re-expands them by max_dpos / max_drot (lines 198-217). That
 means stage 3 needs no modification at all -- it just reads each arm's hdf5.
 
 KEYPOINTS
@@ -110,10 +120,10 @@ def stage_resimulate(src, base_hdf5, base_freq, n_demos, pool_size, python_bin):
 # Stage 2 -- stride to each arm, re-deriving actions
 # --------------------------------------------------------------------------- #
 def _actions_from_poses(eef_pos, eef_quat, gripper_cmd, max_dpos, max_drot):
-    """Exact per-arm actions from that arm's achieved poses.
+    """LEGACY (action_mode=achieved): achieved per-step deltas labelled as commands.
 
-    Returns (N, 7) normalised to [-1, 1], matching what convert_dataset.py
-    expects to re-expand by max_dpos / max_drot.
+    Kept only for ablation / comparison. Under-commands by the controller's
+    tracking ratio (see module docstring) -- do not train on this.
     """
     from robosuite.utils import transform_utils as T
 
@@ -123,20 +133,209 @@ def _actions_from_poses(eef_pos, eef_quat, gripper_cmd, max_dpos, max_drot):
     for j in range(n - 1):
         dpos = np.asarray(eef_pos[j + 1], dtype=np.float64) - np.asarray(
             eef_pos[j], dtype=np.float64)
-        # World-frame rotation taking pose j to pose j+1, as convert_dataset
-        # reconstructs it: waypoint_rot = delta_rot @ cur_rot.
         delta_world = rots[j + 1] @ rots[j].T
         daa = T.quat2axisangle(T.mat2quat(delta_world))
         out[j, :3] = np.clip(dpos / max_dpos, -1.0, 1.0)
         out[j, 3:6] = np.clip(daa / max_drot, -1.0, 1.0)
         out[j, 6] = gripper_cmd[j]
-    # Last row has no successor; hold the final gripper command, zero motion.
     if n:
         out[-1, 6] = gripper_cmd[-1]
     return out
 
 
-def stage_stride(base_hdf5, out_dir, base_freq, rates, task, force=False):
+# ---- controller inversion (action_mode=invert) ------------------------------
+PROBE_EPS = 0.2     # probe command in normalised units; well inside [-1, 1]
+ROT_TINY = 1e-6     # OSC_POSE.set_goal keeps a STALE goal_ori on an exactly-zero
+                    # rotation delta (math.isclose check), so never send exact 0.
+GAIN_FLOOR = 1e-3   # below this the axis is not responding (limit/singularity)
+
+_STRIDE_ENV = None
+_STRIDE_LIMITS = None
+
+
+def _init_stride_worker(env_meta, rate):
+    global _STRIDE_ENV, _STRIDE_LIMITS
+    from resimulate_at_base_rate import _build_env
+    _STRIDE_ENV = _build_env(env_meta, rate)
+    ctrl = _STRIDE_ENV.robots[0].controller
+    _STRIDE_LIMITS = (float(ctrl.output_max[0]), float(ctrl.output_max[3]))
+
+
+def _world_aa(R_to, R_from):
+    """Axis-angle of the world-frame rotation taking R_from onto R_to."""
+    from robosuite.utils import transform_utils as T
+    q = T.mat2quat(R_to @ R_from.T)
+    if q[3] < 0:                      # canonical hemisphere, else angle -> 2pi - theta
+        q = -q
+    return T.quat2axisangle(q)
+
+
+def _nonzero_rot(c):
+    c = np.array(c, dtype=np.float64)
+    c[c == 0.0] = ROT_TINY
+    return c
+
+
+def _probe(env, state, cmd6, grip, R_ref):
+    """Reset to `state`, hold `cmd6` (normalised pos+rot) for one control period.
+
+    Returns the achieved pose as a 6-vector: world-frame position (m) and the
+    world-frame axis-angle (rad) taking R_ref onto the achieved orientation.
+    """
+    from robosuite.utils import transform_utils as T
+    env.sim.set_state_from_flattened(np.asarray(state))
+    env.sim.forward()
+    cmd6 = np.asarray(cmd6, dtype=np.float64)
+    post, _, _, _ = env.step(np.concatenate([cmd6[:3], _nonzero_rot(cmd6[3:6]), [grip]]))
+    p = np.asarray(post["robot0_eef_pos"], dtype=np.float64)
+    R = T.quat2mat(np.asarray(post["robot0_eef_quat"], dtype=np.float64))
+    return np.concatenate([p, _world_aa(R, R_ref)])
+
+
+def _solve(J, r, lo, hi):
+    """Box-constrained least squares for J dc = r with lo <= dc <= hi.
+
+    The controller clips commands to [-1, 1] itself, so the physical response
+    is affine only inside the box; an unconstrained solve that is then clipped
+    lands somewhere else. The source data proves a feasible in-box command
+    exists for every step (it produced the pose), so the bounded solve finds
+    it. Robust to a dead axis (joint limit / singularity) via lsq_linear.
+    """
+    from scipy.optimize import lsq_linear
+    res = lsq_linear(J, r, bounds=(lo, hi), lsmr_tol="auto", max_iter=200)
+    return res.x
+
+
+MAX_ITERS = 6       # 20/100 Hz converge on the prior; 5 Hz (4 waypoints/step) needs a few
+TOL_POS = 1e-4      # m   -- converged when the verified pose is within 0.1 mm ...
+TOL_ROT = 1e-3      # rad -- ... and 0.06 deg of the arm's true next pose
+
+
+def _pose_err(y_a, y_b, rot_weight=0.1):
+    """Scalar pose error: metres + (rad * 0.1 m/rad lever) so rot counts comparably."""
+    return np.linalg.norm(y_a[:3] - y_b[:3]) + rot_weight * np.linalg.norm(y_a[3:] - y_b[3:])
+
+
+def _jacobian(env, s, c, g, R_ref, y_c):
+    """Finite-difference response Jacobian around command c, one probe per DOF.
+
+    Probing all DOFs at once lets the rotation transient swamp the ~1 mm
+    position response at 20 Hz (it even flips the fitted sign), hence per-DOF.
+    Probes step away from the box edge so they stay inside [-1, 1].
+    """
+    J = np.zeros((6, 6))
+    for i in range(6):
+        h = PROBE_EPS if c[i] + PROBE_EPS <= 1.0 else -PROBE_EPS
+        e = np.zeros(6); e[i] = h
+        J[:, i] = (_probe(env, s, c + e, g, R_ref) - y_c) / h
+    return J
+
+
+def _invert_demo(task):
+    """Pool worker: for every strided step find the command that reaches the next pose.
+
+    y(c) = pose reached by holding the 6-D normalised command c for one control
+    period from the arm's true state_j; the target is the arm's true pose_{j+1}.
+    Gauss-Newton with a finite-difference Jacobian, box-constrained to [-1, 1]:
+
+      * start from the command the 500 Hz base actually issued at that tick
+        (`prior`). For the 20 Hz arm that IS the source command, so almost every
+        step converges on the first probe; for other rates it is the residual
+        toward the demonstrator's waypoint -- the right intent, wrong magnitude.
+        Starting from the demonstrator's command also resolves the non-uniqueness
+        of contact-phase steps (pressing harder into a surface does not change the
+        pose) toward what the demonstrator did, instead of a minimum-norm push.
+      * re-estimate J at the current iterate (a linearisation around c = 0 is
+        useless from rest: joint stiction makes the small-probe response tiny,
+        the gains come out far too small and the solve saturates) and accept
+        only improving steps (half step once, then stop) so contact
+        nonlinearities cannot make it diverge.
+      * commands the controller physically cannot execute in one period remain
+        saturated, exactly as in the source data.
+
+    Returns (ep, actions (N,7) float32, diag dict, error_or_None).
+    """
+    ep, model_xml, states, eef_pos, eef_quat, grip_cmd, prior = task
+    env = _STRIDE_ENV
+    try:
+        from resimulate_at_base_rate import _reset_to
+        from robosuite.utils import transform_utils as T
+
+        _reset_to(env, model_xml, states[0])
+        n = len(states)
+        out = np.zeros((n, 7), dtype=np.float32)
+        m = max(n - 1, 0)
+        err_pos = np.zeros(m); err_rot = np.zeros(m)
+        sat = np.zeros(m, dtype=bool); iters = np.zeros(m, dtype=np.int8)
+        rots = [T.quat2mat(np.asarray(q, dtype=np.float64)) for q in eef_quat]
+        one = np.ones(6)
+
+        for j in range(n - 1):
+            Rj = rots[j]
+            s = states[j]
+            g = float(grip_cmd[j])
+            y_t = np.concatenate([np.asarray(eef_pos[j + 1], dtype=np.float64),
+                                  _world_aa(rots[j + 1], Rj)])
+
+            c = np.clip(np.asarray(prior[j], dtype=np.float64), -1.0, 1.0)
+            y_c = _probe(env, s, c, g, Rj)
+            for it in range(MAX_ITERS):
+                r = y_t - y_c
+                if np.linalg.norm(r[:3]) < TOL_POS and np.linalg.norm(r[3:]) < TOL_ROT:
+                    break
+                J = _jacobian(env, s, c, g, Rj, y_c)
+                dc = _solve(J, r, -one - c, one - c)
+                improved = False
+                for scale in (1.0, 0.5):
+                    c_new = np.clip(c + scale * dc, -1.0, 1.0)
+                    y_new = _probe(env, s, c_new, g, Rj)
+                    if _pose_err(y_new, y_t) < _pose_err(y_c, y_t):
+                        c, y_c, improved = c_new, y_new, True
+                        break
+                iters[j] = it + 1
+                if not improved:
+                    break
+
+            err_pos[j] = np.linalg.norm(y_c[:3] - y_t[:3])
+            err_rot[j] = np.linalg.norm(_world_aa(
+                T.quat2mat(T.axisangle2quat(y_c[3:])) @ Rj, rots[j + 1]))
+            sat[j] = bool(np.any(np.abs(c) >= 1.0 - 1e-6))
+            out[j, :6] = c
+            out[j, 6] = g
+        if n:
+            out[-1, 6] = grip_cmd[-1]
+        return ep, out, dict(err_pos=err_pos, err_rot=err_rot, sat=sat, iters=iters), None
+    except Exception as exc:                       # keep one bad demo from killing the pool
+        return ep, None, None, "{}: {}".format(type(exc).__name__, exc)
+
+
+def _invert_arm(env_meta, rate, payload, pool_size):
+    import multiprocessing as mp
+    tasks = [(ep, xml, st, pos, quat, grip, prior)
+             for (ep, xml, st, pos, quat, grip, prior, _, _) in payload]
+    results, errors = {}, []
+    t0 = time.time()
+    ctx = mp.get_context("spawn")                  # MuJoCo does not survive fork
+    with ctx.Pool(pool_size, initializer=_init_stride_worker,
+                  initargs=(env_meta, rate)) as pool:
+        for i, (ep, acts, diag, err) in enumerate(pool.imap_unordered(_invert_demo, tasks), 1):
+            if err is not None:
+                errors.append((ep, err))
+            else:
+                results[ep] = (acts, diag)
+            if i % 10 == 0 or i == len(tasks):
+                print("[2/3]     {:>4} Hz invert {}/{}  {:.1f} demo/s".format(
+                    rate, i, len(tasks), i / max(time.time() - t0, 1e-9)), flush=True)
+    if errors:
+        raise SystemExit("[ERROR] inversion failed for {} demo(s) at {} Hz: {}".format(
+            len(errors), rate, errors[:3]))
+    return results
+
+
+def stage_stride(base_hdf5, out_dir, base_freq, rates, task, pool_size=16,
+                 action_mode="invert", force=False):
+    if action_mode not in ("invert", "achieved"):
+        raise SystemExit("[ERROR] unknown action_mode {!r}".format(action_mode))
     with h5py.File(base_hdf5, "r") as fin:
         base_meta = json.loads(fin["data"].attrs["env_args"])
         demos = sorted(fin["data"].keys(), key=lambda s: int(s[5:]))
@@ -148,6 +347,7 @@ def stage_stride(base_hdf5, out_dir, base_freq, rates, task, force=False):
         probe = _build_env(base_meta, base_freq)
         ctrl = probe.robots[0].controller
         max_dpos, max_drot = float(ctrl.output_max[0]), float(ctrl.output_max[3])
+        probe.close()
 
         made = []
         for rate in rates:
@@ -165,43 +365,85 @@ def stage_stride(base_hdf5, out_dir, base_freq, rates, task, force=False):
             arm_meta = json.loads(json.dumps(base_meta))
             arm_meta["env_kwargs"]["control_freq"] = int(rate)
 
+            # Strided payload per demo (states are small; images come later).
+            payload = []
+            for ep in demos:
+                src = fin["data/{}".format(ep)]
+                n_base = src["states"].shape[0]
+                idx = np.arange(0, n_base, k)
+                # Base row t holds the command that PRODUCED state t (row 0 is an
+                # all-zero placeholder before any tick). The gripper command in
+                # force during arm interval j is therefore row j*k + 1, not j*k --
+                # the latter is the last tick of the previous interval, which
+                # lags every gripper toggle by one step and is 0 at j = 0.
+                cmd_rows = np.minimum(idx + 1, n_base - 1)
+                base_cmds = src["actions"][()][cmd_rows]
+                payload.append((ep, src.attrs["model_file"],
+                                src["states"][()][idx],
+                                src["obs/robot0_eef_pos"][()][idx],
+                                src["obs/robot0_eef_quat"][()][idx],
+                                base_cmds[:, -1],           # gripper command in force
+                                base_cmds[:, :6],           # arm command issued at that tick (prior)
+                                src["rewards"][()][idx],
+                                src["obs/robot0_gripper_qpos"][()][idx]))
+
+            if action_mode == "invert":
+                print("[2/3]   {:>4} Hz (k={:<3}) inverting controller, {} demos, {} workers"
+                      .format(rate, k, len(demos), pool_size), flush=True)
+                results = _invert_arm(base_meta, rate, payload, pool_size)
+            else:
+                results = {ep: (_actions_from_poses(pos, quat, grip, max_dpos, max_drot), None)
+                           for (ep, _, _, pos, quat, grip, _, _, _) in payload}
+
             tmp = arm_path + ".partial"
             total = 0
+            all_err_pos, all_err_rot, all_sat = [], [], []
             with h5py.File(tmp, "w") as fout:
                 g = fout.create_group("data")
                 g.attrs["env_args"] = json.dumps(arm_meta)
-                for ep in demos:
-                    src = fin["data/{}".format(ep)]
-                    idx = np.arange(0, src["states"].shape[0], k)
-                    pos = src["obs/robot0_eef_pos"][()][idx]
-                    quat = src["obs/robot0_eef_quat"][()][idx]
-                    grip_cmd = src["actions"][()][idx][:, -1]
-
+                g.attrs["action_mode"] = action_mode
+                for (ep, xml, st, pos, quat, grip, _prior, rew, gq) in payload:
+                    acts, diag = results[ep]
                     d = g.create_group(ep)
-                    d.create_dataset("states", data=src["states"][()][idx],
-                                     compression="gzip")
-                    d.create_dataset("actions",
-                                     data=_actions_from_poses(pos, quat, grip_cmd,
-                                                              max_dpos, max_drot),
-                                     compression="gzip")
-                    d.create_dataset("rewards", data=src["rewards"][()][idx],
-                                     compression="gzip")
-                    dones = np.zeros(len(idx), dtype=np.int64)
+                    d.create_dataset("states", data=st, compression="gzip")
+                    d.create_dataset("actions", data=acts, compression="gzip")
+                    d.create_dataset("rewards", data=rew, compression="gzip")
+                    dones = np.zeros(len(st), dtype=np.int64)
                     dones[-1] = 1
                     d.create_dataset("dones", data=dones, compression="gzip")
                     og = d.create_group("obs")
-                    og.create_dataset("robot0_gripper_qpos",
-                                      data=src["obs/robot0_gripper_qpos"][()][idx],
-                                      compression="gzip")
+                    og.create_dataset("robot0_gripper_qpos", data=gq, compression="gzip")
                     og.create_dataset("robot0_eef_pos", data=pos, compression="gzip")
                     og.create_dataset("robot0_eef_quat", data=quat, compression="gzip")
-                    d.attrs["model_file"] = src.attrs["model_file"]
-                    d.attrs["num_samples"] = int(len(idx))
-                    total += len(idx)
+                    d.attrs["model_file"] = xml
+                    d.attrs["num_samples"] = int(len(st))
+                    if diag is not None:
+                        d.create_dataset("invert_err_pos", data=diag["err_pos"].astype(np.float32))
+                        d.create_dataset("invert_err_rot", data=diag["err_rot"].astype(np.float32))
+                        d.attrs["invert_err_pos_p95_mm"] = float(np.percentile(diag["err_pos"], 95) * 1e3) if len(diag["err_pos"]) else 0.0
+                        d.attrs["invert_saturated_frac"] = float(diag["sat"].mean()) if len(diag["sat"]) else 0.0
+                        d.create_dataset("invert_iters", data=diag["iters"])
+                        d.create_dataset("invert_sat", data=diag["sat"])
+                        all_err_pos.append(diag["err_pos"]); all_err_rot.append(diag["err_rot"]); all_sat.append(diag["sat"])
+                    total += len(st)
                 g.attrs["total"] = total
+                if all_err_pos:
+                    ep_all = np.concatenate(all_err_pos); er_all = np.concatenate(all_err_rot); sat_all = np.concatenate(all_sat)
+                    g.attrs["invert_err_pos_median_mm"] = float(np.median(ep_all) * 1e3)
+                    g.attrs["invert_err_pos_p95_mm"] = float(np.percentile(ep_all, 95) * 1e3)
+                    g.attrs["invert_err_rot_p95_deg"] = float(np.degrees(np.percentile(er_all, 95)))
+                    g.attrs["invert_saturated_frac"] = float(sat_all.mean())
             os.replace(tmp, arm_path)
-            print("[2/3]   {:>4} Hz (k={:<3}) {} demos, {:>9,} samples -> {}".format(
-                rate, k, len(demos), total, os.path.basename(arm_path)))
+            msg = "[2/3]   {:>4} Hz (k={:<3}) {} demos, {:>9,} samples -> {}".format(
+                rate, k, len(demos), total, os.path.basename(arm_path))
+            if all_err_pos:
+                uns = ~sat_all
+                msg += ("\n[2/3]          inversion residual: pos median {:.3f} mm, p95 {:.3f} mm; rot p95 {:.3f} deg; "
+                        "saturated {:.1%} of steps; unsaturated-only pos p95 {:.3f} mm").format(
+                    np.median(ep_all) * 1e3, np.percentile(ep_all, 95) * 1e3,
+                    np.degrees(np.percentile(er_all, 95)), sat_all.mean(),
+                    np.percentile(ep_all[uns], 95) * 1e3 if uns.any() else float("nan"))
+            print(msg, flush=True)
             made.append(arm_path)
     return made
 
@@ -287,6 +529,10 @@ def main():
     p.add_argument("--gpu", type=int, default=0)
     p.add_argument("--stages", default="resim,stride,render",
                    help="comma-separated subset of resim,stride,render")
+    p.add_argument("--action_mode", default="invert", choices=("invert", "achieved"),
+                   help="stride stage: 'invert' (default) recovers the OSC command that "
+                        "reaches each next pose by probing the simulator; 'achieved' is "
+                        "the legacy achieved-delta labelling, kept only for comparison")
     p.add_argument("--force", action="store_true", help="redo stages even if outputs exist")
     p.add_argument("--ll_repo", default=DEFAULT_LL_REPO,
                    help="Low_Level_and_Inference checkout providing manipulation.utils")
@@ -327,7 +573,8 @@ def main():
     arms = [os.path.join(arm_dir, "{}_{}hz.hdf5".format(args.task, r)) for r in args.rates]
     if "stride" in stages:
         arms = stage_stride(base_hdf5, arm_dir, args.base_freq, args.rates,
-                            args.task, force=args.force)
+                            args.task, pool_size=args.pool_size,
+                            action_mode=args.action_mode, force=args.force)
     if "render" in stages:
         missing = [a for a in arms if not os.path.exists(a)]
         if missing:

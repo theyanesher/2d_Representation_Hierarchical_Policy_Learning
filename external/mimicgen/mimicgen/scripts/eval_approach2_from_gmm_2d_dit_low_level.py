@@ -568,16 +568,75 @@ def _agentview_to_uint8_rgb(obs):
     return np.ascontiguousarray(frame)
 
 
+def _rot6d_batch_to_matrix(rot6d: np.ndarray) -> np.ndarray:
+    """(..., 6) -> (..., 3, 3), first-two-columns convention (matches
+    eval_smith_utils.rotation_transfer_6D_to_matrix / the training dataset's
+    rotation_transfer_6D_to_matrix_batch_mino)."""
+    rot6d = rot6d.reshape(*rot6d.shape[:-1], 2, 3)
+    a1, a2 = rot6d[..., 0, :], rot6d[..., 1, :]
+    eps = np.finfo(np.float64).eps
+    b1 = a1 / np.maximum(np.linalg.norm(a1, axis=-1, keepdims=True), eps)
+    b2 = a2 - np.sum(a2 * b1, axis=-1, keepdims=True) * b1
+    b2 = b2 / np.maximum(np.linalg.norm(b2, axis=-1, keepdims=True), eps)
+    b3 = np.cross(b1, b2)
+    return np.stack((b1, b2, b3), axis=-1)
+
+
+def _matrix_batch_to_rot6d(mat: np.ndarray) -> np.ndarray:
+    """(..., 3, 3) -> (..., 6), inverse of _rot6d_batch_to_matrix (first two columns)."""
+    return np.concatenate([mat[..., :, 0], mat[..., :, 1]], axis=-1)
+
+
+def _absolute_action_batch_to_hybrid_delta(
+    action_batch: np.ndarray, cur_states: np.ndarray
+) -> np.ndarray:
+    """Vectorized inverse of LazyArticuBotDataset._build_absolute_action_target
+    (see eval_smith_utils.absolute_action_to_hybrid_delta for the derivation/
+    per-sample version). Converts an action_mode='absolute' (B,T,10) prediction
+    into an equivalent hybrid_delta (B,T,10) array using the real (pre-chunk)
+    obs["state"] per env, broadcast over T -- same approximation the existing
+    code already makes with cur_eef_quats (one real observation per chunk).
+
+    Args:
+        action_batch: (B, T, 10) absolute [xyz(3), rot6d(6), gripper(1)]
+        cur_states:   (B, 10) obs["state"], same layout
+    Returns:
+        (B, T, 10) synthetic hybrid_delta array
+    """
+    action_batch = np.asarray(action_batch, dtype=np.float64)
+    cur_states = np.asarray(cur_states, dtype=np.float64)
+
+    delta_xyz = action_batch[..., :3] - cur_states[:, None, :3]
+
+    R_state = _rot6d_batch_to_matrix(cur_states[:, 3:9])       # (B,3,3)
+    R_target = _rot6d_batch_to_matrix(action_batch[..., 3:9])  # (B,T,3,3)
+    R_delta = np.swapaxes(R_state[:, None], -1, -2) @ R_target  # R_state.T @ R_target
+    delta_rot6d = _matrix_batch_to_rot6d(R_delta)               # (B,T,6)
+
+    delta_grip = action_batch[..., 9:10] - cur_states[:, None, 9:10]
+
+    return np.concatenate([delta_xyz, delta_rot6d, delta_grip], axis=-1)
+
+
 def policy_action_batch_to_env_action_vectorized(
     action_batch: np.ndarray,
     cur_eef_quats: np.ndarray,
     max_dpos: float,
     max_drot: float,
+    action_mode: str = "hybrid_delta",
+    cur_states: np.ndarray = None,
 ) -> np.ndarray:
     """Vectorized equivalent of eval_smith_utils' action conversion.
 
     Rotation conversion uses SciPy's batched Rotation implementation instead
     of the old Python loop over every environment and action timestep.
+
+    action_mode: "hybrid_delta" (default) or "absolute". For "absolute",
+        `action_batch` is the policy's absolute [xyz, rot6d, gripper] target
+        and `cur_states` ((B,10) obs["state"] per env) MUST be provided --
+        it is converted to an equivalent hybrid_delta array up front via
+        _absolute_action_batch_to_hybrid_delta(), then everything below runs
+        unchanged.
     """
     from scipy.spatial.transform import Rotation
 
@@ -589,6 +648,13 @@ def policy_action_batch_to_env_action_vectorized(
         raise ValueError(
             f"expected cur_eef_quats ({action_batch.shape[0]},4), got {cur_eef_quats.shape}"
         )
+
+    if action_mode == "absolute":
+        if cur_states is None:
+            raise ValueError("action_mode='absolute' requires cur_states (obs['state'] per env)")
+        action_batch = _absolute_action_batch_to_hybrid_delta(action_batch, cur_states)
+    elif action_mode != "hybrid_delta":
+        raise ValueError(f"Unsupported action_mode: {action_mode!r}")
 
     # Policy 6D rotations store the first two rotation-matrix columns.
     rot6d = action_batch[..., 3:9].reshape(*action_batch.shape[:2], 2, 3)
@@ -904,6 +970,9 @@ def run_episode(
     n_action_steps: int,
     max_steps: int,
     device: str,
+    cmd_scale_pos: float = 1.0,
+    cmd_scale_rot: float = 1.0,
+    action_mode: str = "hybrid_delta",
 ):
     """Approach 2 rollout: no HL, no goal. Stepping logic copied verbatim from
     the parent GMM eval -- same action extraction, same n_action_steps slice,
@@ -913,8 +982,9 @@ def run_episode(
 
     obs = _maybe_unwrap(env.reset())
 
-    max_dpos = float(controller.output_max[0])
-    max_drot = float(controller.output_max[3])
+    # See run_parallel_episodes: K = 1 leaves the conversion unchanged.
+    max_dpos = float(controller.output_max[0]) / cmd_scale_pos
+    max_drot = float(controller.output_max[3]) / cmd_scale_rot
 
     total_reward = 0.0
     success = False
@@ -929,11 +999,15 @@ def run_episode(
             action_dict = ll_model.predict_action(ll_obs)
         action_raw = action_dict.get("action_pred", action_dict["action"]).detach().cpu().numpy()
 
-        # ------------------- hybrid_delta -> env action ----------------------
+        # ------------------- hybrid_delta / absolute -> env action -----------
         eef_quat = np.array(obs["robot0_eef_quat"], dtype=np.float64)
         eef_quats_b = np.tile(eef_quat[np.newaxis, :], (1, 1))
+        cur_states_b = None
+        if action_mode == "absolute":
+            cur_states_b = np.asarray(obs["state"], dtype=np.float64)[np.newaxis, :]
         env_action_arm = policy_action_batch_to_env_action(
             action_raw, eef_quats_b, max_dpos, max_drot,
+            action_mode=action_mode, cur_states=cur_states_b,
         )
         env_action_seq = env_action_arm[0, :n_action_steps]          # (T, 7)
 
@@ -1073,6 +1147,9 @@ def run_parallel_episodes(
     video_fps,
     results_f,
     show_progress=True,
+    cmd_scale_pos=1.0,
+    cmd_scale_rot=1.0,
+    action_mode="hybrid_delta",
 ):
     """Evaluate episodes in worker chunks and batch policy inference on GPU."""
     import json
@@ -1083,6 +1160,13 @@ def run_parallel_episodes(
     max_dpos, max_drot = controller_limits[0]
     if not all(np.allclose(x, controller_limits[0]) for x in controller_limits[1:]):
         raise RuntimeError(f"worker controller limits differ: {controller_limits}")
+    # cmd = clip(K * delta / max_d) == clip(delta / (max_d / K)); K = 1 leaves the
+    # conversion exactly as before.
+    conv_dpos = max_dpos / cmd_scale_pos
+    conv_drot = max_drot / cmd_scale_rot
+    if cmd_scale_pos != 1.0 or cmd_scale_rot != 1.0:
+        print(f"[cmd-scale] predicted deltas scaled by pos x{cmd_scale_pos:.3f}, "
+              f"rot x{cmd_scale_rot:.3f} before conversion to OSC commands")
 
     rewards, successes = [], []
     timing = collections.defaultdict(float)
@@ -1154,8 +1238,12 @@ def run_parallel_episodes(
 
             t0 = time.perf_counter()
             eef_quats = np.asarray(obs["robot0_eef_quat"])[active_indices]
+            cur_states = None
+            if action_mode == "absolute":
+                cur_states = np.asarray(obs["state"], dtype=np.float64)[active_indices]
             converted = policy_action_batch_to_env_action_vectorized(
-                action_raw[:, :n_action_steps], eef_quats, max_dpos, max_drot
+                action_raw[:, :n_action_steps], eef_quats, conv_dpos, conv_drot,
+                action_mode=action_mode, cur_states=cur_states,
             )
             env_actions = np.zeros(
                 (n_envs, n_action_steps, 7), dtype=np.float32
@@ -1272,7 +1360,17 @@ def main():
         default="fp32",
         help="Policy autocast precision. FP32 is the benchmark-compatible default.",
     )
+    parser.add_argument("--cmd_scale_pos", type=float, default=1.0,
+        help="Multiply the policy's predicted position delta by this before it becomes an "
+             "OSC command (default 1.0 = unchanged). For policies trained on the "
+             "resimulated rate-ablation arms, whose labels were the ACHIEVED per-step delta "
+             "rather than the command that produced it; see "
+             "DIFFERENT_FREQUENCY_DATA_GEN_SCRIPT/measure_cmd_scale.py for the per-rate values.")
+    parser.add_argument("--cmd_scale_rot", type=float, default=1.0,
+        help="Same as --cmd_scale_pos for the predicted rotation delta (axis-angle magnitude).")
     args = parser.parse_args()
+    if args.cmd_scale_pos <= 0 or args.cmd_scale_rot <= 0:
+        parser.error("--cmd_scale_pos / --cmd_scale_rot must be positive")
 
     if args.n_episodes <= 0:
         parser.error("--n_episodes must be positive")
@@ -1358,8 +1456,19 @@ def main():
         ll_use_gca = OmegaConf.select(ll_cfg, "policy.use_goal_cross_attention", default=False)
         ll_c1      = OmegaConf.select(ll_cfg, "policy.aux_gmm_loss_weight",      default=None)
         ll_vis     = OmegaConf.select(ll_cfg, "policy.visual_encoder_type",      default=None)
+        # Top-level key (train_flow_matching_dit_goal_gmm_workspace.yaml: action_mode:
+        # "hybrid_delta"); "absolute" checkpoints need the raw prediction converted
+        # differently before it becomes an env command -- see
+        # policy_action_batch_to_env_action_vectorized's action_mode branch.
+        ll_action_mode = OmegaConf.select(ll_cfg, "action_mode", default="hybrid_delta")
         print(f"[LL] visual_encoder_type={ll_vis}, aux_gmm_loss_weight={ll_c1}, "
-              f"use_goal_cross_attention={ll_use_gca}")
+              f"use_goal_cross_attention={ll_use_gca}, action_mode={ll_action_mode}")
+        if ll_action_mode not in ("hybrid_delta", "absolute"):
+            raise ValueError(
+                f"[LL] checkpoint action_mode={ll_action_mode!r} has no env-action "
+                "conversion implemented (only 'hybrid_delta' and 'absolute' are supported "
+                "by policy_action_batch_to_env_action_vectorized)."
+            )
         if ll_use_gca:
             print("[LL][WARN] this LL was trained WITH goal cross-attention, i.e. it expects a "
                   "goal at its input. That is Approach 1, not Approach 2 — use "
@@ -1396,6 +1505,9 @@ def main():
                 video_fps=args.video_fps,
                 results_f=results_f,
                 show_progress=args.progress,
+                cmd_scale_pos=args.cmd_scale_pos,
+                cmd_scale_rot=args.cmd_scale_rot,
+                action_mode=ll_action_mode,
             )
     finally:
         try:

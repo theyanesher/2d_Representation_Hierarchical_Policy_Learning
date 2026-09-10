@@ -1,0 +1,443 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%2345678901234567890123456789012345678901234567890123456789012345678901234567890
+%        1         2         3         4         5         6         7         8
+
+\documentclass[letterpaper, 10 pt, conference]{ieeeconf}  % Comment this line out if you need a4paper
+\usepackage{titlesec}
+%\documentclass[a4paper, 10pt, conference]{ieeeconf}      % Use this line for a4 paper
+
+\IEEEoverridecommandlockouts                              % This command is only needed if 
+                                                          % you want to use the \thanks command
+
+\usepackage{xcolor}
+\newcommand{\dave}[1]{\textcolor{blue}{Dave: [#1]}} % 
+
+\overrideIEEEmargins                                      % Needed to meet printer requirements.
+
+%In case you encounter the following error:
+%Error 1010 The PDF file may be corrupt (unable to open PDF file) OR
+%Error 1000 An error occurred while parsing a contents stream. Unable to analyze the PDF file.
+%This is a known problem with pdfLaTeX conversion filter. The file cannot be opened with acrobat reader
+%Please use one of the alternatives below to circumvent this error by uncommenting one or the other
+%\pdfobjcompresslevel=0
+%\pdfminorversion=4
+
+% See the \addtolength command later in the file to balance the column lengths
+% on the last page of the document
+
+% The following packages can be found on http:\\www.ctan.org
+%\usepackage{graphics} % for pdf, bitmapped graphics files
+%\usepackage{epsfig} % for postscript graphics files
+%\usepackage{mathptmx} % assumes new font selection scheme installed
+%\usepackage{times} % assumes new font selection scheme installed
+\usepackage{amsmath} % assumes amsmath package installed
+\usepackage{amssymb}  % assumes amsmath package installed
+
+\title{\LARGE \bf
+Preparation of Papers for IEEE Sponsored Conferences \& Symposia*
+}
+
+
+\author{Albert Author$^{1}$ and Bernard D. Researcher$^{2}$% <-this % stops a space
+\thanks{*This work was not supported by any organization}% <-this % stops a space
+\thanks{$^{1}$Albert Author is with Faculty of Electrical Engineering, Mathematics and Computer Science,
+        University of Twente, 7500 AE Enschede, The Netherlands
+        {\tt\small albert.author@papercept.net}}%
+\thanks{$^{2}$Bernard D. Researcheris with the Department of Electrical Engineering, Wright State University,
+        Dayton, OH 45435, USA
+        {\tt\small b.d.researcher@ieee.org}}%
+}
+
+
+\begin{document}
+
+
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+
+This electronic document is a ÒliveÓ template. The various components of your paper [title, text, heads, etc.] are already defined on the style sheet, as illustrated by the portions given in this document.
+
+\end{abstract}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{INTRODUCTION}
+
+Robotic manipulation in household and industrial settings frequently involves sustained physical interaction rather than discrete grasping: opening a drawer, closing a lid, sliding a container aside, or pushing an object into place. Prior work has largely concentrated on pick-and-place \dave{Huge overstatement, there is lots of prior work that is not just pick and place}, where a task decomposes naturally at the moments the gripper closes and opens. Even work targeting articulated objects typically preserves this structure, either by grasping a handle [refs] or by adopting a suction gripper [10] so that contact is established once and held \dave{Not true, there is lots of work on end-to-end policy learning}. We are instead interested in tasks where objects are manipulated through prolonged contact — where the gripper's open/close state carries little information about task progress, and in some cases the gripper never actuates at all. 
+
+
+Existing approaches fall into two families \dave{Cut this opening; instead introduce hierarchy as a way to make a manipulatoin policy more robust and have better generalization.  Do not talk about 2 task families.}. Non-hierarchical policies [VLAs, diffusion policies] map observations, visual and often linguistic, directly to actions, with supervision coming from the behaviour cloning objective alone; the network learns correlations between what it sees and what it should do.  Hierarchical policies predict an intermediate target with a high-level model and realize it with a low-level controller [ArticuBot, GHOST, HAMSTER]. Although the two differ in how the representation is learned, both draw on the same underlying signals. For non-hierarchical policies the gripper channel of the action space provides strong implicit supervision as it is a discrete, high-information event, and learning it helps the policy to learn an internal representation of . For hierarchical policies the dependence is more direct still, with entire subtask boundaries and keypoints that are essential for the task are extracted at gripper transitions. In pick-and-place, or grasp based tasks like grasping handles, cloth folding etc this is the strongest free supervision available, and both families exploit it effectively. \dave{I wouldnt' say this; remove this and end this paragraph with noting the benefits of hierarchy} \dave{You can also menion in this paragraph any method for RLBench, e.g. RVT2, 3DDA, etc}
+
+That signal degrades in the tasks that we target \dave{Change to: we target tasks that involve a non-prehensile manipulation component, in which the gripper pushes an object without grasping}. When the gripper holds a constant state for the entity of the task, while performing different subtasks, for example, when a drawer is opened in a non-prehensile way or a lid pressed shut, the gripper open-close carries no substantial information for the non-hierarchical policy to extract and no transition keypoints to be leveraged by the hierarchical policies. Our experiments show the two families \dave{Forget ``two families" - just say that hierarchical policies that use gripper open/close to find task subdivisions break down.} fail in such situations. Non-hierarchical policies lose the implicit supervision they had been relying on to learn the representations and struggle to learn the task properly. Hierarchical policies can retain their explicit structure, but that structure is now ill-posed: the definition of a subgoal was inherited from a setting where grasping delimited the subtasks, and it offers no account of what an intermediate target should be when no grasp occurs. The question is therefore not merely how to use subgoals, but on what basis they should be defined when the conventional segmentation signal is unavailable. \dave{This is too strong of a statement.  There are other ways to define subtasks besides gripper open/close, and we are not the first ones to attempt to do so.  I would substantially reduce the shift on ``gripper open-close" as the main issue and instead talk about how hierarchical policies can be fragile and brittle, and we want to make them more robust}
+
+In this paper, we try out two complementary approaches to alleviate the issues, one uncertainty aware hierarchical learning and the second a much simpler approach based on using keypoints as an auxiliary loss. We found that the simpler approach based on Auxilliary loss works significantly better than the uncertainty aware hierarchical policy. In the Uncertainty aware Hierarchical policy, we let the high level policy to make the uncertainty explicit rather than regress to a single next-keypoint. The low level policy, then reasons over this distribution captured by the high level policy rather than commit to the single "next keypoint" prediction. Concretely, given an observation and the robot's proprioceptive state, the high level predicts a weighted Gaussian mixture over the next goal gripper pose, trained by minimising the negative log-likelihood of the demonstrated goal under that mixture. The mixture is what makes the uncertainty explicit. At an ambiguous transition point, where one subtask has finished, the observation and the proprioception looks identical (because there is no gripper open-close), but the keypoint flips, the ambiguity appears directly in the output as several distinct modes carrying comparable weight (corresponding to the two different keypoints). A model trained to regress a single pose has no way to express this. The low level policy, then attends over this weighted Gaussian mixture along with the proprioception and observation to predict the next action chunk. 
+
+In the simpler Auxiliary loss approach, we abandon this hierarchical setting altogether and just use the sub-goals as a training signal. More concretely, during training, an auxiliary head reads the same visual tokens the policy acts on and predicts a weighted Gaussian mixture over the goal gripper pose, trained by the same negative log-likelihood objective as before. That loss is added to the behaviour cloning objective under a single weighting coefficient, and the head is discarded once training ends. During inference, the input to the low level policy operates on the same observation and proprioception input as the low level in the hierarchical approach,but has no explicit weighted Gaussian mixture in the input. We evaluate both these approaches on several non-prehensile tasks and finally find that the simpler auxiliary loss approach with smaller size beats the hierarchical approach by \textbf{5.5\%} and the vanila hierarchical approach explored in method like [ref] by \textbf{13\%}. Further, we find that the auxiliary head is absolutely essential for the success of the second approach as the performance drops by \textbf{13.5\%} if the auxiliary head is removed.
+
+Finally, because non prehensile tasks have no explicit gripper open-close signal, we explore different methods to extract this keypoint. However, we found that improvement by using these different keypoint extraction strategies is not very significant for our the auxiliary loss approach and our method is robust to learning the inductive biases from these goals irrespective of the goal decomposition method. 
+
+In summary, our contributions are as follows:
+\begin{itemize}
+    \item We propose a policy that uses subgoals as \emph{auxiliary supervision on the visual representation} rather than as a policy input. The subgoal is consumed entirely at training time, so the deployed policy is self-contained: no high-level model is run, and no dependence on its errors is inherited.
+
+    \item We show that this outperforms both hierarchical alternatives on non-prehensile manipulation, by \textbf{5.5\%} over our uncertainty-aware hierarchical policy and by \textbf{13\%} over the standard hierarchical formulation~[ref], while using smaller model and running no high-level model at inference.
+
+    \item We isolate where the gain comes from. Removing the auxiliary head and holding everything else fixed costs \textbf{13.5\%}, showing that the benefit arises from the goal supervision itself rather than from the architecture that carries it.
+
+    \item We study $14$ strategies for extracting subgoals in the absence of a gripper open-close signal, and find performance to be largely insensitive to the choice. Taken with the ablation above, this indicates that what matters is the \emph{presence} of spatial goal supervision rather than its precise definition, and that our method does not depend on a carefully engineered keypoint extractor.
+\end{itemize}
+
+\section{RELATED WORKS}
+
+\subsection{Learning for Non-Prehensile Tasks}
+
+Non-prehensile manipulation has a long history in model-based planning and control.
+Classical work characterized the mechanics of pushing and sliding~\cite{mason1986pushing, lynch1996stable, goyal1991limitsurface} and demonstrated dynamic non-prehensile skills such as rolling and throwing with simple manipulators~\cite{lynch1999dynamic}.
+More recent methods plan and control through contact directly, using hybrid MPC for the pusher-slider system~\cite{hogan2020reactive}, trajectory optimization with complementarity constraints~\cite{moura2022nonprehensile}, contact-mode guided search~\cite{cheng2022contactmode}, and global planning through smoothed quasi-dynamic contact models~\cite{pang2023global, suh2025contacttrustregion}.
+These methods produce impressive contact-rich behaviors, but they require an explicit model of the object and its contact dynamics, along with accurate object state estimation.
+% Our method instead learns a policy directly from demonstrations of raw visual observations, and makes no attempt to model contact modes or object dynamics.
+
+A second family trains non-prehensile policies with reinforcement learning in simulation and transfers them to the real world.
+HACMan~\cite{zhou2023hacman} and HACMan++~\cite{jiang2024hacmanpp} learn object-centric action maps over point clouds for 6D object repositioning, Zhou and Held~\cite{zhou2022ungraspable} learn emergent extrinsic dexterity for occluded grasping, and CORN~\cite{cho2024corn} and its extension to general environments~\cite{kim2025general} learn contact-based representations that transfer zero-shot to unseen objects.
+SPIN~\cite{jung2025spin} distills a planner into a policy for long-horizon prehensile and non-prehensile manipulation.
+These methods target object pose rearrangement, and they depend on privileged simulator state, reward design, and carefully constructed training distributions.
+In contrast, we learn household tasks such as opening drawers and pressing lids shut from a modest number of real demonstrations, and our contribution concerns the supervision signal available to behaviour cloning rather than the action space or the transfer recipe.
+
+A related line learns a dynamics model rather than a policy.
+Early work learned visual forward models for pushing from self-supervised interaction~\cite{agrawal2016poking, finn2017foresight}, and recent work revisits this with modern world models: PIN-WM~\cite{pinwm2025} identifies physics-informed rigid-body dynamics from vision for model-based RL, and DyWA~\cite{lyu2025dywa} learns a dynamics-adaptive world action model for generalizable non-prehensile manipulation.
+These methods spend their capacity predicting how objects move under contact, and act by planning or adapting against that prediction.
+We do not learn a dynamics model; we instead use spatial goal supervision to shape the policy's visual representation, and the deployed policy remains a single reactive network.
+
+Finally, non-prehensile behavior appears in demonstration-based and generalist policies, though rarely as the object of study.
+Push-T is a standard benchmark for imitation methods~\cite{florence2021ibc, chi2023diffusionpolicy}, BiNoMaP~\cite{binomap2025} learns bimanual non-prehensile primitives from human videos, and generalist VLAs~\cite{black2024pi0, pi05} exhibit pushing, smoothing, and pressing as incidental sub-behaviors within larger tasks. In all of these works, however, the question of supervision is left untouched:
+the policy learns from the imitation objective alone (or, in BiNoMaP, from
+hand-defined primitive categories), and none of them examines whether making
+intermediate goals explicit during training improves learning in this regime,
+or how such goals should be defined when no gripper event marks them. Our work
+poses exactly this question, and answers it with an auxiliary goal-prediction
+objective that supplies the missing signal at training time without changing
+the policy's inputs at inference.
+
+\subsection{Hierarchical and Non-Hiearrchical Policy Learning}
+
+\subsection{Uncertainty Aware Policy Learning}
+
+\subsection{Keypoint Extraction Methods}
+
+\section{PROBLEM STATEMENT AND ASSUMPTIONS}
+
+We consider manipulation tasks that can be decomposed into a sequence of intermediate sub-goals, where the task is completed when each sub-goal is reached in order. Unlike settings in which sub-goals can be extracted by simple signals like gripper open-close, velocity going to zero or correspond to nameable, reusable skills (e.g. 'grasping', 'placing'), we target tasks in which the transitions are not delimited by discrete gripper events and admit no such natural linguistic decomposition.
+
+At each timestep $t$ the policy receives the $T_o$ most recent observations $o_{t-T_o+1:t}$ and proprioceptive states $s_{t-T_o+1:t}$, and predicts a chunk of $H$ future actions $a_{t:t+H}$ (end index exclusive), of which the first $H_{\text{exec}}$ are executed before replanning. When these windows appear as policy inputs we abbreviate them as $o_t$ and $s_t$. We represent the gripper configuration at any time by the 3D positions of $K{=}4$ keypoints on the gripper. The current gripper keypoints $e_t\in\mathbb{R}^{K\times 3}$ are computed from $s_t$ and serve to ground the proprioception in the same 3D frame as the visual observations. We write $g(t)\in\mathbb{R}^{K\times 3}$ for the sub-goal in effect at time $t$, that is, the gripper keypoints at the next sub-goal boundary the demonstration reaches after $t$. In this work we study two ways of using the goals $g(t)$. In the hierarchical approach, we use it to train the high level policy, while in the auxiliary head approach, we use it to train our auxilliary head used to train the policy.
+
+\textbf{Training data.} We assume access to teleoperated demonstrations $\mathcal{D}_{\text{robot}} = \{(o_t, s_t, a_t)\}$, where $o_t$ comprises calibrated multi-view RGB and metric depth images together with their intrinsic and extrinsic matrices, $s_t$ is the proprioceptive state vector, and $a_t$ is the recorded action. The auxiliary-loss policy and the low-level policy of the hierarchical approach consume $o_t$ directly. The high-level policy of the hierarchical approach instead consumes a scene point cloud $P_t$, obtained by unprojecting the depth images in $o_t$ with the camera calibration.
+
+\textbf{Sub-goal extraction.} The keypoints $g(t)$ are extracted offline from the end-effector trajectory of each demonstration. Since, the tasks we consider provide no gripper open-close signal to segment on, we cannot rely on this standard practice of placing sub-goal boundaries at grasp transitions. We instead consider a family of extraction procedures operating on trajectory geometry alone, including trajectory simplification, velocity-based changepoint detection, and uninformative baselines used as controls. All operate on the same demonstrations and differ only in where they place the boundaries, so the choice of extraction procedure is a design decision we can isolate and study explicitly in Section~\ref{sec:keypoints}.
+
+
+\textbf{Assumptions.} We assume calibrated cameras with known intrinsics and extrinsics, and metric depth, so that image observations can be grounded in the robot's coordinate frame. We assume that each demonstration is a successful execution of a single task and no language conditioning or task identifier is required. We further assume that sub-goal transitions are recoverable from the demonstrated end-effector trajectory, without privileged access to object state or contact events. We do not assume the demonstrations are segmented, that the number of sub-goals is known in advance, or that it is constant across demonstrations of the same task. Full hardware configuration and per-task data collection details are provided in Appendix~\ref{app:hardware} and Appendix~\ref{app:data}.
+
+\section{METHOD (REPLACE WITH THE METHOD NAME) }
+
+\subsection{OVERVIEW}
+
+In this section, we discuss how we collect the data, how the trajectories are decomposed into different subtasks using different keypoint identification methods, and finally, we describe the two policy learning approaches that we explore namely, the auxiliary loss method \(\pi_{aux}\) and the uncertainty aware auxiliary loss consisting of the high level policy \(\pi_{hi}\) and uncertainty aware low level policy \(\pi_{low}\). For extracting the subgoals, we use several existing keypoint extraction methods like \ref{}[AWE, B-SPLINE, QWEN, FIXED INTERVAL] besides exploring our a novel keypoint extraction method named "" (Details in Appendix \ref{}.) However, we could not find much performance difference between these different keypoint extraction methods when using them to train \(\pi_{aux}\). Finally, we use these goals to supervise the training of \(\pi_{aux}\) (As a auxiliary loss) and \(\pi_{hi}\). Finally, we use the robot action trajectories to supervise both \(\pi_{aux}\) and \(\pi_{lo}\).
+
+% \subsection{DATA GENERATION}
+% \textbf{Simulation Data}: We work on the three non-prehensile tasks in MimicGen, namely Coffee-Preperation-D1, Kitchen-D1, Hammer-Cleanup-D1 and the PushT task. \dave{This should go in the experiments section, not the method}
+
+% \textbf{Real World Data}: We use teleoperation setup to collect data in the real work for non-prehensile tasks, mainly focusing on coffee-beans pouring, sweeping, and pushing block to a position. \dave{This should go in the experiments section, not the method}
+
+
+
+\subsection{POLICY LEARNING}
+
+
+\subsubsection{THE AUXILIARY LOSS APPROACH}
+
+We instantiate $\pi_{aux}$ as a flow-based DiT policy~\cite{dit,flowmatching,groot} that generates an action chunk $a_{t:t+H}$ conditioned on the observation $o_t$. We use the keypoints (subgoals) g(t) to supervise an auxiliary goal-prediction loss that shapes the visual representation the action head attends to. 
+
+\paragraph{\textbf{3D-Grounded Visual Tokens}}
+For each camera $c\in\{1,\dots,C\}$ and each of the $T_o$ observation steps, a frozen DINOv2
+backbone~\cite{dinov2} encodes the RGB image into $N_p$ patch tokens, linearly
+projected to the model width with learned camera and observation-step
+embeddings. Each patch token is assigned a world-frame anchor
+$\mathbf{x}_{c,i}\in\mathbb{R}^3$ by unprojecting its centre pixel with the
+depth image and the camera calibration; patches without valid depth are masked
+($v_{c,i}=0$), and depth shares the RGB crop so tokens and anchors stay
+aligned. Following ArticuBot~\cite{articubot}, the current gripper keypoints
+$e_t$ are encoded with an MLP into $K$ additional tokens anchored at their own
+positions, with keypoint-identity and observation-step embeddings.
+
+The patch and gripper tokens are concatenated into a single sequence and processed by $L$
+pre-norm transformer blocks whose self-attention uses a four-dimensional rotary position
+embedding (RoPE)~\cite{rope} over the continuous coordinates $(\lambda\mathbf{x},\tau)$,
+where $\lambda$ is a metric scale and $\tau=k/(T_o+H)$ the time of observation step
+$k\in\{0,\dots,T_o-1\}$, normalised so that the end of the action horizon corresponds to
+$\tau=1$; the head
+dimension is split into four groups, each rotated by one coordinate. The rotation is
+applied to queries and keys only, so relative 3D geometry determines which tokens attend
+to one another without being written into token content. We denote the resulting grounded
+patch tokens by $\tilde{z}(o_t)$; they serve as the cross-attention context of the DiT and,
+together with the grounded gripper tokens and their anchors, as the input to the auxiliary
+head below.
+
+\paragraph{\textbf{Auxiliary Goal Mixture Head}}
+We parameterize the goal $g(t)\in\mathbb{R}^{K\times 3}$ as a dense per-anchor
+Gaussian mixture~\cite{ghost,articubot}: for every grounded token $n$
+($N_a=K+CN_p$ anchors per observation step), a shared MLP maps
+$[\tilde{z}_n;\,\mathbf{x}_n]$ to a displacement $\Delta_n\in\mathbb{R}^{K\times 3}$
+and a logit $\ell_n$, giving a component
+$\boldsymbol{\mu}_{n,k}=\mathbf{x}_n+\Delta_{n,k}$ with weight
+$w_n=\exp(\ell_n)/\sum_{m:v_m=1}\exp(\ell_m)$, so the mixture can express the
+multimodal goal distributions that arise at ambiguous subtask boundaries. It is
+trained by negative log-likelihood, evaluated over a fixed variance ladder
+$\Sigma=\{0.01,0.05,0.1,0.25,0.5\}$ and summed,
+\begin{equation}
+  \log p_{\sigma}(g(t)\mid o_t) = \log\!\sum_{n:v_n=1}w_n
+  \exp\!\Big(\!-\tfrac{1}{2\sigma^2}\|g(t)-\boldsymbol{\mu}_n\|_F^2\Big),
+\end{equation}
+\begin{equation}
+  \mathcal{L}_{\text{goal}} = -\sum_{\sigma^2\in\Sigma}\Big[\log p_{\sigma}(g(t)\mid o_t)
+  + \lambda_u\,\log p^{\,\text{unif}}_{\sigma}(g(t)\mid o_t)\Big],
+\end{equation}
+where $p^{\,\text{unif}}_\sigma$ uses uniform mixing weights over the valid
+anchors, forcing every anchor to regress a plausible offset rather than only
+the highest-weighted ones\footnote{Log-mixing coefficients are clamped from
+below at $-10$ for numerical stability.}. The head's output layer is
+initialised near zero so that every component starts at its anchor, and the
+head is discarded at deployment.
+
+\paragraph{\textbf{Action Generation}}
+The DiT operates on a short stream of $T_o$ proprioceptive state tokens
+followed by $H$ noised action tokens, alternating self-attention within the
+stream with cross-attention to the grounded visual tokens $\tilde{z}(o_t)$,
+with adaptive layer normalisation conditioned on the flow time. Given a
+normalised action chunk $a_{t:t+H}\sim\mathcal{D}_{\text{robot}}$, noise
+$\epsilon\sim\mathcal{N}(0,I)$ and flow time $\alpha\in[0,1]$, we form the
+interpolant $a^{\alpha}_{t:t+H}=(1-\alpha)\,\epsilon+\alpha\,a_{t:t+H}$ and train the model to predict its
+velocity $u=a_{t:t+H}-\epsilon$,
+\begin{equation}
+  \mathcal{L}_{\text{FM}} = \mathbb{E}\big[\|u - v_\theta(a^{\alpha}_{t:t+H},\,\alpha,\,\tilde{z}(o_t),\,s_t)\big\|^2\big],
+\end{equation}
+with $\alpha$ drawn from the Beta-based schedule of~\cite{groot}.
+
+\paragraph{\textbf{Training}}
+We train on $\mathcal{D}_{\text{robot}}$ with
+$\mathcal{L}_{\pi_{aux}} = \mathcal{L}_{\text{FM}} + c_1\,\mathcal{L}_{\text{goal}}$
+($c_1{=}0.1$), where $g(t)$ is the gripper keypoints at the next sub-task
+boundary of the demonstration (Sec.~\ref{sec:goals}). All parameters except the
+frozen DINOv2 are trained from scratch. The losses share only the grounded
+encoder, with the goal head receiving gradient solely from
+$\mathcal{L}_{\text{goal}}$ and the rest solely from
+$\mathcal{L}_{\text{FM}}$, so the goal influences $\pi_{aux}$ only by shaping
+the visual tokens; $c_1$ is set so the auxiliary gradient at the encoder is
+${\sim}25\%$ of the flow-matching gradient at initialisation. Setting $c_1{=}0$
+and removing the head gives an architecture-matched control
+(hyperparameters in Appendix~\ref{app:aux_hparams}).
+
+\paragraph{\textbf{Inference}}
+At deployment the goal head is discarded: $\pi_{aux}$ runs the grounded encoder
+once and the DiT on the observation alone, generating an action chunk $a_{t:t+H}$ and executing the first $H_{\text{exec}}$ actions.
+
+% The encoder does not depend on the flow time and is therefore evaluated once
+% per observation.
+
+\subsubsection{THE UNCERTAINTY-AWARE HIERARCHICAL POLICY APPROACH}
+
+\textbf{GMM BASED HIGH LEVEL POLICY:} 
+
+$\pi_{hi}$ predicts the next sub-goal gripper pose $g(t)\in\mathbb{R}^{K\times 3}$ from the
+current scene point cloud $P_t=\{\mathbf{p}_i\}_{i=1}^{N}$, unprojected from $o_t$ as described in
+the problem statement, and the current gripper keypoints $e_t$ (Figure~\ref{fig:pi_hi}). It outputs the same
+per-anchor Gaussian mixture as the auxiliary head of $\pi_{aux}$
+(Sec.~\ref{sec:pi_aux}), here with one component on every input point, so that
+multi-modal sub-goals are represented explicitly rather than averaged away.
+$\pi_{hi}$ uses no images and no language; its only inputs are 3D points.
+
+\paragraph{\textbf{Architecture and Loss}}
+The $K$ current gripper keypoints are prepended to the scene cloud with a
+binary indicator channel, giving $N{+}K$ input points. A PointNet++
+segmentation network~\cite{pointnet++} (six set-abstraction and six
+feature-propagation levels; details in Appendix~\ref{app:hi_hparams}) yields a
+per-point feature, from which a shared head emits a displacement
+$\Delta_n\in\mathbb{R}^{K\times 3}$ and a logit $\ell_n$: every input point,
+scene and gripper alike, is an anchor that proposes a sub-goal relative to
+itself and votes on its plausibility. These predictions define exactly the
+Gaussian mixture of Sec.~\ref{sec:pi_aux}, with the $N{+}K$ points as anchors,
+and $\pi_{hi}$ is trained with the same
+negative log-likelihood objective, variance ladder and uniform-weight term;
+we denote this loss $\mathcal{L}_{hi}$.
+
+\paragraph{\textbf{Training and Inference}}
+$\pi_{hi}$ is trained on $\mathcal{D}_{\text{robot}}$ with $\mathcal{L}_{hi}$
+alone. Since the target jumps at boundaries, uniform frame sampling makes the
+model hedge between the outgoing and incoming sub-goal; we counter this with
+\emph{transition-focused sampling} (frames within $\pm r$ steps of a boundary
+receive a fixed fraction $p_{tr}{=}0.5$ of the sampling probability) and
+\emph{label swapping} (at distance $\delta\le r$ from a boundary the target is swapped across the
+boundary with probability $p_{\max}(1-\delta/r)$; $r{=}5$, $p_{\max}{=}0.5$), so the
+mixture learns to place mass on both sub-goals near a transition, the
+multi-modality $\pi_{lo}$'s weighted cross-attention consumes. At inference a
+single forward pass yields the mixture; the gripper anchors are dropped, the
+weights renormalised over the $N$ scene anchors, and $\pi_{lo}$ retains the
+top-$J$ candidates. The same procedure, run offline on the demonstration
+frames, produces the mixtures $\pi_{lo}$ trains on.
+
+
+\textbf{UNCERTAINTY AWARE LOW LEVEL:}
+
+$\pi_{lo}$ shares its backbone with $\pi_{aux}$ (Sec.~\ref{sec:pi_aux}): the same frozen
+DINOv2 patch tokens with world-frame anchors, the same current-gripper tokens, the same
+RoPE4D trunk producing grounded visual tokens $\tilde{z}(o_t)$, and the same flow-matching
+DiT generating action chunks. It differs in how the goal enters. Rather than serving as an
+auxiliary target, the goal is now an \emph{input}: $\pi_{hi}$ (Sec.~\ref{sec:pi_hi})
+provides a Gaussian mixture over candidate goal poses $\{(\hat{e}_j, w_j)\}_{j=1}^{N}$,
+$\hat{e}_j\in\mathbb{R}^{K\times 3}$, $\sum_j w_j=1$, of which we retain the $J$
+highest-weight candidates per observation step. The auxiliary goal head of $\pi_{aux}$ is
+removed. The retained candidates reach the policy through two routes, one geometric and
+one direct (Figure~\ref{fig:pi_lo}).
+
+
+\paragraph{\textbf{Goal Candidates as Grounded Tokens.}}
+Each retained candidate is MLP-encoded from its flattened keypoints and
+appended to the trunk sequence, RoPE-anchored at the keypoint of $\hat{e}_j$
+coinciding with the end-effector origin and at time $\tau=1$, the end of the
+action horizon, which places it strictly after every observation token and
+marks it as a future target. The mixture weights bias attention to the goal keys: for a
+query $q$ and goal key $k_j$,
+\begin{equation}
+  \mathrm{logit}(q,k_j) = q^{\top}k_j/\sqrt{d} + \log(w_j/w_{\max}),
+\end{equation}
+with no bias on patch or gripper keys. Normalising by the largest retained
+weight $w_{\max}$ is necessary because this softmax also spans the scene
+tokens: a raw $\log w_j$ bias would suppress all goal keys exactly when
+$\pi_{hi}$ is uncertain. As in $\pi_{aux}$, only patch tokens leave the trunk,
+so this route informs the DiT purely by letting visual tokens relate
+themselves, at true metric offset, to where the robot is being sent.
+
+\paragraph{\textbf{Weighted Cross-Attention to Goals.}}
+Independently, a second MLP encodes the same $J$ candidates into goal tokens
+$\{c_j\}$ for the DiT. In every cross-attention block, before the visual
+cross-attention, the state and action tokens attend to them with the mixture
+weights as a log-prior,
+\begin{equation}
+  \mathrm{logit}_{ij} = q_i^{\top}k_j/\sqrt{d} + \log w_j,
+\end{equation}
+i.e.\ un-normalised scores scaled by $w_j$: likely candidates attract
+attention by default while content can re-rank among
+them\footnote{Weights are clamped at $10^{-8}$ before the logarithm, masking
+zero-weight slots.}. The output joins the residual stream and the block
+proceeds as before. Since this softmax spans goal keys only, no $w_{\max}$
+normalisation is needed.
+
+\paragraph{\textbf{Training.}}
+$\pi_{lo}$ is trained on $\mathcal{D}_{\text{robot}}$ with the flow-matching objective $\mathcal{L}_{\text{FM}}$ of Sec.~\ref{sec:pi_aux} alone; there is no auxiliary loss. The goal mixture fed to $\pi_{lo}$ during training is the one predicted by $\pi_{hi}$ on the demonstration frames, so that $\pi_{lo}$ learns to consume the distribution it will see at deployment, including its errors and ambiguity. To also expose it to clean goals, with probability $p_{gt}$ per sample we replace the predicted mixture by a sparse ground-truth mixture: a single mode holding the demonstration goal $g(t)$ with weight $1$, or, within $\pm r$ frames of a sub-task boundary, two modes holding the current and the adjacent goal with triangular weights $w_{\text{adj}}=p_{\max}\big(1-\tfrac{\delta}{r+1}\big)$, $w_{\text{cur}}=1-w_{\text{adj}}$, where $\delta$ is the distance to the boundary. All remaining candidate slots receive zero weight. We use $p_{gt}=0.5$, $r=5$, $p_{\max}=0.5$; validation always uses the predicted mixture. We train $\pi_{hi}$ and $\pi_{lo}$ independently. Hyperparameters not listed in Table~\ref{app:lo_hparams} are as for $\pi_{aux}$.
+
+\paragraph{\textbf{Inference.}}
+$\pi_{hi}$ predicts the mixture once per observation; the top-$J$ candidates,
+grounded tokens and goal encodings are likewise computed once, and the DiT
+integrates $S$ Euler steps to generate $a_{t:t+H}$, of which the first $H_{\text{exec}}$ actions are executed.
+
+\section{EXPERIMENTS AND RESULTS}
+
+We evaluate our policies on tasks where the gripper open close signals do not carry the entire meaning, or in other words, the task partly or fully is non-prehensile. Through our experiments we try to try to answer the following questions: 
+\begin{itemize}
+    \item Q1: Does having explicit sub-goal reasoning help the policy reason about non-prehensile tasks? 
+    \item Q2: Is a simple hierarchical policy able to reason about non-prehensile tasks? 
+    \item Q3: Does a simple end-to-end policy using sub goals as auxiliary loss perform equivalent ot better than an hierarchical policy reasoning explicitly about the uncertainty in the task? 
+    \item Q4: Does the keypoint decomposition techniques have any significant influence on the performance of the policy? 
+\end{itemize}
+
+
+\subsection{Tasks and Evaluation Protocols}
+
+We evaluate on four simulation tasks and three real-world tasks.
+
+\textbf{Simulation Tasks.} The simulation tasks are Coffee Preparation D1, Hammer Cleanup D1 and Kitchen D1 from MimicGen~\cite{mimicgen}, each trained on 100 demonstrations, and Push-T~\cite{chi2023diffusionpolicy}, trained on 206 demonstrations. For every task, we save a checkpoint every 20 epochs and roll each one out for 150 episodes, organised as three blocks of 50 episodes with distinct base seeds. Each episode receives its own seed, which fixes the randomised initial configuration of the scene sampled by the environment on reset, so no two episodes share an initial state. An episode terminates on success or when a fixed per-task step limit is reached. For the MimicGen tasks, an episode is a success if the environment's task success check is satisfied, and we report the success rate over the 150 episodes. For Push-T, we report two metrics. The first is the maximum coverage, defined as the largest fraction of the target region covered by the T-shaped block at any point during the episode and averaged over episodes. The second is the success rate, where an episode is a success if its maximum coverage exceeds 0.95. In all cases we report the best checkpoint across all epochs. The episode budget, seeds, and step limit are identical for every method on a given task.
+
+\textbf{Real-World Tasks.} The real-world tasks are coffee-bean pouring, sweeping and pushing a block to a target position. Each policy is trained on 100 teleoperated demonstrations and evaluated on [THEYANESH COMPLETE] distinct initial scene configurations, in which the placement of every object in the environment is varied so that the configurations span the entire workspace. We report two metrics. Full task success counts a rollout as successful only if every subtask is completed. Partial task success measures how far a rollout progresses. For each rollout we record the number of consecutive subtasks completed from the start of the task, and report the average over rollouts. A rollout that completes every subtask up to and including the last is counted as a full success.
+
+\subsection{Data Collection and Keypoint Extraction}
+
+\textbf{Data Collection.} For the MimicGen tasks we use the demonstrations generated by MimicGen from its source demonstrations, and for Push-T we use the demonstrations released with Diffusion Policy. Each real-world demonstration is collected by teleoperating the robot through a complete execution of the task, and we record the multi-view RGB and depth images, the camera calibration, the proprioceptive state and the commanded actions at every step. The number of demonstrations per task is given in the previous subsection.
+
+\textbf{Sub-goal Extraction.} Every policy that uses sub-goals, whether as an auxiliary target or as a high-level prediction, needs the boundary frames at which one sub-goal ends and the next begins. In the tasks we study, the gripper does not open or close at these transitions, so the standard practice of placing boundaries at gripper events yields no boundaries at all. We therefore extract them from the end-effector trajectory itself. We compare several existing procedures, namely AWE~\cite{}, B-spline fitting~\cite{}, and fixed-interval segmentation as an uninformative control, alongside a procedure we propose, [METHOD NAME], which is described in Appendix~\ref{}. We also test a vision-language model, Qwen~\cite{}, which is given frames of the demonstration subsampled at a fixed stride and tiled into contact sheets annotated with their frame indices, together with a short description of the task, and asked to return the frames at which a discrete manipulation event, such as a grasp, a release, or contact with an object, completes. The prompt is task-agnostic apart from the task description and is given in full in Appendix~\ref{}. All procedures operate on the same demonstrations and differ only in where they place the boundaries, so the effect of the extraction procedure on $\pi_{aux}$ can be isolated. We report this comparison in Section~\ref{}.
+
+\subsection{Baselines}
+
+We compare $\pi_{aux}$ against three baselines, each chosen to answer one of the questions above. All baselines are trained on the same demonstrations and, wherever a sub-goal is used, on the same sub-goals $g(t)$.
+
+\subsubsection{No Auxiliary Loss (Q1)}
+This baseline is $\pi_{aux}$ with the auxiliary goal head and its loss removed, so the policy is trained with $\mathcal{L}_{\text{FM}}$ alone. Everything else is unchanged. The frozen DINOv2 patch tokens, their 3D anchors, the current-gripper tokens $e_t$, the RoPE trunk and the flow-matching DiT are identical, and so are the random seed, the data order, the batch size and the number of epochs. Because the goal head is the last module to be initialised, the two models start from identical weights on every shared parameter and see identical batches, so the auxiliary gradient is the only difference between them. Comparing against this baseline isolates the effect of the sub-goal supervision itself, which answers Q1.
+
+\subsubsection{Standard Hierarchical Policy (Q2)}
+This baseline follows the conventional hierarchical formulation of ArticuBot~\cite{articubot} and GHOST~\cite{ghost}, in which the high-level policy commits to a single next sub-goal and the low-level policy is conditioned on it. The high-level policy is the same point-cloud policy $\pi_{hi}$ described in Section~\ref{sec:pi_hi}, but only the sub-goal proposed by its highest-weight scene anchor is passed on, so the mixture collapses to a single gripper pose. That pose is flattened, encoded by an MLP into one goal token per observation step, and concatenated with the proprioceptive state tokens and the noised action tokens in the self-attention stream of the flow-matching DiT. The visual tokens come from the same frozen DINOv2 backbone, but without 3D anchors or the RoPE trunk, matching the design of prior hierarchical low-level policies. The low-level policy is trained on the ground-truth demonstration sub-goals $g(t)$ and receives the predicted sub-goal only at deployment. This baseline tests whether a hierarchical policy that commits to a single sub-goal can handle tasks whose sub-goal boundaries are ambiguous, which answers Q2.
+
+\subsubsection{Uncertainty-Aware Hierarchical Policy (Q3)}
+This is a stronger baseline that we formulate ourselves. Rather than collapsing the high-level output to a single sub-goal, it passes the entire distribution predicted by the high-level policy down the hierarchy, so that the low-level policy can reason over every plausible sub-goal at once. The high-level policy $\pi_{hi}$ is the point-cloud policy of Section~\ref{sec:pi_hi}. It predicts a per-anchor Gaussian mixture over the next sub-goal, in which every scene point proposes a gripper pose relative to itself and votes on its plausibility, and it is trained with transition-focused sampling and label swapping so that the mixture places mass on both the outgoing and the incoming sub-goal near a boundary instead of hedging between them. At an ambiguous transition the uncertainty therefore appears directly in the output as several modes of comparable weight.
+
+The low-level policy $\pi_{lo}$ shares its backbone with $\pi_{aux}$, namely the frozen DINOv2 patch tokens with their 3D anchors, the current-gripper tokens $e_t$, the RoPE trunk and the flow-matching DiT, but the auxiliary goal head is removed and the $J$ highest-weight candidates $\{(\hat{e}_j, w_j)\}$ from $\pi_{hi}$ enter as inputs through two routes. In the first route, each candidate is encoded into a token and appended to the RoPE trunk, anchored in 3D at the candidate's end-effector keypoint and in time at the end of the action horizon. Because the trunk's rotary embedding acts on continuous 3D coordinates, the visual tokens relate themselves to each candidate at its true metric offset, and the mixture weights enter as a bias of $\log(w_j / w_{\max})$ on the goal keys so that the scene tokens attend preferentially to likely candidates without all goal keys being suppressed when $\pi_{hi}$ is uncertain. In the second route, a separate encoding of the same candidates is consumed by weighted cross-attention inside the DiT. In every cross-attention block, before the visual cross-attention, the state and action tokens attend to the candidate tokens with the mixture weights added as a log-prior $\log w_j$ to the attention logits, so that likely candidates attract attention by default while the content of the tokens can still re-rank among them. During training, $\pi_{lo}$ consumes the mixtures predicted by $\pi_{hi}$ on the demonstration frames, so that it learns to act on the distribution it will see at deployment, and with probability $p_{gt}$ the predicted mixture is replaced by a sparse ground-truth mixture that places two modes on the current and adjacent sub-goal near a boundary. Full details are given in Section~\ref{sec:pi_hi}. Since $\pi_{lo}$ and $\pi_{aux}$ share the same backbone, the only difference between this baseline and our method is that the sub-goal enters as an input distribution rather than as an auxiliary training target. Comparing against this baseline asks whether a single end-to-end policy with auxiliary sub-goal supervision matches or exceeds a hierarchical policy that reasons explicitly about sub-goal uncertainty, which answers Q3.
+
+\subsection{Implementation Details}
+
+We train one policy per task for every method, with no language conditioning or task identifier. Complete hyperparameters for $\pi_{aux}$, $\pi_{hi}$ and $\pi_{lo}$, our hardware setup, and per-task data collection details are provided in Appendix~\ref{app:aux_hparams}, Appendix~\ref{app:hardware} and Appendix~\ref{app:data} respectively. All low-level policies, including the baselines, share the same settings. They observe the two most recent frames, predict a chunk of $H{=}16$ actions and execute the first $H_{\text{exec}}{=}8$ before replanning. Images are rendered at $256\times256$ pixels and randomly cropped to $224\times224$ during training, with a centre crop at test time. The visual backbone is a frozen DINOv2-base, the grounded trunk has two transformer blocks with 16 heads of dimension 64, and the flow-matching DiT has 12 blocks with a hidden size of 1024. Every policy is trained from scratch with AdamW at a learning rate of $10^{-4}$, a cosine schedule with 500 warm-up steps, a batch size of 128 and an exponential moving average of the weights, from the same random seed. Training runs for 100 epochs on the MimicGen tasks, which amounts to 51.5k gradient steps, and for 200 epochs on Push-T, which amounts to 37.2k gradient steps. The auxiliary loss weight is $c_1{=}0.1$, chosen so that the auxiliary gradient reaching the shared encoder is roughly a quarter of the flow-matching gradient at initialisation, and the uniform-weight term of the goal mixture loss uses $\lambda_u{=}0.1$. The no-auxiliary-loss baseline differs only in that the goal head is never constructed. For the hierarchical baselines, $\pi_{lo}$ retains the $J{=}6$ highest-weight candidates from $\pi_{hi}$, and $\pi_{hi}$ is trained [HIGH-LEVEL TRAINING DETAILS]. At inference, the flow-matching DiT integrates $S{=}10$ Euler steps. The hierarchical policies execute $\pi_{hi}$ and $\pi_{lo}$ synchronously, so that $\pi_{hi}$ is queried once per observation and the low-level policy fully executes its $H_{\text{exec}}$ actions before the next high-level inference, allowing replanning in response to changes in the scene. Each training run uses a single H100 GPU.
+
+\subsection{Results}
+
+
+
+
+
+\clearpage
+
+
+\section{CONCLUSIONS}
+
+A conclusion section is not required. Although a conclusion may review the main points of the paper, do not replicate the abstract as the conclusion. A conclusion might elaborate on the importance of the work or suggest applications and extensions. 
+
+\addtolength{\textheight}{-12cm}   % This command serves to balance the column lengths
+                                  % on the last page of the document manually. It shortens
+                                  % the textheight of the last page by a suitable amount.
+                                  % This command does not take effect until the next page
+                                  % so it should come on the page before the last. Make
+                                  % sure that you do not shorten the textheight too much.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{APPENDIX}
+
+Appendixes should appear before the acknowledgment.
+
+\section*{ACKNOWLEDGMENT}
+
+The preferred spelling of the word ÒacknowledgmentÓ in America is without an ÒeÓ after the ÒgÓ. Avoid the stilted expression, ÒOne of us (R. B. G.) thanks . . .Ó  Instead, try ÒR. B. G. thanksÓ. Put sponsor acknowledgments in the unnumbered footnote on the first page.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+References are important to the reader; therefore, each citation must be complete and correct. If at all possible, references should be commonly available publications.
+
+
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+
+
+
+\end{document}

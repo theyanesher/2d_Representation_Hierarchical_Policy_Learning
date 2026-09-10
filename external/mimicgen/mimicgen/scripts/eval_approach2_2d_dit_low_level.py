@@ -328,13 +328,16 @@ def _write_mp4(path, frames, fps):
 # -----------------------------------------------------------------------------
 # rollout
 # -----------------------------------------------------------------------------
-def run_episode(env, ll_model, controller, n_obs_steps, n_action_steps, max_steps, device):
+def run_episode(env, ll_model, controller, n_obs_steps, n_action_steps, max_steps, device,
+                cmd_scale_pos=1.0, cmd_scale_rot=1.0):
     import torch
     from eval_smith_utils import policy_action_batch_to_env_action
 
     obs = _maybe_unwrap(env.reset())
-    max_dpos = float(controller.output_max[0])
-    max_drot = float(controller.output_max[3])
+    # cmd = clip(K * delta / max_d) == clip(delta / (max_d / K)); K = 1 is unchanged.
+    # K != 1 is for policies trained on the resimulated rate arms (achieved-delta labels).
+    max_dpos = float(controller.output_max[0]) / cmd_scale_pos
+    max_drot = float(controller.output_max[3]) / cmd_scale_rot
 
     obs_hist = collections.deque([obs], maxlen=n_obs_steps)
     total_reward, success, step = 0.0, False, 0
@@ -396,7 +399,15 @@ def main():
     parser.add_argument("--output_dir",     type=str, default=None)
     parser.add_argument("--save_videos", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--video_fps",      type=int, default=10)
+    parser.add_argument("--cmd_scale_pos",  type=float, default=1.0,
+        help="Scale the predicted position delta before it becomes an OSC command (default 1). "
+             "For policies trained on the resimulated rate-ablation arms; see "
+             "DIFFERENT_FREQUENCY_DATA_GEN_SCRIPT/measure_cmd_scale.py.")
+    parser.add_argument("--cmd_scale_rot",  type=float, default=1.0,
+        help="Same as --cmd_scale_pos for the rotation delta.")
     args = parser.parse_args()
+    if args.cmd_scale_pos <= 0 or args.cmd_scale_rot <= 0:
+        parser.error("--cmd_scale_pos / --cmd_scale_rot must be positive")
 
     if args.output_dir is None:
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -454,6 +465,7 @@ def main():
             r, succ, frames = run_episode(
                 env, ll_model, controller,
                 args.n_obs_steps, args.n_action_steps, args.max_steps, device=device,
+                cmd_scale_pos=args.cmd_scale_pos, cmd_scale_rot=args.cmd_scale_rot,
             )
 
             video_path = None

@@ -1,0 +1,208 @@
+% references.bib
+% Covers all cite keys used in \subsection{Learning for Non-Prehensile Tasks}
+% Keys match the LaTeX exactly, no edits needed there.
+
+% ---------- Classical mechanics and model-based planning ----------
+
+@article{mason1986pushing,
+  author  = {Mason, Matthew T.},
+  title   = {Mechanics and Planning of Manipulator Pushing Operations},
+  journal = {The International Journal of Robotics Research},
+  volume  = {5},
+  number  = {3},
+  pages   = {53--71},
+  year    = {1986}
+}
+
+@article{goyal1991limitsurface,
+  author  = {Goyal, Suresh and Ruina, Andy and Papadopoulos, Jim},
+  title   = {Planar Sliding with Dry Friction. {Part} 1. {Limit} Surface and Moment Function},
+  journal = {Wear},
+  volume  = {143},
+  number  = {2},
+  pages   = {307--330},
+  year    = {1991}
+}
+
+@article{lynch1996stable,
+  author  = {Lynch, Kevin M. and Mason, Matthew T.},
+  title   = {Stable Pushing: Mechanics, Controllability, and Planning},
+  journal = {The International Journal of Robotics Research},
+  volume  = {15},
+  number  = {6},
+  pages   = {533--556},
+  year    = {1996}
+}
+
+@article{lynch1999dynamic,
+  author  = {Lynch, Kevin M. and Mason, Matthew T.},
+  title   = {Dynamic Nonprehensile Manipulation: Controllability, Planning, and Experiments},
+  journal = {The International Journal of Robotics Research},
+  volume  = {18},
+  number  = {1},
+  pages   = {64--92},
+  year    = {1999}
+}
+
+@article{hogan2020reactive,
+  author  = {Hogan, Fran{\c{c}}ois R. and Rodriguez, Alberto},
+  title   = {Reactive Planar Non-Prehensile Manipulation with Hybrid Model Predictive Control},
+  journal = {The International Journal of Robotics Research},
+  volume  = {39},
+  number  = {7},
+  pages   = {755--773},
+  year    = {2020}
+}
+
+@inproceedings{moura2022nonprehensile,
+  author    = {Moura, Jo{\~a}o and Stouraitis, Theodoros and Vijayakumar, Sethu},
+  title     = {Non-Prehensile Planar Manipulation via Trajectory Optimization with Complementarity Constraints},
+  booktitle = {Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)},
+  pages     = {970--976},
+  year      = {2022}
+}
+
+@inproceedings{cheng2022contactmode,
+  author    = {Cheng, Xianyi and Huang, Eric and Hou, Yifan and Mason, Matthew T.},
+  title     = {Contact Mode Guided Motion Planning for Quasidynamic Dexterous Manipulation in {3D}},
+  booktitle = {Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)},
+  pages     = {2730--2736},
+  year      = {2022}
+}
+
+@article{pang2023global,
+  author  = {Pang, Tao and Suh, H. J. Terry and Yang, Lujie and Tedrake, Russ},
+  title   = {Global Planning for Contact-Rich Manipulation via Local Smoothing of Quasi-Dynamic Contact Models},
+  journal = {IEEE Transactions on Robotics},
+  volume  = {39},
+  number  = {6},
+  pages   = {4691--4711},
+  year    = {2023}
+}
+
+@article{suh2025contacttrustregion,
+  author  = {Suh, H. J. Terry and Pang, Tao and Zhao, Tong and Tedrake, Russ},
+  title   = {Dexterous Contact-Rich Manipulation via the Contact Trust Region},
+  journal = {arXiv preprint arXiv:2505.02291},
+  year    = {2025}
+}
+
+% ---------- RL with sim-to-real ----------
+
+@inproceedings{zhou2023hacman,
+  author    = {Zhou, Wenxuan and Jiang, Bowen and Yang, Fan and Paxton, Chris and Held, David},
+  title     = {{HACMan}: Learning Hybrid Actor-Critic Maps for {6D} Non-Prehensile Manipulation},
+  booktitle = {Proceedings of the Conference on Robot Learning (CoRL)},
+  year      = {2023}
+}
+
+@inproceedings{jiang2024hacmanpp,
+  author    = {Jiang, Bowen and Wu, Yilin and Zhou, Wenxuan and Paxton, Chris and Held, David},
+  title     = {{HACMan++}: Spatially-Grounded Motion Primitives for Manipulation},
+  booktitle = {Proceedings of Robotics: Science and Systems (RSS)},
+  year      = {2024}
+}
+
+@inproceedings{zhou2022ungraspable,
+  author    = {Zhou, Wenxuan and Held, David},
+  title     = {Learning to Grasp the Ungraspable with Emergent Extrinsic Dexterity},
+  booktitle = {Proceedings of the Conference on Robot Learning (CoRL)},
+  year      = {2022}
+}
+
+@inproceedings{cho2024corn,
+  author    = {Cho, Yoonyoung and Han, Junhyek and Cho, Yoontae and Kim, Beomjoon},
+  title     = {{CORN}: Contact-Based Object Representation for Non-Prehensile Manipulation of General Unseen Objects},
+  booktitle = {Proceedings of the International Conference on Learning Representations (ICLR)},
+  year      = {2024}
+}
+
+% TODO: verify author list against the arXiv page before submission.
+@article{kim2025general,
+  author  = {{[verify authors]}},
+  title   = {Hierarchical and Modular Network on Non-Prehensile Manipulation in General Environments},
+  journal = {arXiv preprint arXiv:2502.20843},
+  year    = {2025}
+}
+
+@inproceedings{jung2025spin,
+  author    = {Jung, Haewon and Lee, Donguk and Park, Haecheol and Kim, JunHyeop and Kim, Beomjoon},
+  title     = {{SPIN}: Distilling {Skill-RRT} for Long-Horizon Prehensile and Non-Prehensile Manipulation},
+  booktitle = {Proceedings of the Conference on Robot Learning (CoRL)},
+  year      = {2025}
+}
+
+% ---------- Dynamics and world models ----------
+
+@inproceedings{agrawal2016poking,
+  author    = {Agrawal, Pulkit and Nair, Ashvin and Abbeel, Pieter and Malik, Jitendra and Levine, Sergey},
+  title     = {Learning to Poke by Poking: Experiential Learning of Intuitive Physics},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2016}
+}
+
+@inproceedings{finn2017foresight,
+  author    = {Finn, Chelsea and Levine, Sergey},
+  title     = {Deep Visual Foresight for Planning Robot Motion},
+  booktitle = {Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)},
+  pages     = {2786--2793},
+  year      = {2017}
+}
+
+@inproceedings{pinwm2025,
+  author    = {Li, Wenxuan and Zhao, Hang and Yu, Zhiyuan and Du, Yu and Zou, Qin and Hu, Ruizhen and Xu, Kai},
+  title     = {{PIN-WM}: Learning Physics-INformed World Models for Non-Prehensile Manipulation},
+  booktitle = {Proceedings of Robotics: Science and Systems (RSS)},
+  year      = {2025}
+}
+
+@inproceedings{lyu2025dywa,
+  author    = {Lyu, Jiangran and Li, Ziming and Shi, Xuesong and Xu, Chaoyi and Wang, Yizhou and Wang, He},
+  title     = {{DyWA}: Dynamics-Adaptive World Action Model for Generalizable Non-Prehensile Manipulation},
+  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  year      = {2025}
+}
+
+% ---------- Demonstration-based and generalist policies ----------
+
+@inproceedings{florence2021ibc,
+  author    = {Florence, Pete and Lynch, Corey and Zeng, Andy and Ramirez, Oscar A. and Wahid, Ayzaan and Downs, Laura and Wong, Adrian and Lee, Johnny and Mordatch, Igor and Tompson, Jonathan},
+  title     = {Implicit Behavioral Cloning},
+  booktitle = {Proceedings of the Conference on Robot Learning (CoRL)},
+  year      = {2021}
+}
+
+@inproceedings{chi2023diffusionpolicy,
+  author    = {Chi, Cheng and Feng, Siyuan and Du, Yilun and Xu, Zhenjia and Cousineau, Eric and Burchfiel, Benjamin and Song, Shuran},
+  title     = {Diffusion Policy: Visuomotor Policy Learning via Action Diffusion},
+  booktitle = {Proceedings of Robotics: Science and Systems (RSS)},
+  year      = {2023}
+}
+
+@inproceedings{mimicgen,
+  author    = {Mandlekar, Ajay and Nasiriany, Soroush and Wen, Bowen and Akinola, Iretiayo and Narang, Yashraj and Fan, Linxi and Zhu, Yuke and Fox, Dieter},
+  title     = {{MimicGen}: A Data Generation System for Scalable Robot Learning using Human Demonstrations},
+  booktitle = {Proceedings of the Conference on Robot Learning (CoRL)},
+  year      = {2023}
+}
+
+@article{binomap2025,
+  author  = {Zhou, Huayi and Jia, Kui},
+  title   = {{BiNoMaP}: Learning Category-Level Bimanual Non-Prehensile Manipulation Primitives},
+  journal = {arXiv preprint arXiv:2509.21256},
+  year    = {2025}
+}
+
+@article{black2024pi0,
+  author  = {Black, Kevin and Brown, Noah and Driess, Danny and Esmail, Adnan and Equi, Michael and Finn, Chelsea and Fusai, Niccolo and Groom, Lachy and Hausman, Karol and Ichter, Brian and others},
+  title   = {$\pi_0$: A Vision-Language-Action Flow Model for General Robot Control},
+  journal = {arXiv preprint arXiv:2410.24164},
+  year    = {2024}
+}
+
+@article{pi05,
+  author  = {{Physical Intelligence} and Black, Kevin and Brown, Noah and Darpinian, James and Dhabalia, Karan and Driess, Danny and Esmail, Adnan and Equi, Michael and Finn, Chelsea and Fusai, Niccolo and others},
+  title   = {$\pi_{0.5}$: A Vision-Language-Action Model with Open-World Generalization},
+  journal = {arXiv preprint arXiv:2504.16054},
+  year    = {2025}
+}
